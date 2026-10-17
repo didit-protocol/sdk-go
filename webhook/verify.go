@@ -54,11 +54,11 @@ const (
 //
 // Anyone can send a request to a webhook endpoint, so the checks before a
 // signature matches cost time and memory in proportion to the body's size.
-// The canonical JSON is built only for a well-formed X-Signature-V2 value,
-// and only up to twice the length the body has with every number in short
-// form: beyond that, integral numbers far outside the int64 range (1e308
-// expands to 309 digits) make up most of it, which no delivery from Didit
-// contains, so no signature over it can match.
+// The canonical JSON is built only for a well-formed X-Signature-V2 value.
+// Integral numbers written as floats far outside the int64 range expand in
+// it (1e308 has 309 digits) by at most 64 KiB in total; Didit sends such
+// numbers as integers, so a body that needs more is not a delivery from
+// Didit, and its X-Signature-V2 does not match.
 func Verify(payload []byte, header http.Header, secret string, opts ...Option) (Event, error) {
 	cfg, err := newConfig(secret, opts)
 	if err != nil {
@@ -126,13 +126,17 @@ func VerifyParsed(payload any, header http.Header, secret string, opts ...Option
 	canonical := c.bytes()
 	if canonical == nil {
 		// Only a simple signature, which leaves the body unsigned, gets here.
-		return nil, invalidPayload("integral numbers beyond the int64 range make the canonical JSON too long")
+		return nil, invalidPayload("integral numbers far outside the int64 range make the canonical JSON too long")
 	}
 	return newEvent(body, canonical, authenticated, c.limit), nil
 }
 
+// maxCanonicalGrowth bounds how much longer the canonical JSON may be than
+// the length measureJSON gives (see Verify).
+const maxCanonicalGrowth = 64 << 10
+
 // canonicalBody is the canonical JSON of a webhook body, built when a
-// signature needs it, and at most limit bytes long (see Verify).
+// signature needs it, and at most limit bytes long.
 type canonicalBody struct {
 	body  map[string]any
 	limit int
@@ -147,7 +151,7 @@ func newCanonicalBody(body map[string]any) (*canonicalBody, error) {
 	if err != nil {
 		return nil, invalidPayload(err.Error())
 	}
-	return &canonicalBody{body: body, limit: 2 * n}, nil
+	return &canonicalBody{body: body, limit: n + maxCanonicalGrowth}, nil
 }
 
 // bytes returns the canonical JSON, or nil when it is longer than the limit.
