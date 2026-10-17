@@ -313,7 +313,7 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 		return resp, false, nil
 	}
 	data, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	cancel()
 	if err != nil {
 		// The server answered, so the request reached it.
