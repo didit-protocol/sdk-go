@@ -292,14 +292,7 @@ func methodDoc(m *Method) string {
 		parts = append(parts, "The organization and application ids come from the client options.")
 	}
 	if dep := m.Op.Deprecated; dep != nil {
-		msg := "Deprecated: this operation was removed from the API"
-		if dep.Reason != "" {
-			msg = "Deprecated: " + dep.Reason
-		}
-		if dep.ReplacedBy != "" {
-			msg += " Use " + dep.ReplacedBy + " instead."
-		}
-		parts = append(parts, msg)
+		parts = append(parts, dep.Notice())
 	}
 	return strings.Join(parts, "\n\n")
 }

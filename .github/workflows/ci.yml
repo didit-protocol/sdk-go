@@ -95,6 +95,8 @@ jobs:
       - name: go test -race
         run: go test -race ./...
       - name: Examples build
+        # The framework examples need a newer Go than the SDK's minimum.
+        if: matrix.go == '1.27.x'
         working-directory: examples
         run: go vet ./...
 

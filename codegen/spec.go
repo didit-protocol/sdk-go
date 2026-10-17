@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/didit-protocol/sdk-go/internal/naming"
 )
 
 // Doc is one OpenAPI document of openapi/.
@@ -37,13 +39,56 @@ type Operation struct {
 	Deprecated *DeprecatedEntry
 }
 
-// DeprecatedEntry records an operation removed upstream that the SDK keeps
-// for one minor version (docs/DESIGN.md section 3.1).
+// DeprecatedEntry is one method of openapi/deprecated-operations.json: a
+// server method whose operation upstream removed or renamed, which the SDK
+// keeps, marked deprecated, until RemoveIn (docs/DESIGN.md section 3.1).
+// The spec sync (codegen/sync.go) writes the entries.
 type DeprecatedEntry struct {
-	Key             string
+	// Method is the key of the entry, "resource.method".
+	Method string
+	// OperationKey is the overlay key of the operation when it was recorded.
+	OperationKey string
+	// Reason is "removed" or "renamed".
+	Reason string
+	// Replacement is the resource.method that replaces a renamed method.
+	Replacement string
+	// Since is the date of the sync that recorded the entry.
+	Since string
+	// DeprecatedSince is the SDK version of that date; RemoveIn is the
+	// version that deletes the method.
 	DeprecatedSince string
-	Reason          string
-	ReplacedBy      string
+	RemoveIn        string
+	// Note explains the entry in words (the doc comment uses Notice).
+	Note string
+}
+
+// Notice returns the "Deprecated:" paragraph of the kept method's doc
+// comment; a rename links the method that replaces it.
+func (e *DeprecatedEntry) Notice() string {
+	when := ""
+	if e.Since != "" {
+		when = " on " + e.Since
+	}
+	var b strings.Builder
+	if e.Reason == "renamed" && e.Replacement != "" {
+		fmt.Fprintf(&b, "Deprecated: Use %s instead; the API renamed this operation%s.", deprecatedMethodLink(e.Replacement), when)
+	} else {
+		fmt.Fprintf(&b, "Deprecated: The operation was removed from the API%s.", when)
+	}
+	if e.RemoveIn != "" {
+		fmt.Fprintf(&b, " This method is removed in version %s.", e.RemoveIn)
+	}
+	return b.String()
+}
+
+// deprecatedMethodLink returns the doc link of a method given as
+// resource.method ("billing.get_balance" -> "[BillingService.GetBalance]").
+func deprecatedMethodLink(name string) string {
+	i := strings.LastIndex(name, ".")
+	if i <= 0 {
+		return name
+	}
+	return "[" + naming.Resource(name[:i]) + "Service." + naming.Pascal(name[i+1:]) + "]"
 }
 
 // Spec is everything the generator reads.
@@ -238,9 +283,12 @@ func (op *Operation) Parameters() []*Node {
 	return out
 }
 
-// loadDeprecated adds the operations of openapi/deprecated-operations.json
-// that upstream removed. Each entry carries the operation as it was and the
-// component schemas it used, so its types keep their names.
+// loadDeprecated adds the methods of openapi/deprecated-operations.json
+// (written by the spec sync): operations that upstream removed, and the old
+// names of renamed ones. Each entry carries the operation as it was, with
+// its $refs, and the components it reaches; components the documents no
+// longer have are added back, so the method and its types are generated
+// with the same Go names as before.
 func (s *Spec) loadDeprecated(dir string) error {
 	data, err := os.ReadFile(filepath.Join(dir, "openapi", "deprecated-operations.json"))
 	if os.IsNotExist(err) {
@@ -251,64 +299,169 @@ func (s *Spec) loadDeprecated(dir string) error {
 	}
 	root, err := ParseNode(data)
 	if err != nil {
-		return fmt.Errorf("deprecated-operations.json: %w", err)
+		return fmt.Errorf("openapi/deprecated-operations.json: %w", err)
 	}
-	existing := map[string]*Operation{}
+	methods := root.Get("methods")
+	if methods == nil {
+		return nil
+	}
+	if methods.Kind != Object {
+		return fmt.Errorf("openapi/deprecated-operations.json: methods is not an object")
+	}
+	live := map[string]string{}
 	for _, op := range s.Ops {
-		existing[op.Key] = op
+		if op.Naming.Server {
+			live[op.Naming.Resource+"."+op.Naming.Method] = op.Key
+		}
 	}
-	for _, e := range root.Get("operations").Elems() {
-		key := e.Get("key").Text()
-		entry := &DeprecatedEntry{
-			Key:             key,
-			DeprecatedSince: e.Get("deprecated_since").Text(),
-			Reason:          e.Get("reason").Text(),
-			ReplacedBy:      e.Get("replaced_by").Text(),
+	var problems []string
+	for _, name := range methods.Keys {
+		op, err := s.deprecatedOperation(name, methods.Get(name), live)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("openapi/deprecated-operations.json %s: %v", name, err))
+			continue
 		}
-		if op, ok := existing[key]; ok {
-			// Still upstream (for example a rename kept as an alias): only mark it.
-			if e.Get("alias") == nil {
-				op.Deprecated = entry
-				continue
-			}
+		s.Ops = append(s.Ops, op)
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("deprecated methods:\n  %s", strings.Join(problems, "\n  "))
+	}
+	return nil
+}
+
+// deprecatedOperation builds the operation of one deprecated method.
+func (s *Spec) deprecatedOperation(name string, e *Node, live map[string]string) (*Operation, error) {
+	if e == nil || e.Kind != Object {
+		return nil, fmt.Errorf("not an object")
+	}
+	nm, ok, err := namingOf(e.Get("x-didit-sdk"))
+	if !ok {
+		if err == nil {
+			err = fmt.Errorf("missing")
 		}
-		doc := s.Verification
-		if strings.HasPrefix(key, "account ") {
-			doc = s.Account
+		return nil, fmt.Errorf("x-didit-sdk: %v", err)
+	}
+	if id := nm.Resource + "." + nm.Method; id != name {
+		return nil, fmt.Errorf("the entry name must equal its x-didit-sdk resource.method (%s)", id)
+	}
+	if !nm.Server {
+		return nil, fmt.Errorf("x-didit-sdk server is not true: only server methods are kept")
+	}
+	if provider, ok := live[name]; ok {
+		return nil, fmt.Errorf("%s provides %s again, so it is no longer deprecated; delete this entry from openapi/deprecated-operations.json", provider, name)
+	}
+	entry := &DeprecatedEntry{
+		Method:          name,
+		Reason:          e.Get("reason").Text(),
+		Replacement:     e.Get("replacement").Text(),
+		Since:           e.Get("since").Text(),
+		DeprecatedSince: e.Get("deprecated_since").Text(),
+		RemoveIn:        e.Get("remove_in").Text(),
+		Note:            e.Get("note").Text(),
+	}
+	switch entry.Reason {
+	case "removed":
+	case "renamed":
+		if entry.Replacement == "" {
+			return nil, fmt.Errorf("reason renamed needs a replacement")
 		}
-		method, path, ok := strings.Cut(strings.TrimPrefix(key, "account "), " ")
+	default:
+		return nil, fmt.Errorf("reason %q is not removed or renamed", entry.Reason)
+	}
+	api, method, path, err := deprecatedTarget(e)
+	if err != nil {
+		return nil, err
+	}
+	doc := s.Verification
+	entry.OperationKey = method + " " + path
+	if api == "account" {
+		doc = s.Account
+		entry.OperationKey = "account " + entry.OperationKey
+	}
+	opNode := e.Get("operation")
+	if opNode == nil || opNode.Kind != Object {
+		return nil, fmt.Errorf("operation is not an object")
+	}
+	if comps := e.Get("components"); comps != nil {
+		if err := addMissingComponents(doc, comps); err != nil {
+			return nil, err
+		}
+	}
+	item := &Node{Kind: Object}
+	item.Set(strings.ToLower(method), opNode)
+	return &Operation{
+		Doc: doc, Key: entry.OperationKey + " (deprecated)", HTTPMethod: method, Path: path,
+		Node: opNode, PathItem: item, Naming: nm, Deprecated: entry,
+	}, nil
+}
+
+// deprecatedTarget returns the document ("verification" or "account"), HTTP
+// method and path of an entry, from api, http_method and path, or from
+// operation_key ("[account ]METHOD /path"); when both are given they must
+// agree.
+func deprecatedTarget(e *Node) (api, method, path string, err error) {
+	api, method, path = e.Get("api").Text(), strings.ToUpper(e.Get("http_method").Text()), e.Get("path").Text()
+	if key := e.Get("operation_key").Text(); key != "" {
+		kAPI, rest := "verification", key
+		if r, ok := strings.CutPrefix(key, "account "); ok {
+			kAPI, rest = "account", r
+		}
+		kMethod, kPath, ok := strings.Cut(rest, " ")
 		if !ok {
-			return fmt.Errorf("deprecated-operations.json: bad key %q", key)
+			return "", "", "", fmt.Errorf("operation_key %q is not \"[account ]METHOD /path\"", key)
 		}
-		naming, ok, err := namingOf(e.Get("naming"))
-		if err != nil || !ok {
-			return fmt.Errorf("deprecated-operations.json: %s: naming: %v", key, err)
-		}
-		if alias := e.Get("alias"); alias != nil {
-			naming.Method = alias.Text()
-		}
-		schemas := doc.Root.Path("components", "schemas")
-		if comps := e.Get("components"); comps != nil {
-			if schemas == nil {
-				schemas = &Node{Kind: Object}
-				if doc.Root.Get("components") == nil {
-					doc.Root.Set("components", &Node{Kind: Object})
-				}
-				doc.Root.Get("components").Set("schemas", schemas)
-			}
-			for _, name := range comps.Keys {
-				if !schemas.Has(name) {
-					schemas.Set(name, comps.Get(name))
-				}
+		for _, f := range []struct{ field, fromKey *string }{{&api, &kAPI}, {&method, &kMethod}, {&path, &kPath}} {
+			switch {
+			case *f.field == "":
+				*f.field = *f.fromKey
+			case *f.field != *f.fromKey:
+				return "", "", "", fmt.Errorf("operation_key %q does not match api %q, http_method %q and path %q", key, api, method, path)
 			}
 		}
-		opNode := e.Get("operation")
-		item := &Node{Kind: Object}
-		item.Set(strings.ToLower(method), opNode)
-		s.Ops = append(s.Ops, &Operation{
-			Doc: doc, Key: key + " (deprecated)", HTTPMethod: method, Path: path,
-			Node: opNode, PathItem: item, Naming: naming, Deprecated: entry,
-		})
+	}
+	if api != "verification" && api != "account" {
+		return "", "", "", fmt.Errorf("api %q is not verification or account", api)
+	}
+	known := false
+	for _, m := range httpMethods {
+		known = known || strings.ToLower(method) == m
+	}
+	if !known || !strings.HasPrefix(path, "/") {
+		return "", "", "", fmt.Errorf("%q %q is not an HTTP method and a path", method, path)
+	}
+	return api, method, path, nil
+}
+
+// addMissingComponents adds to doc the components it does not have
+// (components removed upstream with the operation). A component the
+// document still has is used as it is now: Go has one type per name.
+func addMissingComponents(doc *Doc, comps *Node) error {
+	if comps.Kind != Object {
+		return fmt.Errorf("components is not an object")
+	}
+	for _, section := range comps.Keys {
+		entries := comps.Get(section)
+		if entries.Kind != Object {
+			return fmt.Errorf("components.%s is not an object", section)
+		}
+		have := doc.Root.Get("components")
+		if have == nil {
+			have = &Node{Kind: Object}
+			doc.Root.Set("components", have)
+		}
+		target := have.Get(section)
+		if target == nil {
+			target = &Node{Kind: Object}
+			have.Set(section, target)
+		}
+		if have.Kind != Object || target.Kind != Object {
+			return fmt.Errorf("%s: components.%s is not an object", doc.Name, section)
+		}
+		for _, name := range entries.Keys {
+			if !target.Has(name) {
+				target.Set(name, entries.Get(name))
+			}
+		}
 	}
 	return nil
 }
