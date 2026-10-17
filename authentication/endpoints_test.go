@@ -694,6 +694,31 @@ func TestRedirects(t *testing.T) {
 		}
 	})
 
+	t.Run("an error after a same-origin redirect carries no token", func(t *testing.T) {
+		stub := newStub(t)
+		stub.handle("/session", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/session/", http.StatusTemporaryRedirect)
+		})
+		stub.handle("/session/", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"detail": "revoked"})
+		})
+		c := newTestClient(t, stub, newClock())
+		r := request{method: http.MethodGet, url: testIssuer + "/session", bearer: testAccessToken}
+		_, err := c.send(ctx, r)
+		var authErr *didit.AuthenticationError
+		if !errors.As(err, &authErr) {
+			t.Fatalf("error = %v (%T)", err, err)
+		}
+		req := authErr.Response.Request
+		if got := req.Header.Get("Authorization"); got != "Bearer [redacted]" {
+			t.Fatalf("error request Authorization = %q", got)
+		}
+		// The redirect response would lead back to the original request.
+		if req.Response != nil {
+			t.Fatal("the error's request keeps the redirect response")
+		}
+	})
+
 	t.Run("redirect loops stop", func(t *testing.T) {
 		stub := newStub(t)
 		stub.handle("/session/", func(w http.ResponseWriter, r *http.Request) {

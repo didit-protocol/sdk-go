@@ -159,12 +159,12 @@ func newSyncFixture(t *testing.T) *syncFixture {
 	f.writeNode("account.json", mustNode(t, fixtureAccount))
 	f.writeNode("overlay.json", mustNode(t, fixtureOverlay))
 	f.writeNode("SOURCE.json", mustNode(t, fixtureSource))
-	// The repository's own (empty) file, so the fixture starts like the SDK.
-	data, err := os.ReadFile(filepath.Join("..", "openapi", "deprecated-operations.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.write("deprecated-operations.json", data)
+	// An empty file of its own, like the one the SDK was seeded with. Not the
+	// repository's: the first sync that deprecates a method fills that one.
+	deprecated := syncObject()
+	deprecated.Set("description", syncString(syncDeprecatedDescription))
+	deprecated.Set("methods", syncObject())
+	f.write("deprecated-operations.json", []byte(syncEncode(deprecated, syncFileStyle)+"\n"))
 	return f
 }
 
@@ -993,21 +993,7 @@ func TestSyncJSONLayout(t *testing.T) {
 	// The seeded files round-trip byte for byte (Python's
 	// json.dumps(indent=1, ensure_ascii=False) layout).
 	for _, name := range []string{"overlay.json", "SOURCE.json", "deprecated-operations.json"} {
-		data, err := os.ReadFile(filepath.Join("..", "openapi", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		n, err := ParseNode(data)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := syncEncode(n, syncFileStyle)
-		if name == "deprecated-operations.json" {
-			got += "\n"
-		}
-		if got != string(data) {
-			t.Errorf("%s does not round-trip", name)
-		}
+		expectRoundTrip(t, filepath.Join("..", "openapi", name))
 	}
 	n := mustNode(t, `{"s": "é <a> & \u2028 \u0001 \"q\" \\ \n", "e": {}, "a": [], "n": [1, 2.50, true, null], "emoji": "😀"}`)
 	if got, want := syncEncode(n, syncFileStyle), "{\n \"s\": \"é <a> & \u2028 \\u0001 \\\"q\\\" \\\\ \\n\",\n \"e\": {},\n \"a\": [],\n \"n\": [\n  1,\n  2.50,\n  true,\n  null\n ],\n \"emoji\": \"😀\"\n}"; got != want {
@@ -1015,6 +1001,27 @@ func TestSyncJSONLayout(t *testing.T) {
 	}
 	if got, want := syncEncode(n, syncSortedInlineStyle), `{"a": [], "e": {}, "emoji": "\ud83d\ude00", "n": [1, 2.50, true, null], "s": "\u00e9 <a> & \u2028 \u0001 \"q\" \\ \n"}`; got != want {
 		t.Errorf("inline style:\n%s\nwant\n%s", got, want)
+	}
+}
+
+// expectRoundTrip checks that a file sync writes keeps its layout when it is
+// read and written again.
+func expectRoundTrip(t *testing.T, file string) {
+	t.Helper()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := ParseNode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := syncEncode(n, syncFileStyle)
+	if filepath.Base(file) == "deprecated-operations.json" {
+		got += "\n"
+	}
+	if got != string(data) {
+		t.Errorf("%s does not round-trip", file)
 	}
 }
 

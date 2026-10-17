@@ -331,16 +331,13 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 				return resp, false, &UnexpectedResponseError{
 					Message:  fmt.Sprintf("%s %s: the %d response is not valid JSON", r.method, redactURL(u), resp.StatusCode),
 					Cause:    err,
-					Response: resp,
+					Response: errorResponse(resp, redactKey(cfg, data)),
 				}
 			}
 		}
 		return resp, false, nil
 	}
-	if cfg.APIKey != "" && bytes.Contains(data, []byte(cfg.APIKey)) {
-		// Never let the API key reach an error message, even if echoed.
-		data = bytes.ReplaceAll(data, []byte(cfg.APIKey), []byte("[redacted]"))
-	}
+	data = redactKey(cfg, data)
 	statusErr := &APIStatusError{
 		StatusCode: resp.StatusCode,
 		Body:       parseErrorBody(data),
@@ -349,7 +346,7 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 		RequestID:  requestID,
 		Method:     r.method,
 		URL:        redactURL(u),
-		Response:   resp,
+		Response:   errorResponse(resp, data),
 	}
 	status := resp.StatusCode
 	retryable := status == http.StatusTooManyRequests
@@ -357,6 +354,32 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 		retryable = retryable || status == http.StatusRequestTimeout || (status >= 500 && status <= 599)
 	}
 	return resp, retryable, NewAPIStatusError(statusErr)
+}
+
+// redactKey replaces the API key in a response body that echoes it.
+func redactKey(cfg *requestconfig.Config, data []byte) []byte {
+	if cfg.APIKey == "" || !bytes.Contains(data, []byte(cfg.APIKey)) {
+		return data
+	}
+	return bytes.ReplaceAll(data, []byte(cfg.APIKey), []byte("[redacted]"))
+}
+
+// errorResponse copies resp for an error value. Errors get logged, and the
+// API key never appears in one (docs/DESIGN.md section 6): the copy's body
+// reads data, its request's X-Api-Key is redacted, and the response of a
+// redirect, which leads back to the original request, is dropped.
+func errorResponse(resp *http.Response, data []byte) *http.Response {
+	copied := *resp
+	copied.Body = io.NopCloser(bytes.NewReader(data))
+	if resp.Request != nil {
+		req := resp.Request.Clone(context.Background())
+		if req.Header.Get("X-Api-Key") != "" {
+			req.Header.Set("X-Api-Key", "[redacted]")
+		}
+		req.Response = nil
+		copied.Request = req
+	}
+	return &copied
 }
 
 // requestIDHeaders are the response headers that may carry the request id,
@@ -525,7 +548,9 @@ func canonicalHost(u *url.URL) string {
 type UnexpectedResponseError struct {
 	Message string
 	Cause   error
-	// Response is the HTTP response, when there is one. Its body has been read.
+	// Response is the HTTP response, when there is one. Its body reads the
+	// body as received (with an echoed API key redacted), and its request's
+	// X-Api-Key header is redacted.
 	Response *http.Response
 }
 

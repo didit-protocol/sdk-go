@@ -3,6 +3,7 @@ package didit_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -72,4 +73,47 @@ func TestStatusErrorKeepsResponse(t *testing.T) {
 	if !strings.Contains(c.Error(), "GET https://verification.test/v3/billing/balance/") {
 		t.Errorf("message = %s", c.Error())
 	}
+}
+
+func TestErrorsCarryNoAPIKey(t *testing.T) {
+	// Errors get logged, so none carries the API key (docs/DESIGN.md section
+	// 6): not in the message or the body, even when the server echoes it, nor
+	// in the request headers, nor in the request a redirect started from.
+	client, m := newMockClientWith(t, []response{
+		{status: 301, header: http.Header{"Location": {"https://verification.test/v3/billing/balance/"}}},
+		{status: 401, contentType: "application/json", body: `{"detail":"bad key ` + testAPIKey + `"}`},
+	})
+	_, err := client.Billing.RetrieveBalance(context.Background())
+	var se *didit.APIStatusError
+	if !errors.As(err, &se) || se.StatusCode != 401 {
+		t.Fatalf("err = %v", err)
+	}
+	expectNoKey := func(what string, resp *http.Response) {
+		t.Helper()
+		body, _ := io.ReadAll(resp.Body)
+		if strings.Contains(string(body), testAPIKey) || !strings.Contains(string(body), "[redacted]") {
+			t.Errorf("%s: body = %s", what, body)
+		}
+		if got := resp.Request.Header.Get("X-Api-Key"); got != "[redacted]" {
+			t.Errorf("%s: request X-Api-Key = %q", what, got)
+		}
+		if resp.Request.Response != nil {
+			t.Errorf("%s: the request keeps the redirect response", what)
+		}
+	}
+	if strings.Contains(err.Error(), testAPIKey) || strings.Contains(string(se.RawBody), testAPIKey) {
+		t.Errorf("message or RawBody holds the key: %v", err)
+	}
+	expectNoKey("APIStatusError", se.Response)
+	if reqs := m.all(); len(reqs) != 2 || reqs[1].Header.Get("X-Api-Key") != testAPIKey {
+		t.Fatal("the redirected request lost its API key")
+	}
+
+	client, _ = newMockClient(t, 200, "application/json", "not JSON, "+testAPIKey)
+	_, err = client.Billing.RetrieveBalance(context.Background())
+	var ue *didit.UnexpectedResponseError
+	if !errors.As(err, &ue) || ue.Response == nil {
+		t.Fatalf("err = %v", err)
+	}
+	expectNoKey("UnexpectedResponseError", ue.Response)
 }

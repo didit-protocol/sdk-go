@@ -166,6 +166,8 @@ case errors.As(err, &apiErr):
 | `*WebhookVerificationError` | webhook verification failed, with a machine-readable `Reason` |
 | `*TokenVerificationError` | an Authentication token failed verification, with a machine-readable `Reason` |
 
+Errors never hold the API key: a key the server echoes reads `[redacted]` in `RawBody` and `Response.Body`, and so does the `X-Api-Key` header of `Response.Request`.
+
 ### Retries
 
 Failed calls are retried up to `WithMaxRetries` times (default 2) with exponential backoff from 0.5 s, capped at 8 s, with full jitter, honouring `Retry-After` (capped at 60 s). `GET`, `PUT` and `DELETE` are retried on connection errors, timeouts, 408, 429 and 5xx. `POST` and `PATCH` are never retried once the request may have reached the server: only when the connection failed before the request was sent, or on 429. Upload bodies are buffered, so a retry sends the same bytes.
@@ -226,6 +228,7 @@ _, err = io.Copy(file, resp.Body)
 - The body's timestamp must be within 5 minutes of now (`webhook.WithTolerance`). Deduplicate on `event.Envelope().EventID`.
 - `X-Signature-Simple` is deprecated and counts only with `webhook.WithAllowSimple()`; the event then reports `Authenticated() == false` and the record should be re-fetched from the API.
 - `webhook.VerifyParsed` is for frameworks that only expose the decoded body (decode with `json.Decoder.UseNumber`).
+- Anyone can call your endpoint, so until a signature matches, verification costs time and memory in proportion to the body's size. The canonical JSON is built only for a well-formed `X-Signature-V2`, and floats such as `1e308`, which expand to hundreds of digits in it, may add at most 64 KiB; Didit never sends them.
 
 ```go
 switch e := event.(type) {

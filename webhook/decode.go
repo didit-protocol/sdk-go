@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"math/big"
 	"strconv"
 	"time"
 
@@ -15,7 +14,10 @@ import (
 // leniently: a missing field or one with an unexpected JSON type is left at
 // its zero value, because the signature already passed and the whole body
 // stays available through Raw.
-func newEvent(body map[string]any, raw []byte, authenticated bool) Event {
+//
+// limit bounds the canonical JSON of the object fields, like the body's (see
+// Verify): with only a simple signature, the body is not signed.
+func newEvent(body map[string]any, raw []byte, authenticated bool, limit int) Event {
 	typ, ok := body["webhook_type"].(string)
 	if _, present := body["webhook_type"]; !present {
 		// The kyb.registry_search.resolved callback names its type event_type.
@@ -37,9 +39,9 @@ func newEvent(body map[string]any, raw []byte, authenticated bool) Event {
 
 	switch env.WebhookType {
 	case TypeStatusUpdated:
-		return &StatusUpdatedEvent{EventEnvelope: env, SessionFields: sessionFields(body)}
+		return &StatusUpdatedEvent{EventEnvelope: env, SessionFields: sessionFields(body, limit)}
 	case TypeDataUpdated:
-		return &DataUpdatedEvent{EventEnvelope: env, SessionFields: sessionFields(body)}
+		return &DataUpdatedEvent{EventEnvelope: env, SessionFields: sessionFields(body, limit)}
 	case TypeUserStatusUpdated:
 		return &UserStatusUpdatedEvent{EventEnvelope: env, UserFields: userFields(body)}
 	case TypeUserDataUpdated:
@@ -51,9 +53,9 @@ func newEvent(body map[string]any, raw []byte, authenticated bool) Event {
 	case TypeActivityCreated:
 		return &ActivityCreatedEvent{EventEnvelope: env}
 	case TypeTransactionCreated:
-		return &TransactionCreatedEvent{EventEnvelope: env, TransactionFields: transactionFields(body)}
+		return &TransactionCreatedEvent{EventEnvelope: env, TransactionFields: transactionFields(body, limit)}
 	case TypeTransactionStatusUpdated:
-		return &TransactionStatusUpdatedEvent{EventEnvelope: env, TransactionFields: transactionFields(body)}
+		return &TransactionStatusUpdatedEvent{EventEnvelope: env, TransactionFields: transactionFields(body, limit)}
 	case TypeTravelRuleStatusUpdated:
 		return &TravelRuleStatusUpdatedEvent{
 			EventEnvelope:    env,
@@ -70,17 +72,17 @@ func newEvent(body map[string]any, raw []byte, authenticated bool) Event {
 			EventEnvelope:  env,
 			RequestID:      stringField(body, "request_id"),
 			VendorData:     stringField(body, "vendor_data"),
-			Metadata:       rawField(body, "metadata"),
+			Metadata:       rawField(body, "metadata", limit),
 			SearchStatus:   KYBSearchStatus(stringField(body, "search_status")),
 			SearchResolved: boolField(body, "search_resolved"),
-			KYBRegistry:    rawField(body, "kyb_registry"),
+			KYBRegistry:    rawField(body, "kyb_registry", limit),
 		}
 	default:
 		return &UnknownEvent{EventEnvelope: env, Payload: body}
 	}
 }
 
-func sessionFields(body map[string]any) SessionFields {
+func sessionFields(body map[string]any, limit int) SessionFields {
 	return SessionFields{
 		SessionID:         stringField(body, "session_id"),
 		BusinessSessionID: stringField(body, "business_session_id"),
@@ -89,9 +91,9 @@ func sessionFields(body map[string]any) SessionFields {
 		WorkflowID:        stringField(body, "workflow_id"),
 		WorkflowVersion:   intField(body, "workflow_version"),
 		VendorData:        stringField(body, "vendor_data"),
-		Metadata:          rawField(body, "metadata"),
-		Decision:          decisionField(body),
-		ResubmitInfo:      rawField(body, "resubmit_info"),
+		Metadata:          rawField(body, "metadata", limit),
+		Decision:          decisionField(body, limit),
+		ResubmitInfo:      rawField(body, "resubmit_info", limit),
 	}
 }
 
@@ -111,7 +113,7 @@ func businessFields(body map[string]any) BusinessFields {
 	}
 }
 
-func transactionFields(body map[string]any) TransactionFields {
+func transactionFields(body map[string]any, limit int) TransactionFields {
 	return TransactionFields{
 		TransactionID:  stringField(body, "transaction_id"),
 		TxnID:          stringField(body, "txn_id"),
@@ -121,7 +123,7 @@ func transactionFields(body map[string]any) TransactionFields {
 		Amount:         stringField(body, "amount"),
 		Currency:       stringField(body, "currency"),
 		Direction:      Direction(stringField(body, "direction")),
-		ActionRequired: rawField(body, "action_required"),
+		ActionRequired: rawField(body, "action_required", limit),
 	}
 }
 
@@ -135,8 +137,8 @@ func stringField(body map[string]any, key string) string {
 	case json.Number:
 		return string(v)
 	case float64:
-		if n, ok := integralFloat(v); ok && math.Abs(v) <= 1<<53 {
-			return n.String()
+		if s, ok := integralFloat(v); ok && math.Abs(v) <= 1<<53 {
+			return s
 		}
 		if !math.IsNaN(v) && !math.IsInf(v, 0) {
 			return strconv.FormatFloat(v, 'g', -1, 64)
@@ -157,8 +159,10 @@ func intField(body map[string]any, key string) int64 {
 		}
 		return n
 	}
-	if n, ok := integerValue(v); ok && n.IsInt64() {
-		return n.Int64()
+	if s, ok := integerText(v); ok {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return n
+		}
 	}
 	if f, ok := floatValue(v); ok && f == math.Trunc(f) && math.Abs(f) < 1<<63 {
 		return int64(f)
@@ -186,11 +190,11 @@ func floatValue(v any) (float64, bool) {
 	case float32:
 		f = float64(v)
 	default:
-		n, ok := integerValue(v)
+		s, ok := integerText(v)
 		if !ok {
 			return 0, false
 		}
-		f, _ = new(big.Float).SetInt(n).Float64()
+		f, err = strconv.ParseFloat(s, 64)
 	}
 	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0, false
@@ -215,13 +219,13 @@ func boolField(body map[string]any, key string) bool {
 }
 
 // rawField returns a field as JSON in canonical form, or nil when the field
-// is absent.
-func rawField(body map[string]any, key string) json.RawMessage {
+// is absent (or its canonical JSON longer than limit).
+func rawField(body map[string]any, key string, limit int) json.RawMessage {
 	v, ok := body[key]
 	if !ok {
 		return nil
 	}
-	b, err := canonicalJSON(v)
+	b, err := canonicalJSON(v, limit)
 	if err != nil {
 		return nil
 	}
@@ -232,12 +236,12 @@ func rawField(body map[string]any, key string) json.RawMessage {
 // A field of the decision with an unexpected type is left at its zero value
 // (json.Unmarshal fills the others); a decision that is not an object gives
 // nil.
-func decisionField(body map[string]any) *didit.SessionsRetrieveDecisionResponse {
+func decisionField(body map[string]any, limit int) *didit.SessionsRetrieveDecisionResponse {
 	obj, ok := body["decision"].(map[string]any)
 	if !ok {
 		return nil
 	}
-	b, err := canonicalJSON(obj)
+	b, err := canonicalJSON(obj, limit)
 	if err != nil {
 		return nil
 	}

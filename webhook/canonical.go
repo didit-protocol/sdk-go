@@ -35,7 +35,7 @@ func Canonicalize(payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := canonicalJSON(v)
+	out, err := canonicalJSON(v, 0)
 	if err != nil {
 		return nil, invalidPayload(err.Error())
 	}
@@ -71,23 +71,55 @@ func invalidPayload(msg string) error {
 // self-referencing map passed to VerifyParsed from recursing forever.
 const maxDepth = 10000
 
+// errTooLong stops an encoding whose output passes its limit.
+var errTooLong = errors.New("canonical JSON is longer than its limit")
+
 // canonicalJSON encodes a decoded JSON value (as produced by encoding/json,
-// with or without UseNumber) in canonical form.
-func canonicalJSON(v any) ([]byte, error) {
-	e := encoder{buf: make([]byte, 0, 512)}
+// with or without UseNumber) in canonical form. With limit > 0 it stops with
+// errTooLong once the output is longer than limit bytes.
+func canonicalJSON(v any, limit int) ([]byte, error) {
+	e := encoder{buf: make([]byte, 0, 512), limit: limit}
 	if err := e.value(v, 0); err != nil {
 		return nil, err
+	}
+	if limit > 0 && len(e.buf) > limit {
+		return nil, errTooLong
 	}
 	return e.buf, nil
 }
 
+// measureJSON makes the checks canonicalJSON makes and returns the length of
+// the canonical JSON, except that an integral float beyond the int64 range
+// counts at the length of its short form (1e+308). Its exact digits (309 for
+// 1e308) are what can make the canonical JSON slow to build and far longer
+// than the input. Nothing is kept, so this costs time in proportion to the
+// size of v.
+func measureJSON(v any) (int, error) {
+	e := encoder{measure: true}
+	if err := e.value(v, 0); err != nil {
+		return 0, err
+	}
+	return e.n + len(e.buf), nil
+}
+
 type encoder struct {
-	buf []byte
+	buf   []byte
+	limit int // see canonicalJSON
+	// measure discards the output as it goes, counting it in n (see
+	// measureJSON).
+	measure bool
+	n       int
 }
 
 func (e *encoder) value(v any, depth int) error {
 	if depth > maxDepth {
 		return errors.New("JSON nesting is too deep")
+	}
+	if e.measure {
+		e.n += len(e.buf)
+		e.buf = e.buf[:0]
+	} else if e.limit > 0 && len(e.buf) > e.limit {
+		return errTooLong
 	}
 	switch v := v.(type) {
 	case nil:
@@ -188,13 +220,15 @@ func (e *encoder) number(s string) error {
 }
 
 func (e *encoder) float(f float64) error {
-	if math.IsNaN(f) || math.IsInf(f, 0) {
+	switch {
+	case math.IsNaN(f) || math.IsInf(f, 0):
 		return errors.New("NaN and Infinity are not valid JSON")
-	}
-	if f == math.Trunc(f) {
-		e.buf = appendIntegral(e.buf, f)
-	} else {
+	case f != math.Trunc(f):
 		e.buf = appendPyRepr(e.buf, f)
+	case e.measure && (f < -(1<<63) || f >= 1<<63):
+		e.buf = strconv.AppendFloat(e.buf, f, 'e', -1, 64)
+	default:
+		e.buf = appendIntegral(e.buf, f)
 	}
 	return nil
 }
