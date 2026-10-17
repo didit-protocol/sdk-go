@@ -277,15 +277,10 @@ func (c *Client) verifySignature(ctx context.Context, token string, kind tokenKi
 	if len(parts) != 3 {
 		return nil, tokenError(didit.TokenReasonMalformed, "the token is not a compact JWS with three parts")
 	}
-	for _, part := range parts {
-		if part == "" || !isBase64URL(part) {
-			return nil, tokenError(didit.TokenReasonMalformed, "the token parts are not unpadded base64url")
-		}
-	}
-	headerJSON, errHeader := rawURL.DecodeString(parts[0])
-	payload, errPayload := rawURL.DecodeString(parts[1])
-	signature, errSignature := rawURL.DecodeString(parts[2])
-	if errHeader != nil || errPayload != nil || errSignature != nil {
+	// The header first, so that an unsigned alg "none" token (empty third
+	// part) is reported as the algorithm problem it is.
+	headerJSON, ok := decodePart(parts[0])
+	if !ok {
 		return nil, tokenError(didit.TokenReasonMalformed, "the token parts are not unpadded base64url")
 	}
 	header, err := parseObject(headerJSON)
@@ -310,6 +305,11 @@ func (c *Client) verifySignature(ctx context.Context, token string, kind tokenKi
 	kid, err := header.str("kid")
 	if err != nil || kid == "" {
 		return nil, tokenError(didit.TokenReasonMalformed, "the header has no kid")
+	}
+	payload, okPayload := decodePart(parts[1])
+	signature, okSignature := decodePart(parts[2])
+	if !okPayload || !okSignature {
+		return nil, tokenError(didit.TokenReasonMalformed, "the token parts are not unpadded base64url")
 	}
 	if len(signature) != 64 {
 		return nil, tokenError(didit.TokenReasonInvalidSignature, "the signature is not a 64-byte ES256 (R || S) signature")
