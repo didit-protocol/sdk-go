@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -300,6 +301,16 @@ func TestHelpers(t *testing.T) {
 	for _, token := range []string{"", "a b", "a\nb", "caf\xc3\xa9"} {
 		if checkBearer(token) == nil {
 			t.Fatalf("checkBearer(%q) accepted", token)
+		}
+	}
+	for _, pair := range [][2]string{
+		{"http://localhost", "http://LOCALHOST:80"},
+		{"https://acme.auth.didit.me", "https://acme.auth.didit.me:443"},
+	} {
+		a, _ := url.Parse(pair[0])
+		b, _ := url.Parse(pair[1])
+		if !sameOrigin(a, b) {
+			t.Fatalf("%s and %s are the same origin", pair[0], pair[1])
 		}
 	}
 	if accessToken.String() != "at+jwt" || idToken.String() != "JWT" {

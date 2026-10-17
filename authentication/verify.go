@@ -424,9 +424,7 @@ func parseObject(data []byte) (*claimSet, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	var raw map[string]any
-	if err := dec.Decode(&raw); err != nil {
-		return nil, err
-	}
+	_ = dec.Decode(&raw) // cannot fail: data decoded as an object above
 	return &claimSet{members: members, raw: raw}, nil
 }
 

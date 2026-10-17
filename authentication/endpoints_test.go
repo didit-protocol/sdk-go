@@ -414,6 +414,18 @@ func TestGetSession(t *testing.T) {
 	}
 }
 
+func TestGetSessionInvalidBody(t *testing.T) {
+	stub := newStub(t)
+	stub.handle("/session/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, with(sessionBody(), map[string]any{"expires_at": "tomorrow"}))
+	})
+	c := newTestClient(t, stub, newClock())
+	_, err := c.GetSession(context.Background(), testAccessToken)
+	if !errors.As(err, new(*didit.APIConnectionError)) || !strings.Contains(err.Error(), "invalid response body") {
+		t.Fatalf("error = %v (%T)", err, err)
+	}
+}
+
 func TestGetSessionRetriesOnce(t *testing.T) {
 	stub := newStub(t)
 	calls := 0

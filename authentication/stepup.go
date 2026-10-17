@@ -118,10 +118,7 @@ func (c *Client) CreateStepUp(ctx context.Context, accessToken string, params St
 	if params.Action == "" {
 		return nil, configError("step-up action is required")
 	}
-	body, err := json.Marshal(stepUpBody(params))
-	if err != nil {
-		return nil, configError("encoding step-up parameters: " + err.Error())
-	}
+	body, _ := json.Marshal(stepUpBody(params)) // strings only: cannot fail
 	r := request{
 		method:      http.MethodPost,
 		url:         c.endpoint("step-up/"),

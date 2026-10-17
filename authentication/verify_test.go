@@ -525,6 +525,30 @@ func TestVerifyReturnsFetchErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("waiters use the document a concurrent fetch stored", func(t *testing.T) {
+		stub := newStub(t, key)
+		c := newTestClient(t, stub, newClock())
+		f := &flight{done: make(chan struct{})}
+		c.discoveryFlight = f
+		got := make(chan error, 1)
+		go func() {
+			_, err := c.metadata(context.Background())
+			got <- err
+		}()
+		time.Sleep(20 * time.Millisecond) // let the caller reach the fetch in progress
+		c.mu.Lock()
+		c.discovery = &discoveryState{tokenURL: testIssuer + "/token/", jwksURL: testIssuer + jwksPath, expiry: testNow.Add(time.Hour)}
+		c.discoveryFlight = nil
+		c.mu.Unlock()
+		close(f.done)
+		if err := <-got; err != nil {
+			t.Fatal(err)
+		}
+		if len(stub.all()) != 0 {
+			t.Fatal("the waiter fetched again")
+		}
+	})
+
 	t.Run("waiters share a failed fetch", func(t *testing.T) {
 		stub := newStub(t, key)
 		c := newTestClient(t, stub, newClock())
