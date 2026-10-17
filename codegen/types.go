@@ -132,6 +132,9 @@ type Gen struct {
 	comps    map[string]*GoType
 	compUse  map[string]uint8
 	reserved map[string]string
+	// paramPrefixes maps the request-side name of a component used on both
+	// sides to its response-side name, so their enums are shared.
+	paramPrefixes map[string]string
 }
 
 const (
@@ -158,6 +161,8 @@ func newGen(spec *Spec) *Gen {
 		comps:    map[string]*GoType{},
 		compUse:  map[string]uint8{},
 		reserved: map[string]string{},
+
+		paramPrefixes: map[string]string{},
 	}
 	for _, n := range reservedNames {
 		g.reserved[n] = "hand-written core"
@@ -344,7 +349,7 @@ func (g *Gen) typeOf(doc *Doc, s *Node, name string, side Side) (*GoType, error)
 	}
 	if enum := s.Get("enum"); enum != nil && len(enum.Arr) > 0 {
 		if schemaType(doc, s) == "string" {
-			return g.enumType(name, side, s.Get("description").Text(), [][]*Node{enum.Arr})
+			return g.enumType(g.enumName(name), side, s.Get("description").Text(), [][]*Node{enum.Arr})
 		}
 		return &GoType{Kind: TAny}, nil
 	}
@@ -412,10 +417,8 @@ func (g *Gen) component(doc *Doc, ref string, side Side) (*GoType, error) {
 		return t, nil
 	}
 	goName := naming.Pascal(compName)
-	if doc.Name == "account" {
-		goName = "Account" + strings.TrimPrefix(goName, "Account")
-	}
 	if structLike && side == Request && g.compUse[doc.Name+"|"+ref]&useResponse != 0 {
+		g.paramPrefixes[goName+"Param"] = goName
 		goName += "Param"
 	}
 	placeholder := &GoType{Kind: TNamed, Name: goName}
@@ -536,13 +539,6 @@ func (g *Gen) collectProps(doc *Doc, parts []*Node) (map[string]*propInfo, []str
 	}
 	for _, part := range parts {
 		req := visit(part, map[string]bool{})
-		seen := map[string]bool{}
-		for _, k := range order {
-			if seen[k] {
-				continue
-			}
-			seen[k] = true
-		}
 		for k := range req {
 			if p, ok := props[k]; ok {
 				p.required++
@@ -591,7 +587,7 @@ func (g *Gen) mergedType(doc *Doc, nodes []*Node, name string, side Side) (*GoTy
 			switch k {
 			case "string":
 				if allEnum {
-					return g.enumType(name, side, "", enums)
+					return g.enumType(g.enumName(name), side, "", enums)
 				}
 				if allDateTime {
 					return &GoType{Kind: TTime}, nil
@@ -759,6 +755,21 @@ func sameEnumValues(d *Decl, lists [][]*Node) bool {
 		}
 	}
 	return true
+}
+
+// enumName returns the name of an enum declared under name: enums of the
+// request-side copy of a component take the response-side name.
+func (g *Gen) enumName(name string) string {
+	best := ""
+	for prefix := range g.paramPrefixes {
+		if strings.HasPrefix(name, prefix) && len(prefix) > len(best) {
+			best = prefix
+		}
+	}
+	if best == "" {
+		return name
+	}
+	return g.paramPrefixes[best] + strings.TrimPrefix(name, best)
 }
 
 // fieldName converts a property name to a Go field name.
