@@ -47,6 +47,9 @@ type request struct {
 type response struct {
 	header http.Header
 	body   []byte
+	// http is the response, its body already read into body. Errors carry a
+	// redacted copy of it.
+	http *http.Response
 }
 
 // send performs the request and maps failures to the module's error types:
@@ -94,7 +97,7 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 	ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
 	if len(data) > maxResponseBytes {
 		if ok {
-			return nil, connectionError(r.method, r.url, errors.New("response body is larger than 1 MiB"))
+			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil)
 		}
 		data = data[:maxResponseBytes]
 	}
@@ -110,7 +113,7 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 			Response:   redactedResponse(resp),
 		})
 	}
-	return &response{header: resp.Header, body: data}, nil
+	return &response{header: resp.Header, body: data, http: resp}, nil
 }
 
 // retryable reports whether a failed GET may be sent once more: the
@@ -141,13 +144,23 @@ func (c *Client) backoff(ctx context.Context) error {
 	}
 }
 
-// decodeJSON decodes a 2xx response body. A body that does not decode is
-// reported as an *didit.APIConnectionError, because the response is unusable.
-func decodeJSON(r request, data []byte, v any) error {
-	if err := json.Unmarshal(data, v); err != nil {
-		return connectionError(r.method, r.url, fmt.Errorf("invalid response body: %w", err))
+// decodeJSON decodes a 2xx response body. A body that does not decode is a
+// *didit.UnexpectedResponseError.
+func decodeJSON(r request, resp *response, v any) error {
+	if err := json.Unmarshal(resp.body, v); err != nil {
+		return unexpectedResponse(r, resp.http, "is not valid JSON", err)
 	}
 	return nil
+}
+
+// unexpectedResponse reports a 2xx response the package cannot use, with a
+// redacted copy of the response.
+func unexpectedResponse(r request, resp *http.Response, problem string, cause error) error {
+	return &didit.UnexpectedResponseError{
+		Message:  fmt.Sprintf("%s %s: the %d response %s", r.method, redactURL(r.url), resp.StatusCode, problem),
+		Cause:    cause,
+		Response: redactedResponse(resp),
+	}
 }
 
 func connectionError(method, rawURL string, cause error) error {

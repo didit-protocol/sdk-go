@@ -97,7 +97,7 @@ func (c *Client) token(ctx context.Context, form url.Values) (*TokenResponse, er
 		return nil, err
 	}
 	var out TokenResponse
-	if err := decodeJSON(r, resp.body, &out); err != nil {
+	if err := decodeJSON(r, resp, &out); err != nil {
 		return nil, err
 	}
 	out.Raw = resp.body

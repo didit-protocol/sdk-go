@@ -82,7 +82,7 @@ func (c *Client) GetSession(ctx context.Context, accessToken string) (*Session, 
 		return nil, err
 	}
 	var out Session
-	if err := decodeJSON(r, resp.body, &out); err != nil {
+	if err := decodeJSON(r, resp, &out); err != nil {
 		return nil, err
 	}
 	out.Raw = resp.body

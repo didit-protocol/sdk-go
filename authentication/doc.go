@@ -59,7 +59,9 @@
 //     {"error": "invalid_grant"} for a used, expired or unknown code or refresh
 //     token) and *didit.AuthenticationError (401 for an access token that is
 //     invalid, refreshed or revoked).
-//   - *didit.APIConnectionError and *didit.APITimeoutError: no usable response.
+//   - *didit.APIConnectionError and *didit.APITimeoutError: no response.
+//   - *didit.UnexpectedResponseError: a 2xx response the package cannot use,
+//     such as a body that is not valid JSON.
 //   - *didit.ConfigurationError: an invalid issuer, publishable key, option or
 //     argument, or a discovery document that does not belong to the issuer.
 //

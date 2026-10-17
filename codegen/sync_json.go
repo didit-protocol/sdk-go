@@ -5,7 +5,6 @@ import (
 	"math/big"
 	"sort"
 	"strings"
-	"unicode/utf8"
 )
 
 // JSON helpers of the spec sync. The files the sync writes (SOURCE.json,
@@ -15,8 +14,8 @@ import (
 // the same in every SDK repository. The summary quotes values the way
 // Python's json.dumps does by default.
 
-// jsonStyle selects the json.dumps arguments to imitate.
-type jsonStyle struct {
+// syncJSONStyle selects the json.dumps arguments to imitate.
+type syncJSONStyle struct {
 	// indent is the number of spaces per level; negative writes one line.
 	indent int
 	// ascii escapes every non-ASCII character (ensure_ascii=True).
@@ -26,22 +25,22 @@ type jsonStyle struct {
 }
 
 var (
-	// fileStyle is json.dumps(value, indent=1, ensure_ascii=False).
-	fileStyle = jsonStyle{indent: 1}
-	// inlineStyle is json.dumps(value).
-	inlineStyle = jsonStyle{indent: -1, ascii: true}
-	// sortedInlineStyle is json.dumps(value, sort_keys=True).
-	sortedInlineStyle = jsonStyle{indent: -1, ascii: true, sortKeys: true}
+	// syncFileStyle is json.dumps(value, indent=1, ensure_ascii=False).
+	syncFileStyle = syncJSONStyle{indent: 1}
+	// syncInlineStyle is json.dumps(value).
+	syncInlineStyle = syncJSONStyle{indent: -1, ascii: true}
+	// syncSortedInlineStyle is json.dumps(value, sort_keys=True).
+	syncSortedInlineStyle = syncJSONStyle{indent: -1, ascii: true, sortKeys: true}
 )
 
-// encodeJSON renders n like Python's json.dumps with the given style.
-func encodeJSON(n *Node, st jsonStyle) string {
+// syncEncode renders n like Python's json.dumps with the given style.
+func syncEncode(n *Node, st syncJSONStyle) string {
 	var b strings.Builder
-	writeJSON(&b, n, st, 0)
+	syncWriteJSON(&b, n, st, 0)
 	return b.String()
 }
 
-func writeJSON(b *strings.Builder, n *Node, st jsonStyle, level int) {
+func syncWriteJSON(b *strings.Builder, n *Node, st syncJSONStyle, level int) {
 	if n == nil {
 		b.WriteString("null")
 		return
@@ -69,7 +68,7 @@ func writeJSON(b *strings.Builder, n *Node, st jsonStyle, level int) {
 	case Number:
 		b.WriteString(n.Str)
 	case String:
-		writeJSONString(b, n.Str, st.ascii)
+		syncWriteString(b, n.Str, st.ascii)
 	case Array:
 		if len(n.Arr) == 0 {
 			b.WriteString("[]")
@@ -81,7 +80,7 @@ func writeJSON(b *strings.Builder, n *Node, st jsonStyle, level int) {
 				b.WriteString(sep)
 			}
 			newline(level + 1)
-			writeJSON(b, v, st, level+1)
+			syncWriteJSON(b, v, st, level+1)
 		}
 		newline(level)
 		b.WriteByte(']')
@@ -92,7 +91,7 @@ func writeJSON(b *strings.Builder, n *Node, st jsonStyle, level int) {
 		}
 		keys := n.Keys
 		if st.sortKeys {
-			keys = sortedKeys(n)
+			keys = syncSortedKeys(n)
 		}
 		b.WriteByte('{')
 		for i, k := range keys {
@@ -100,21 +99,21 @@ func writeJSON(b *strings.Builder, n *Node, st jsonStyle, level int) {
 				b.WriteString(sep)
 			}
 			newline(level + 1)
-			writeJSONString(b, k, st.ascii)
+			syncWriteString(b, k, st.ascii)
 			b.WriteString(": ")
-			writeJSON(b, n.Get(k), st, level+1)
+			syncWriteJSON(b, n.Get(k), st, level+1)
 		}
 		newline(level)
 		b.WriteByte('}')
 	}
 }
 
-// writeJSONString quotes s like Python's json module: the short escapes for
+// syncWriteString quotes s like Python's json module: the short escapes for
 // '"', '\\', '\n', '\r', '\t', '\b' and '\f', \u00XX for the other control
 // characters and, with ascii, \uXXXX (surrogate pairs above U+FFFF) for
 // everything outside printable ASCII. Unlike encoding/json it leaves '<',
 // '>', '&', U+2028 and U+2029 alone.
-func writeJSONString(b *strings.Builder, s string, ascii bool) {
+func syncWriteString(b *strings.Builder, s string, ascii bool) {
 	b.WriteByte('"')
 	for _, r := range s {
 		switch r {
@@ -149,9 +148,9 @@ func writeJSONString(b *strings.Builder, s string, ascii bool) {
 	b.WriteByte('"')
 }
 
-// pyStrings renders a list of strings like Python's repr of a list
+// syncPyList renders a list of strings like Python's repr of a list
 // (['a', 'b']), as the reference summary does for content types.
-func pyStrings(items []string) string {
+func syncPyList(items []string) string {
 	quoted := make([]string, len(items))
 	for i, s := range items {
 		quoted[i] = "'" + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "'", `\'`) + "'"
@@ -159,10 +158,10 @@ func pyStrings(items []string) string {
 	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
-// nodeEqual reports whether a and b are the same JSON value with Python's
+// syncEqual reports whether a and b are the same JSON value with Python's
 // equality: object key order does not matter, and numbers compare by value
 // (1 equals 1.0). nil equals nil only.
-func nodeEqual(a, b *Node) bool {
+func syncEqual(a, b *Node) bool {
 	if a == b {
 		return true
 	}
@@ -175,7 +174,7 @@ func nodeEqual(a, b *Node) bool {
 	case Bool:
 		return a.Bool == b.Bool
 	case Number:
-		return numberEqual(a.Str, b.Str)
+		return syncNumberEqual(a.Str, b.Str)
 	case String:
 		return a.Str == b.Str
 	case Array:
@@ -183,7 +182,7 @@ func nodeEqual(a, b *Node) bool {
 			return false
 		}
 		for i := range a.Arr {
-			if !nodeEqual(a.Arr[i], b.Arr[i]) {
+			if !syncEqual(a.Arr[i], b.Arr[i]) {
 				return false
 			}
 		}
@@ -194,7 +193,7 @@ func nodeEqual(a, b *Node) bool {
 		}
 		for _, k := range a.Keys {
 			bv := b.Get(k)
-			if bv == nil || !nodeEqual(a.Get(k), bv) {
+			if bv == nil || !syncEqual(a.Get(k), bv) {
 				return false
 			}
 		}
@@ -203,7 +202,7 @@ func nodeEqual(a, b *Node) bool {
 	return false
 }
 
-func numberEqual(a, b string) bool {
+func syncNumberEqual(a, b string) bool {
 	if a == b {
 		return true
 	}
@@ -212,26 +211,26 @@ func numberEqual(a, b string) bool {
 	return okx && oky && x.Cmp(y) == 0
 }
 
-// newObject returns an empty JSON object.
-func newObject() *Node { return &Node{Kind: Object, vals: map[string]*Node{}} }
+// syncObject returns an empty JSON object.
+func syncObject() *Node { return &Node{Kind: Object, vals: map[string]*Node{}} }
 
-// newString returns a JSON string.
-func newString(s string) *Node { return &Node{Kind: String, Str: s} }
+// syncString returns a JSON string.
+func syncString(s string) *Node { return &Node{Kind: String, Str: s} }
 
-// newArray returns a JSON array of items.
-func newArray(items []*Node) *Node { return &Node{Kind: Array, Arr: items} }
+// syncArray returns a JSON array of items.
+func syncArray(items []*Node) *Node { return &Node{Kind: Array, Arr: items} }
 
-// copyObject returns a shallow copy of an object (the values are shared).
-func copyObject(n *Node) *Node {
-	out := newObject()
+// syncCopyObject returns a shallow copy of an object (the values are shared).
+func syncCopyObject(n *Node) *Node {
+	out := syncObject()
 	for _, k := range n.ObjKeys() {
 		out.Set(k, n.Get(k))
 	}
 	return out
 }
 
-// deleteKey removes key from an object, keeping the order of the others.
-func deleteKey(n *Node, key string) {
+// syncDeleteKey removes key from an object, keeping the order of the others.
+func syncDeleteKey(n *Node, key string) {
 	if n == nil || n.Kind != Object || n.vals[key] == nil {
 		return
 	}
@@ -245,24 +244,21 @@ func deleteKey(n *Node, key string) {
 	n.Keys = keys
 }
 
-// sortedKeys returns the keys of an object in code point order.
-func sortedKeys(n *Node) []string {
+// syncSortedKeys returns the keys of an object in code point order.
+func syncSortedKeys(n *Node) []string {
 	keys := append([]string(nil), n.ObjKeys()...)
 	sort.Strings(keys) // UTF-8 byte order is code point order
 	return keys
 }
 
-// isObject reports whether n is a JSON object.
-func isObject(n *Node) bool { return n != nil && n.Kind == Object }
+// syncIsObject reports whether n is a JSON object.
+func syncIsObject(n *Node) bool { return n != nil && n.Kind == Object }
 
-// orEmpty returns n, or an empty object for nil, like Python's
+// syncOrEmpty returns n, or an empty object for nil, like Python's
 // dict.get(key, {}).
-func orEmpty(n *Node) *Node {
+func syncOrEmpty(n *Node) *Node {
 	if n == nil {
-		return newObject()
+		return syncObject()
 	}
 	return n
 }
-
-// validUTF8 reports whether data is valid UTF-8 (the downloads must be).
-func validUTF8(data []byte) bool { return utf8.Valid(data) }

@@ -128,7 +128,7 @@ func (c *Client) fetchDiscovery(ctx context.Context, discoveryURL string) (disco
 		return discoveryState{}, err
 	}
 	var doc discoveryDocument
-	if err := decodeJSON(r, resp.body, &doc); err != nil {
+	if err := decodeJSON(r, resp, &doc); err != nil {
 		return discoveryState{}, err
 	}
 	if doc.Issuer != c.issuer {
@@ -221,11 +221,11 @@ func (c *Client) fetchKeys(ctx context.Context) error {
 	var set struct {
 		Keys []json.RawMessage `json:"keys"`
 	}
-	if err := decodeJSON(r, resp.body, &set); err != nil {
+	if err := decodeJSON(r, resp, &set); err != nil {
 		return err
 	}
 	if set.Keys == nil {
-		return connectionError(r.method, r.url, fmt.Errorf("invalid response body: no keys member"))
+		return unexpectedResponse(r, resp.http, "has no keys array", nil)
 	}
 	keys := make(map[string]*ecdsa.PublicKey, len(set.Keys))
 	for _, raw := range set.Keys {

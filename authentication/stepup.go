@@ -155,7 +155,7 @@ func (c *Client) stepUp(ctx context.Context, r request, record bool) (*StepUp, e
 		return nil, err
 	}
 	var out StepUp
-	if err := decodeJSON(r, resp.body, &out); err != nil {
+	if err := decodeJSON(r, resp, &out); err != nil {
 		return nil, err
 	}
 	if record {
