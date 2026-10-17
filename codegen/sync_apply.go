@@ -685,7 +685,7 @@ func (st *syncStore) rewrite(n *Node, inlined int) *Node {
 		for i, v := range n.Arr {
 			w := st.rewrite(v, inlined)
 			if w != v && out == nil {
-				out = append(make([]*Node(nil), 0, len(n.Arr)), n.Arr[:i]...)
+				out = append(make([]*Node, 0, len(n.Arr)), n.Arr[:i]...)
 			}
 			if out != nil {
 				out = append(out, w)
