@@ -142,7 +142,14 @@ func TestTimestampRules(t *testing.T) {
 		{name: "custom tolerance", timestamp: testTimestamp, now: testTimestamp + 20, tolerance: 10 * time.Second, want: didit.WebhookReasonTimestampOutOfTolerance},
 		{name: "wide tolerance", timestamp: testTimestamp, now: testTimestamp + 3600, tolerance: time.Hour},
 		{name: "beyond int64", timestamp: json.Number("99999999999999999999999"), want: didit.WebhookReasonTimestampOutOfTolerance},
+		{name: "beyond int64, header equal", timestamp: json.Number("99999999999999999999999"), header: "+0099999999999999999999999", want: didit.WebhookReasonTimestampOutOfTolerance},
+		{name: "beyond int64, header differs", timestamp: json.Number("99999999999999999999999"), header: "99999999999999999999998", want: didit.WebhookReasonTimestampMismatch},
+		{name: "19 digits", timestamp: json.Number("1000000000000000000"), header: "1000000000000000000", want: didit.WebhookReasonTimestampOutOfTolerance},
+		{name: "negative", timestamp: json.Number("-1760702400"), header: "-1760702400", want: didit.WebhookReasonTimestampOutOfTolerance},
+		{name: "negative header for a positive timestamp", timestamp: testTimestamp, header: "-1760702400", want: didit.WebhookReasonTimestampMismatch},
 		{name: "negative zero", timestamp: json.Number("-0"), now: 100},
+		{name: "negative zero, header -000", timestamp: json.Number("-0"), header: "-000", now: 100},
+		{name: "zero, header +0", timestamp: json.Number("0"), header: "+0", now: 100},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -234,22 +241,41 @@ func TestUnsignedRequestsCostInProportionToTheirSize(t *testing.T) {
 }
 
 func TestIntegralFloatsBeyondInt64(t *testing.T) {
-	// They expand in the canonical JSON, by up to 64 KiB in total: a delivery
-	// re-encoded by a proxy that writes large integers as floats still
-	// verifies, and the canonical JSON stays exact.
-	p := with(sessionPayload(), "decision", map[string]any{"big": []any{json.Number("1e300"), json.Number("-1.5e40"), 1e22}})
-	body, h := signedBody(t, p, testSecret)
+	// Written as floats, they expand in the canonical JSON (1e300 has 301
+	// digits) by up to 64 KiB in total. Within that, a body whose large
+	// integers a proxy re-encoded as floats still verifies through
+	// X-Signature-V2.
+	few := with(sessionPayload(), "decision", map[string]any{"big": []any{json.Number("1e300"), json.Number("-1.5e40"), 1e22}})
+	body, h := signedBody(t, few, testSecret)
 	h.Del("X-Signature")
-	ev := mustVerify(t, body, h, testSecret, testNow)
-	canonical, err := webhook.Canonicalize(body)
-	if err != nil {
-		t.Fatal(err)
+	mustVerify(t, body, h, testSecret, testNow)
+	if _, err := webhook.VerifyParsed(decodeUseNumber(t, body), h, testSecret, testNow); err != nil {
+		t.Fatalf("VerifyParsed: %v", err)
 	}
-	if !strings.Contains(string(canonical), `"big":[1`+strings.Repeat("0", 300)+`,-15`+strings.Repeat("0", 39)+`,1`+strings.Repeat("0", 22)+`]`) {
-		t.Fatalf("canonical JSON = %s", canonical)
+
+	// Beyond it, the canonical JSON is not built and X-Signature-V2 cannot
+	// match, even when it is right; X-Signature still can.
+	many := make([]any, 300)
+	for i := range many {
+		many[i] = json.Number("1e300")
 	}
-	ev = mustVerify(t, nil, h, testSecret, testNow) // placeholder replaced below
-	_ = ev
+	body, h = signedBody(t, with(sessionPayload(), "a", many), testSecret)
+	mustVerify(t, body, h, testSecret, testNow)
+	h.Del("X-Signature")
+	_, err := webhook.Verify(body, h, testSecret, testNow)
+	wantReason(t, err, didit.WebhookReasonInvalidSignature)
+	_, err = webhook.VerifyParsed(decodeUseNumber(t, body), h, testSecret, testNow)
+	wantReason(t, err, didit.WebhookReasonInvalidSignature)
+
+	// With only a simple signature, which leaves the body unsigned,
+	// VerifyParsed cannot build the event's Raw either.
+	simple := http.Header{}
+	simple.Set("X-Signature-Simple", hmacHex(testSecret, []byte("1760702400:11111111-2222-3333-4444-555555555555:Approved:status.updated")))
+	if _, err := webhook.Verify(body, simple, testSecret, testNow, webhook.WithAllowSimple()); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	_, err = webhook.VerifyParsed(decodeUseNumber(t, body), simple, testSecret, testNow, webhook.WithAllowSimple())
+	wantReason(t, err, didit.WebhookReasonInvalidPayload)
 }
 
 func TestToleranceUsesSubSecondTime(t *testing.T) {
