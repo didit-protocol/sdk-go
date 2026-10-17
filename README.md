@@ -249,6 +249,12 @@ tx, err := client.Transactions.Create(ctx, didit.TransactionsCreateParams{
 })
 
 screening, err := client.WalletScreening.Screen(ctx, didit.WalletScreeningScreenParams{ /* address, chain */ })
+
+// The PDF report takes the screening result back, signature included.
+var result didit.WalletScreeningResultParam
+err = json.Unmarshal([]byte(screening.JSON.Raw()), &result)
+pdf, err := client.WalletScreening.ScreenPDF(ctx, result) // read and close pdf.Body
+
 vasps := client.TravelRule.ListVASPsAutoPaging(ctx, didit.TravelRuleListVASPsParams{})
 ```
 

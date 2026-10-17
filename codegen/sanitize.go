@@ -12,6 +12,7 @@ var (
 	sensitiveKey = regexp.MustCompile(`(?i)(token|secret|api_?key|password|passwd|private_?key|credential|signature)`)
 	jwtLike      = regexp.MustCompile(`^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)
 	keyLike      = regexp.MustCompile(`^(sk|pk|rk|whsec)_(live|test)_`)
+	nonAlnum     = regexp.MustCompile(`[^A-Za-z0-9]+`)
 )
 
 // sanitizeExample returns a copy of n with credential-like strings replaced.
