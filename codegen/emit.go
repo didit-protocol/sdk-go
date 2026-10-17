@@ -538,10 +538,10 @@ func writeDoc(b *bytes.Buffer, indent, text string) {
 			case strings.HasPrefix(l, "|"):
 				b.WriteString(indent + "//\t" + l + "\n")
 			case strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "* "):
-				wrapItem(b, indent, "  - ", "    ", strings.TrimSpace(l[2:]), width)
+				wrapItem(b, indent, "   - ", "     ", strings.TrimSpace(l[2:]), width)
 			case len(l) > 2 && l[0] >= '0' && l[0] <= '9' && strings.HasPrefix(strings.TrimLeft(l, "0123456789"), ". "):
 				num := l[:len(l)-len(strings.TrimLeft(l, "0123456789"))]
-				wrapItem(b, indent, "  "+num+". ", strings.Repeat(" ", len(num)+4), strings.TrimSpace(l[len(num)+2:]), width)
+				wrapItem(b, indent, "   "+num+". ", strings.Repeat(" ", len(num)+5), strings.TrimSpace(l[len(num)+2:]), width)
 			default:
 				wrap(b, indent, l, width)
 			}

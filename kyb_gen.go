@@ -127,8 +127,8 @@ func (r *KYBService) ListUBOs(ctx context.Context, params KYBListUBOsParams, opt
 //     resolves and returns the final candidate list (`search_resolved: true`).
 //   - *Asynchronous:* pass `webhook_url` and the API returns immediately -
 //     usually with `search_status: "pending"` and an empty candidate list -
-//     then POSTs a `kyb.registry_search.resolved` callback to your URL when the
-//     registry finishes. The callback body is `{"event_id", "event_type":
+//     then POSTs a `kyb.registry_search.resolved` callback to your URL when
+//     the registry finishes. The callback body is `{"event_id", "event_type":
 //     "kyb.registry_search.resolved", "request_id", "vendor_data", "metadata",
 //     "search_status", "search_resolved", "kyb_registry", "timestamp",
 //     "created_at"}` - note `timestamp` and `created_at` in the callback are

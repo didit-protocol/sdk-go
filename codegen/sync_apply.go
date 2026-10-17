@@ -475,18 +475,18 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		if op == nil {
 			continue
 		}
-		up := op.raw.Get("x-didit-sdk")
-		if up == nil || up.Kind == Null {
+		upstream := op.raw.Get("x-didit-sdk")
+		if upstream == nil || upstream.Kind == Null {
 			continue
 		}
-		if syncEqual(up, overlayOps.Get(key)) {
+		if syncEqual(upstream, overlayOps.Get(key)) {
 			syncDeleteKey(overlayOps, key)
 			dropped++
 			continue
 		}
 		overlayLines = append(overlayLines, fmt.Sprintf(
 			"- `%s`: upstream x-didit-sdk %s differs from the overlay entry %s; upstream wins, and the overlay entry is kept for review: delete it, or ask for the upstream value to be fixed.",
-			key, syncEncode(up, syncSortedInlineStyle), syncEncode(overlayOps.Get(key), syncSortedInlineStyle)))
+			key, syncEncode(upstream, syncSortedInlineStyle), syncEncode(overlayOps.Get(key), syncSortedInlineStyle)))
 	}
 	if dropped > 0 {
 		overlayLines = append(overlayLines, fmt.Sprintf("Dropped %d overlay entries that upstream now carries.", dropped))
@@ -567,7 +567,14 @@ func syncCodeList(names []string) string {
 func syncKeptByDeprecated(methods *Node, api, name string) bool {
 	for _, m := range methods.ObjKeys() {
 		e := methods.Get(m)
-		if e.Get("api").Text() == api && e.Path("components", "schemas", name) != nil {
+		entryAPI := e.Get("api").Text()
+		if entryAPI == "" { // an entry with operation_key only
+			entryAPI = "verification"
+			if strings.HasPrefix(e.Get("operation_key").Text(), "account ") {
+				entryAPI = "account"
+			}
+		}
+		if entryAPI == api && e.Path("components", "schemas", name) != nil {
 			return true
 		}
 	}

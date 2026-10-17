@@ -37,12 +37,12 @@ type SessionsService struct {
 // `session_numbers` or with `delete_all`:
 //   - Up to 20 matching sessions: they are deleted before the response, which
 //     is `200` with one entry per session in `results[]`.
-//   - More than 20: the response is `202` with a deletion job, and the sessions
-//     are deleted in the background. Poll `GET /v3/sessions/delete/{job_id}/`
-//     until `status` is `COMPLETED` or `FAILED`. A job reports counts per
-//     outcome, never which sessions it deleted. A `delete_all` job deletes only
-//     the sessions created before the request; sessions started while it runs
-//     are not deleted.
+//   - More than 20: the response is `202` with a deletion job, and the
+//     sessions are deleted in the background. Poll `GET
+//     /v3/sessions/delete/{job_id}/` until `status` is `COMPLETED` or
+//     `FAILED`. A job reports counts per outcome, never which sessions it
+//     deleted. A `delete_all` job deletes only the sessions created before the
+//     request; sessions started while it runs are not deleted.
 //
 // Each deleted session gets exactly the same treatment as the single-session
 // delete endpoint: the session, every verification attempt it holds, its
@@ -57,19 +57,19 @@ type SessionsService struct {
 // Deletion is permanent and irreversible.
 //
 // **Selection semantics:**
-//   - Entries in `session_numbers` that do not match a live KYC session in your
-//     application (unknown numbers, already-deleted sessions, or sessions owned
-//     by another application) are **silently skipped**: they do not appear in
-//     `results` and are not counted in a job's `total`.
+//   - Entries in `session_numbers` that do not match a live KYC session in
+//     your application (unknown numbers, already-deleted sessions, or sessions
+//     owned by another application) are **silently skipped**: they do not
+//     appear in `results` and are not counted in a job's `total`.
 //   - Validation failures (a non-numeric entry, an empty list, neither
 //     `session_numbers` nor `delete_all` provided, or a template retention the
 //     application cannot honour) reject the **whole request** with `400` and
 //     delete nothing.
-//   - Sessions are deleted in groups. If a group cannot be deleted (for example
-//     because a storage service is unavailable), every session in that group is
-//     reported as `face_retention_outcome: failed_retryable` and stays in
-//     place; the other groups are unaffected. Repeat the request for those
-//     sessions. A job retries such a group by itself.
+//   - Sessions are deleted in groups. If a group cannot be deleted (for
+//     example because a storage service is unavailable), every session in that
+//     group is reported as `face_retention_outcome: failed_retryable` and
+//     stays in place; the other groups are unaffected. Repeat the request for
+//     those sessions. A job retries such a group by itself.
 //   - There is no documented cap on the list length; the shared write rate
 //     limit (below) is the practical bound.
 //
@@ -191,11 +191,11 @@ func (r *SessionsService) Create(ctx context.Context, params SessionsCreateParam
 //     registry checks, IP analysis, and so on), its reviews and its activity
 //     log.
 //   - All stored files owned by the session: document front/back photos (full,
-//     cropped, and privacy-blurred variants), document-capture videos, portrait
-//     crops, NFC chip portrait and signature images, face reference images,
-//     liveness videos, face-match source/target images, Proof of Address
-//     documents, and any extra uploaded files (KYC); uploaded company documents
-//     and extra files (KYB). Previously issued media URLs
+//     cropped, and privacy-blurred variants), document-capture videos,
+//     portrait crops, NFC chip portrait and signature images, face reference
+//     images, liveness videos, face-match source/target images, Proof of
+//     Address documents, and any extra uploaded files (KYC); uploaded company
+//     documents and extra files (KYB). Previously issued media URLs
 //     (`https://<media-host>/...`) stop resolving.
 //   - The session's face data. Its face embedding is deleted too, unless you
 //     choose to keep an image-free template (see **Face biometric data**).
@@ -376,11 +376,11 @@ func (r *SessionsService) ImportShared(ctx context.Context, params SessionsImpor
 //     Backward-compatible behavior.
 //   - `business` - Business Verification (KYB) sessions only. Rows have a
 //     different, smaller shape (see the response schema).
-//   - `all` - both kinds in one response: the KYC page and the KYB page for the
-//     same `limit`/`offset` are concatenated in `results` (KYC rows first), so
-//     a page can contain up to `2 x limit` rows. `count` is the sum of both
-//     kinds and `next`/`previous` reflect the KYC-side pagination. For strict
-//     pagination of mixed data, call `user` and `business` separately.
+//   - `all` - both kinds in one response: the KYC page and the KYB page for
+//     the same `limit`/`offset` are concatenated in `results` (KYC rows
+//     first), so a page can contain up to `2 x limit` rows. `count` is the sum
+//     of both kinds and `next`/`previous` reflect the KYC-side pagination. For
+//     strict pagination of mixed data, call `user` and `business` separately.
 //
 // Every row carries a `session_kind` discriminator (`"user"` or `"business"`).
 //

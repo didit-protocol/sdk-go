@@ -677,8 +677,8 @@ type DigitalIDWalletAPIWalletNextAction struct {
 	// verification_code to the user, who checks it matches the code in their wallet
 	// app and confirms there; then poll.
 	//
-	//  - `redirect` - redirect
-	//  - `confirm_in_app` - confirm_in_app
+	//   - `redirect` - redirect
+	//   - `confirm_in_app` - confirm_in_app
 	Type DigitalIDWalletAPIWalletNextActionTypeEnum `json:"type"`
 
 	// redirect only: where the user signs in with the wallet.
@@ -818,7 +818,7 @@ type DigitalIDWalletAPIAudkenniWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the Auðkenni identity. Defaults to ISL, the
 	// only country it serves.
 	//
-	//  - `ISL` - ISL
+	//   - `ISL` - ISL
 	Country Opt[DigitalIDWalletAPIAudkenniWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -831,8 +831,8 @@ type DigitalIDWalletAPIAudkenniWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -904,7 +904,7 @@ type DigitalIDWalletAPIBankidCzWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the Bank iD identity. Defaults to CZE, the only
 	// country it serves.
 	//
-	//  - `CZE` - CZE
+	//   - `CZE` - CZE
 	Country Opt[DigitalIDWalletAPICountryE2dEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -917,8 +917,8 @@ type DigitalIDWalletAPIBankidCzWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -976,7 +976,7 @@ type DigitalIDWalletAPIBankidNoWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the BankID identity. Defaults to NOR, the only
 	// country it serves.
 	//
-	//  - `NOR` - NOR
+	//   - `NOR` - NOR
 	Country Opt[DigitalIDWalletAPICountryAfcEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -989,8 +989,8 @@ type DigitalIDWalletAPIBankidNoWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1048,7 +1048,7 @@ type DigitalIDWalletAPIBankidSeWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the BankID identity. Defaults to SWE, the only
 	// country it serves.
 	//
-	//  - `SWE` - SWE
+	//   - `SWE` - SWE
 	Country Opt[DigitalIDWalletAPICountryEe9enum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1061,8 +1061,8 @@ type DigitalIDWalletAPIBankidSeWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1120,7 +1120,7 @@ type DigitalIDWalletAPIBuypassWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the Buypass ID identity. Defaults to NOR, the
 	// only country it serves.
 	//
-	//  - `NOR` - NOR
+	//   - `NOR` - NOR
 	Country Opt[DigitalIDWalletAPICountryAfcEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1133,8 +1133,8 @@ type DigitalIDWalletAPIBuypassWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1181,7 +1181,7 @@ type DigitalIDWalletAPIConnectidWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the ConnectID identity. Defaults to AUS, the
 	// only country it serves.
 	//
-	//  - `AUS` - AUS
+	//   - `AUS` - AUS
 	Country Opt[DigitalIDWalletAPIConnectidWalletVerificationStartCountryEnum] `json:"country"`
 
 	// Authorisation server ID selected with ConnectID's bank selector. Sandbox
@@ -1198,8 +1198,8 @@ type DigitalIDWalletAPIConnectidWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1257,7 +1257,7 @@ type DigitalIDWalletAPIDiiaWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the Diia identity. Defaults to UKR, the only
 	// country it serves.
 	//
-	//  - `UKR` - UKR
+	//   - `UKR` - UKR
 	Country Opt[DigitalIDWalletAPIDiiaWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1270,8 +1270,8 @@ type DigitalIDWalletAPIDiiaWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1330,7 +1330,7 @@ type DigitalIDWalletAPIEparakstsMobileWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the eParaksts mobile identity. Defaults to LVA,
 	// the only country it serves.
 	//
-	//  - `LVA` - LVA
+	//   - `LVA` - LVA
 	Country Opt[DigitalIDWalletAPIEparakstsMobileWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1343,8 +1343,8 @@ type DigitalIDWalletAPIEparakstsMobileWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1404,36 +1404,36 @@ type DigitalIDWalletAPIEudiWalletVerificationStartRequest struct {
 
 	// ISO 3166-1 alpha-3 country of the EUDI Wallet identity.
 	//
-	//  - `AUT` - AUT
-	//  - `BEL` - BEL
-	//  - `BGR` - BGR
-	//  - `HRV` - HRV
-	//  - `CYP` - CYP
-	//  - `CZE` - CZE
-	//  - `DNK` - DNK
-	//  - `EST` - EST
-	//  - `FIN` - FIN
-	//  - `FRA` - FRA
-	//  - `DEU` - DEU
-	//  - `GRC` - GRC
-	//  - `HUN` - HUN
-	//  - `IRL` - IRL
-	//  - `ITA` - ITA
-	//  - `LVA` - LVA
-	//  - `LTU` - LTU
-	//  - `LUX` - LUX
-	//  - `MLT` - MLT
-	//  - `NLD` - NLD
-	//  - `POL` - POL
-	//  - `PRT` - PRT
-	//  - `ROU` - ROU
-	//  - `SVK` - SVK
-	//  - `SVN` - SVN
-	//  - `ESP` - ESP
-	//  - `SWE` - SWE
-	//  - `ISL` - ISL
-	//  - `LIE` - LIE
-	//  - `NOR` - NOR Required.
+	//   - `AUT` - AUT
+	//   - `BEL` - BEL
+	//   - `BGR` - BGR
+	//   - `HRV` - HRV
+	//   - `CYP` - CYP
+	//   - `CZE` - CZE
+	//   - `DNK` - DNK
+	//   - `EST` - EST
+	//   - `FIN` - FIN
+	//   - `FRA` - FRA
+	//   - `DEU` - DEU
+	//   - `GRC` - GRC
+	//   - `HUN` - HUN
+	//   - `IRL` - IRL
+	//   - `ITA` - ITA
+	//   - `LVA` - LVA
+	//   - `LTU` - LTU
+	//   - `LUX` - LUX
+	//   - `MLT` - MLT
+	//   - `NLD` - NLD
+	//   - `POL` - POL
+	//   - `PRT` - PRT
+	//   - `ROU` - ROU
+	//   - `SVK` - SVK
+	//   - `SVN` - SVN
+	//   - `ESP` - ESP
+	//   - `SWE` - SWE
+	//   - `ISL` - ISL
+	//   - `LIE` - LIE
+	//   - `NOR` - NOR Required.
 	Country DigitalIDWalletAPIEudiWalletVerificationStartCountryEnum `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1446,8 +1446,8 @@ type DigitalIDWalletAPIEudiWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1564,7 +1564,7 @@ type DigitalIDWalletAPIFranceconnectWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the FranceConnect identity. Defaults to FRA,
 	// the only country it serves.
 	//
-	//  - `FRA` - FRA
+	//   - `FRA` - FRA
 	Country Opt[DigitalIDWalletAPIFranceconnectWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1577,8 +1577,8 @@ type DigitalIDWalletAPIFranceconnectWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1638,7 +1638,7 @@ type DigitalIDWalletAPIFrejaidWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the Freja eID identity. Defaults to SWE, the
 	// only country it serves.
 	//
-	//  - `SWE` - SWE
+	//   - `SWE` - SWE
 	Country Opt[DigitalIDWalletAPICountryEe9enum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1651,8 +1651,8 @@ type DigitalIDWalletAPIFrejaidWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1698,7 +1698,7 @@ type DigitalIDWalletAPIFtnWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the Finnish Trust Network identity. Defaults to
 	// FIN, the only country it serves.
 	//
-	//  - `FIN` - FIN
+	//   - `FIN` - FIN
 	Country Opt[DigitalIDWalletAPIFtnWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1711,8 +1711,8 @@ type DigitalIDWalletAPIFtnWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1771,7 +1771,7 @@ type DigitalIDWalletAPIGovbrWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the gov.br identity. Defaults to BRA, the only
 	// country it serves.
 	//
-	//  - `BRA` - BRA
+	//   - `BRA` - BRA
 	Country Opt[DigitalIDWalletAPIGovbrWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1784,8 +1784,8 @@ type DigitalIDWalletAPIGovbrWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1844,7 +1844,7 @@ type DigitalIDWalletAPIGovukWalletWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the GOV.UK Wallet identity. Defaults to GBR,
 	// the only country it serves.
 	//
-	//  - `GBR` - GBR
+	//   - `GBR` - GBR
 	Country Opt[DigitalIDWalletAPICountry520enum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1857,8 +1857,8 @@ type DigitalIDWalletAPIGovukWalletWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1916,7 +1916,7 @@ type DigitalIDWalletAPIIdcardEeWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the Estonian ID-card identity. Defaults to EST,
 	// the only country it serves.
 	//
-	//  - `EST` - EST
+	//   - `EST` - EST
 	Country Opt[DigitalIDWalletAPIIdcardEeWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -1929,8 +1929,8 @@ type DigitalIDWalletAPIIdcardEeWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -1988,7 +1988,7 @@ type DigitalIDWalletAPIIdinWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the iDIN identity. Defaults to NLD, the only
 	// country it serves.
 	//
-	//  - `NLD` - NLD
+	//   - `NLD` - NLD
 	Country Opt[DigitalIDWalletAPIIdinWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -2001,8 +2001,8 @@ type DigitalIDWalletAPIIdinWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -2060,9 +2060,9 @@ type DigitalIDWalletAPIItsmeWalletVerificationStartRequest struct {
 
 	// ISO 3166-1 alpha-3 country of the itsme identity.
 	//
-	//  - `BEL` - BEL
-	//  - `LUX` - LUX
-	//  - `NLD` - NLD Required.
+	//   - `BEL` - BEL
+	//   - `LUX` - LUX
+	//   - `NLD` - NLD Required.
 	Country DigitalIDWalletAPIItsmeWalletVerificationStartCountryEnum `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -2075,8 +2075,8 @@ type DigitalIDWalletAPIItsmeWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -2139,7 +2139,7 @@ type DigitalIDWalletAPIMitidWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the MitID identity. Defaults to DNK, the only
 	// country it serves.
 	//
-	//  - `DNK` - DNK
+	//   - `DNK` - DNK
 	Country Opt[DigitalIDWalletAPIMitidWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -2152,8 +2152,8 @@ type DigitalIDWalletAPIMitidWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -2211,8 +2211,8 @@ type DigitalIDWalletAPIMobileIDWalletVerificationStartRequest struct {
 
 	// ISO 3166-1 alpha-3 country of the Mobile-ID identity.
 	//
-	//  - `EST` - EST
-	//  - `LTU` - LTU Required.
+	//   - `EST` - EST
+	//   - `LTU` - LTU Required.
 	Country DigitalIDWalletAPIMobileIDWalletVerificationStartCountryEnum `json:"country"`
 
 	// The user's national personal identification code. It addresses the user's
@@ -2281,7 +2281,7 @@ type DigitalIDWalletAPIMojeidWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the MojeID identity. Defaults to CZE, the only
 	// country it serves.
 	//
-	//  - `CZE` - CZE
+	//   - `CZE` - CZE
 	Country Opt[DigitalIDWalletAPICountryE2dEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -2294,8 +2294,8 @@ type DigitalIDWalletAPIMojeidWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -2342,7 +2342,7 @@ type DigitalIDWalletAPIOneidWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the OneID identity. Defaults to GBR, the only
 	// country it serves.
 	//
-	//  - `GBR` - GBR
+	//   - `GBR` - GBR
 	Country Opt[DigitalIDWalletAPICountry520enum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -2355,8 +2355,8 @@ type DigitalIDWalletAPIOneidWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -2403,7 +2403,7 @@ type DigitalIDWalletAPIPersonalausweisWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the Personalausweis identity. Defaults to DEU,
 	// the only country it serves.
 	//
-	//  - `DEU` - DEU
+	//   - `DEU` - DEU
 	Country Opt[DigitalIDWalletAPIPersonalausweisWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -2416,8 +2416,8 @@ type DigitalIDWalletAPIPersonalausweisWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -2476,10 +2476,10 @@ type DigitalIDWalletAPISmartIDWalletVerificationStartRequest struct {
 
 	// ISO 3166-1 alpha-3 country of the Smart-ID identity.
 	//
-	//  - `EST` - EST
-	//  - `LVA` - LVA
-	//  - `LTU` - LTU
-	//  - `BEL` - BEL Required.
+	//   - `EST` - EST
+	//   - `LVA` - LVA
+	//   - `LTU` - LTU
+	//   - `BEL` - BEL Required.
 	Country DigitalIDWalletAPISmartIDWalletVerificationStartCountryEnum `json:"country"`
 
 	// The user's national personal identification code. It addresses the user's
@@ -2549,7 +2549,7 @@ type DigitalIDWalletAPIUaePassWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the UAE PASS identity. Defaults to ARE, the
 	// only country it serves.
 	//
-	//  - `ARE` - ARE
+	//   - `ARE` - ARE
 	Country Opt[DigitalIDWalletAPIUaePassWalletVerificationStartCountryEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -2562,8 +2562,8 @@ type DigitalIDWalletAPIUaePassWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 
@@ -2622,7 +2622,7 @@ type DigitalIDWalletAPIVippsWalletVerificationStartRequest struct {
 	// ISO 3166-1 alpha-3 country of the Vipps identity. Defaults to NOR, the only
 	// country it serves.
 	//
-	//  - `NOR` - NOR
+	//   - `NOR` - NOR
 	Country Opt[DigitalIDWalletAPICountryAfcEnum] `json:"country"`
 
 	// https URL the user's browser returns to after the wallet, with request_id and
@@ -2635,8 +2635,8 @@ type DigitalIDWalletAPIVippsWalletVerificationStartRequest struct {
 	// same_device when the user signs in on the device showing your page,
 	// cross_device when they use another one (e.g. BankID's QR code).
 	//
-	//  - `same_device` - same_device
-	//  - `cross_device` - cross_device
+	//   - `same_device` - same_device
+	//   - `cross_device` - cross_device
 	Device Opt[DigitalIDWalletAPIDeviceEnum] `json:"device"`
 }
 

@@ -112,15 +112,15 @@ func (r FraudCheckSubjectRequest) MarshalJSON() ([]byte, error) {
 type FraudCheckIdentifierRequest struct {
 	// Identifier type. Determines which namespace fields are required.
 	//
-	//  - `email` - Email
-	//  - `phone` - Phone
-	//  - `national_id` - National Id
-	//  - `tax_number` - Tax Number
-	//  - `passport_number` - Passport Number
-	//  - `driving_licence_number` - Driving Licence Number
-	//  - `residence_permit_number` - Residence Permit Number
-	//  - `voter_id` - Voter Id
-	//  - `external_id` - External Id Required.
+	//   - `email` - Email
+	//   - `phone` - Phone
+	//   - `national_id` - National Id
+	//   - `tax_number` - Tax Number
+	//   - `passport_number` - Passport Number
+	//   - `driving_licence_number` - Driving Licence Number
+	//   - `residence_permit_number` - Residence Permit Number
+	//   - `voter_id` - Voter Id
+	//   - `external_id` - External Id Required.
 	Type FraudTypeEnum `json:"type"`
 
 	// The identifier value, in any customary format. Required.
