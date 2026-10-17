@@ -385,6 +385,12 @@ func (g *Gen) buildResult(op *Operation, m *Method, prefix string) error {
 				break
 			}
 		}
+		if m.ResponseStatus != "" && m.ResponseStatus != "204" {
+			// A success other than 204 can carry a body even when the spec
+			// declares no content: return it undecoded instead of dropping it.
+			m.Return = RetJSON
+			m.Result = &GoType{Kind: TRaw}
+		}
 		return nil
 	}
 	m.ResponseStatus = statuses[0]
