@@ -291,10 +291,22 @@ func methodDoc(m *Method) string {
 	if m.Op.Naming.Scope == "application" {
 		parts = append(parts, "The organization and application ids come from the client options.")
 	}
-	if dep := m.Op.Deprecated; dep != nil {
-		parts = append(parts, dep.Notice())
+	if notice := deprecationNotice(m); notice != "" {
+		parts = append(parts, notice)
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// deprecationNotice returns the Deprecated: paragraph of a method kept from
+// openapi/deprecated-operations.json or marked deprecated upstream, or "".
+func deprecationNotice(m *Method) string {
+	if dep := m.Op.Deprecated; dep != nil {
+		return dep.Notice()
+	}
+	if m.Op.Node.Get("deprecated").Truthy() {
+		return "Deprecated: the API marks this operation as deprecated; see its documentation for the replacement."
+	}
+	return ""
 }
 
 func emitMethod(b *bytes.Buffer, s *Service, m *Method) {
@@ -337,7 +349,11 @@ func emitMethod(b *bytes.Buffer, s *Service, m *Method) {
 	}
 	b.WriteString("}\n\n")
 	if m.Return == RetPage {
-		writeDoc(b, "", fmt.Sprintf("%sAutoPaging iterates over every item of every page of %s, fetching pages as needed.", m.GoName, m.GoName))
+		doc := fmt.Sprintf("%sAutoPaging iterates over every item of every page of %s, fetching pages as needed.", m.GoName, m.GoName)
+		if notice := deprecationNotice(m); notice != "" {
+			doc += "\n\n" + notice
+		}
+		writeDoc(b, "", doc)
 		fmt.Fprintf(b, "func (r *%s) %sAutoPaging(%s) *PageIterator[%s] {\n", s.TypeName, m.GoName, strings.Join(args, ", "), m.Result.Go())
 		var callArgs []string
 		callArgs = append(callArgs, "ctx")
