@@ -66,17 +66,14 @@ func main() {
 	if err != nil {
 		fail("render PDF", err)
 	}
-	defer resp.Body.Close()
 
+	// The PDF is streamed: copy the body to a file, then close both.
 	file, err := os.Create(*out)
 	if err != nil {
 		log.Fatal(err)
 	}
 	n, err := io.Copy(file, resp.Body)
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
+	if err = errors.Join(err, resp.Body.Close(), file.Close()); err != nil {
 		log.Fatalf("save PDF: %v", err)
 	}
 	fmt.Printf("saved %s (%d bytes, %s)\n", *out, n, resp.Header.Get("Content-Type"))

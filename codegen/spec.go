@@ -335,11 +335,11 @@ func (s *Spec) deprecatedOperation(name string, e *Node, live map[string]string)
 		return nil, fmt.Errorf("not an object")
 	}
 	nm, ok, err := namingOf(e.Get("x-didit-sdk"))
+	if err != nil {
+		return nil, fmt.Errorf("x-didit-sdk: %w", err)
+	}
 	if !ok {
-		if err == nil {
-			err = fmt.Errorf("missing")
-		}
-		return nil, fmt.Errorf("x-didit-sdk: %v", err)
+		return nil, fmt.Errorf("x-didit-sdk is missing")
 	}
 	if id := nm.Resource + "." + nm.Method; id != name {
 		return nil, fmt.Errorf("the entry name must equal its x-didit-sdk resource.method (%s)", id)

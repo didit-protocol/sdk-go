@@ -132,7 +132,9 @@ func (c syncCommand) run() error {
 			return err
 		}
 	}
-	fmt.Fprint(c.stdout, res.summary)
+	if _, err := fmt.Fprint(c.stdout, res.summary); err != nil {
+		return err
+	}
 	if c.githubOutput != "" {
 		f, err := os.OpenFile(c.githubOutput, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
@@ -162,7 +164,7 @@ func syncFetch(client *http.Client, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: HTTP %s", url, resp.Status)
 	}
