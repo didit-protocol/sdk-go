@@ -82,7 +82,8 @@ type APIStatusError struct {
 	// RawBody is the response body as received.
 	RawBody []byte
 	Header  http.Header
-	// RequestID is the value of the X-Request-Id response header, if any.
+	// RequestID is the request id of the response (X-Request-Id, Request-Id,
+	// X-Amzn-Requestid or X-Correlation-Id), if any.
 	RequestID string
 	Method    string
 	// URL is the request URL without query string or credentials.

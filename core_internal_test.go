@@ -200,3 +200,15 @@ func TestFileLoadErrors(t *testing.T) {
 type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, http.ErrBodyReadAfterClose }
+
+func TestRequestIDHeaders(t *testing.T) {
+	if got := requestIDOf(http.Header{"X-Correlation-Id": {"c1"}}); got != "c1" {
+		t.Errorf("got %q", got)
+	}
+	if got := requestIDOf(http.Header{"Request-Id": {"r1"}, "X-Request-Id": {"x1"}}); got != "x1" {
+		t.Errorf("X-Request-Id should win, got %q", got)
+	}
+	if requestIDOf(http.Header{}) != "" {
+		t.Error("empty")
+	}
+}

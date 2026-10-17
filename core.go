@@ -306,7 +306,7 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 	if resp.Request == nil {
 		resp.Request = req
 	}
-	requestID := resp.Header.Get("X-Request-Id")
+	requestID := requestIDOf(resp.Header)
 	if r.binary && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
 		logAttempt(ctx, cfg, r.method, u, resp.StatusCode, requestID, time.Since(start), attempt, nil)
@@ -357,6 +357,19 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 		retryable = retryable || status == http.StatusRequestTimeout || (status >= 500 && status <= 599)
 	}
 	return resp, retryable, NewAPIStatusError(statusErr)
+}
+
+// requestIDHeaders are the response headers that may carry the request id,
+// in order (the same list as the other Didit SDKs).
+var requestIDHeaders = []string{"X-Request-Id", "Request-Id", "X-Amzn-Requestid", "X-Correlation-Id"}
+
+func requestIDOf(h http.Header) string {
+	for _, name := range requestIDHeaders {
+		if v := h.Get(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 type cancelOnClose struct {
