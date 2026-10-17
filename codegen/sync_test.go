@@ -488,11 +488,12 @@ func TestSyncKeepsRenamedMethodAsDeprecatedAlias(t *testing.T) {
 	if entry.Get("reason").Text() != "renamed" || entry.Get("replacement").Text() != "billing.get_balance" {
 		t.Errorf("entry = %s", entry.JSON())
 	}
-	// The overlay entry differs from upstream: kept, and the summary says so.
+	// Upstream wins: the overlay entry is deleted, and the summary says so.
 	expectContains(t, section(summary, "Overlay"),
-		"- `GET /v3/billing/balance/`: upstream x-didit-sdk {\"auth\": \"api_key\", \"method\": \"get_balance\", \"resource\": \"billing\", \"server\": true} differs from the overlay entry {\"auth\": \"api_key\", \"method\": \"retrieve_balance\", \"resource\": \"billing\", \"server\": true}")
-	if f.node("overlay.json").Path("operations", "GET /v3/billing/balance/") == nil {
-		t.Error("the differing overlay entry was dropped")
+		"- `GET /v3/billing/balance/`: upstream x-didit-sdk {\"auth\": \"api_key\", \"method\": \"get_balance\", \"resource\": \"billing\", \"server\": true} differs from the overlay entry {\"auth\": \"api_key\", \"method\": \"retrieve_balance\", \"resource\": \"billing\", \"server\": true}; upstream wins and the entry was deleted; `billing.retrieve_balance` stays as a deprecated alias of `billing.get_balance` until version 0.5.0.",
+		"Dropped 1 overlay entries that upstream now carries.")
+	if f.node("overlay.json").Path("operations", "GET /v3/billing/balance/") != nil {
+		t.Error("the overlay entry upstream overrides was kept")
 	}
 
 	// Both methods exist; the old one is unchanged but for its Deprecated
@@ -520,8 +521,7 @@ func TestSyncKeepsRenamedMethodAsDeprecatedAlias(t *testing.T) {
 	op.Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "retrieve_balance", "auth": "api_key", "server": true}`))
 	summary = f.syncVerification(doc)
 	expectContains(t, summary,
-		"- `billing.retrieve_balance` is provided again by `GET /v3/billing/balance/`; its deprecation entry was dropped.",
-		"Dropped 1 overlay entries that upstream now carries.")
+		"- `billing.retrieve_balance` is provided again by `GET /v3/billing/balance/`; its deprecation entry was dropped.")
 	methods := f.deprecated()
 	if got := methods.ObjKeys(); !reflect.DeepEqual(got, []string{"billing.get_balance"}) {
 		t.Fatalf("deprecated methods = %v", got)
@@ -633,27 +633,54 @@ func TestSyncOperationThatLosesItsNamingIsCalledOut(t *testing.T) {
 func TestSyncOverlayEntries(t *testing.T) {
 	f := newSyncFixture(t)
 	doc := f.node("verification.json")
-	// Upstream carries the overlay's naming: the entry is dropped.
+	// Upstream carries the overlay's naming (keys in another order).
 	doc.Path("paths", "/v3/session/", "post").Set("x-didit-sdk", mustNode(t, `{"server": true, "resource": "sessions", "method": "create", "auth": "api_key"}`))
-	// Upstream carries a different naming (same name, other auth): kept.
-	doc.Path("paths", "/v3/billing/top-up/", "post").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "top_up", "auth": "account_token", "server": true}`))
+	// Upstream carries another name: a rename.
+	doc.Path("paths", "/v3/billing/top-up/", "post").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "buy_credits", "auth": "api_key", "server": true}`))
+	// Upstream carries the same name with another auth.
+	doc.Path("paths", "/v3/session/{session_id}/decision/", "get").Set("x-didit-sdk", mustNode(t, `{"resource": "sessions", "method": "retrieve_decision", "auth": "account_token", "server": true}`))
 	summary := f.syncVerification(doc)
 
-	expectContains(t, section(summary, "Overlay"),
-		"- `POST /v3/billing/top-up/`: upstream x-didit-sdk {\"auth\": \"account_token\", \"method\": \"top_up\", \"resource\": \"billing\", \"server\": true} differs from the overlay entry {\"auth\": \"api_key\", \"method\": \"top_up\", \"resource\": \"billing\", \"server\": true}; upstream wins, and the overlay entry is kept for review",
-		"Dropped 1 overlay entries that upstream now carries.")
-	expectContains(t, section(summary, "Changed operations (2)"),
-		"- `POST /v3/billing/top-up/`: x-didit-sdk now {\"auth\": \"account_token\", \"method\": \"top_up\", \"resource\": \"billing\", \"server\": true}")
+	// Every overlay entry upstream now carries is deleted; the identical one
+	// only counts in the note.
+	overlay := section(summary, "Overlay")
+	expectContains(t, overlay,
+		"- `POST /v3/billing/top-up/`: upstream x-didit-sdk {\"auth\": \"api_key\", \"method\": \"buy_credits\", \"resource\": \"billing\", \"server\": true} differs from the overlay entry {\"auth\": \"api_key\", \"method\": \"top_up\", \"resource\": \"billing\", \"server\": true}; upstream wins and the entry was deleted; `billing.top_up` stays as a deprecated alias of `billing.buy_credits` until version 0.5.0.",
+		"- `GET /v3/session/{session_id}/decision/`: upstream x-didit-sdk {\"auth\": \"account_token\", \"method\": \"retrieve_decision\", \"resource\": \"sessions\", \"server\": true} differs from the overlay entry {\"auth\": \"api_key\", \"method\": \"retrieve_decision\", \"resource\": \"sessions\", \"server\": true}; upstream wins and the entry was deleted.",
+		"Dropped 3 overlay entries that upstream now carries.")
+	if strings.Contains(overlay, "`POST /v3/session/`") {
+		t.Error("the identical overlay entry is reported as different")
+	}
 	ops := f.node("overlay.json").Get("operations")
-	if ops.Has("POST /v3/session/") {
-		t.Error("the overlay entry upstream carries identically was kept")
+	for _, key := range []string{"POST /v3/session/", "POST /v3/billing/top-up/", "GET /v3/session/{session_id}/decision/"} {
+		if ops.Has(key) {
+			t.Errorf("overlay entry %s was kept", key)
+		}
 	}
-	if !ops.Has("POST /v3/billing/top-up/") {
-		t.Error("the overlay entry that differs from upstream was dropped")
+	if !ops.Has("GET /v3/billing/balance/") || !ops.Has("account GET /organizations/") {
+		t.Error("overlay entries upstream does not carry were deleted")
 	}
-	if got := f.deprecated().ObjKeys(); len(got) != 0 {
-		t.Errorf("deprecated methods = %v", got)
+
+	// The different name goes through the rename path; the different auth
+	// is breaking too.
+	expectContains(t, section(summary, "Breaking changes"),
+		"`billing.top_up` was renamed upstream to `billing.buy_credits` (POST /v3/billing/top-up/); the old name is a deprecated alias until version 0.5.0",
+		"`sessions.retrieve_decision` (GET /v3/session/{session_id}/decision/): x-didit-sdk auth changed from \"api_key\" to \"account_token\"")
+	expectContains(t, section(summary, "Renamed methods (1)"),
+		"- `POST /v3/billing/top-up/`: `billing.top_up` renamed to `billing.buy_credits`")
+	methods := f.deprecated()
+	if got := methods.ObjKeys(); !reflect.DeepEqual(got, []string{"billing.top_up"}) {
+		t.Fatalf("deprecated methods = %v", got)
 	}
+	if e := methods.Get("billing.top_up"); e.Get("reason").Text() != "renamed" || e.Get("replacement").Text() != "billing.buy_credits" {
+		t.Errorf("entry = %s", e.JSON())
+	}
+	billing := f.generate()["billing_gen.go"]
+	expectContains(t, billing,
+		"func (r *BillingService) BuyCredits(",
+		"func (r *BillingService) TopUp(",
+		"// Deprecated: Use [BillingService.BuyCredits] instead;")
+
 	// The overlay keeps the seeded layout.
 	raw := string(f.read("overlay.json"))
 	if raw != syncEncode(mustNode(t, raw), syncFileStyle) || strings.HasSuffix(raw, "\n") {
