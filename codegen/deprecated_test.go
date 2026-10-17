@@ -42,13 +42,18 @@ func expiredDeprecations(data []byte, current string) ([]string, error) {
 // method stays deprecated for one minor version, and the release that
 // reaches remove_in deletes it.
 func TestDeprecatedMethodsExpire(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "openapi", "deprecated-operations.json"))
+	expectNoExpiredDeprecations(t, filepath.Join("..", "openapi", "deprecated-operations.json"))
+}
+
+func expectNoExpiredDeprecations(t *testing.T, file string) {
+	t.Helper()
+	data, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
 	expired, err := expiredDeprecations(data, version.Version)
 	if err != nil {
-		t.Fatalf("openapi/deprecated-operations.json: %v", err)
+		t.Fatalf("%s: %v", file, err)
 	}
 	for _, msg := range expired {
 		t.Error(msg)
