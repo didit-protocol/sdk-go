@@ -213,8 +213,8 @@ func (g *Gen) buildParams(op *Operation, m *Method, prefix string, params []*Nod
 		content := rb.Get("content")
 		jsonSchema = content.Path("application/json", "schema")
 		formSchema = content.Path("multipart/form-data", "schema")
-		if jsonSchema == nil && formSchema == nil && len(content.Keys) > 0 {
-			return fmt.Errorf("unsupported request content types %v", content.Keys)
+		if jsonSchema == nil && formSchema == nil && len(content.ObjKeys()) > 0 {
+			return fmt.Errorf("unsupported request content types %v", content.ObjKeys())
 		}
 		// DRF lists the same serializer for JSON, form and multipart: JSON.
 		if jsonSchema != nil && formSchema != nil && jsonSchema.SortedJSON() == formSchema.SortedJSON() {
@@ -354,13 +354,13 @@ func (g *Gen) buildResult(op *Operation, m *Method, prefix string) error {
 	var jsonExamples []*Node
 	var statuses []string
 	schemaless := false
-	for _, code := range responses.Keys {
+	for _, code := range responses.ObjKeys() {
 		if !strings.HasPrefix(code, "2") {
 			continue
 		}
 		r := op.Doc.Resolve(responses.Get(code))
 		content := r.Get("content")
-		if content == nil || len(content.Keys) == 0 {
+		if content == nil || len(content.ObjKeys()) == 0 {
 			continue
 		}
 		if media := content.Get("application/json"); media != nil {
@@ -374,14 +374,14 @@ func (g *Gen) buildResult(op *Operation, m *Method, prefix string) error {
 			continue
 		}
 		m.Return = RetBinary
-		m.BinaryType = content.Keys[0]
-		m.Accept = strings.Join(content.Keys, ", ")
+		m.BinaryType = content.ObjKeys()[0]
+		m.Accept = strings.Join(content.ObjKeys(), ", ")
 		m.ResponseStatus = code
 		return nil
 	}
 	if len(statuses) == 0 {
 		m.Return = RetNone
-		for _, code := range responses.Keys {
+		for _, code := range responses.ObjKeys() {
 			if strings.HasPrefix(code, "2") {
 				m.ResponseStatus = code
 				break
@@ -412,7 +412,7 @@ func (g *Gen) buildResult(op *Operation, m *Method, prefix string) error {
 	name := prefix + "Response"
 	var t *GoType
 	var err error
-	if len(jsonSchemas) == 1 || allSame(jsonSchemas) {
+	if len(jsonSchemas) == 1 || allSame(op.Doc, jsonSchemas) {
 		t, err = g.typeOf(op.Doc, jsonSchemas[0], name, Response)
 	} else if allObjects(op.Doc, jsonSchemas) {
 		t, err = g.structType(op.Doc, name, Response, jsonSchemas, true, "")

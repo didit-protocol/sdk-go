@@ -192,7 +192,7 @@ func (g *Gen) markUsage() {
 	for _, op := range g.spec.ServerOps() {
 		if rb := op.Doc.Resolve(op.Node.Get("requestBody")); rb != nil {
 			content := rb.Get("content")
-			for _, ct := range content.Keys {
+			for _, ct := range content.ObjKeys() {
 				g.walkUsage(op.Doc, content.Get(ct).Get("schema"), useRequest, map[string]bool{})
 			}
 		}
@@ -200,13 +200,13 @@ func (g *Gen) markUsage() {
 			g.walkUsage(op.Doc, p.Get("schema"), useRequest, map[string]bool{})
 		}
 		responses := op.Node.Get("responses")
-		for _, code := range responses.Keys {
+		for _, code := range responses.ObjKeys() {
 			if !strings.HasPrefix(code, "2") {
 				continue
 			}
 			r := op.Doc.Resolve(responses.Get(code))
 			content := r.Get("content")
-			for _, ct := range content.Keys {
+			for _, ct := range content.ObjKeys() {
 				g.walkUsage(op.Doc, content.Get(ct).Get("schema"), useResponse, map[string]bool{})
 			}
 		}
@@ -327,6 +327,10 @@ func (g *Gen) typeOf(doc *Doc, s *Node, name string, side Side) (*GoType, error)
 		return &GoType{Kind: TAny}, nil
 	}
 	if ref := s.Get("$ref").Text(); ref != "" {
+		if !strings.HasPrefix(ref, "#/components/schemas/") {
+			// A reference to an inline schema elsewhere: treat it as inline.
+			return g.typeOf(doc, doc.Lookup(ref), name, side)
+		}
 		return g.component(doc, ref, side)
 	}
 	if all := s.Get("allOf"); all != nil && len(all.Arr) > 0 {
@@ -468,7 +472,7 @@ func (g *Gen) structType(doc *Doc, name string, side Side, parts []*Node, union 
 		var ft *GoType
 		var err error
 		childName := name + fieldName(pn)
-		if len(p.schemas) == 1 || allSame(p.schemas) {
+		if len(p.schemas) == 1 || allSame(doc, p.schemas) {
 			ft, err = g.typeOf(doc, p.schemas[0], childName, side)
 		} else {
 			ft, err = g.mergedType(doc, p.schemas, childName, side)
@@ -548,10 +552,16 @@ func (g *Gen) collectProps(doc *Doc, parts []*Node) (map[string]*propInfo, []str
 	return props, order, len(parts)
 }
 
-func allSame(nodes []*Node) bool {
-	first := nodes[0].SortedJSON()
+func allSame(doc *Doc, nodes []*Node) bool {
+	resolve := func(n *Node) *Node {
+		if ref := n.Get("$ref").Text(); ref != "" && !strings.HasPrefix(ref, "#/components/schemas/") {
+			return doc.Lookup(ref)
+		}
+		return n
+	}
+	first := resolve(nodes[0]).SortedJSON()
 	for _, n := range nodes[1:] {
-		if n.SortedJSON() != first {
+		if resolve(n).SortedJSON() != first {
 			return false
 		}
 	}
@@ -560,7 +570,7 @@ func allSame(nodes []*Node) bool {
 
 // mergedType combines the schemas a property has in several variants.
 func (g *Gen) mergedType(doc *Doc, nodes []*Node, name string, side Side) (*GoType, error) {
-	if allSame(nodes) {
+	if allSame(doc, nodes) {
 		return g.typeOf(doc, nodes[0], name, side)
 	}
 	if allObjects(doc, nodes) {

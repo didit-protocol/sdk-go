@@ -120,7 +120,7 @@ func mustVerify(t *testing.T, body []byte, h http.Header, secret string, opts ..
 }
 
 type vectorFile struct {
-	TolerenceSeconds int      `json:"tolerance_seconds"`
+	ToleranceSeconds int      `json:"tolerance_seconds"`
 	Vectors          []vector `json:"vectors"`
 }
 
@@ -156,8 +156,8 @@ func loadVectors(t *testing.T) vectorFile {
 	if len(f.Vectors) != 25 {
 		t.Fatalf("got %d vectors, want 25", len(f.Vectors))
 	}
-	if f.TolerenceSeconds != int(webhook.DefaultTolerance/time.Second) {
-		t.Fatalf("vectors use tolerance %d s, DefaultTolerance is %s", f.TolerenceSeconds, webhook.DefaultTolerance)
+	if f.ToleranceSeconds != int(webhook.DefaultTolerance/time.Second) {
+		t.Fatalf("vectors use tolerance %d s, DefaultTolerance is %s", f.ToleranceSeconds, webhook.DefaultTolerance)
 	}
 	return f
 }

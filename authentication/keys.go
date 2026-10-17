@@ -2,13 +2,10 @@ package authentication
 
 import (
 	"context"
-	"crypto/ecdh"
 	"crypto/ecdsa"
-	"crypto/elliptic"
-	"encoding/base64"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -219,13 +216,24 @@ func parseJWK(raw json.RawMessage) (string, *ecdsa.PublicKey, bool) {
 	if !okX || !okY {
 		return "", nil, false
 	}
-	point := make([]byte, 0, 65)
-	point = append(append(append(point, 4), x...), y...)
-	// crypto/ecdh rejects points that are not on the curve.
-	if _, err := ecdh.P256().NewPublicKey(point); err != nil {
+	// Parsing the key as a SubjectPublicKeyInfo checks that the point is on
+	// the curve, and needs neither the raw coordinate fields (deprecated
+	// since Go 1.25) nor ecdsa.ParseUncompressedPublicKey (Go 1.25+).
+	der := make([]byte, 0, len(p256SPKIPrefix)+65)
+	der = append(append(append(append(der, p256SPKIPrefix...), 4), x...), y...)
+	pub, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
 		return "", nil, false
 	}
-	return k.Kid, &ecdsa.PublicKey{Curve: elliptic.P256(), X: new(big.Int).SetBytes(x), Y: new(big.Int).SetBytes(y)}, true
+	key, ok := pub.(*ecdsa.PublicKey)
+	return k.Kid, key, ok
+}
+
+// p256SPKIPrefix is the DER SubjectPublicKeyInfo header (id-ecPublicKey,
+// prime256v1) of an uncompressed P-256 point.
+var p256SPKIPrefix = []byte{
+	0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
+	0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
 }
 
 // coordinate decodes a P-256 coordinate: unpadded base64url of exactly 32
@@ -234,7 +242,7 @@ func coordinate(s string) ([]byte, bool) {
 	if !isBase64URL(s) {
 		return nil, false
 	}
-	b, err := base64.RawURLEncoding.Strict().DecodeString(s)
+	b, err := rawURL.DecodeString(s)
 	return b, err == nil && len(b) == 32
 }
 
