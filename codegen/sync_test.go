@@ -159,12 +159,12 @@ func newSyncFixture(t *testing.T) *syncFixture {
 	f.writeNode("account.json", mustNode(t, fixtureAccount))
 	f.writeNode("overlay.json", mustNode(t, fixtureOverlay))
 	f.writeNode("SOURCE.json", mustNode(t, fixtureSource))
-	// The repository's own (empty) file, so the fixture starts like the SDK.
-	data, err := os.ReadFile(filepath.Join("..", "openapi", "deprecated-operations.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.write("deprecated-operations.json", data)
+	// An empty file of its own, like the one the SDK was seeded with. Not the
+	// repository's: the first sync that deprecates a method fills that one.
+	deprecated := syncObject()
+	deprecated.Set("description", syncString(syncDeprecatedDescription))
+	deprecated.Set("methods", syncObject())
+	f.write("deprecated-operations.json", []byte(syncEncode(deprecated, syncFileStyle)+"\n"))
 	return f
 }
 
