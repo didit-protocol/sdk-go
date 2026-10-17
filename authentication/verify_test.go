@@ -501,7 +501,7 @@ func TestVerifyReturnsFetchErrors(t *testing.T) {
 		stub := newStub(t, key)
 		c := newTestClient(t, stub, newClock())
 		c.discovery = &discoveryState{tokenURL: testIssuer + "/token/", jwksURL: testIssuer + jwksPath, expiry: testNow.Add(time.Hour)}
-		c.keysSem <- struct{}{} // another caller is fetching the key set
+		c.keysFlight = &flight{done: make(chan struct{})} // another caller is fetching the key set
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		_, err := c.VerifyAccessToken(ctx, token)
@@ -509,15 +509,80 @@ func TestVerifyReturnsFetchErrors(t *testing.T) {
 		if !errors.As(err, &conn) || !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v (%T), want APIConnectionError wrapping context.Canceled", err, err)
 		}
-		<-c.keysSem
+
+		c.keysFlight = nil
 		c.discovery = nil
-		c.discoverySem <- struct{}{} // another caller is fetching discovery
+		c.discoveryFlight = &flight{done: make(chan struct{})} // another caller is fetching discovery
 		_, err = c.publicKey(ctx, "k_one")
 		if !errors.As(err, &conn) || !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v (%T), want APIConnectionError wrapping context.Canceled", err, err)
 		}
 		if len(stub.all()) != 0 {
 			t.Fatal("requests were sent")
+		}
+		if !c.keysFetch.IsZero() {
+			t.Fatal("an abandoned fetch used up the refetch allowance")
+		}
+	})
+
+	t.Run("waiters share a failed fetch", func(t *testing.T) {
+		stub := newStub(t, key)
+		c := newTestClient(t, stub, newClock())
+		shared := errors.New("shared failure")
+		done := make(chan struct{})
+		close(done)
+		c.keysFlight = &flight{done: done, err: shared}
+		c.discoveryFlight = &flight{done: done, err: shared}
+		if _, err := c.publicKey(context.Background(), "k_one"); !errors.Is(err, shared) {
+			t.Fatalf("error = %v, want the shared error", err)
+		}
+		if _, err := c.metadata(context.Background()); !errors.Is(err, shared) {
+			t.Fatalf("error = %v, want the shared error", err)
+		}
+		if len(stub.all()) != 0 {
+			t.Fatal("waiters fetched again")
+		}
+	})
+
+	t.Run("a waiter takes over when the fetching caller gives up", func(t *testing.T) {
+		stub := newStub(t, key)
+		started := make(chan struct{})
+		var once sync.Once
+		stub.setTransportError(func(r *http.Request) error {
+			first := false
+			if r.URL.Path == jwksPath {
+				once.Do(func() { first = true })
+			}
+			if first {
+				close(started)
+				<-r.Context().Done()
+				return r.Context().Err()
+			}
+			return nil
+		})
+		c := newTestClient(t, stub, newClock())
+		leaderCtx, cancel := context.WithCancel(context.Background())
+		leaderErr := make(chan error, 1)
+		go func() {
+			_, err := c.VerifyAccessToken(leaderCtx, token)
+			leaderErr <- err
+		}()
+		<-started
+		waiterErr := make(chan error, 1)
+		go func() {
+			_, err := c.VerifyAccessToken(context.Background(), token)
+			waiterErr <- err
+		}()
+		time.Sleep(20 * time.Millisecond) // let the waiter reach the fetch in progress
+		cancel()
+		if err := <-leaderErr; !errors.Is(err, context.Canceled) {
+			t.Fatalf("leader error = %v, want context.Canceled", err)
+		}
+		if err := <-waiterErr; err != nil {
+			t.Fatalf("waiter error = %v", err)
+		}
+		if n := stub.count(jwksPath); n != 2 {
+			t.Fatalf("jwks fetches = %d, want 2", n)
 		}
 	})
 }
