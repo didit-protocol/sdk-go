@@ -412,6 +412,45 @@ func TestUnknownKidRefetchesAtMostOncePerMinute(t *testing.T) {
 	}
 }
 
+func TestAbandonedKeyFetchCountsTowardsTheRefetchLimit(t *testing.T) {
+	// A server that passes r.Context() ends the fetch when its client hangs
+	// up, but the request may have reached the issuer. Were the fetch not
+	// counted, a client sending unknown kids and disconnecting could make
+	// every request refetch the key set.
+	k1 := newTestKey(t, "k_one")
+	stub := newStub(t, k1)
+	clock := newClock()
+	c := newTestClient(t, stub, clock)
+	mint := func(key *testKey) string {
+		return key.mint(t, nil, with(accessClaims(), map[string]any{"iat": clock.Now().Unix(), "exp": clock.Now().Add(5 * time.Minute).Unix()}))
+	}
+	if _, err := c.VerifyAccessToken(context.Background(), mint(k1)); err != nil {
+		t.Fatal(err)
+	}
+
+	clock.Advance(61 * time.Second)
+	missing := newTestKey(t, "k_missing")
+	ctx, cancel := context.WithCancel(context.Background())
+	stub.setTransportError(func(r *http.Request) error {
+		cancel() // the caller hangs up while the request is on its way
+		return r.Context().Err()
+	})
+	_, err := c.VerifyAccessToken(ctx, mint(missing))
+	var conn *didit.APIConnectionError
+	if !errors.As(err, &conn) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v (%T), want APIConnectionError wrapping context.Canceled", err, err)
+	}
+	stub.setTransportError(nil)
+	for i := 0; i < 5; i++ {
+		clock.Advance(10 * time.Second)
+		_, err := c.VerifyAccessToken(context.Background(), mint(missing))
+		wantReason(t, err, didit.TokenReasonUnknownKey)
+	}
+	if n := stub.count(jwksPath); n != 2 {
+		t.Fatalf("jwks fetches = %d, want 2 (the abandoned one counts)", n)
+	}
+}
+
 func TestKeySetCacheHonoursMaxAge(t *testing.T) {
 	k1 := newTestKey(t, "k_one")
 	stub := newStub(t, k1)
@@ -520,8 +559,8 @@ func TestVerifyReturnsFetchErrors(t *testing.T) {
 		if len(stub.all()) != 0 {
 			t.Fatal("requests were sent")
 		}
-		if !c.keysFetch.IsZero() {
-			t.Fatal("an abandoned fetch used up the refetch allowance")
+		if c.keysFetch.IsZero() {
+			t.Fatal("an abandoned fetch did not count towards the refetch limit")
 		}
 	})
 
