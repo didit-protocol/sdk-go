@@ -57,16 +57,16 @@ The SDK follows the API. Never edit generated files: change the generator, or th
 
 Use [conventional commits](https://www.conventionalcommits.org): `feat:`, `fix:`, `docs:`, `chore:`, and `feat!:` or a `BREAKING CHANGE:` footer for breaking changes. The type decides the next version.
 
-Releases are cut by release-please (`.github/workflows/release-please.yml`, started by hand): it opens a release pull request that bumps `internal/version/version.go` and generates `CHANGELOG.md` (never edit it by hand). Merging it and running the workflow again pushes the `vX.Y.Z` tag and the GitHub release, which starts `.github/workflows/release.yml` (tests, source archive with build provenance, Go proxy fetch).
+Releases are cut by release-please (`.github/workflows/release-please.yml`, started by hand): it opens a release pull request that bumps `internal/version/version.go` and generates `CHANGELOG.md` (never edit it by hand). Merging it and running the workflow again pushes the `vX.Y.Z` tag and the GitHub release, which starts `.github/workflows/release.yml` (tests, source archive with build provenance, Go proxy fetch). For a Go module the tag is the release, so every release-please run waits for a reviewer of the `release` environment, and `release.yml` waits for one again.
 
 Nothing is released before Alex's explicit approval and the 2026-11-01 Didit release; the version stays `0.x` until then, and the repository stays private.
 
 ### One-time setup before the first release
 
 1. Make the repository public (only with Alex's approval, after the full-history gitleaks scan passes).
-2. Create the `release` environment (Settings > Environments) with required reviewers.
-3. Add the `RELEASE_PLEASE_TOKEN` secret: a fine-grained token with Contents, Issues and Pull requests read and write on this repository only, so release-please's pull requests get CI and its releases start `release.yml`.
-4. Allow GitHub Actions to create pull requests (Settings > Actions > General), for release-please and the spec sync, and add the `SPEC_SYNC_TOKEN` secret (same scopes as above) so the spec sync pull requests get CI.
-5. Protect `main` (required checks: the CI jobs) and tags `v*` (only release-please may create them).
+2. Create the `release` environment (Settings > Environments) with required reviewers and "Prevent self-review". Both release workflows run in it, so no tag is pushed before an approval.
+3. Add the `RELEASE_PLEASE_TOKEN` secret to the `release` environment: a fine-grained token with Contents, Issues and Pull requests read and write on this repository only, so release-please's pull requests get CI and its releases start `release.yml`. The release-please workflow stops without it.
+4. Add the `SPEC_SYNC_TOKEN` repository secret (same scopes as above) so the spec sync pull requests get CI. Without it the spec sync falls back to `GITHUB_TOKEN`, which needs "Allow GitHub Actions to create and approve pull requests" (Settings > Actions > General).
+5. Protect `main` (required checks: the CI jobs) and add a tag ruleset that blocks creating `v*` tags, with only the repository admin role on its bypass list. The owner of `RELEASE_PLEASE_TOKEN` must be a repository admin; everyone else cannot tag a release by hand.
 6. Replace `@didit-protocol` in `.github/CODEOWNERS` with the SDK team.
 7. After the first tag, check `https://pkg.go.dev/github.com/didit-protocol/sdk-go` (the release workflow asks proxy.golang.org to fetch the version). Go has no registry account, namespace or trusted publisher to configure.
