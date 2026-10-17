@@ -49,18 +49,18 @@ type Type string
 
 // Webhook types with a typed event (docs/DESIGN.md section 9.4).
 const (
-	TypeStatusUpdated              Type = "status.updated"
-	TypeDataUpdated                Type = "data.updated"
-	TypeUserStatusUpdated          Type = "user.status.updated"
-	TypeUserDataUpdated            Type = "user.data.updated"
-	TypeBusinessStatusUpdated      Type = "business.status.updated"
-	TypeBusinessDataUpdated        Type = "business.data.updated"
-	TypeActivityCreated            Type = "activity.created"
-	TypeTransactionCreated         Type = "transaction.created"
-	TypeTransactionStatusUpdated   Type = "transaction.status.updated"
-	TypeTravelRuleStatusUpdated    Type = "travel_rule.status.updated"
-	TypeWorkflowComplianceChanged  Type = "workflow.compliance_changed"
-	TypeKYBRegistrySearchResolved  Type = "kyb.registry_search.resolved"
+	TypeStatusUpdated             Type = "status.updated"
+	TypeDataUpdated               Type = "data.updated"
+	TypeUserStatusUpdated         Type = "user.status.updated"
+	TypeUserDataUpdated           Type = "user.data.updated"
+	TypeBusinessStatusUpdated     Type = "business.status.updated"
+	TypeBusinessDataUpdated       Type = "business.data.updated"
+	TypeActivityCreated           Type = "activity.created"
+	TypeTransactionCreated        Type = "transaction.created"
+	TypeTransactionStatusUpdated  Type = "transaction.status.updated"
+	TypeTravelRuleStatusUpdated   Type = "travel_rule.status.updated"
+	TypeWorkflowComplianceChanged Type = "workflow.compliance_changed"
+	TypeKYBRegistrySearchResolved Type = "kyb.registry_search.resolved"
 )
 
 // Environment is the environment of the application that sent the webhook.
