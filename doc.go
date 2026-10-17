@@ -13,7 +13,7 @@
 // Every field of [Client] is a resource of the API, and every method is one
 // operation: a context first, then the path parameters, then a parameters
 // struct when the operation has a body or query parameters, then
-// [option.RequestOption] values that override the client's settings for that
+// [github.com/didit-protocol/sdk-go/option.RequestOption] values that override the client's settings for that
 // call.
 //
 // Optional request fields have the type [Opt]: their zero value is not sent.
@@ -37,7 +37,3 @@
 // Most of this package is generated from Didit's OpenAPI documents; see
 // https://github.com/didit-protocol/sdk-go for the design and the generator.
 package didit
-
-import "github.com/didit-protocol/sdk-go/option"
-
-var _ option.RequestOption // the package documentation links to option
