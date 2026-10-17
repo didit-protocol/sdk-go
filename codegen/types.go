@@ -34,6 +34,8 @@ const (
 	TSlice
 	TMap
 	TNamed
+	// TRaw is undecoded JSON, for a response that declares no content.
+	TRaw
 )
 
 // GoType is a Go type expression.
@@ -66,6 +68,8 @@ func (t *GoType) Go() string {
 		return "map[string]" + t.Elem.Go()
 	case TNamed:
 		return t.Name
+	case TRaw:
+		return "json.RawMessage"
 	default:
 		return "any"
 	}

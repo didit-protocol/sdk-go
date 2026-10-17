@@ -287,6 +287,10 @@ func methodDoc(m *Method) string {
 		parts = append(parts, fmt.Sprintf("The response is a file (%s). Read it from the returned response's body and close it.", m.BinaryType))
 	case RetPage:
 		parts = append(parts, fmt.Sprintf("It returns one page; %sAutoPaging iterates over every item of every page.", m.GoName))
+	case RetJSON:
+		if m.Result.Kind == TRaw {
+			parts = append(parts, "The API reference declares no schema for the response, so it is returned as raw JSON (nil when the body is empty).")
+		}
 	}
 	if m.Op.Naming.Scope == "application" {
 		parts = append(parts, "The organization and application ids come from the client options.")
