@@ -325,10 +325,11 @@ func decl(t *testing.T, src, header string) string {
 		t.Fatalf("no %q in generated code", header)
 	}
 	start := strings.LastIndex(src[:i], "\n\n") + 2
-	end := strings.Index(src[i:], "\n}\n")
-	if end < 0 {
-		end = strings.Index(src[i+1:], "\n") + 1
+	line, _, _ := strings.Cut(src[i+1:], "\n")
+	if !strings.HasSuffix(line, "{") {
+		return src[start : i+1+len(line)+1]
 	}
+	end := strings.Index(src[i:], "\n}\n")
 	return src[start : i+end+3]
 }
 
@@ -682,7 +683,7 @@ func TestSyncReportsChangedOperationsAndSchemas(t *testing.T) {
 		"verification.json: schema `LegacyUnusedThing` removed (its type leaves package didit)")
 	changed := section(summary, "Changed operations (3)")
 	expectContains(t, changed,
-		"- `POST /v3/session/` **(breaking)**: parameter added: dry_run (query, required) (breaking); body.workflow_id: type string -> integer (breaking); response.status: values removed [\"Approved\", \"Declined\"]",
+		"- `POST /v3/session/` **(breaking)**: parameter added: dry_run (query, required) (breaking); body.workflow_id: type string -> integer (breaking); response.status: values removed [\"Declined\"]",
 		"- `GET /v3/session/{session_id}/decision/`: response.status: values removed [\"Declined\"]",
 		"- `POST /v3/billing/top-up/`: descriptions, examples or other details changed")
 	expectContains(t, section(summary, "Schemas"),
@@ -906,7 +907,12 @@ func TestDiffFollowsRecursiveReferences(t *testing.T) {
 	}
 	var notes []syncNote
 	newSyncDiffer(old, new).diffSchema(ref, ref, "response", false, &notes, 0)
-	if len(notes) == 0 || notes[0].text != "response.children[].name: type string -> integer" && notes[0].text != "response.name: type string -> integer" {
+	texts := map[string]bool{}
+	for _, n := range notes {
+		texts[n.text] = true
+	}
+	// Reported at every level down to the depth limit, and no further.
+	if !texts["response.name: type string -> integer"] || !texts["response.children[].name: type string -> integer"] || len(notes) > 20 {
 		t.Errorf("notes = %v", notes)
 	}
 }

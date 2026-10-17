@@ -689,7 +689,9 @@ func sameEnumValues(d *Decl, lists [][]*Node) bool {
 func (g *Gen) enumName(name string) string {
 	best := ""
 	for prefix := range g.paramPrefixes {
-		if strings.HasPrefix(name, prefix) && len(prefix) > len(best) {
+		rest := strings.TrimPrefix(name, prefix)
+		boundary := rest == "" || (rest[0] >= 'A' && rest[0] <= 'Z')
+		if strings.HasPrefix(name, prefix) && boundary && len(prefix) > len(best) {
 			best = prefix
 		}
 	}
