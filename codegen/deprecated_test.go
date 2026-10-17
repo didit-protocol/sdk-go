@@ -206,19 +206,6 @@ func TestDeprecatingSyncOfTheRepositorySpec(t *testing.T) {
 		}
 		return data
 	}
-	countDeprecated := func() int {
-		t.Helper()
-		files, err := Generate(root)
-		if err != nil {
-			t.Fatalf("generate: %v", err)
-		}
-		n := 0
-		for _, f := range files {
-			n += strings.Count(string(f.Content), "\n// Deprecated: ")
-		}
-		return n
-	}
-	before := countDeprecated()
 
 	// The first two GET operations, in path order, that are server methods.
 	doc := mustNode(t, string(read("verification.json")))
@@ -276,7 +263,22 @@ func TestDeprecatingSyncOfTheRepositorySpec(t *testing.T) {
 	file := filepath.Join(dir, "deprecated-operations.json")
 	expectRoundTrip(t, file)
 	expectNoExpiredDeprecations(t, file)
-	if got := countDeprecated(); got != before+2 {
-		t.Errorf("%d deprecated methods after the sync, want %d", got, before+2)
+
+	// The generator keeps both methods, marked deprecated.
+	spec, err := LoadSpec(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reasons := map[string]string{}
+	for _, op := range spec.Ops {
+		if op.Deprecated != nil {
+			reasons[op.Naming.Resource+"."+op.Naming.Method] = op.Deprecated.Reason
+		}
+	}
+	if reasons[removedKey] != "removed" || reasons[renamedKey] != "renamed" {
+		t.Errorf("deprecated operations: %s %q, %s %q", removedKey, reasons[removedKey], renamedKey, reasons[renamedKey])
+	}
+	if _, err := Generate(root); err != nil {
+		t.Fatalf("generate: %v", err)
 	}
 }
