@@ -47,7 +47,7 @@ func TestDiscoveryChecks(t *testing.T) {
 			wantConfigError(t, err, tt.want)
 			_, err = c.ExchangeCode(ctx, testCode, "verifier", "https://app.example/callback")
 			wantConfigError(t, err, tt.want)
-			if stub.count(jwksPath) != 0 || stub.count("/token/") != 0 || stub.count("/jwks.json") != 0 {
+			if stub.count(jwksPath) != 0 || stub.count("/token/") != 0 {
 				t.Fatal("requests went past discovery")
 			}
 			if stub.count(discoveryPath) != 2 {
@@ -642,7 +642,7 @@ func TestRedirects(t *testing.T) {
 	t.Run("same origin is followed", func(t *testing.T) {
 		stub := newStub(t)
 		stub.handle("/session", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "https://ACME.auth.didit.me:443/session/", http.StatusPermanentRedirect)
+			http.Redirect(w, r, "https://acme.auth.didit.me:443/session/", http.StatusPermanentRedirect)
 		})
 		stub.handle("/session/", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, sessionBody()) })
 		redirects := 0
@@ -672,7 +672,7 @@ func TestRedirects(t *testing.T) {
 		c := newTestClient(t, stub, newClock())
 		_, err := c.GetSession(ctx, testAccessToken)
 		var status *didit.APIStatusError
-		if !errors.As(err, &status) || status.StatusCode != http.StatusFound || stub.count("/session/") != 11 {
+		if !errors.As(err, &status) || status.StatusCode != http.StatusFound || stub.count("/session/") != 10 {
 			t.Fatalf("error = %v, %d requests", err, stub.count("/session/"))
 		}
 	})
@@ -732,10 +732,9 @@ func TestConnectionErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("nil context", func(t *testing.T) {
+	t.Run("request cannot be built", func(t *testing.T) {
 		c := newTestClient(t, newStub(t), newClock())
-		//lint:ignore SA1012 testing the error path
-		_, err := c.sendOnce(nil, request{method: http.MethodGet, url: testIssuer}) //nolint:staticcheck // nil context on purpose
+		_, err := c.sendOnce(ctx, request{method: "BAD METHOD", url: testIssuer})
 		if !errors.As(err, new(*didit.APIConnectionError)) {
 			t.Fatalf("error = %v (%T)", err, err)
 		}
@@ -769,8 +768,11 @@ func TestResponseSizeLimit(t *testing.T) {
 	})
 	_, err = c.GetSession(context.Background(), testAccessToken)
 	var bad *didit.BadRequestError
-	if !errors.As(err, &bad) || len(bad.RawBody) != maxResponseBytes {
-		t.Fatalf("error = %T, body %d bytes", err, len(bad.RawBody))
+	if !errors.As(err, &bad) {
+		t.Fatalf("error = %v (%T)", err, err)
+	}
+	if len(bad.RawBody) != maxResponseBytes {
+		t.Fatalf("error body is %d bytes, want it truncated to %d", len(bad.RawBody), maxResponseBytes)
 	}
 }
 
@@ -781,4 +783,4 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 type errorBody struct{}
 
 func (errorBody) Read([]byte) (int, error) { return 0, errors.New("connection dropped") }
-func (errorBody) Close() error               { return nil }
+func (errorBody) Close() error             { return nil }

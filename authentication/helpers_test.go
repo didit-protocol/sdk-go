@@ -1,6 +1,7 @@
 package authentication
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -284,6 +285,7 @@ func (s *stubIssuer) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, err
 		}
 		req.Body.Close()
+		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
 	s.mu.Lock()
 	s.requests = append(s.requests, recorded{
