@@ -391,6 +391,35 @@ func wantConfigError(t testing.TB, err error, substr string) {
 	}
 }
 
+// wantUnexpected fails unless err is a *didit.UnexpectedResponseError for a
+// 2xx response whose message contains substr, carrying a redacted copy of
+// the response: no body, no request body and no bearer token.
+func wantUnexpected(t testing.TB, err error, substr string) *didit.UnexpectedResponseError {
+	t.Helper()
+	var unexpected *didit.UnexpectedResponseError
+	if !errors.As(err, &unexpected) {
+		t.Fatalf("error = %v (%T), want UnexpectedResponseError", err, err)
+	}
+	if errors.As(err, new(*didit.APIConnectionError)) {
+		t.Fatalf("error %v is also an APIConnectionError", err)
+	}
+	if !strings.Contains(unexpected.Message, substr) {
+		t.Fatalf("message = %q, want it to contain %q", unexpected.Message, substr)
+	}
+	resp := unexpected.Response
+	if resp == nil || resp.StatusCode < 200 || resp.StatusCode > 299 || resp.Body != http.NoBody {
+		t.Fatalf("response = %+v, want the 2xx response without its body", resp)
+	}
+	req := resp.Request
+	if req == nil || req.Body != http.NoBody || req.GetBody != nil {
+		t.Fatal("the error's request still carries its body")
+	}
+	if auth := req.Header.Get("Authorization"); auth != "" && auth != "Bearer [redacted]" {
+		t.Fatalf("the error's request carries Authorization %q", auth)
+	}
+	return unexpected
+}
+
 // timeoutError is a net.Error that timed out.
 type timeoutError struct{}
 

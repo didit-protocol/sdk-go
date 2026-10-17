@@ -94,9 +94,13 @@ func TestDiscoveryChecks(t *testing.T) {
 		})
 		c := newTestClient(t, stub, newClock())
 		_, err := c.VerifyAccessToken(ctx, token)
-		var conn *didit.APIConnectionError
-		if !errors.As(err, &conn) || !strings.Contains(err.Error(), "invalid response body") {
-			t.Fatalf("error = %v (%T), want APIConnectionError", err, err)
+		unexpected := wantUnexpected(t, err, "GET "+testIssuer+discoveryPath+": the 200 response is not valid JSON")
+		var syntaxErr *json.SyntaxError
+		if !errors.As(unexpected, &syntaxErr) {
+			t.Fatalf("cause = %v (%T), want the JSON error", unexpected.Cause, unexpected.Cause)
+		}
+		if stub.count(discoveryPath) != 1 {
+			t.Fatalf("discovery fetches = %d; an unusable answer is not retried", stub.count(discoveryPath))
 		}
 	})
 
@@ -134,21 +138,23 @@ func TestDiscoveryChecks(t *testing.T) {
 func TestKeySetResponses(t *testing.T) {
 	key := newTestKey(t, "k_one")
 	token := key.mint(t, nil, accessClaims())
-	tests := map[string]string{
-		"not JSON":       "nope",
-		"no keys member": `{"other": []}`,
-		"keys null":      `{"keys": null}`,
-		"keys not array": `{"keys": {}}`,
+	tests := map[string]struct{ body, message string }{
+		"not JSON":       {"nope", "is not valid JSON"},
+		"empty":          {"", "is not valid JSON"},
+		"keys not array": {`{"keys": {}}`, "is not valid JSON"},
+		"no keys member": {`{"other": []}`, "has no keys array"},
+		"keys null":      {`{"keys": null}`, "has no keys array"},
 	}
-	for name, body := range tests {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			stub := newStub(t, key)
-			stub.handle(jwksPath, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) })
+			stub.handle(jwksPath, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(tt.body)) })
 			c := newTestClient(t, stub, newClock())
 			_, err := c.VerifyAccessToken(context.Background(), token)
-			var conn *didit.APIConnectionError
-			if !errors.As(err, &conn) {
-				t.Fatalf("error = %v (%T), want APIConnectionError", err, err)
+			wantUnexpected(t, err, "GET "+testIssuer+jwksPath+": the 200 response "+tt.message)
+			var tokenErr *didit.TokenVerificationError
+			if errors.As(err, &tokenErr) {
+				t.Fatal("an unusable key set must not look like an invalid token")
 			}
 		})
 	}
@@ -314,9 +320,16 @@ func TestTokenRequestsAreNeverRetried(t *testing.T) {
 		stub.handle("/token/", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"access_token": 1}`)) })
 		c := newTestClient(t, stub, newClock())
 		_, err := c.Refresh(ctx, testRefreshToken)
-		var conn *didit.APIConnectionError
-		if !errors.As(err, &conn) {
-			t.Fatalf("error = %v (%T)", err, err)
+		unexpected := wantUnexpected(t, err, "POST "+testIssuer+"/token/: the 200 response is not valid JSON")
+		var typeErr *json.UnmarshalTypeError
+		if !errors.As(err, &typeErr) {
+			t.Fatalf("cause = %v (%T), want the JSON error", unexpected.Cause, unexpected.Cause)
+		}
+		if strings.Contains(err.Error(), testRefreshToken) {
+			t.Fatal("error message contains the refresh token")
+		}
+		if n := stub.count("/token/"); n != 1 {
+			t.Fatalf("token requests = %d, want 1", n)
 		}
 	})
 }
@@ -421,8 +434,15 @@ func TestGetSessionInvalidBody(t *testing.T) {
 	})
 	c := newTestClient(t, stub, newClock())
 	_, err := c.GetSession(context.Background(), testAccessToken)
-	if !errors.As(err, new(*didit.APIConnectionError)) || !strings.Contains(err.Error(), "invalid response body") {
-		t.Fatalf("error = %v (%T)", err, err)
+	unexpected := wantUnexpected(t, err, "GET "+testIssuer+"/session/: the 200 response is not valid JSON")
+	if got := unexpected.Response.Request.Header.Get("Authorization"); got != "Bearer [redacted]" {
+		t.Fatalf("error request Authorization = %q", got)
+	}
+	if strings.Contains(err.Error(), testAccessToken) {
+		t.Fatal("error message contains the access token")
+	}
+	if n := stub.count("/session/"); n != 1 {
+		t.Fatalf("session requests = %d; an unusable answer is not retried", n)
 	}
 }
 
@@ -619,9 +639,7 @@ func TestRetrieveStepUp(t *testing.T) {
 
 	stub.handle("/step-up/"+id+"/", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("[]")) })
 	_, err = c.RetrieveStepUp(ctx, testAccessToken, id)
-	if !errors.As(err, new(*didit.APIConnectionError)) {
-		t.Fatalf("error = %v (%T)", err, err)
-	}
+	wantUnexpected(t, err, "GET "+testIssuer+"/step-up/"+id+"/: the 200 response is not valid JSON")
 }
 
 func TestRedirects(t *testing.T) {
@@ -770,8 +788,12 @@ func TestResponseSizeLimit(t *testing.T) {
 	stub.handle("/session/", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(big)) })
 	c := newTestClient(t, stub, newClock())
 	_, err := c.GetSession(context.Background(), testAccessToken)
-	if !errors.As(err, new(*didit.APIConnectionError)) || !strings.Contains(err.Error(), "larger than 1 MiB") {
-		t.Fatalf("error = %v (%T)", err, err)
+	unexpected := wantUnexpected(t, err, "GET "+testIssuer+"/session/: the 200 response is larger than 1 MiB")
+	if unexpected.Cause != nil {
+		t.Fatalf("cause = %v, want none", unexpected.Cause)
+	}
+	if n := stub.count("/session/"); n != 1 {
+		t.Fatalf("session requests = %d; an unusable answer is not retried", n)
 	}
 
 	stub.handle("/session/", func(w http.ResponseWriter, r *http.Request) {
