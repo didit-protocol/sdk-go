@@ -494,7 +494,7 @@ func TestVerifyParsed(t *testing.T) {
 		if string(ev.Raw()) != canonical {
 			t.Fatalf("Raw() = %s", ev.Raw())
 		}
-		for _, ts := range []any{int(testTimestamp), int32(0), uint32(0), uint64(testTimestamp), float32(0)} {
+		for _, ts := range []any{int(testTimestamp), int8(0), int16(0), int32(0), uint(0), uint8(0), uint16(0), uint32(0), uint64(testTimestamp), float32(0)} {
 			m["timestamp"] = ts
 			_, err := webhook.VerifyParsed(m, h, testSecret, testNow)
 			var verr *didit.WebhookVerificationError

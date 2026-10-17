@@ -161,14 +161,24 @@ func integerValue(v any) (*big.Int, bool) {
 		return integralFloat(float64(v))
 	case int:
 		return big.NewInt(int64(v)), true
+	case int8:
+		return big.NewInt(int64(v)), true
+	case int16:
+		return big.NewInt(int64(v)), true
+	case int32:
+		return big.NewInt(int64(v)), true
 	case int64:
 		return big.NewInt(v), true
-	case int32:
+	case uint:
+		return new(big.Int).SetUint64(uint64(v)), true
+	case uint8:
+		return big.NewInt(int64(v)), true
+	case uint16:
+		return big.NewInt(int64(v)), true
+	case uint32:
 		return big.NewInt(int64(v)), true
 	case uint64:
 		return new(big.Int).SetUint64(v), true
-	case uint32:
-		return big.NewInt(int64(v)), true
 	}
 	return nil, false
 }
