@@ -53,8 +53,9 @@ type response struct {
 }
 
 // send performs the request and maps failures to the module's error types:
-// *didit.APIConnectionError (or *didit.APITimeoutError) without a usable
-// response, didit.NewAPIStatusError for a status outside 2xx.
+// *didit.APIConnectionError (or *didit.APITimeoutError) without a response,
+// didit.NewAPIStatusError for a status outside 2xx, and
+// *didit.UnexpectedResponseError for a 2xx body over the size limit.
 func (c *Client) send(ctx context.Context, r request) (*response, error) {
 	for attempt := 0; ; attempt++ {
 		resp, err := c.sendOnce(ctx, r)

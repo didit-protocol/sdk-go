@@ -298,7 +298,7 @@ func syncObjectProps(doc *Doc, s *Node) (map[string]*Node, map[string]bool) {
 	return props, required
 }
 
-// syncVariants returns the oneOf/anyOf syncVariants of a schema without the null
+// syncVariants returns the oneOf/anyOf variants of a schema without the null
 // one.
 func syncVariants(doc *Doc, s *Node, keyword string) []*Node {
 	var out []*Node
@@ -361,7 +361,7 @@ func syncContains(list []*Node, v *Node) bool {
 	return false
 }
 
-// diffSchema appends a syncNote for every difference between two schemas.
+// diffSchema appends a note for every difference between two schemas.
 //
 // request tells which side the schema is on: removing an enum value breaks
 // callers that send it, while a response enum is open (DESIGN 5.1) and
