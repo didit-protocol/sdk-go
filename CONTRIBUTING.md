@@ -66,7 +66,7 @@ Nothing is released before Alex's explicit approval and the 2026-11-01 Didit rel
 1. Make the repository public (only with Alex's approval, after the full-history gitleaks scan passes).
 2. Create the `release` environment (Settings > Environments) with required reviewers.
 3. Add the `RELEASE_PLEASE_TOKEN` secret: a fine-grained token with Contents, Issues and Pull requests read and write on this repository only, so release-please's pull requests get CI and its releases start `release.yml`.
-4. Allow GitHub Actions to create pull requests (Settings > Actions > General), for release-please and the spec sync.
+4. Allow GitHub Actions to create pull requests (Settings > Actions > General), for release-please and the spec sync, and add the `SPEC_SYNC_TOKEN` secret (same scopes as above) so the spec sync pull requests get CI.
 5. Protect `main` (required checks: the CI jobs) and tags `v*` (only release-please may create them).
 6. Replace `@didit-protocol` in `.github/CODEOWNERS` with the SDK team.
 7. After the first tag, check `https://pkg.go.dev/github.com/didit-protocol/sdk-go` (the release workflow asks proxy.golang.org to fetch the version). Go has no registry account, namespace or trusted publisher to configure.
