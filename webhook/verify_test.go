@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -173,6 +175,81 @@ func TestTimestampRules(t *testing.T) {
 			wantReason(t, err, c.want)
 		})
 	}
+}
+
+// allocated returns the bytes f allocates.
+func allocated(f func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	f()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+func TestUnsignedRequestsCostInProportionToTheirSize(t *testing.T) {
+	// Anyone can call a webhook endpoint. These requests used to parse a
+	// million digits with math/big, in time quadratic in their number, or
+	// expand each 1e308 to 309 digits before any signature was checked: about
+	// a second and 0.5 to 2 GB allocated each.
+	digits := strings.Repeat("7", 1_000_000)
+	now := strconv.FormatInt(testTimestamp, 10)
+	huge := strings.Repeat("1e308,", 174_000) + "1e308"
+	fakeV2 := http.Header{}
+	fakeV2.Set("X-Signature-V2", strings.Repeat("0", 64))
+	cases := []struct {
+		name   string
+		body   string
+		header http.Header
+		want   didit.WebhookVerificationReason
+	}{
+		{"long timestamp", `{"timestamp":` + digits + `}`, nil, didit.WebhookReasonTimestampOutOfTolerance},
+		{"long X-Timestamp", `{"timestamp":` + now + `}`, http.Header{"X-Timestamp": {digits}}, didit.WebhookReasonTimestampMismatch},
+		{"long X-Timestamp equal to the body's", `{"timestamp":` + digits + `}`, http.Header{"X-Timestamp": {"+00" + digits}}, didit.WebhookReasonTimestampOutOfTolerance},
+		{"huge integral floats", `{"a":[` + huge + `]}`, nil, didit.WebhookReasonMissingTimestamp},
+		{"huge integral floats and a well-formed X-Signature-V2", `{"timestamp":` + now + `,"a":[` + huge + `]}`, fakeV2, didit.WebhookReasonInvalidSignature},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var err error
+			n := allocated(func() { _, err = webhook.Verify([]byte(c.body), c.header, testSecret, testNow) })
+			wantReason(t, err, c.want)
+			if limit := 64*uint64(len(c.body)) + 1<<20; n > limit {
+				t.Errorf("allocated %d bytes for a %d-byte body, want at most %d", n, len(c.body), limit)
+			}
+		})
+	}
+	t.Run("VerifyParsed", func(t *testing.T) {
+		body := `{"timestamp":` + now + `,"a":[` + huge + `]}`
+		var m map[string]any
+		if err := json.Unmarshal([]byte(body), &m); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		n := allocated(func() { _, err = webhook.VerifyParsed(m, fakeV2, testSecret, testNow) })
+		wantReason(t, err, didit.WebhookReasonInvalidSignature)
+		if limit := 64*uint64(len(body)) + 1<<20; n > limit {
+			t.Errorf("allocated %d bytes, want at most %d", n, limit)
+		}
+	})
+}
+
+func TestIntegralFloatsBeyondInt64(t *testing.T) {
+	// They expand in the canonical JSON, by up to 64 KiB in total: a delivery
+	// re-encoded by a proxy that writes large integers as floats still
+	// verifies, and the canonical JSON stays exact.
+	p := with(sessionPayload(), "decision", map[string]any{"big": []any{json.Number("1e300"), json.Number("-1.5e40"), 1e22}})
+	body, h := signedBody(t, p, testSecret)
+	h.Del("X-Signature")
+	ev := mustVerify(t, body, h, testSecret, testNow)
+	canonical, err := webhook.Canonicalize(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(canonical), `"big":[1`+strings.Repeat("0", 300)+`,-15`+strings.Repeat("0", 39)+`,1`+strings.Repeat("0", 22)+`]`) {
+		t.Fatalf("canonical JSON = %s", canonical)
+	}
+	ev = mustVerify(t, nil, h, testSecret, testNow) // placeholder replaced below
+	_ = ev
 }
 
 func TestToleranceUsesSubSecondTime(t *testing.T) {
