@@ -549,7 +549,8 @@ type UnexpectedResponseError struct {
 	Message string
 	Cause   error
 	// Response is the HTTP response, when there is one. Its body reads the
-	// body as received, and its request's X-Api-Key header is redacted.
+	// body as received (with an echoed API key redacted), and its request's
+	// X-Api-Key header is redacted.
 	Response *http.Response
 }
 
