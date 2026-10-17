@@ -253,12 +253,12 @@ func (c *Client) VerifyIDToken(ctx context.Context, token, nonce, audience strin
 	if claims.AuthTime, err = set.numericDate("auth_time"); err != nil {
 		return nil, err
 	}
-	for name, dst := range map[string]*string{"email": &claims.Email, "name": &claims.Name, "phone_number": &claims.PhoneNumber} {
-		if *dst, err = set.str(name); err != nil {
-			return nil, err
-		}
-	}
-	if err := set.decode("email_verified", &claims.EmailVerified); err != nil {
+	if err := set.decodeAll([]member{
+		{"email", &claims.Email},
+		{"email_verified", &claims.EmailVerified},
+		{"name", &claims.Name},
+		{"phone_number", &claims.PhoneNumber},
+	}); err != nil {
 		return nil, err
 	}
 	return claims, nil
@@ -299,7 +299,9 @@ func (c *Client) verifySignature(ctx context.Context, token string, kind tokenKi
 	case alg != algorithm:
 		return nil, tokenError(didit.TokenReasonUnsupportedAlgorithm, fmt.Sprintf("alg %q is not ES256", truncate(alg, 32)))
 	}
-	if typ, err := header.str("typ"); err != nil || !kind.acceptsType(typ) {
+	if typ, err := header.str("typ"); err != nil || !header.present("typ") {
+		return nil, tokenError(didit.TokenReasonInvalidType, "the header has no typ string; expected "+kind.String())
+	} else if !kind.acceptsType(typ) {
 		return nil, tokenError(didit.TokenReasonInvalidType, fmt.Sprintf("typ %q is not %s", truncate(typ, 32), kind))
 	}
 	if header.present("crit") {
@@ -361,10 +363,14 @@ func (c *Client) readClaims(set *claimSet, out *Claims, audience string) error {
 	if !set.present("exp") {
 		return missingClaim("exp")
 	}
-	for name, dst := range map[string]*time.Time{"exp": &out.ExpiresAt, "nbf": &out.NotBefore, "iat": &out.IssuedAt} {
-		if *dst, err = set.numericDate(name); err != nil {
-			return err
-		}
+	if out.ExpiresAt, err = set.numericDate("exp"); err != nil {
+		return err
+	}
+	if out.NotBefore, err = set.numericDate("nbf"); err != nil {
+		return err
+	}
+	if out.IssuedAt, err = set.numericDate("iat"); err != nil {
+		return err
 	}
 	now := c.now()
 	if !now.Before(out.ExpiresAt.Add(c.leeway)) {
@@ -376,18 +382,16 @@ func (c *Client) readClaims(set *claimSet, out *Claims, audience string) error {
 	if !out.IssuedAt.IsZero() && out.IssuedAt.After(now.Add(c.leeway)) {
 		return tokenError(didit.TokenReasonNotYetValid, "iat is in the future: "+out.IssuedAt.Format(time.RFC3339))
 	}
-	for name, dst := range map[string]any{
-		"sid":         &out.SessionID,
-		"jti":         &out.JWTID,
-		"vendor_data": &out.VendorData,
-		"amr":         &out.AMR,
-		"org":         &out.Org,
-		"verified":    &out.Verified,
-		"act":         &out.Act,
-	} {
-		if err := set.decode(name, dst); err != nil {
-			return err
-		}
+	if err := set.decodeAll([]member{
+		{"sid", &out.SessionID},
+		{"jti", &out.JWTID},
+		{"vendor_data", &out.VendorData},
+		{"amr", &out.AMR},
+		{"org", &out.Org},
+		{"verified", &out.Verified},
+		{"act", &out.Act},
+	}); err != nil {
+		return err
 	}
 	out.Raw = set.raw
 	return nil
@@ -430,6 +434,22 @@ func (s *claimSet) decode(name string, v any) error {
 	}
 	if err := json.Unmarshal(s.members[name], v); err != nil {
 		return wrongType(name)
+	}
+	return nil
+}
+
+// member names a claim and where to decode it.
+type member struct {
+	name string
+	dst  any
+}
+
+// decodeAll decodes the members in order and stops at the first error.
+func (s *claimSet) decodeAll(members []member) error {
+	for _, m := range members {
+		if err := s.decode(m.name, m.dst); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -483,5 +503,5 @@ func missingClaim(name string) error {
 }
 
 func wrongType(name string) error {
-	return tokenError(didit.TokenReasonMissingClaim, "the "+name+" claim has the wrong type")
+	return tokenError(didit.TokenReasonMissingClaim, "the "+name+" claim has the wrong type or an invalid value")
 }
