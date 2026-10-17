@@ -162,7 +162,7 @@ case errors.As(err, &apiErr):
 | `*BadRequestError` 400, `*AuthenticationError` 401, `*PermissionDeniedError` 403, `*NotFoundError` 404, `*ConflictError` 409, `*UnprocessableEntityError` 422, `*RateLimitError` 429, `*InternalServerError` 5xx | unwrap to `*APIStatusError` |
 | `*APIConnectionError`, `*APITimeoutError` | no response (`errors.Is(err, context.DeadlineExceeded)` works) |
 | `*ConfigurationError` | missing API key, organization or application id, invalid option; nothing was sent |
-| `*UnexpectedResponseError` | a 2xx response that is not JSON, or a next page link to another origin |
+| `*UnexpectedResponseError` | a 2xx response that is not JSON, or a next page link to another origin or back to a page already fetched |
 | `*WebhookVerificationError` | webhook verification failed, with a machine-readable `Reason` |
 | `*TokenVerificationError` | an Authentication token failed verification, with a machine-readable `Reason` |
 
@@ -193,7 +193,7 @@ if err := iter.Err(); err != nil {
 }
 ```
 
-A next page link on another origin than the base URL is refused, so the API key never leaves it.
+A next page link on another origin than the base URL is refused, so the API key never leaves it. So is a next page link back to a page the iteration already fetched, which would loop forever.
 
 ## Files
 
