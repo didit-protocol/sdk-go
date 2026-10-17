@@ -1,0 +1,187 @@
+# Spec sync (docs/DESIGN.md section 3.1).
+#
+# Downloads the upstream OpenAPI documents into openapi/ (go run ./codegen sync). When they
+# changed, it regenerates the SDK, runs go vet and the tests, and opens (or updates) one pull
+# request titled "chore(spec): sync API spec YYYY-MM-DD" from the branch chore/spec-sync,
+# with the sync summary (added, removed, renamed, moved and changed operations and schemas,
+# breaking changes first) as its body.
+#
+# A check that fails (for example a new operation without SDK naming, which the generator
+# reports by name) still opens the pull request, as a draft with the error in its Checks
+# section, so the fix (usually an openapi/overlay.json entry) can be pushed to the same
+# branch; the run then fails.
+#
+# Token: pull requests opened with the default GITHUB_TOKEN do not trigger CI (GitHub does
+# not start workflows from events caused by GITHUB_TOKEN). To get CI on the sync pull
+# request, add a repository secret SPEC_SYNC_TOKEN (a fine-grained token with Contents and
+# Pull requests read and write on this repository only). Without it the workflow falls
+# back to GITHUB_TOKEN, which needs "Allow GitHub Actions to create and approve pull
+# requests" in the repository settings; then close and reopen the pull request, or push to
+# its branch, to start CI.
+#
+# Hand-pushed fixes: every run rebuilds chore/spec-sync from the default branch, which would
+# drop a fix pushed to that branch by hand. While the open spec sync pull request carries a
+# commit that did not come from this workflow, the run leaves it alone; once that pull
+# request is merged or closed, the next run syncs whatever changed since.
+name: Spec sync
+
+on:
+  schedule:
+    - cron: "23 6 * * *" # daily, 06:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spec-sync
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sync:
+    name: Sync the API spec
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      SYNC_BRANCH: chore/spec-sync
+      BOT_NAME: github-actions[bot]
+      BOT_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+    steps:
+      - name: Prepare
+        # The summary lives outside the checkout so that it is never committed.
+        run: echo "SUMMARY=$RUNNER_TEMP/spec-sync-summary.md" >> "$GITHUB_ENV"
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The push step authenticates on its own; later steps (go test) get no token.
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false # standard library only: there is no go.sum to key a cache on
+      - name: Leave hand-pushed fixes on the sync branch alone
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$SYNC_BRANCH" --base "$BASE" \
+            --state open --json number --jq 'length')"
+          if [ "$open" = "0" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT" # no open sync pull request
+            exit 0
+          fi
+          authors="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${BASE}...${SYNC_BRANCH}" \
+            --jq '.commits[].commit.author.email')"
+          if printf '%s\n' "$authors" | grep -v -x -F -e "$BOT_EMAIL" -e '' | grep -q .; then
+            echo "::warning::$SYNC_BRANCH has commits that did not come from the spec sync (a fix pushed by hand). This run leaves the branch alone: merge or close the spec sync pull request, and the next run syncs whatever changed since."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download the upstream OpenAPI documents
+        id: sync
+        if: steps.guard.outputs.skip != 'true'
+        # Refuses (and writes nothing) when a download is not an OpenAPI 3 document. Writes
+        # changed=true|false and date=YYYY-MM-DD to $GITHUB_OUTPUT and the Markdown summary
+        # to $SUMMARY.
+        run: go run ./codegen sync -summary "$SUMMARY"
+      - name: Regenerate the SDK and run the checks
+        id: checks
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          failed=false
+          {
+            echo
+            echo "## Checks"
+            echo
+          } >> "$SUMMARY"
+          # run_check NAME COMMAND...: runs COMMAND, records the result in the summary and,
+          # on failure, the end of its output there and as an error annotation.
+          run_check() {
+            name="$1"
+            shift
+            log="$RUNNER_TEMP/check.log"
+            echo "::group::$name"
+            if "$@" 2>&1 | tee "$log"; then
+              echo "- [x] $name" >> "$SUMMARY"
+            else
+              {
+                echo "- [ ] $name: **failed**"
+                echo
+                echo '  ```text'
+                tail -n 60 "$log" | sed 's/^/  /'
+                echo '  ```'
+              } >> "$SUMMARY"
+              message="$(tail -n 20 "$log")"
+              message="${message//'%'/'%25'}"
+              message="${message//$'\r'/'%0D'}"
+              message="${message//$'\n'/'%0A'}"
+              echo "::error title=$name failed::$message"
+              failed=true
+            fi
+            echo "::endgroup::"
+          }
+          # A new operation without SDK naming fails here, naming the operation.
+          run_check "Regenerate (go run ./codegen)" go run ./codegen
+          run_check "go vet ./..." go vet ./...
+          run_check "go test -race ./..." go test -race ./...
+          {
+            echo
+            echo "Opened by [spec sync run ${GITHUB_RUN_ID}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+            echo "Generated code comes from codegen/ and openapi/; do not edit it by hand."
+          } >> "$SUMMARY"
+          cat "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+      - name: Open or update the spec sync pull request
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SPEC_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          BASE: ${{ github.event.repository.default_branch }}
+          SYNC_DATE: ${{ steps.sync.outputs.date }}
+          CHECKS_FAILED: ${{ steps.checks.outputs.failed }}
+        run: |
+          title="chore(spec): sync API spec ${SYNC_DATE}"
+          git config user.name "$BOT_NAME"
+          git config user.email "$BOT_EMAIL"
+          git checkout -B "$SYNC_BRANCH"
+          # Only the spec copies and the generated layer; nothing else is committed.
+          git add -A -- openapi ':(glob)*_gen.go' ':(glob)*_gen_test.go'
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git commit --quiet -m "$title"
+          gh auth setup-git
+          git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
+          number="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$SYNC_BRANCH" --base "$BASE" \
+            --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$number" ]; then
+            draft=()
+            if [ "$CHECKS_FAILED" = "true" ]; then
+              draft=(--draft)
+            fi
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE" --head "$SYNC_BRANCH" \
+              --title "$title" --body-file "$SUMMARY" "${draft[@]}"
+            exit 0
+          fi
+          gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$SUMMARY"
+          is_draft="$(gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')"
+          if [ "$CHECKS_FAILED" = "true" ] && [ "$is_draft" = "false" ]; then
+            gh pr ready "$number" --repo "$GITHUB_REPOSITORY" --undo
+          elif [ "$CHECKS_FAILED" != "true" ] && [ "$is_draft" = "true" ]; then
+            gh pr ready "$number" --repo "$GITHUB_REPOSITORY"
+          fi
+      - name: Fail the run when a check failed
+        if: steps.checks.outputs.failed == 'true'
+        run: |
+          echo "::error::The spec sync pull request was opened, but at least one check failed. See the Checks section of the pull request."
+          exit 1
