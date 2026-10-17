@@ -151,7 +151,7 @@ func TestKeySetResponses(t *testing.T) {
 			stub.handle(jwksPath, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(tt.body)) })
 			c := newTestClient(t, stub, newClock())
 			_, err := c.VerifyAccessToken(context.Background(), token)
-			wantUnexpected(t, err, "GET "+testIssuer+jwksPath+": the 200 response "+tt.message)
+			_ = wantUnexpected(t, err, "GET "+testIssuer+jwksPath+": the 200 response "+tt.message)
 			var tokenErr *didit.TokenVerificationError
 			if errors.As(err, &tokenErr) {
 				t.Fatal("an unusable key set must not look like an invalid token")
@@ -639,7 +639,7 @@ func TestRetrieveStepUp(t *testing.T) {
 
 	stub.handle("/step-up/"+id+"/", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("[]")) })
 	_, err = c.RetrieveStepUp(ctx, testAccessToken, id)
-	wantUnexpected(t, err, "GET "+testIssuer+"/step-up/"+id+"/: the 200 response is not valid JSON")
+	_ = wantUnexpected(t, err, "GET "+testIssuer+"/step-up/"+id+"/: the 200 response is not valid JSON")
 }
 
 func TestRedirects(t *testing.T) {
