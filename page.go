@@ -97,7 +97,7 @@ func (p *Page[T]) GetNextPage(ctx context.Context) (*Page[T], error) {
 		return nil, &UnexpectedResponseError{Message: fmt.Sprintf("refusing a next page link on another origin (%s://%s)", next.Scheme, next.Host)}
 	}
 	if p.fetched.contains(pageKey(next)) {
-		return nil, &UnexpectedResponseError{Message: fmt.Sprintf("refusing a next page link to a page already fetched (%s)", next.Redacted())}
+		return nil, &UnexpectedResponseError{Message: fmt.Sprintf("refusing a next page link to a page already fetched (%s)", next.EscapedPath())}
 	}
 	req := *p.request
 	req.rawURL = next
@@ -110,7 +110,8 @@ func getPage[T any](ctx context.Context, c *Client, r *apiRequest, opts []option
 }
 
 // fetchPage fetches one page and records it after the pages in fetched. A
-// page reached through a redirect is recorded under both URLs.
+// next page reached through a redirect is recorded under both its link and
+// the URL it was served from.
 func fetchPage[T any](ctx context.Context, c *Client, r *apiRequest, opts []option.RequestOption, fetched *pageHistory) (*Page[T], error) {
 	page := &Page[T]{}
 	resp, err := c.do(ctx, r, page, opts)
