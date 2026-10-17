@@ -3,6 +3,7 @@
 //
 //	go run ./codegen          write the generated files
 //	go run ./codegen -check   fail when the committed files are stale
+//	go run ./codegen sync     update openapi/ from the published contract
 package main
 
 import (
@@ -16,6 +17,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "sync" {
+		if err := runSync(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "codegen sync:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	check := flag.Bool("check", false, "report stale generated files instead of writing them")
 	dir := flag.String("dir", ".", "repository root")
 	flag.Parse()

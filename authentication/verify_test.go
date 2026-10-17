@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -55,7 +57,7 @@ func TestVerifyAccessTokenValid(t *testing.T) {
 	if claims.Act != nil {
 		t.Fatalf("act = %+v", claims.Act)
 	}
-	if claims.Raw["vendor_data"] != "customer-42" || claims.Raw["exp"] != json.Number("1760702700") {
+	if claims.Raw["vendor_data"] != "customer-42" || claims.Raw["exp"] != json.Number(strconv.FormatInt(testNow.Add(5*time.Minute).Unix(), 10)) {
 		t.Fatalf("raw = %v", claims.Raw)
 	}
 
@@ -498,7 +500,8 @@ func TestVerifyReturnsFetchErrors(t *testing.T) {
 	t.Run("cancelled while waiting for a fetch", func(t *testing.T) {
 		stub := newStub(t, key)
 		c := newTestClient(t, stub, newClock())
-		c.keysSem <- struct{}{} // another caller is fetching
+		c.discovery = &discoveryState{tokenURL: testIssuer + "/token/", jwksURL: testIssuer + jwksPath, expiry: testNow.Add(time.Hour)}
+		c.keysSem <- struct{}{} // another caller is fetching the key set
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		_, err := c.VerifyAccessToken(ctx, token)
@@ -507,10 +510,14 @@ func TestVerifyReturnsFetchErrors(t *testing.T) {
 			t.Fatalf("error = %v (%T), want APIConnectionError wrapping context.Canceled", err, err)
 		}
 		<-c.keysSem
-		c.discoverySem <- struct{}{}
+		c.discovery = nil
+		c.discoverySem <- struct{}{} // another caller is fetching discovery
 		_, err = c.publicKey(ctx, "k_one")
 		if !errors.As(err, &conn) || !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v (%T), want APIConnectionError wrapping context.Canceled", err, err)
+		}
+		if len(stub.all()) != 0 {
+			t.Fatal("requests were sent")
 		}
 	})
 }
