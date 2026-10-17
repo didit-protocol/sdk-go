@@ -216,3 +216,19 @@ func (n *Node) write(b *strings.Builder, sorted bool) {
 		b.WriteByte('}')
 	}
 }
+
+// Elems returns the items of an array; it is nil-safe.
+func (n *Node) Elems() []*Node {
+	if n == nil {
+		return nil
+	}
+	return n.Arr
+}
+
+// ObjKeys returns the keys of an object; it is nil-safe.
+func (n *Node) ObjKeys() []string {
+	if n == nil {
+		return nil
+	}
+	return n.Keys
+}

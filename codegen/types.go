@@ -227,7 +227,7 @@ func (g *Gen) walkUsage(doc *Doc, s *Node, use uint8, seen map[string]bool) {
 		return
 	}
 	for _, key := range []string{"allOf", "oneOf", "anyOf"} {
-		for _, part := range s.Get(key).Arr {
+		for _, part := range s.Get(key).Elems() {
 			g.walkUsage(doc, part, use, seen)
 		}
 	}
@@ -306,7 +306,7 @@ func schemaType(doc *Doc, s *Node) string {
 	}
 	if s.Has("enum") {
 		allStrings := true
-		for _, v := range s.Get("enum").Arr {
+		for _, v := range s.Get("enum").Elems() {
 			if v.Kind != String && v.Kind != Null {
 				allStrings = false
 			}
@@ -665,17 +665,17 @@ func variantSuffixes(doc *Doc, parts []*Node) []string {
 	out := make([]string, len(parts))
 	// Discriminator: a property with one enum value in every variant.
 	var disc string
-	for _, k := range view(doc, parts[0]).Get("properties").Keys {
+	for _, k := range view(doc, parts[0]).Get("properties").ObjKeys() {
 		ok := true
 		values := map[string]bool{}
 		for _, p := range parts {
 			e := view(doc, p).Get("properties").Get(k)
 			e = view(doc, e)
-			if e == nil || len(e.Get("enum").Arr) != 1 || values[e.Get("enum").Arr[0].Str] {
+			if e == nil || len(e.Get("enum").Elems()) != 1 || values[e.Get("enum").Elems()[0].Str] {
 				ok = false
 				break
 			}
-			values[e.Get("enum").Arr[0].Str] = true
+			values[e.Get("enum").Elems()[0].Str] = true
 		}
 		if ok {
 			disc = k
@@ -687,7 +687,7 @@ func variantSuffixes(doc *Doc, parts []*Node) []string {
 		var s string
 		switch {
 		case disc != "":
-			s = naming.Pascal(view(doc, view(doc, p).Get("properties").Get(disc)).Get("enum").Arr[0].Str)
+			s = naming.Pascal(view(doc, view(doc, p).Get("properties").Get(disc)).Get("enum").Elems()[0].Str)
 		case p.Has("$ref"):
 			ref := p.Get("$ref").Text()
 			s = naming.Pascal(ref[strings.LastIndex(ref, "/")+1:])

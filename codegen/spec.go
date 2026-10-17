@@ -257,7 +257,7 @@ func (s *Spec) loadDeprecated(dir string) error {
 	for _, op := range s.Ops {
 		existing[op.Key] = op
 	}
-	for _, e := range root.Get("operations").Arr {
+	for _, e := range root.Get("operations").Elems() {
 		key := e.Get("key").Text()
 		entry := &DeprecatedEntry{
 			Key:             key,

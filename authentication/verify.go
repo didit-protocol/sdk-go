@@ -397,6 +397,15 @@ func (c *Client) readClaims(set *claimSet, out *Claims, audience string) error {
 	return nil
 }
 
+// decodePart decodes a non-empty, unpadded base64url JWS part.
+func decodePart(part string) ([]byte, bool) {
+	if part == "" || !isBase64URL(part) {
+		return nil, false
+	}
+	b, err := rawURL.DecodeString(part)
+	return b, err == nil
+}
+
 // claimSet is a decoded JSON object: the members as raw JSON for typed
 // decoding, and as values for Raw.
 type claimSet struct {
