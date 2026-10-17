@@ -45,7 +45,6 @@ type request struct {
 }
 
 type response struct {
-	status int
 	header http.Header
 	body   []byte
 }
@@ -111,7 +110,7 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 			Response:   redactedResponse(resp),
 		})
 	}
-	return &response{status: resp.StatusCode, header: resp.Header, body: data}, nil
+	return &response{header: resp.Header, body: data}, nil
 }
 
 // retryable reports whether a failed GET may be sent once more: the

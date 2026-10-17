@@ -52,21 +52,77 @@ type jsonWebKey struct {
 	Y   string `json:"y"`
 }
 
+// flight is a fetch in progress. Concurrent callers wait for it and share
+// its result instead of fetching again, so an unavailable issuer costs one
+// fetch per wave of callers, not one per caller in turn.
+type flight struct {
+	done chan struct{}
+	err  error
+	// abandoned reports that the fetch failed because the context of the
+	// caller that made it ended; the callers waiting then fetch themselves.
+	abandoned bool
+}
+
+// wait blocks until f ends or ctx is done. It returns again=true when the
+// caller should look at the cache again, otherwise the error to return.
+func (f *flight) wait(ctx context.Context, rawURL string) (again bool, err error) {
+	select {
+	case <-f.done:
+		if f.err != nil && !f.abandoned {
+			return false, f.err
+		}
+		return true, nil
+	case <-ctx.Done():
+		return false, connectionError(http.MethodGet, rawURL, ctx.Err())
+	}
+}
+
+// end records the outcome of f; the caller holds c.mu and closes f.done
+// after releasing it.
+func (f *flight) end(ctx context.Context, err error) {
+	f.err, f.abandoned = err, err != nil && ctx.Err() != nil
+}
+
 // metadata returns the token endpoint and key set URL from the issuer's
 // discovery document, fetching it when the cached copy is missing or stale.
 func (c *Client) metadata(ctx context.Context) (discoveryState, error) {
-	if state, ok := c.cachedDiscovery(); ok {
-		return state, nil
+	discoveryURL := c.issuer + discoveryPath
+	for {
+		c.mu.Lock()
+		if c.discovery != nil && c.now().Before(c.discovery.expiry) {
+			state := *c.discovery
+			c.mu.Unlock()
+			return state, nil
+		}
+		if f := c.discoveryFlight; f != nil {
+			c.mu.Unlock()
+			if again, err := f.wait(ctx, discoveryURL); !again {
+				return discoveryState{}, err
+			}
+			continue
+		}
+		f := &flight{done: make(chan struct{})}
+		c.discoveryFlight = f
+		c.mu.Unlock()
+
+		state, err := c.fetchDiscovery(ctx, discoveryURL)
+
+		c.mu.Lock()
+		if err == nil {
+			c.discovery = &state
+		}
+		c.discoveryFlight = nil
+		f.end(ctx, err)
+		c.mu.Unlock()
+		close(f.done)
+		return state, err
 	}
-	r := request{method: http.MethodGet, url: c.issuer + discoveryPath, retry: true}
-	if err := acquire(ctx, c.discoverySem); err != nil {
-		return discoveryState{}, connectionError(r.method, r.url, err)
-	}
-	defer release(c.discoverySem)
-	// Another caller may have fetched it while this one waited.
-	if state, ok := c.cachedDiscovery(); ok {
-		return state, nil
-	}
+}
+
+// fetchDiscovery fetches and checks the discovery document. A document that
+// names another issuer is refused and not cached.
+func (c *Client) fetchDiscovery(ctx context.Context, discoveryURL string) (discoveryState, error) {
+	r := request{method: http.MethodGet, url: discoveryURL, retry: true}
 	resp, err := c.send(ctx, r)
 	if err != nil {
 		return discoveryState{}, err
@@ -87,19 +143,7 @@ func (c *Client) metadata(ctx context.Context) (discoveryState, error) {
 	if state.jwksURL, err = c.sameOriginURL("jwks_uri", doc.JWKSURI, c.issuer+jwksPath); err != nil {
 		return discoveryState{}, err
 	}
-	c.mu.Lock()
-	c.discovery = &state
-	c.mu.Unlock()
 	return state, nil
-}
-
-func (c *Client) cachedDiscovery() (discoveryState, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.discovery != nil && c.now().Before(c.discovery.expiry) {
-		return *c.discovery, true
-	}
-	return discoveryState{}, false
 }
 
 // sameOriginURL returns a discovery endpoint, or fallback when the document
@@ -117,62 +161,59 @@ func (c *Client) sameOriginURL(name, value, fallback string) (string, error) {
 }
 
 // publicKey returns the verification key for kid. A fresh cached key set is
-// used as is; a stale one is refetched; a kid missing from a fresh key set
-// triggers a refetch only when the last fetch is at least a minute old.
+// used as is; a stale or missing one is fetched; a kid missing from a fresh
+// key set triggers a refetch only when the last fetch is at least a minute
+// old, so forged kids cannot make the client hammer the issuer.
 func (c *Client) publicKey(ctx context.Context, kid string) (*ecdsa.PublicKey, error) {
-	if key, ok := c.cachedKey(kid); ok {
-		return key, nil
-	}
-	meta, err := c.metadata(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := acquire(ctx, c.keysSem); err != nil {
-		return nil, connectionError(http.MethodGet, meta.jwksURL, err)
-	}
-	defer release(c.keysSem)
+	for {
+		c.mu.Lock()
+		now := c.now()
+		fresh := c.keysLoaded && now.Before(c.keysExpiry)
+		if key, found := c.keys[kid]; fresh && found {
+			c.mu.Unlock()
+			return key, nil
+		}
+		if f := c.keysFlight; f != nil {
+			c.mu.Unlock()
+			if again, err := f.wait(ctx, c.issuer+jwksPath); !again {
+				return nil, err
+			}
+			continue
+		}
+		if fresh && now.Sub(c.keysFetch) < keyRefetchInterval {
+			c.mu.Unlock()
+			return nil, unknownKey()
+		}
+		f := &flight{done: make(chan struct{})}
+		previous := c.keysFetch
+		c.keysFlight, c.keysFetch = f, now // a failed fetch counts too
+		c.mu.Unlock()
 
-	c.mu.Lock()
-	now := c.now()
-	fresh := c.keysLoaded && now.Before(c.keysExpiry)
-	key, found := c.keys[kid]
-	mayFetch := !fresh || now.Sub(c.keysFetch) >= keyRefetchInterval
-	c.mu.Unlock()
-	if fresh && found {
-		return key, nil
-	}
-	if !mayFetch {
-		return nil, unknownKey()
-	}
-	if err := c.fetchKeys(ctx, meta.jwksURL); err != nil {
-		return nil, err
-	}
-	c.mu.Lock()
-	key, found = c.keys[kid]
-	c.mu.Unlock()
-	if !found {
-		return nil, unknownKey()
-	}
-	return key, nil
-}
+		err := c.fetchKeys(ctx)
 
-func (c *Client) cachedKey(kid string) (*ecdsa.PublicKey, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.keysLoaded || !c.now().Before(c.keysExpiry) {
-		return nil, false
+		c.mu.Lock()
+		c.keysFlight = nil
+		f.end(ctx, err)
+		if f.abandoned {
+			c.keysFetch = previous
+		}
+		c.mu.Unlock()
+		close(f.done)
+		if err != nil {
+			return nil, err
+		}
+		// Look again: the kid is in the new key set, or it is unknown.
 	}
-	key, ok := c.keys[kid]
-	return key, ok
 }
 
 // fetchKeys replaces the cached key set. Keys that are not P-256 signature
 // keys are ignored.
-func (c *Client) fetchKeys(ctx context.Context, jwksURL string) error {
-	c.mu.Lock()
-	c.keysFetch = c.now() // counts even when the fetch fails
-	c.mu.Unlock()
-	r := request{method: http.MethodGet, url: jwksURL, retry: true}
+func (c *Client) fetchKeys(ctx context.Context) error {
+	meta, err := c.metadata(ctx)
+	if err != nil {
+		return err
+	}
+	r := request{method: http.MethodGet, url: meta.jwksURL, retry: true}
 	resp, err := c.send(ctx, r)
 	if err != nil {
 		return err
@@ -268,17 +309,6 @@ func cacheTTL(h http.Header) time.Duration {
 	}
 	return max(minCacheTTL, min(ttl, maxCacheTTL))
 }
-
-func acquire(ctx context.Context, sem chan struct{}) error {
-	select {
-	case sem <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func release(sem chan struct{}) { <-sem }
 
 func unknownKey() error {
 	return &didit.TokenVerificationError{

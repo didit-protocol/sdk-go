@@ -41,16 +41,14 @@ type Client struct {
 	// retryDelay is the base delay before the single retry of a GET request.
 	retryDelay time.Duration
 
-	mu         sync.Mutex // guards the cached fields below
-	discovery  *discoveryState
-	keys       map[string]*ecdsa.PublicKey
-	keysExpiry time.Time
-	keysLoaded bool
-	keysFetch  time.Time // when the key set was last fetched (or tried)
-
-	// One fetch of each document at a time; waiters honour their context.
-	discoverySem chan struct{}
-	keysSem      chan struct{}
+	mu              sync.Mutex // guards the fields below
+	discovery       *discoveryState
+	discoveryFlight *flight // the discovery fetch in progress, if any
+	keys            map[string]*ecdsa.PublicKey
+	keysExpiry      time.Time
+	keysLoaded      bool
+	keysFetch       time.Time // when the last key set fetch started
+	keysFlight      *flight   // the key set fetch in progress, if any
 }
 
 // Option configures a [Client].
@@ -103,13 +101,11 @@ func New(issuer string, opts ...Option) (*Client, error) {
 		return nil, err
 	}
 	c := &Client{
-		issuer:       normalized,
-		origin:       origin,
-		leeway:       DefaultLeeway,
-		clock:        time.Now,
-		retryDelay:   defaultRetryDelay,
-		discoverySem: make(chan struct{}, 1),
-		keysSem:      make(chan struct{}, 1),
+		issuer:     normalized,
+		origin:     origin,
+		leeway:     DefaultLeeway,
+		clock:      time.Now,
+		retryDelay: defaultRetryDelay,
 	}
 	for _, opt := range opts {
 		if opt != nil {
