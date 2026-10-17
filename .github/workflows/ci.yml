@@ -70,6 +70,25 @@ jobs:
         run: go run ./codegen -check
       - name: Generator tests
         run: go test ./codegen/...
+      - name: A sync that removes and renames operations keeps every test green
+        # What the spec sync pull request runs after the first sync that
+        # deprecates methods, on a copy of the checkout.
+        run: |
+          upstream="$RUNNER_TEMP/upstream"
+          synced="$RUNNER_TEMP/synced"
+          mkdir -p "$upstream"
+          jq 'del(.paths["/v3/biometric-templates/count/"])
+            | .paths["/v3/billing/balance/"].get["x-didit-sdk"] = {"auth": "api_key", "method": "get_balance", "resource": "billing", "server": true}' \
+            openapi/verification.json > "$upstream/verification.json"
+          cp openapi/account.json "$upstream/account.json"
+          cp -R . "$synced"
+          cd "$synced"
+          GITHUB_OUTPUT= go run ./codegen sync -from-dir "$upstream" > /dev/null
+          grep -q '"biometric_templates.count"' openapi/deprecated-operations.json
+          grep -q '"billing.retrieve_balance"' openapi/deprecated-operations.json
+          go run ./codegen
+          go vet ./...
+          go test ./...
 
   test:
     name: Test (Go ${{ matrix.go }}, ${{ matrix.os }})
