@@ -10,7 +10,23 @@ Status: in development, not released.
 
 ## Toolchain
 
-Go modules, go test with -race, go vet, staticcheck, golangci-lint.
+Go modules, go test with -race, go vet, staticcheck, golangci-lint. Standard library only (no dependencies in `go.mod`); `examples/` is a separate module.
+
+## Commands
+
+- Install: `go mod download` (nothing to download: the module has no dependencies); examples: `cd examples && go mod download`
+- Generate: `go run ./codegen` (writes `*_gen.go` and `*_gen_test.go`); check: `go run ./codegen -check`
+- Spec sync: `go run ./codegen sync -summary spec-sync-summary.md`
+- Test: `go test -race ./...`; live smoke tests: `DIDIT_SANDBOX_API_KEY=... go test -run Live ./...`
+- Lint and type-check: `gofmt -l .` (must print nothing), `go vet ./...`, `staticcheck ./...`, `golangci-lint run`
+- Build: `go build ./...` and `cd examples && go vet ./...`
+- Core coverage (90% minimum): `go test -coverpkg=./... -coverprofile=coverage.out ./... && go run ./internal/tools/corecover -min 90 coverage.out`
+
+## Layout
+
+- Generated (never edit): `*_gen.go`, `*_gen_test.go`. Generator: `codegen/`.
+- Hand-written core: `client.go`, `core.go` (transport, retries), `errors.go`, `opt.go`, `page.go`, `file.go`, `params.go`, `json.go`, `option/`, `internal/`.
+- `webhook/` (DESIGN 9), `authentication/` (DESIGN 10), `examples/`.
 
 ## Rules
 
