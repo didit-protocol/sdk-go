@@ -47,9 +47,6 @@ func (g *Gen) assignOwners(root *Service) {
 		for _, f := range d.Fields {
 			visitType(f.Type, owner)
 		}
-		for _, v := range d.Variants {
-			visitType(v.Type, owner)
-		}
 	}
 	var walk func(s *Service)
 	walk = func(s *Service) {
@@ -465,10 +462,6 @@ func emitDecl(b *bytes.Buffer, d *Decl) {
 		b.WriteString("}\n\n")
 		if d.Side == Response {
 			fmt.Fprintf(b, "// UnmarshalJSON decodes %s leniently.\nfunc (r *%s) UnmarshalJSON(data []byte) error {\n\treturn unmarshalResponse(data, r, &r.JSON)\n}\n\n", d.Name, d.Name)
-			for _, v := range d.Variants {
-				fmt.Fprintf(b, "// As%s decodes the object as the %s variant.\nfunc (r %s) As%s() %s {\n\tvar v %s\n\t_ = json.Unmarshal([]byte(r.JSON.Raw()), &v)\n\treturn v\n}\n\n",
-					v.Suffix, v.Type.Go(), d.Name, v.Suffix, v.Type.Go(), v.Type.Go())
-			}
 		} else {
 			fmt.Fprintf(b, "// MarshalJSON encodes the fields that are set.\nfunc (r %s) MarshalJSON() ([]byte, error) {\n\treturn marshalParams(r)\n}\n\n", d.Name)
 		}

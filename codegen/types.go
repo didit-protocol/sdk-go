@@ -88,7 +88,6 @@ type Decl struct {
 	Doc      string
 	Fields   []*Field
 	Values   []EnumValue
-	Variants []Variant
 	// Params marks the parameter struct of an operation.
 	Params bool
 	Origin string
@@ -116,12 +115,6 @@ type EnumValue struct {
 	GoName string
 	Value  string
 	Doc    string
-}
-
-// Variant is one member of a oneOf/anyOf response type.
-type Variant struct {
-	Suffix string
-	Type   *GoType
 }
 
 // Gen holds the generator state.
@@ -501,11 +494,6 @@ func (g *Gen) structType(doc *Doc, name string, side Side, parts []*Node, union 
 		}
 		d.Fields = append(d.Fields, f)
 	}
-	if union && side == Response {
-		if err := g.addVariants(doc, d, parts); err != nil {
-			return nil, err
-		}
-	}
 	return t, nil
 }
 
@@ -644,76 +632,6 @@ func (g *Gen) unionType(doc *Doc, s *Node, parts []*Node, name string, side Side
 		return g.structType(doc, name, side, nonNull, true, s.Get("description").Text())
 	}
 	return g.mergedType(doc, nonNull, name, side)
-}
-
-// addVariants adds the typed variants of a oneOf/anyOf response struct.
-func (g *Gen) addVariants(doc *Doc, d *Decl, parts []*Node) error {
-	suffixes := variantSuffixes(doc, parts)
-	for i, p := range parts {
-		var vt *GoType
-		var err error
-		if p.Has("$ref") {
-			vt, err = g.component(doc, p.Get("$ref").Text(), Response)
-		} else {
-			vt, err = g.typeOf(doc, p, d.Name+suffixes[i], Response)
-		}
-		if err != nil {
-			return err
-		}
-		if vt.Kind != TNamed {
-			continue
-		}
-		d.Variants = append(d.Variants, Variant{Suffix: suffixes[i], Type: vt})
-	}
-	return nil
-}
-
-// variantSuffixes names the variants of a union: after a discriminating
-// constant (a property with a single-value enum in every variant), else after
-// the variant's title or component name, else Variant1, Variant2...
-func variantSuffixes(doc *Doc, parts []*Node) []string {
-	out := make([]string, len(parts))
-	// Discriminator: a property with one enum value in every variant.
-	var disc string
-	for _, k := range view(doc, parts[0]).Get("properties").ObjKeys() {
-		ok := true
-		values := map[string]bool{}
-		for _, p := range parts {
-			e := view(doc, p).Get("properties").Get(k)
-			e = view(doc, e)
-			if e == nil || len(e.Get("enum").Elems()) != 1 || values[e.Get("enum").Elems()[0].Str] {
-				ok = false
-				break
-			}
-			values[e.Get("enum").Elems()[0].Str] = true
-		}
-		if ok {
-			disc = k
-			break
-		}
-	}
-	used := map[string]bool{}
-	for i, p := range parts {
-		var s string
-		switch {
-		case disc != "":
-			s = naming.Pascal(view(doc, view(doc, p).Get("properties").Get(disc)).Get("enum").Elems()[0].Str)
-		case p.Has("$ref"):
-			ref := p.Get("$ref").Text()
-			s = naming.Pascal(ref[strings.LastIndex(ref, "/")+1:])
-		case view(doc, p).Get("title").Text() != "":
-			title := view(doc, p).Get("title").Text()
-			if i := strings.Index(title, "("); i > 0 {
-				title = title[:i]
-			}
-			s = naming.Pascal(title)
-		}
-		if s == "" {
-			s = fmt.Sprintf("Variant%d", i+1)
-		}
-		out[i] = uniqueName(s, used)
-	}
-	return out
 }
 
 // enumType declares a string enum. Several value lists are merged.
