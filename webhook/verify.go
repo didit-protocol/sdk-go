@@ -18,13 +18,13 @@ import (
 
 // Header names Didit sends with every webhook.
 const (
-	HeaderSignature           = "X-Signature"
-	HeaderSignatureV2         = "X-Signature-V2"
-	HeaderSignatureSimple     = "X-Signature-Simple"
-	HeaderSignaturePrevious   = "X-Signature-Previous"
-	HeaderSignatureV2Previous = "X-Signature-V2-Previous"
-	HeaderSignatureSimplePrev = "X-Signature-Simple-Previous"
-	HeaderTimestamp           = "X-Timestamp"
+	headerSignature               = "X-Signature"
+	headerSignatureV2             = "X-Signature-V2"
+	headerSignatureSimple         = "X-Signature-Simple"
+	headerSignaturePrevious       = "X-Signature-Previous"
+	headerSignatureV2Previous     = "X-Signature-V2-Previous"
+	headerSignatureSimplePrevious = "X-Signature-Simple-Previous"
+	headerTimestamp               = "X-Timestamp"
 )
 
 // Verify checks a webhook delivery and returns its typed event.
@@ -127,7 +127,7 @@ func checkTimestamp(body map[string]any, header http.Header, cfg *config) (*big.
 	if !ok {
 		return nil, verificationError(didit.WebhookReasonMissingTimestamp, "body has no integer timestamp")
 	}
-	if h := headerValue(header, HeaderTimestamp); h != "" {
+	if h := headerValue(header, headerTimestamp); h != "" {
 		hts, ok := parseDecimal(h)
 		if !ok || hts.Cmp(ts) != 0 {
 			return nil, verificationError(didit.WebhookReasonTimestampMismatch, "X-Timestamp differs from the body's timestamp")
@@ -216,12 +216,12 @@ type signatureHeaders struct {
 
 func readSignatures(h http.Header) signatureHeaders {
 	return signatureHeaders{
-		raw:        headerValue(h, HeaderSignature),
-		rawPrev:    headerValue(h, HeaderSignaturePrevious),
-		v2:         headerValue(h, HeaderSignatureV2),
-		v2Prev:     headerValue(h, HeaderSignatureV2Previous),
-		simple:     headerValue(h, HeaderSignatureSimple),
-		simplePrev: headerValue(h, HeaderSignatureSimplePrev),
+		raw:        headerValue(h, headerSignature),
+		rawPrev:    headerValue(h, headerSignaturePrevious),
+		v2:         headerValue(h, headerSignatureV2),
+		v2Prev:     headerValue(h, headerSignatureV2Previous),
+		simple:     headerValue(h, headerSignatureSimple),
+		simplePrev: headerValue(h, headerSignatureSimplePrevious),
 	}
 }
 
