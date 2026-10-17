@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -208,8 +209,10 @@ func parseIssuer(raw string) (string, *url.URL, error) {
 	if u.Fragment != "" || strings.Contains(trimmed, "#") {
 		return "", nil, configError("issuer must not contain a fragment")
 	}
-	if u.Port() == "0" {
-		return "", nil, configError("issuer has an invalid port")
+	if port := u.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return "", nil, configError("issuer has an invalid port")
+		}
 	}
 	switch {
 	case u.Scheme == "https":

@@ -35,25 +35,25 @@ func TestNewValidatesIssuer(t *testing.T) {
 		}
 	}
 	invalid := map[string]string{
-		"":                                    "issuer is required",
-		"acme.auth.didit.me":                  "absolute URL",
-		"/relative":                           "absolute URL",
-		"https:acme":                          "absolute URL",
-		"https://":                            "absolute URL",
-		"http://acme.auth.didit.me":           "must use https",
-		"http://localhost.example.com":        "must use https",
-		"http://127.0.0.2":                    "must use https",
-		"ftp://acme.auth.didit.me":            "must use https",
+		"":                                     "issuer is required",
+		"acme.auth.didit.me":                   "absolute URL",
+		"/relative":                            "absolute URL",
+		"https:acme":                           "absolute URL",
+		"https://":                             "absolute URL",
+		"http://acme.auth.didit.me":            "must use https",
+		"http://localhost.example.com":         "must use https",
+		"http://127.0.0.2":                     "must use https",
+		"ftp://acme.auth.didit.me":             "must use https",
 		"https://user:pass@acme.auth.didit.me": "credentials",
-		"https://acme.auth.didit.me?x=1":      "query",
-		"https://acme.auth.didit.me?":         "query",
-		"https://acme.auth.didit.me#frag":     "fragment",
-		"https://acme.auth.didit.me#":         "fragment",
-		"https://acme.auth.didit.me:0":        "port",
-		"https://acme .auth.didit.me":         "whitespace",
-		"https://acme.auth.didit.me\n":        "whitespace",
-		"https://acme.auth.didit.me:99999":    "absolute URL",
-		"https://[::1":                        "absolute URL",
+		"https://acme.auth.didit.me?x=1":       "query",
+		"https://acme.auth.didit.me?":          "query",
+		"https://acme.auth.didit.me#frag":      "fragment",
+		"https://acme.auth.didit.me#":          "fragment",
+		"https://acme.auth.didit.me:0":         "port",
+		"https://acme .auth.didit.me":          "whitespace",
+		"https://acme.auth.didit.me\n":         "whitespace",
+		"https://acme.auth.didit.me:99999":     "port",
+		"https://[::1":                         "absolute URL",
 	}
 	for in, want := range invalid {
 		_, err := New(in)
@@ -96,11 +96,11 @@ func TestParsePublishableKey(t *testing.T) {
 		t.Fatalf("test key: %q %v %v", issuer, live, err)
 	}
 	// Padding is tolerated.
-	padded := testPrefix + base64.URLEncoding.EncodeToString([]byte("https://ab.auth.didit.me"))
+	padded := testPrefix + base64.URLEncoding.EncodeToString([]byte("https://abc.auth.didit.me"))
 	if !strings.HasSuffix(padded, "=") {
 		t.Fatal("test value is not padded")
 	}
-	if issuer, _, err = ParsePublishableKey(padded); err != nil || issuer != "https://ab.auth.didit.me" {
+	if issuer, _, err = ParsePublishableKey(padded); err != nil || issuer != "https://abc.auth.didit.me" {
 		t.Fatalf("padded key: %q %v", issuer, err)
 	}
 	// Sandbox keys may carry an http loopback issuer for local development.
@@ -192,8 +192,9 @@ type failingReader struct{}
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
 
 func TestRandomFailure(t *testing.T) {
+	previous := randReader
 	randReader = failingReader{}
-	t.Cleanup(func() { randReader = defaultRandReader })
+	t.Cleanup(func() { randReader = previous })
 	if _, err := CreatePKCE(); err == nil {
 		t.Fatal("CreatePKCE succeeded without randomness")
 	}
