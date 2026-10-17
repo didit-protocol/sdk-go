@@ -88,7 +88,7 @@ func TestVectorsVerifyParsed(t *testing.T) {
 					t.Fatalf("VerifyParsed: %v", err)
 				}
 				checkVectorEvent(t, v, ev, true)
-				if v.Name != "tampered_body" && string(ev.Raw()) != v.CanonicalV2 {
+				if string(ev.Raw()) != v.CanonicalV2 {
 					t.Fatalf("Raw() = %s, want the canonical JSON", ev.Raw())
 				}
 			case "valid_only_with_allow_simple":

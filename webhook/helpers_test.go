@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
@@ -161,5 +160,3 @@ func loadVectors(t *testing.T) vectorFile {
 	}
 	return f
 }
-
-func itoa(n int64) string { return strconv.FormatInt(n, 10) }

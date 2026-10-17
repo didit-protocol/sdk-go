@@ -32,8 +32,10 @@ func WithSecrets(secrets ...string) Option {
 }
 
 // WithTolerance sets how far the signed timestamp may be from the current time
-// in either direction. The default is DefaultTolerance (300 seconds). A
-// negative tolerance is a configuration error.
+// in either direction. The default is DefaultTolerance (300 seconds). The
+// comparison uses the clock's full precision, so a delivery signed at second
+// T is accepted until T plus the tolerance, inclusive. A negative tolerance is
+// a configuration error.
 func WithTolerance(d time.Duration) Option {
 	return func(c *config) { c.tolerance = d }
 }
