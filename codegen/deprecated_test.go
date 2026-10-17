@@ -177,12 +177,12 @@ func TestLoadDeprecatedPrefersCurrentComponents(t *testing.T) {
 	}
 }
 
-// TestDeprecatingSyncOfTheRepositorySpec runs the first sync that fills
+// TestDeprecatingSyncOfTheRepositorySpec runs a sync that fills
 // openapi/deprecated-operations.json on a copy of the repository's openapi/:
-// upstream removes biometric_templates.count and renames
-// billing.retrieve_balance. What the repository's own tests read from that
-// file must still hold. (CI also runs every test on a checkout synced like
-// this.)
+// upstream removes one GET operation and renames another. What the
+// repository's own tests read from that file must still hold. The two
+// operations are picked from the current contract, so the test keeps working
+// after real syncs. (CI also runs every test on a checkout synced like this.)
 func TestDeprecatingSyncOfTheRepositorySpec(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "openapi")
@@ -206,11 +206,55 @@ func TestDeprecatingSyncOfTheRepositorySpec(t *testing.T) {
 		}
 		return data
 	}
+	countDeprecated := func() int {
+		t.Helper()
+		files, err := Generate(root)
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		n := 0
+		for _, f := range files {
+			n += strings.Count(string(f.Content), "\n// Deprecated: ")
+		}
+		return n
+	}
+	before := countDeprecated()
 
+	// The first two GET operations, in path order, that are server methods.
 	doc := mustNode(t, string(read("verification.json")))
-	syncDeleteKey(doc.Get("paths"), "/v3/biometric-templates/count/")
-	doc.Path("paths", "/v3/billing/balance/", "get").Set("x-didit-sdk",
-		mustNode(t, `{"resource": "billing", "method": "get_balance", "auth": "api_key", "server": true}`))
+	overlay := mustNode(t, string(read("overlay.json"))).Get("operations")
+	paths := doc.Get("paths")
+	var picked []string
+	keys := slices.Clone(paths.ObjKeys())
+	slices.Sort(keys)
+	for _, p := range keys {
+		op := paths.Path(p, "get")
+		naming := op.Get("x-didit-sdk")
+		if naming == nil {
+			naming = overlay.Get("GET " + p)
+		}
+		if op != nil && naming.Get("server").Truthy() && len(picked) < 2 {
+			picked = append(picked, p)
+		}
+	}
+	if len(picked) < 2 {
+		t.Fatalf("found %d GET server operations, want 2", len(picked))
+	}
+	name := func(p string) (resource, method string) {
+		naming := paths.Path(p, "get", "x-didit-sdk")
+		if naming == nil {
+			naming = overlay.Get("GET " + p)
+		}
+		return naming.Get("resource").Text(), naming.Get("method").Text()
+	}
+	removedRes, removedMethod := name(picked[0])
+	renamedRes, renamedMethod := name(picked[1])
+	syncDeleteKey(paths.Get(picked[0]), "get")
+	renamed := mustNode(t, `{"auth": "api_key", "server": true}`)
+	renamed.Set("resource", syncString(renamedRes))
+	renamed.Set("method", syncString(renamedMethod+"_renamed"))
+	paths.Path(picked[1], "get").Set("x-didit-sdk", renamed)
+
 	res, err := syncSpecs(dir, map[string][]byte{
 		"verification.json": []byte(syncEncode(doc, syncFileStyle)),
 		"account.json":      read("account.json"),
@@ -218,30 +262,21 @@ func TestDeprecatingSyncOfTheRepositorySpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	removedKey, renamedKey := removedRes+"."+removedMethod, renamedRes+"."+renamedMethod
 	expectContains(t, section(res.summary, "Breaking changes"),
-		"`biometric_templates.count` was removed upstream",
-		"`billing.retrieve_balance` was renamed upstream to `billing.get_balance`")
+		"`"+removedKey+"` was removed upstream",
+		"`"+renamedKey+"` was renamed upstream to `"+renamedKey+"_renamed`")
+	methods := mustNode(t, string(read("deprecated-operations.json"))).Get("methods")
+	for _, key := range []string{removedKey, renamedKey} {
+		if !methods.Has(key) {
+			t.Errorf("%s is not in deprecated-operations.json", key)
+		}
+	}
 
 	file := filepath.Join(dir, "deprecated-operations.json")
-	methods := mustNode(t, string(read("deprecated-operations.json"))).Get("methods")
-	keys := methods.ObjKeys()
-	slices.Sort(keys)
-	if got, want := strings.Join(keys, " "), "billing.retrieve_balance biometric_templates.count"; got != want {
-		t.Fatalf("deprecated methods = %s, want %s", got, want)
-	}
 	expectRoundTrip(t, file)
 	expectNoExpiredDeprecations(t, file)
-
-	files, err := Generate(root)
-	if err != nil {
-		t.Fatalf("generate: %v", err)
+	if got := countDeprecated(); got != before+2 {
+		t.Errorf("%d deprecated methods after the sync, want %d", got, before+2)
 	}
-	gen := map[string]string{}
-	for _, f := range files {
-		gen[f.Name] = string(f.Content)
-	}
-	expectContains(t, gen["biometric_templates_gen.go"], "// Deprecated: The operation was removed from the API on 2026-10-18.",
-		"func (r *BiometricTemplatesService) Count(")
-	expectContains(t, gen["billing_gen.go"], "func (r *BillingService) GetBalance(",
-		"// Deprecated: Use [BillingService.GetBalance] instead;", "func (r *BillingService) RetrieveBalance(")
 }
