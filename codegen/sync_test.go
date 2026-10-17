@@ -448,7 +448,7 @@ func TestSyncKeepsRemovedOperationAsDeprecatedMethod(t *testing.T) {
 	after := f.generate()
 	expectSameGenerated(t, before, after)
 	expectContains(t, after["billing_gen.go"],
-		"// Deprecated: The operation was removed from the API on 2026-10-18. This\n// method is removed in version 0.5.0.\n//\n//\tGET /v3/billing/balance/\nfunc (r *BillingService) RetrieveBalance(")
+		"// Deprecated: The operation was removed from the API on 2026-10-18. This method\n// is removed in version 0.5.0.\n//\n//\tGET /v3/billing/balance/\nfunc (r *BillingService) RetrieveBalance(")
 }
 
 func TestSyncKeepsPathLevelParametersOfRemovedOperation(t *testing.T) {
