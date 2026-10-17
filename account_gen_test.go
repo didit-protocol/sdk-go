@@ -85,13 +85,17 @@ func TestAccountApplicationsCreate(t *testing.T) {
 }
 
 func TestAccountApplicationsList(t *testing.T) {
-	client, mock := newMockClient(t, 200, "", ``)
-	if err := client.Account.Applications.List(context.Background(), "org-id-1"); err != nil {
+	client, mock := newMockClient(t, 200, "application/json", `[{"ok":true}]`)
+	res, err := client.Account.Applications.List(context.Background(), "org-id-1")
+	if err != nil {
 		t.Fatal(err)
 	}
 	req := mock.single(t)
 	req.expect(t, "GET", "/auth/v2/organizations/me/org-id-1/applications/")
 	req.expectAccountToken(t)
+	if string(res) != `[{"ok":true}]` {
+		t.Fatalf("raw response = %s", res)
+	}
 }
 
 func TestAccountApplicationsRetrieve(t *testing.T) {

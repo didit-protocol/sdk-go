@@ -140,6 +140,8 @@ decision.JSON.Null("metadata")    // the key was sent as null
 decision.JSON.ExtraFields()       // keys this SDK version does not know yet
 ```
 
+When the API reference declares no schema for a response (today `Account.Applications.List`), the method returns the body as `json.RawMessage` for you to decode.
+
 ## Errors
 
 Every error the SDK returns implements `didit.Error`. Use `errors.As` with the concrete types:

@@ -132,6 +132,39 @@ func TestSmallSpec(t *testing.T) {
 	}
 }
 
+// A success without declared content returns raw JSON unless it is a 204.
+func TestResponseWithoutContent(t *testing.T) {
+	dir := writeSpec(t, `{"openapi":"3.0.0","paths":{
+		"/v3/things/":{"get":{"responses":{"200":{"description":"Array of things"}}}},
+		"/v3/things/{thing_id}/":{"delete":{
+			"parameters":[{"name":"thing_id","in":"path","required":true,"schema":{"type":"string"}}],
+			"responses":{"204":{"description":"Deleted"}}}}}}`,
+		`{"operations":{
+			"GET /v3/things/":{"resource":"things","method":"list","auth":"api_key","server":true},
+			"DELETE /v3/things/{thing_id}/":{"resource":"things","method":"delete","auth":"api_key","server":true}}}`)
+	files, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := map[string]string{}
+	for _, f := range files {
+		all[f.Name] = string(f.Content)
+	}
+	code := all["things_gen.go"]
+	for _, want := range []string{
+		"func (r *ThingsService) List(ctx context.Context, opts ...option.RequestOption) (json.RawMessage, error)",
+		"func (r *ThingsService) Delete(ctx context.Context, thingID string, opts ...option.RequestOption) error",
+		"\t\"encoding/json\"\n",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("generated code lacks %q:\n%s", want, code)
+		}
+	}
+	if tests := all["things_gen_test.go"]; !strings.Contains(tests, "if string(res) != `[{\"ok\":true}]` {") {
+		t.Errorf("generated tests do not check the raw body:\n%s", tests)
+	}
+}
+
 func TestWriteDoc(t *testing.T) {
 	var b bytes.Buffer
 	writeDoc(&b, "\t", "First line \u2014 with a dash.\n\n- item one that is long enough to wrap around the configured width of the comment block\n- item two\n\n| a | b |\n\n1. numbered")

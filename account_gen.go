@@ -4,6 +4,7 @@ package didit
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -107,10 +108,16 @@ func (r *AccountApplicationsService) Create(ctx context.Context, orgID string, p
 // /organizations/me/{org_id}/applications/{app_id}/` for the API key. Requires
 // an owner or admin Bearer token.
 //
+// The API reference declares no schema for the response, so it is returned as
+// raw JSON (nil when the body is empty).
+//
 //	GET /organizations/me/{org_id}/applications/
-func (r *AccountApplicationsService) List(ctx context.Context, orgID string, opts ...option.RequestOption) error {
-	_, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/organizations/me/{org_id}/applications/", pathParams: []string{"org_id", orgID}, api: apiAccount, auth: authAccountToken}, nil, opts)
-	return err
+func (r *AccountApplicationsService) List(ctx context.Context, orgID string, opts ...option.RequestOption) (json.RawMessage, error) {
+	var res json.RawMessage
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/organizations/me/{org_id}/applications/", pathParams: []string{"org_id", orgID}, api: apiAccount, auth: authAccountToken}, &res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // Retrieve: Get Application Credentials.

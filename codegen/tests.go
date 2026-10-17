@@ -120,6 +120,10 @@ func (g *Gen) emitTest(b *bytes.Buffer, m *Method) error {
 		} else if m.ResponseSchema != nil {
 			fitted = sanitizeExample(respB.synth(m.ResponseSchema, 0, map[string]bool{}))
 			respBody = fitted.JSON()
+		} else if m.Result != nil && m.Result.Kind == TRaw {
+			// Raw JSON may be any value: an array is what a decoded object
+			// would lose.
+			respBody = `[{"ok":true}]`
 		} else {
 			respBody = `{"ok":true}`
 		}
@@ -278,7 +282,9 @@ func (g *Gen) emitTest(b *bytes.Buffer, m *Method) error {
 			fmt.Fprintf(b, "\tif len(res.Results) == 0 {\n\t\tt.Fatal(\"no results\")\n\t}\n\texpectFields(t, res.Results[0].JSON, %s)\n", sliceLiteral(checkKeys))
 		}
 	case RetJSON:
-		if m.Result.Kind == TNamed && g.byName[m.Result.Name] != nil && g.byName[m.Result.Name].Kind == DStruct {
+		if m.Result.Kind == TRaw {
+			fmt.Fprintf(b, "\tif string(res) != %s {\n\t\tt.Fatalf(\"raw response = %%s\", res)\n\t}\n", goString(respBody))
+		} else if m.Result.Kind == TNamed && g.byName[m.Result.Name] != nil && g.byName[m.Result.Name].Kind == DStruct {
 			if len(checkKeys) > 0 {
 				fmt.Fprintf(b, "\texpectFields(t, res.JSON, %s)\n", sliceLiteral(checkKeys))
 			} else {
