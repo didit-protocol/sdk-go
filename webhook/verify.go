@@ -273,7 +273,7 @@ func checkSignatures(cfg *config, header http.Header, raw, canonical []byte, bod
 
 	msg := "no signature matches the secret"
 	switch {
-	case raw == nil && hasRaw && !hasV2 && !(cfg.allowSimple && hasSimple):
+	case raw == nil && hasRaw && !hasV2 && (!cfg.allowSimple || !hasSimple):
 		msg = "X-Signature signs the raw body, which VerifyParsed does not have; use Verify, or check X-Signature-V2"
 	case !hasRaw && !hasV2 && !cfg.allowSimple:
 		msg = "only X-Signature-Simple is present, and it counts only with WithAllowSimple"

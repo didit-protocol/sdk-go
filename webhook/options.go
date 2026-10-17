@@ -45,6 +45,14 @@ func WithTolerance(d time.Duration) Option {
 // session_id, status and webhook_type, not the body, so an event accepted
 // through them reports Authenticated() == false: do not trust its other fields
 // and re-fetch the record from the API instead.
+//
+// The simple signature is the HMAC-SHA256 of
+// "{timestamp}:{session_id}:{status}:{webhook_type}", with each field
+// written the way Didit's backend writes it, as Python's str() of the JSON
+// value: a missing field is empty, null is "None", true and false are "True"
+// and "False", integers are plain decimal, floats are in Python repr form and
+// strings are used as they are. An object or array in one of these fields
+// never matches.
 func WithAllowSimple() Option {
 	return func(c *config) { c.allowSimple = true }
 }

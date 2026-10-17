@@ -234,8 +234,9 @@ func isLoopback(host string) bool {
 // Go's decoder silently skips CR and LF, so they are refused here.
 func isBase64URL(s string) bool {
 	for i := 0; i < len(s); i++ {
-		b := s[i]
-		if !('A' <= b && b <= 'Z' || 'a' <= b && b <= 'z' || '0' <= b && b <= '9' || b == '-' || b == '_') {
+		switch b := s[i]; {
+		case 'A' <= b && b <= 'Z', 'a' <= b && b <= 'z', '0' <= b && b <= '9', b == '-', b == '_':
+		default:
 			return false
 		}
 	}

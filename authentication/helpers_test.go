@@ -284,7 +284,7 @@ func (s *stubIssuer) RoundTrip(req *http.Request) (*http.Response, error) {
 		if body, err = io.ReadAll(req.Body); err != nil {
 			return nil, err
 		}
-		req.Body.Close()
+		_ = req.Body.Close()
 	}
 	s.mu.Lock()
 	s.requests = append(s.requests, recorded{

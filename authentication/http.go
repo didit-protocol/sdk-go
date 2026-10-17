@@ -87,7 +87,7 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 	if err != nil {
 		return nil, connectionError(r.method, r.url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return nil, connectionError(r.method, r.url, err)
