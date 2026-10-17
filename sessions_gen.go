@@ -10936,8 +10936,8 @@ type SessionsImportsCreateParams struct {
 
 	// Alternative to file upload. Must be an HTTPS URL resolving to a public
 	// address (private/loopback networks are rejected). Mutually exclusive with
-	// `file`. Required.
-	SourceFileURL string `json:"source_file_url"`
+	// `file`.
+	SourceFileURL Opt[string] `json:"source_file_url"`
 
 	// Canonical CSV or NDJSON file. Use NDJSON for large imports. Maximum upload
 	// size 25 MB (use `source_file_url` for bigger files). Mutually exclusive with

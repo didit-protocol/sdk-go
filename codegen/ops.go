@@ -270,7 +270,8 @@ func (g *Gen) buildParams(op *Operation, m *Method, prefix string, params []*Nod
 		if !allObjects(op.Doc, parts) {
 			return fmt.Errorf("request body is not an object")
 		}
-		bt, err := g.structType(op.Doc, name, Request, parts, false, "")
+		// A field required by only one of JSON and multipart is optional.
+		bt, err := g.structType(op.Doc, name, Request, parts, len(parts) > 1, "")
 		if err != nil {
 			return err
 		}
