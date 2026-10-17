@@ -31,6 +31,35 @@ type Page[T any] struct {
 	request *apiRequest
 	opts    []option.RequestOption
 	url     *url.URL
+	fetched *pageHistory
+}
+
+// pageHistory lists the pages fetched up to and including one page, newest
+// first. Every page shares its predecessors' entries, so the list costs one
+// entry per page.
+type pageHistory struct {
+	key    string
+	parent *pageHistory
+}
+
+func (h *pageHistory) contains(key string) bool {
+	for ; h != nil; h = h.parent {
+		if h.key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// pageKey identifies the page a URL points to: scheme and host compared
+// case-insensitively with the default port made explicit, the fragment
+// dropped and the query parameters sorted.
+func pageKey(u *url.URL) string {
+	path := u.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	return strings.ToLower(u.Scheme) + "://" + canonicalHost(u) + path + "?" + u.Query().Encode()
 }
 
 // UnmarshalJSON decodes a page leniently, like every response type.
@@ -45,7 +74,9 @@ func (p *Page[T]) HasNextPage() bool {
 
 // GetNextPage fetches the next page. It returns nil and no error after the
 // last page. A next link on an origin other than the configured base URL is
-// refused with an *UnexpectedResponseError, so the API key never leaves it.
+// refused with an *UnexpectedResponseError, so the API key never leaves it,
+// and so is a next link back to this page or one fetched before it, which
+// would loop forever.
 func (p *Page[T]) GetNextPage(ctx context.Context) (*Page[T], error) {
 	if !p.HasNextPage() || p.client == nil {
 		return nil, nil
@@ -65,26 +96,39 @@ func (p *Page[T]) GetNextPage(ctx context.Context) (*Page[T], error) {
 	if !sameOrigin(next, base) {
 		return nil, &UnexpectedResponseError{Message: fmt.Sprintf("refusing a next page link on another origin (%s://%s)", next.Scheme, next.Host)}
 	}
-	if next.String() == p.url.String() {
-		// A next link to the same page would loop forever.
-		return nil, nil
+	if p.fetched.contains(pageKey(next)) {
+		return nil, &UnexpectedResponseError{Message: fmt.Sprintf("refusing a next page link to a page already fetched (%s)", next.EscapedPath())}
 	}
 	req := *p.request
 	req.rawURL = next
-	return getPage[T](ctx, p.client, &req, p.opts)
+	return fetchPage[T](ctx, p.client, &req, p.opts, p.fetched)
 }
 
-// getPage fetches one page.
+// getPage fetches the first page of a list.
 func getPage[T any](ctx context.Context, c *Client, r *apiRequest, opts []option.RequestOption) (*Page[T], error) {
+	return fetchPage[T](ctx, c, r, opts, nil)
+}
+
+// fetchPage fetches one page and records it after the pages in fetched. A
+// next page reached through a redirect is recorded under both its link and
+// the URL it was served from.
+func fetchPage[T any](ctx context.Context, c *Client, r *apiRequest, opts []option.RequestOption, fetched *pageHistory) (*Page[T], error) {
 	page := &Page[T]{}
 	resp, err := c.do(ctx, r, page, opts)
 	if err != nil {
 		return nil, err
 	}
+	if r.rawURL != nil {
+		fetched = &pageHistory{key: pageKey(r.rawURL), parent: fetched}
+	}
+	if key := pageKey(resp.Request.URL); fetched == nil || fetched.key != key {
+		fetched = &pageHistory{key: key, parent: fetched}
+	}
 	page.client = c
 	page.request = r
 	page.opts = opts
 	page.url = resp.Request.URL
+	page.fetched = fetched
 	return page, nil
 }
 

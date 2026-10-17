@@ -22,7 +22,10 @@
 # Hand-pushed fixes: every run rebuilds chore/spec-sync from the default branch, which would
 # drop a fix pushed to that branch by hand. While the open spec sync pull request carries a
 # commit that did not come from this workflow, the run leaves it alone; once that pull
-# request is merged or closed, the next run syncs whatever changed since.
+# request is merged or closed, the next run syncs whatever changed since. The push is a
+# --force-with-lease against the branch head the run saw when it started, so a commit
+# pushed while the run works is never overwritten: the push fails, and the next run sees
+# the commit.
 name: Spec sync
 
 on:
@@ -73,6 +76,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASE: ${{ github.event.repository.default_branch }}
         run: |
+          # The branch head now (empty when the branch does not exist): the push below only
+          # replaces this commit.
+          head="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/heads/${SYNC_BRANCH}" \
+            --jq ".[] | select(.ref == \"refs/heads/${SYNC_BRANCH}\") | .object.sha")"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
           open="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$SYNC_BRANCH" --base "$BASE" \
             --state open --json number --jq 'length')"
           if [ "$open" = "0" ]; then
@@ -148,6 +156,7 @@ jobs:
           BASE: ${{ github.event.repository.default_branch }}
           SYNC_DATE: ${{ steps.sync.outputs.date }}
           CHECKS_FAILED: ${{ steps.checks.outputs.failed }}
+          LEASE: ${{ steps.guard.outputs.head }}
         run: |
           title="chore(spec): sync API spec ${SYNC_DATE}"
           git config user.name "$BOT_NAME"
@@ -161,7 +170,9 @@ jobs:
           fi
           git commit --quiet -m "$title"
           gh auth setup-git
-          git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
+          # Refused when the branch moved since the guard step read it (or appeared, when it
+          # did not exist then).
+          git push --force-with-lease="refs/heads/$SYNC_BRANCH:$LEASE" origin "HEAD:refs/heads/$SYNC_BRANCH"
           number="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$SYNC_BRANCH" --base "$BASE" \
             --state open --json number --jq '.[0].number // empty')"
           if [ -z "$number" ]; then

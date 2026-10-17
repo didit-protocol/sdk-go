@@ -1,18 +1,19 @@
 # NOTHING MAY BE RELEASED before Alex's explicit approval and the 2026-11-01 Didit release
-# (docs/DESIGN.md section 13). The `release` environment used by release.yml must require
-# a reviewer.
+# (docs/DESIGN.md section 13).
 #
 # release-please opens the release pull request (version bump in
 # internal/version/version.go and the generated CHANGELOG.md) and, once that pull request
 # is merged and this workflow runs again, pushes the vX.Y.Z tag and creates the GitHub
 # release, which starts release.yml. For a Go module the tag is the release: proxy.golang.org
-# and pkg.go.dev serve it once the repository is public. It runs only when started by hand.
+# and pkg.go.dev serve it once the repository is public. So this job runs in the `release`
+# environment, which must require a reviewer: every run, and with it every tag, waits for
+# an approval. It runs only when started by hand.
 #
 # Token: a release created with the default GITHUB_TOKEN does not trigger other workflows,
-# so release.yml would not start and the release pull request would get no CI. Add a
-# repository secret RELEASE_PLEASE_TOKEN (a fine-grained token with Contents, Issues and
-# Pull requests read and write on this repository only); without it the workflow falls
-# back to GITHUB_TOKEN.
+# so release.yml would not start and the release pull request would get no CI. The job
+# therefore needs the secret RELEASE_PLEASE_TOKEN (a fine-grained token with Contents,
+# Issues and Pull requests read and write on this repository only, stored as a secret of
+# the `release` environment) and stops before doing anything without it.
 name: Release Please
 
 on:
@@ -30,14 +31,24 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Required reviewers (Settings > Environments): nothing is tagged before an approval.
+    environment: release
     permissions:
       contents: write
       issues: write
       pull-requests: write
     steps:
+      - name: Require the release token
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_PLEASE_TOKEN" ]; then
+            echo "::error::The RELEASE_PLEASE_TOKEN secret is missing (see CONTRIBUTING.md). With the default GITHUB_TOKEN the release would not start release.yml."
+            exit 1
+          fi
       - name: Run release-please
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json

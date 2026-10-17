@@ -559,16 +559,71 @@ func TestNextPageOnAnotherOriginIsRefused(t *testing.T) {
 	}
 }
 
-func TestPaginationLoopStops(t *testing.T) {
-	page := `{"count":9,"next":"https://verification.test/v3/sessions/","previous":null,"results":[{"session_id":"a"}]}`
-	client, m := newMockClient(t, 200, "application/json", page)
-	it := client.Sessions.ListAutoPaging(context.Background(), didit.SessionsListParams{})
-	n := 0
-	for it.Next() {
-		n++
+func TestPaginationCycleIsRefused(t *testing.T) {
+	page := func(next, id string) response {
+		return response{status: 200, contentType: "application/json", body: `{"count":9,"next":"` + next + `","previous":null,"results":[{"session_id":"` + id + `"}]}`}
 	}
-	if n != 1 || it.Err() != nil || len(m.all()) != 1 {
-		t.Fatalf("n = %d, err = %v, requests = %d", n, it.Err(), len(m.all()))
+	for _, tc := range []struct {
+		name   string
+		params didit.SessionsListParams
+		pages  []response
+	}{
+		{"a link to the same page", didit.SessionsListParams{}, []response{
+			page("https://verification.test/v3/sessions/", "a"),
+		}},
+		{"a link back to the first page", didit.SessionsListParams{}, []response{
+			page("/v3/sessions/?offset=1", "a"),
+			page("https://verification.test/v3/sessions/", "b"),
+		}},
+		{"a link back to an earlier page", didit.SessionsListParams{Limit: didit.Int(1)}, []response{
+			page("/v3/sessions/?limit=1&offset=1", "a"),
+			page("/v3/sessions/?limit=1&offset=2", "b"),
+			page("/v3/sessions/?limit=1&offset=1", "c"),
+		}},
+		{"the same page written differently", didit.SessionsListParams{Limit: didit.Int(1)}, []response{
+			page("/v3/sessions/?limit=1&offset=1", "a"),
+			page("HTTPS://Verification.TEST:443/v3/sessions/?offset=1&limit=1#again", "b"),
+		}},
+		{"an empty path written as /", didit.SessionsListParams{}, []response{
+			page("https://verification.test?offset=1", "a"),
+			page("https://verification.test/?offset=1", "b"),
+		}},
+	} {
+		client, m := newMockClientWith(t, tc.pages)
+		it := client.Sessions.ListAutoPaging(context.Background(), tc.params)
+		n := 0
+		for it.Next() {
+			n++
+		}
+		var ue *didit.UnexpectedResponseError
+		if !errors.As(it.Err(), &ue) || !strings.Contains(ue.Error(), "already fetched") {
+			t.Fatalf("%s: err = %v", tc.name, it.Err())
+		}
+		if n != len(tc.pages) || len(m.all()) != len(tc.pages) {
+			t.Fatalf("%s: items = %d, requests = %d, want %d", tc.name, n, len(m.all()), len(tc.pages))
+		}
+	}
+}
+
+func TestGetNextPageTwiceIsNotACycle(t *testing.T) {
+	page1 := `{"count":2,"next":"/v3/sessions/?offset=1","previous":null,"results":[{"session_id":"a"}]}`
+	page2 := `{"count":2,"next":null,"previous":"/v3/sessions/","results":[{"session_id":"b"}]}`
+	client, m := newMockClientWith(t, []response{
+		{status: 200, contentType: "application/json", body: page1},
+		{status: 200, contentType: "application/json", body: page2},
+	})
+	first, err := client.Sessions.List(context.Background(), didit.SessionsListParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		next, err := first.GetNextPage(context.Background())
+		if err != nil || next == nil || next.Results[0].SessionID != "b" {
+			t.Fatalf("call %d: %+v, %v", i+1, next, err)
+		}
+	}
+	if len(m.all()) != 3 {
+		t.Fatalf("requests = %d", len(m.all()))
 	}
 }
 

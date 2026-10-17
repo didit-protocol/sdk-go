@@ -520,7 +520,8 @@ func canonicalHost(u *url.URL) string {
 }
 
 // UnexpectedResponseError reports a response the SDK cannot use: a 2xx
-// response that is not valid JSON, or a next page link to another origin.
+// response that is not valid JSON, or a next page link to another origin or
+// back to a page already fetched.
 type UnexpectedResponseError struct {
 	Message string
 	Cause   error

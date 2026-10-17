@@ -1,6 +1,6 @@
-# Runs when release-please publishes a GitHub release (vX.Y.Z tag). NOTHING MAY BE
-# RELEASED before Alex's explicit approval and the 2026-11-01 Didit release
-# (docs/DESIGN.md section 13).
+# Runs when release-please publishes a GitHub release (vX.Y.Z tag), after a reviewer of the
+# `release` environment approved that release-please run. NOTHING MAY BE RELEASED before
+# Alex's explicit approval and the 2026-11-01 Didit release (docs/DESIGN.md section 13).
 #
 # A Go module has no registry upload: the tag is the release. This workflow checks the
 # tagged code, attaches a source archive with a signed build provenance attestation (SLSA,
@@ -21,7 +21,8 @@ jobs:
     name: Verify, attest and announce to the Go proxy
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Configure the `release` environment with required reviewers (Settings > Environments).
+    # The `release` environment requires a reviewer (Settings > Environments), so a release
+    # made by hand is not attested or announced to the Go proxy without an approval either.
     environment: release
     permissions:
       contents: write # upload the archive to the release
