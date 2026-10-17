@@ -201,10 +201,10 @@ func (d *differ) compareSchemas(a, b *Node, depth int) bool {
 		return false
 	}
 	for _, k := range ka {
-		if b.Get(k) == nil || docKeys[k] || strings.HasPrefix(k, "x-") {
+		va, vb := a.Get(k), b.Get(k)
+		if vb == nil {
 			return false
 		}
-		va, vb := a.Get(k), b.Get(k)
 		switch {
 		case schemaMaps[k] && isObject(va) && isObject(vb):
 			if len(va.Keys) != len(vb.Keys) {
@@ -553,9 +553,9 @@ func successResponse(doc *Doc, op *Node) (map[string]bool, *Node) {
 }
 
 // describeChange returns the differences of one operation and whether any
-// of them is breaking. old belongs to oldDoc, new to newDoc.
-func describeChange(oldDoc *Doc, old *Node, newDoc *Doc, new *Node) ([]string, bool) {
-	d := newDiffer(oldDoc, newDoc)
+// of them is breaking. old belongs to d.old, new to d.new.
+func (d *differ) describeChange(old, new *Node) ([]string, bool) {
+	oldDoc, newDoc := d.old, d.new
 	var found []note
 	add := func(text string, breaking bool) { found = append(found, note{text, breaking}) }
 
@@ -614,7 +614,7 @@ func describeChange(oldDoc *Doc, old *Node, newDoc *Doc, new *Node) ([]string, b
 	if !old.Get("deprecated").Truthy() && new.Get("deprecated").Truthy() {
 		add("marked deprecated upstream", false)
 	}
-	if ns := new.Get("x-didit-sdk"); ns != nil && !nodeEqual(old.Get("x-didit-sdk"), ns) {
+	if ns := new.Get("x-didit-sdk"); ns != nil && ns.Kind != Null && !nodeEqual(old.Get("x-didit-sdk"), ns) {
 		add("x-didit-sdk now "+encodeJSON(ns, sortedInlineStyle), false)
 	}
 	if len(found) == 0 {
