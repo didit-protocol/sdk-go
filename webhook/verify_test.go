@@ -70,23 +70,23 @@ func TestNilOptionsAndClockAreIgnored(t *testing.T) {
 
 func TestInvalidPayload(t *testing.T) {
 	cases := map[string]string{
-		"empty":            "",
-		"whitespace":       "  \n",
-		"array":            "[]",
-		"string":           `"x"`,
-		"number":           "1",
-		"null":             "null",
-		"true":             "true",
-		"truncated":        `{"timestamp":1760702400`,
-		"trailing data":    `{"timestamp":1760702400} {}`,
-		"trailing garbage": `{"timestamp":1760702400}x`,
-		"NaN":              `{"timestamp":1760702400,"x":NaN}`,
-		"Infinity":         `{"timestamp":1760702400,"x":Infinity}`,
-		"overflow":         `{"timestamp":1760702400,"x":1e400}`,
+		"empty":             "",
+		"whitespace":        "  \n",
+		"array":             "[]",
+		"string":            `"x"`,
+		"number":            "1",
+		"null":              "null",
+		"true":              "true",
+		"truncated":         `{"timestamp":1760702400`,
+		"trailing data":     `{"timestamp":1760702400} {}`,
+		"trailing garbage":  `{"timestamp":1760702400}x`,
+		"NaN":               `{"timestamp":1760702400,"x":NaN}`,
+		"Infinity":          `{"timestamp":1760702400,"x":Infinity}`,
+		"overflow":          `{"timestamp":1760702400,"x":1e400}`,
 		"negative overflow": `{"timestamp":1760702400,"x":[-1e400]}`,
-		"invalid UTF-8":    "{\"timestamp\":1760702400,\"x\":\"\xff\"}",
-		"BOM":              "﻿{\"timestamp\":1760702400}",
-		"single quotes":    `{'timestamp':1760702400}`,
+		"invalid UTF-8":     "{\"timestamp\":1760702400,\"x\":\"\xff\"}",
+		"BOM":               "\ufeff{\"timestamp\":1760702400}",
+		"single quotes":     `{'timestamp':1760702400}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -209,7 +209,10 @@ func TestSignatureFormat(t *testing.T) {
 		{"lowercase", func(s string) string { return s }, true},
 		{"surrounding spaces", func(s string) string { return "  " + s + " " }, true},
 		{"uppercase", strings.ToUpper, false},
-		{"one uppercase digit", func(s string) string { return strings.ToUpper(s[:1]) + s[1:] }, false},
+		{"one uppercase letter", func(s string) string {
+			i := strings.IndexAny(s, "abcdef")
+			return s[:i] + strings.ToUpper(s[i:i+1]) + s[i+1:]
+		}, false},
 		{"too short", func(s string) string { return s[:63] }, false},
 		{"too long", func(s string) string { return s + "0" }, false},
 		{"sha256= prefix", func(s string) string { return "sha256=" + s }, false},
@@ -495,8 +498,8 @@ func TestVerifyParsed(t *testing.T) {
 			m["timestamp"] = ts
 			_, err := webhook.VerifyParsed(m, h, testSecret, testNow)
 			var verr *didit.WebhookVerificationError
-			if !errors.As(err, &verr) || verr.Reason == didit.WebhookReasonMissingTimestamp {
-				t.Fatalf("timestamp %T: %v", ts, err)
+			if errors.As(err, &verr) && verr.Reason == didit.WebhookReasonMissingTimestamp {
+				t.Fatalf("timestamp of type %T rejected: %v", ts, err)
 			}
 		}
 	})

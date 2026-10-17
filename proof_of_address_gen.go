@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // ProofOfAddressService holds the proof_of_address operations. Use it through

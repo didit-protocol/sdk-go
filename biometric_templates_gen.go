@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // BiometricTemplatesService holds the biometric_templates operations. Use it
@@ -118,14 +119,14 @@ func (r *BiometricTemplatesService) Delete(ctx context.Context, templateUUID str
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
 //	GET /v3/biometric-templates/
-func (r *BiometricTemplatesService) List(ctx context.Context, params BiometricTemplatesListParams, opts ...option.RequestOption) (*Page[BiometricTemplatesListResponse], error) {
-	return getPage[BiometricTemplatesListResponse](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/biometric-templates/", params: params}, opts)
+func (r *BiometricTemplatesService) List(ctx context.Context, params BiometricTemplatesListParams, opts ...option.RequestOption) (*Page[BiometricTemplatesListResponseResults], error) {
+	return getPage[BiometricTemplatesListResponseResults](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/biometric-templates/", params: params}, opts)
 }
 
 // ListAutoPaging iterates over every item of every page of List, fetching pages
 // as needed.
-func (r *BiometricTemplatesService) ListAutoPaging(ctx context.Context, params BiometricTemplatesListParams, opts ...option.RequestOption) *PageIterator[BiometricTemplatesListResponse] {
-	return newPageIterator(ctx, func() (*Page[BiometricTemplatesListResponse], error) {
+func (r *BiometricTemplatesService) ListAutoPaging(ctx context.Context, params BiometricTemplatesListParams, opts ...option.RequestOption) *PageIterator[BiometricTemplatesListResponseResults] {
+	return newPageIterator(ctx, func() (*Page[BiometricTemplatesListResponseResults], error) {
 		return r.List(ctx, params, opts...)
 	})
 }
@@ -424,8 +425,8 @@ const (
 	BiometricTemplatesListParamsOrderingExpiresAt2  BiometricTemplatesListParamsOrdering = "-expires_at"
 )
 
-// BiometricTemplatesListResponse is a response object.
-type BiometricTemplatesListResponse struct {
+// BiometricTemplatesListResponseResults is a response object.
+type BiometricTemplatesListResponseResults struct {
 	// Template id. Randomly generated; not derived from the deleted session or its
 	// face.
 	UUID string `json:"uuid"`
@@ -440,14 +441,14 @@ type BiometricTemplatesListResponse struct {
 	// How the template was created: a session deletion (API or Console), the
 	// application's automatic data-retention window, or a Didit-operated backfill
 	// you instructed.
-	SourceType BiometricTemplatesListResponseSourceType `json:"source_type"`
+	SourceType BiometricTemplatesListResponseResultsSourceType `json:"source_type"`
 
 	// Opaque reference tying the template to its audit trail. It is not the deleted
 	// session's id and cannot be resolved to it.
 	ProvenanceReference string `json:"provenance_reference"`
 
 	// The application policy at retention time.
-	RetentionPolicy BiometricTemplatesListResponseRetentionPolicy `json:"retention_policy"`
+	RetentionPolicy BiometricTemplatesListResponseResultsRetentionPolicy `json:"retention_policy"`
 
 	// The `retain_face_embeddings` value sent on the deletion, or `null` when the
 	// policy applied.
@@ -460,10 +461,10 @@ type BiometricTemplatesListResponse struct {
 	// Principal that gave the instruction: the application id for API keys, the
 	// Console member id for Console actions, or a `service:` identifier for
 	// automatic retention. Never an email address.
-	RetainedBy        string                                          `json:"retained_by"`
-	RetainedByType    BiometricTemplatesListResponseRetainedByType    `json:"retained_by_type"`
-	InstructionClass  BiometricTemplatesListResponseInstructionClass  `json:"instruction_class"`
-	InstructionSource BiometricTemplatesListResponseInstructionSource `json:"instruction_source"`
+	RetainedBy        string                                                 `json:"retained_by"`
+	RetainedByType    BiometricTemplatesListResponseResultsRetainedByType    `json:"retained_by_type"`
+	InstructionClass  BiometricTemplatesListResponseResultsInstructionClass  `json:"instruction_class"`
+	InstructionSource BiometricTemplatesListResponseResultsInstructionSource `json:"instruction_source"`
 
 	// The `instruction_id` sent on the deletion, or a Didit-generated id.
 	InstructionID string `json:"instruction_id"`
@@ -474,104 +475,108 @@ type BiometricTemplatesListResponse struct {
 
 	// Only `active` templates that are not held, not past `expires_at`, and whose
 	// User still exists take part in matching.
-	Status   BiometricTemplatesListResponseStatus `json:"status"`
-	PurgedAt time.Time                            `json:"purged_at"`
+	Status   BiometricTemplatesListResponseResultsStatus `json:"status"`
+	PurgedAt time.Time                                   `json:"purged_at"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes BiometricTemplatesListResponse leniently.
-func (r *BiometricTemplatesListResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes BiometricTemplatesListResponseResults leniently.
+func (r *BiometricTemplatesListResponseResults) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// BiometricTemplatesListResponseSourceType: How the template was created: a
-// session deletion (API or Console), the application's automatic data-retention
-// window, or a Didit-operated backfill you instructed.
+// BiometricTemplatesListResponseResultsSourceType: How the template was
+// created: a session deletion (API or Console), the application's automatic
+// data-retention window, or a Didit-operated backfill you instructed.
 //
-// BiometricTemplatesListResponseSourceType is a string with known values below.
-// The set is open: other values may appear and never cause an error.
-type BiometricTemplatesListResponseSourceType string
+// BiometricTemplatesListResponseResultsSourceType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type BiometricTemplatesListResponseResultsSourceType string
 
-// Known values of BiometricTemplatesListResponseSourceType.
+// Known values of BiometricTemplatesListResponseResultsSourceType.
 const (
-	BiometricTemplatesListResponseSourceTypeSessionDelete      BiometricTemplatesListResponseSourceType = "session_delete"
-	BiometricTemplatesListResponseSourceTypeAutomaticRetention BiometricTemplatesListResponseSourceType = "automatic_retention"
-	BiometricTemplatesListResponseSourceTypeBackfill           BiometricTemplatesListResponseSourceType = "backfill"
+	BiometricTemplatesListResponseResultsSourceTypeSessionDelete      BiometricTemplatesListResponseResultsSourceType = "session_delete"
+	BiometricTemplatesListResponseResultsSourceTypeAutomaticRetention BiometricTemplatesListResponseResultsSourceType = "automatic_retention"
+	BiometricTemplatesListResponseResultsSourceTypeBackfill           BiometricTemplatesListResponseResultsSourceType = "backfill"
 )
 
-// BiometricTemplatesListResponseRetentionPolicy: The application policy at
-// retention time.
+// BiometricTemplatesListResponseResultsRetentionPolicy: The application policy
+// at retention time.
 //
-// BiometricTemplatesListResponseRetentionPolicy is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type BiometricTemplatesListResponseRetentionPolicy string
+// BiometricTemplatesListResponseResultsRetentionPolicy is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type BiometricTemplatesListResponseResultsRetentionPolicy string
 
-// Known values of BiometricTemplatesListResponseRetentionPolicy.
+// Known values of BiometricTemplatesListResponseResultsRetentionPolicy.
 const (
-	BiometricTemplatesListResponseRetentionPolicyDeleteWithSession      BiometricTemplatesListResponseRetentionPolicy = "delete_with_session"
-	BiometricTemplatesListResponseRetentionPolicyRetainUntilUserDeleted BiometricTemplatesListResponseRetentionPolicy = "retain_until_user_deleted"
+	BiometricTemplatesListResponseResultsRetentionPolicyDeleteWithSession      BiometricTemplatesListResponseResultsRetentionPolicy = "delete_with_session"
+	BiometricTemplatesListResponseResultsRetentionPolicyRetainUntilUserDeleted BiometricTemplatesListResponseResultsRetentionPolicy = "retain_until_user_deleted"
 )
 
-// BiometricTemplatesListResponseRetainedByType is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type BiometricTemplatesListResponseRetainedByType string
+// BiometricTemplatesListResponseResultsRetainedByType is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type BiometricTemplatesListResponseResultsRetainedByType string
 
-// Known values of BiometricTemplatesListResponseRetainedByType.
+// Known values of BiometricTemplatesListResponseResultsRetainedByType.
 const (
-	BiometricTemplatesListResponseRetainedByTypeAPIKey      BiometricTemplatesListResponseRetainedByType = "API_KEY"
-	BiometricTemplatesListResponseRetainedByTypeConsoleUser BiometricTemplatesListResponseRetainedByType = "CONSOLE_USER"
-	BiometricTemplatesListResponseRetainedByTypeSystem      BiometricTemplatesListResponseRetainedByType = "SYSTEM"
+	BiometricTemplatesListResponseResultsRetainedByTypeAPIKey      BiometricTemplatesListResponseResultsRetainedByType = "API_KEY"
+	BiometricTemplatesListResponseResultsRetainedByTypeConsoleUser BiometricTemplatesListResponseResultsRetainedByType = "CONSOLE_USER"
+	BiometricTemplatesListResponseResultsRetainedByTypeSystem      BiometricTemplatesListResponseResultsRetainedByType = "SYSTEM"
 )
 
-// BiometricTemplatesListResponseInstructionClass is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type BiometricTemplatesListResponseInstructionClass string
+// BiometricTemplatesListResponseResultsInstructionClass is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type BiometricTemplatesListResponseResultsInstructionClass string
 
-// Known values of BiometricTemplatesListResponseInstructionClass.
+// Known values of BiometricTemplatesListResponseResultsInstructionClass.
 const (
-	BiometricTemplatesListResponseInstructionClassOperationalSessionDelete BiometricTemplatesListResponseInstructionClass = "operational_session_delete"
-	BiometricTemplatesListResponseInstructionClassPrivacyErasure           BiometricTemplatesListResponseInstructionClass = "privacy_erasure"
+	BiometricTemplatesListResponseResultsInstructionClassOperationalSessionDelete BiometricTemplatesListResponseResultsInstructionClass = "operational_session_delete"
+	BiometricTemplatesListResponseResultsInstructionClassPrivacyErasure           BiometricTemplatesListResponseResultsInstructionClass = "privacy_erasure"
 )
 
-// BiometricTemplatesListResponseInstructionSource is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type BiometricTemplatesListResponseInstructionSource string
+// BiometricTemplatesListResponseResultsInstructionSource is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type BiometricTemplatesListResponseResultsInstructionSource string
 
-// Known values of BiometricTemplatesListResponseInstructionSource.
+// Known values of BiometricTemplatesListResponseResultsInstructionSource.
 const (
-	BiometricTemplatesListResponseInstructionSourceAPI                   BiometricTemplatesListResponseInstructionSource = "api"
-	BiometricTemplatesListResponseInstructionSourceConsole               BiometricTemplatesListResponseInstructionSource = "console"
-	BiometricTemplatesListResponseInstructionSourceAutomaticRetention    BiometricTemplatesListResponseInstructionSource = "automatic_retention"
-	BiometricTemplatesListResponseInstructionSourceBackfill              BiometricTemplatesListResponseInstructionSource = "backfill"
-	BiometricTemplatesListResponseInstructionSourcePrivacyErasure        BiometricTemplatesListResponseInstructionSource = "privacy_erasure"
-	BiometricTemplatesListResponseInstructionSourceExplicitTemplatePurge BiometricTemplatesListResponseInstructionSource = "explicit_template_purge"
-	BiometricTemplatesListResponseInstructionSourceVendorUserDelete      BiometricTemplatesListResponseInstructionSource = "vendor_user_delete"
-	BiometricTemplatesListResponseInstructionSourceExpiry                BiometricTemplatesListResponseInstructionSource = "expiry"
-	BiometricTemplatesListResponseInstructionSourceReconciliation        BiometricTemplatesListResponseInstructionSource = "reconciliation"
-	BiometricTemplatesListResponseInstructionSourceMigration             BiometricTemplatesListResponseInstructionSource = "migration"
-	BiometricTemplatesListResponseInstructionSourceSystem                BiometricTemplatesListResponseInstructionSource = "system"
+	BiometricTemplatesListResponseResultsInstructionSourceAPI                   BiometricTemplatesListResponseResultsInstructionSource = "api"
+	BiometricTemplatesListResponseResultsInstructionSourceConsole               BiometricTemplatesListResponseResultsInstructionSource = "console"
+	BiometricTemplatesListResponseResultsInstructionSourceAutomaticRetention    BiometricTemplatesListResponseResultsInstructionSource = "automatic_retention"
+	BiometricTemplatesListResponseResultsInstructionSourceBackfill              BiometricTemplatesListResponseResultsInstructionSource = "backfill"
+	BiometricTemplatesListResponseResultsInstructionSourcePrivacyErasure        BiometricTemplatesListResponseResultsInstructionSource = "privacy_erasure"
+	BiometricTemplatesListResponseResultsInstructionSourceExplicitTemplatePurge BiometricTemplatesListResponseResultsInstructionSource = "explicit_template_purge"
+	BiometricTemplatesListResponseResultsInstructionSourceVendorUserDelete      BiometricTemplatesListResponseResultsInstructionSource = "vendor_user_delete"
+	BiometricTemplatesListResponseResultsInstructionSourceExpiry                BiometricTemplatesListResponseResultsInstructionSource = "expiry"
+	BiometricTemplatesListResponseResultsInstructionSourceReconciliation        BiometricTemplatesListResponseResultsInstructionSource = "reconciliation"
+	BiometricTemplatesListResponseResultsInstructionSourceMigration             BiometricTemplatesListResponseResultsInstructionSource = "migration"
+	BiometricTemplatesListResponseResultsInstructionSourceSystem                BiometricTemplatesListResponseResultsInstructionSource = "system"
 )
 
-// BiometricTemplatesListResponseStatus: Only `active` templates that are not
-// held, not past `expires_at`, and whose User still exists take part in
+// BiometricTemplatesListResponseResultsStatus: Only `active` templates that are
+// not held, not past `expires_at`, and whose User still exists take part in
 // matching.
 //
-// BiometricTemplatesListResponseStatus is a string with known values below. The
-// set is open: other values may appear and never cause an error.
-type BiometricTemplatesListResponseStatus string
+// BiometricTemplatesListResponseResultsStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type BiometricTemplatesListResponseResultsStatus string
 
-// Known values of BiometricTemplatesListResponseStatus.
+// Known values of BiometricTemplatesListResponseResultsStatus.
 const (
-	BiometricTemplatesListResponseStatusPending      BiometricTemplatesListResponseStatus = "pending"
-	BiometricTemplatesListResponseStatusActive       BiometricTemplatesListResponseStatus = "active"
-	BiometricTemplatesListResponseStatusExpired      BiometricTemplatesListResponseStatus = "expired"
-	BiometricTemplatesListResponseStatusHeldOutOfUse BiometricTemplatesListResponseStatus = "held_out_of_use"
-	BiometricTemplatesListResponseStatusPurgePending BiometricTemplatesListResponseStatus = "purge_pending"
-	BiometricTemplatesListResponseStatusPurgeFailed  BiometricTemplatesListResponseStatus = "purge_failed"
-	BiometricTemplatesListResponseStatusPurged       BiometricTemplatesListResponseStatus = "purged"
+	BiometricTemplatesListResponseResultsStatusPending      BiometricTemplatesListResponseResultsStatus = "pending"
+	BiometricTemplatesListResponseResultsStatusActive       BiometricTemplatesListResponseResultsStatus = "active"
+	BiometricTemplatesListResponseResultsStatusExpired      BiometricTemplatesListResponseResultsStatus = "expired"
+	BiometricTemplatesListResponseResultsStatusHeldOutOfUse BiometricTemplatesListResponseResultsStatus = "held_out_of_use"
+	BiometricTemplatesListResponseResultsStatusPurgePending BiometricTemplatesListResponseResultsStatus = "purge_pending"
+	BiometricTemplatesListResponseResultsStatusPurgeFailed  BiometricTemplatesListResponseResultsStatus = "purge_failed"
+	BiometricTemplatesListResponseResultsStatusPurged       BiometricTemplatesListResponseResultsStatus = "purged"
 )
 
 // BiometricTemplatesRetrieveResponse is a response object.

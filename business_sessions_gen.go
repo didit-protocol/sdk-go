@@ -4,8 +4,9 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // BusinessSessionsService holds the business_sessions operations. Use it

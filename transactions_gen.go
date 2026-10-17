@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // TransactionsService holds the transactions operations. Use it through
@@ -65,14 +66,14 @@ func (r *TransactionsService) CreateSDKToken(ctx context.Context, params Transac
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
 //	GET /v3/transactions/
-func (r *TransactionsService) List(ctx context.Context, params TransactionsListParams, opts ...option.RequestOption) (*Page[TransactionsListResponse], error) {
-	return getPage[TransactionsListResponse](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/transactions/", params: params}, opts)
+func (r *TransactionsService) List(ctx context.Context, params TransactionsListParams, opts ...option.RequestOption) (*Page[TransactionsListResponseResults], error) {
+	return getPage[TransactionsListResponseResults](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/transactions/", params: params}, opts)
 }
 
 // ListAutoPaging iterates over every item of every page of List, fetching pages
 // as needed.
-func (r *TransactionsService) ListAutoPaging(ctx context.Context, params TransactionsListParams, opts ...option.RequestOption) *PageIterator[TransactionsListResponse] {
-	return newPageIterator(ctx, func() (*Page[TransactionsListResponse], error) {
+func (r *TransactionsService) ListAutoPaging(ctx context.Context, params TransactionsListParams, opts ...option.RequestOption) *PageIterator[TransactionsListResponseResults] {
+	return newPageIterator(ctx, func() (*Page[TransactionsListResponseResults], error) {
 		return r.List(ctx, params, opts...)
 	})
 }
@@ -1746,8 +1747,8 @@ func (r TransactionsListParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
-// TransactionsListResponse is a response object.
-type TransactionsListResponse struct {
+// TransactionsListResponseResults is a response object.
+type TransactionsListResponseResults struct {
 	// Stable Didit transaction identifier. Use as `{transaction_id}` in
 	// detail/notes/related calls.
 	UUID string `json:"uuid"`
@@ -1770,11 +1771,11 @@ type TransactionsListResponse struct {
 	ActionType string `json:"action_type"`
 
 	// Current monitoring verdict.
-	Status TransactionsListResponseStatus `json:"status"`
+	Status TransactionsListResponseResultsStatus `json:"status"`
 
 	// Direction relative to the subject. Stored uppercase regardless of the casing
 	// submitted.
-	Direction TransactionsListResponseDirection `json:"direction"`
+	Direction TransactionsListResponseResultsDirection `json:"direction"`
 
 	// Transaction amount as a decimal string with trailing zeros stripped (e.g.
 	// `"1500"`, `"0.5"`, `"0.123456789012345678"`). Up to 18 decimal places.
@@ -1806,7 +1807,7 @@ type TransactionsListResponse struct {
 
 	// Categorical risk severity set by rules/providers (`UNKNOWN`, `LOW`, `MEDIUM`,
 	// `HIGH`, `CRITICAL`). `null` until something sets it.
-	Severity TransactionsListResponseSeverity `json:"severity"`
+	Severity TransactionsListResponseResultsSeverity `json:"severity"`
 
 	// Full name of the `APPLICANT` party.
 	SubjectName string `json:"subject_name"`
@@ -1828,7 +1829,7 @@ type TransactionsListResponse struct {
 	CounterpartyCountry string `json:"counterparty_country"`
 
 	// Tags attached to the transaction (manually or by rules).
-	Tags []TransactionsListResponseTags `json:"tags"`
+	Tags []TransactionsListResponseResultsTags `json:"tags"`
 
 	// When the transaction occurred (from `transaction_at` at create time).
 	TxnDate time.Time `json:"txn_date"`
@@ -1850,86 +1851,86 @@ type TransactionsListResponse struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes TransactionsListResponse leniently.
-func (r *TransactionsListResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes TransactionsListResponseResults leniently.
+func (r *TransactionsListResponseResults) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// TransactionsListResponseStatus: Current monitoring verdict.
+// TransactionsListResponseResultsStatus: Current monitoring verdict.
 //
-// TransactionsListResponseStatus is a string with known values below. The set
-// is open: other values may appear and never cause an error.
-type TransactionsListResponseStatus string
+// TransactionsListResponseResultsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TransactionsListResponseResultsStatus string
 
-// Known values of TransactionsListResponseStatus.
+// Known values of TransactionsListResponseResultsStatus.
 const (
-	TransactionsListResponseStatusApproved     TransactionsListResponseStatus = "APPROVED"
-	TransactionsListResponseStatusInReview     TransactionsListResponseStatus = "IN_REVIEW"
-	TransactionsListResponseStatusDeclined     TransactionsListResponseStatus = "DECLINED"
-	TransactionsListResponseStatusAwaitingUser TransactionsListResponseStatus = "AWAITING_USER"
+	TransactionsListResponseResultsStatusApproved     TransactionsListResponseResultsStatus = "APPROVED"
+	TransactionsListResponseResultsStatusInReview     TransactionsListResponseResultsStatus = "IN_REVIEW"
+	TransactionsListResponseResultsStatusDeclined     TransactionsListResponseResultsStatus = "DECLINED"
+	TransactionsListResponseResultsStatusAwaitingUser TransactionsListResponseResultsStatus = "AWAITING_USER"
 )
 
-// TransactionsListResponseDirection: Direction relative to the subject. Stored
-// uppercase regardless of the casing submitted.
+// TransactionsListResponseResultsDirection: Direction relative to the subject.
+// Stored uppercase regardless of the casing submitted.
 //
-// TransactionsListResponseDirection is a string with known values below. The
-// set is open: other values may appear and never cause an error.
-type TransactionsListResponseDirection string
+// TransactionsListResponseResultsDirection is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TransactionsListResponseResultsDirection string
 
-// Known values of TransactionsListResponseDirection.
+// Known values of TransactionsListResponseResultsDirection.
 const (
-	TransactionsListResponseDirectionInbound  TransactionsListResponseDirection = "INBOUND"
-	TransactionsListResponseDirectionOutbound TransactionsListResponseDirection = "OUTBOUND"
+	TransactionsListResponseResultsDirectionInbound  TransactionsListResponseResultsDirection = "INBOUND"
+	TransactionsListResponseResultsDirectionOutbound TransactionsListResponseResultsDirection = "OUTBOUND"
 )
 
-// TransactionsListResponseSeverity: Categorical risk severity set by
+// TransactionsListResponseResultsSeverity: Categorical risk severity set by
 // rules/providers (`UNKNOWN`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`). `null`
 // until something sets it.
 //
-// TransactionsListResponseSeverity is a string with known values below. The set
-// is open: other values may appear and never cause an error.
-type TransactionsListResponseSeverity string
+// TransactionsListResponseResultsSeverity is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TransactionsListResponseResultsSeverity string
 
-// Known values of TransactionsListResponseSeverity.
+// Known values of TransactionsListResponseResultsSeverity.
 const (
-	TransactionsListResponseSeverityUnknown  TransactionsListResponseSeverity = "UNKNOWN"
-	TransactionsListResponseSeverityLow      TransactionsListResponseSeverity = "LOW"
-	TransactionsListResponseSeverityMedium   TransactionsListResponseSeverity = "MEDIUM"
-	TransactionsListResponseSeverityHigh     TransactionsListResponseSeverity = "HIGH"
-	TransactionsListResponseSeverityCritical TransactionsListResponseSeverity = "CRITICAL"
+	TransactionsListResponseResultsSeverityUnknown  TransactionsListResponseResultsSeverity = "UNKNOWN"
+	TransactionsListResponseResultsSeverityLow      TransactionsListResponseResultsSeverity = "LOW"
+	TransactionsListResponseResultsSeverityMedium   TransactionsListResponseResultsSeverity = "MEDIUM"
+	TransactionsListResponseResultsSeverityHigh     TransactionsListResponseResultsSeverity = "HIGH"
+	TransactionsListResponseResultsSeverityCritical TransactionsListResponseResultsSeverity = "CRITICAL"
 )
 
-// TransactionsListResponseTags is a response object.
-type TransactionsListResponseTags struct {
+// TransactionsListResponseResultsTags is a response object.
+type TransactionsListResponseResultsTags struct {
 	UUID        string `json:"uuid"`
 	Name        string `json:"name"`
 	Color       string `json:"color"`
 	Description string `json:"description"`
 
 	// Whether the tag is a Didit preset or a custom tag.
-	Source TransactionsListResponseTagsSource `json:"source"`
+	Source TransactionsListResponseResultsTagsSource `json:"source"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes TransactionsListResponseTags leniently.
-func (r *TransactionsListResponseTags) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes TransactionsListResponseResultsTags leniently.
+func (r *TransactionsListResponseResultsTags) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// TransactionsListResponseTagsSource: Whether the tag is a Didit preset or a
-// custom tag.
+// TransactionsListResponseResultsTagsSource: Whether the tag is a Didit preset
+// or a custom tag.
 //
-// TransactionsListResponseTagsSource is a string with known values below. The
-// set is open: other values may appear and never cause an error.
-type TransactionsListResponseTagsSource string
+// TransactionsListResponseResultsTagsSource is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TransactionsListResponseResultsTagsSource string
 
-// Known values of TransactionsListResponseTagsSource.
+// Known values of TransactionsListResponseResultsTagsSource.
 const (
-	TransactionsListResponseTagsSourceDidit  TransactionsListResponseTagsSource = "didit"
-	TransactionsListResponseTagsSourceCustom TransactionsListResponseTagsSource = "custom"
+	TransactionsListResponseResultsTagsSourceDidit  TransactionsListResponseResultsTagsSource = "didit"
+	TransactionsListResponseResultsTagsSourceCustom TransactionsListResponseResultsTagsSource = "custom"
 )
 
 // TransactionsListNetworksResponse is a response object.

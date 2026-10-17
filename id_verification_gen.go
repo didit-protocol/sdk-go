@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // IDVerificationService holds the id_verification operations. Use it through

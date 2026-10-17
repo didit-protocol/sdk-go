@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // EmailService holds the email operations. Use it through Client.Email.

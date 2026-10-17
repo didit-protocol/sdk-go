@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // CasesService holds the cases operations. Use it through Client.Cases.
@@ -1221,9 +1222,9 @@ func (r CaseActionCaseEntityActionRequest) MarshalJSON() ([]byte, error) {
 }
 
 // CaseActionActionEnum: * `set_status` - set_status
-// * `add_tags` - add_tags
-// * `add_note` - add_note
-// * `add_to_blocklist` - add_to_blocklist
+//   - `add_tags` - add_tags
+//   - `add_note` - add_note
+//   - `add_to_blocklist` - add_to_blocklist
 //
 // CaseActionActionEnum is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -1283,7 +1284,7 @@ func (r *CaseActionCaseActionReceipt) UnmarshalJSON(data []byte) error {
 }
 
 // CaseActionStatusEnum: * `APPLIED` - Applied
-// * `FAILED` - Failed
+//   - `FAILED` - Failed
 //
 // CaseActionStatusEnum is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -1296,7 +1297,7 @@ const (
 )
 
 // CaseActionEntityTypeEnum: * `user` - user
-// * `business` - business
+//   - `business` - business
 //
 // CaseActionEntityTypeEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -2111,7 +2112,7 @@ func (r CaseDuplicateCaseSubjectInputRequest) MarshalJSON() ([]byte, error) {
 }
 
 // CaseDuplicateTypeEnum: * `user` - user
-// * `business` - business
+//   - `business` - business
 //
 // CaseDuplicateTypeEnum is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -2138,8 +2139,8 @@ func (r CaseDuplicateCaseLinkCreateRequest) MarshalJSON() ([]byte, error) {
 }
 
 // CaseDuplicateEntityTypeEnum: * `session` - Session
-// * `business_session` - Business Session
-// * `transaction` - Transaction
+//   - `business_session` - Business Session
+//   - `transaction` - Transaction
 //
 // CaseDuplicateEntityTypeEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -2188,8 +2189,8 @@ func (r *CaseDuplicateCaseDuplicate) UnmarshalJSON(data []byte) error {
 }
 
 // CaseDuplicateStatusEnum: * `OPEN` - Open
-// * `AWAITING_USER` - Awaiting user
-// * `RESOLVED` - Resolved
+//   - `AWAITING_USER` - Awaiting user
+//   - `RESOLVED` - Resolved
 //
 // CaseDuplicateStatusEnum is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -2203,8 +2204,8 @@ const (
 )
 
 // CaseDuplicatePriorityEnum: * `LOW` - Low
-// * `MEDIUM` - Medium
-// * `HIGH` - High
+//   - `MEDIUM` - Medium
+//   - `HIGH` - High
 //
 // CaseDuplicatePriorityEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -3301,7 +3302,7 @@ func (r *CasePublicationCaseBlueprint) UnmarshalJSON(data []byte) error {
 }
 
 // CasePublicationAssignmentMethodEnum: * `MANUAL` - Manual
-// * `AUTOMATIC` - Automatic
+//   - `AUTOMATIC` - Automatic
 //
 // CasePublicationAssignmentMethodEnum is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -3745,10 +3746,10 @@ func (r CustomerMessagingCaseRequestConfirmRequest) MarshalJSON() ([]byte, error
 }
 
 // CustomerMessagingPurposeEnum: * `identity_document` - identity_document
-// * `proof_of_address` - proof_of_address
-// * `business_document` - business_document
-// * `confirm_details` - confirm_details
-// * `review_in_progress` - review_in_progress
+//   - `proof_of_address` - proof_of_address
+//   - `business_document` - business_document
+//   - `confirm_details` - confirm_details
+//   - `review_in_progress` - review_in_progress
 //
 // CustomerMessagingPurposeEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -3764,8 +3765,8 @@ const (
 )
 
 // CustomerMessagingLanguageEnum: * `en` - en
-// * `es` - es
-// * `pt` - pt
+//   - `es` - es
+//   - `pt` - pt
 //
 // CustomerMessagingLanguageEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -3864,10 +3865,10 @@ func (r *CustomerMessagingCaseRequestContact) UnmarshalJSON(data []byte) error {
 }
 
 // CustomerMessagingPurposesEnum: * `identity_document` - identity_document
-// * `proof_of_address` - proof_of_address
-// * `business_document` - business_document
-// * `confirm_details` - confirm_details
-// * `review_in_progress` - review_in_progress
+//   - `proof_of_address` - proof_of_address
+//   - `business_document` - business_document
+//   - `confirm_details` - confirm_details
+//   - `review_in_progress` - review_in_progress
 //
 // CustomerMessagingPurposesEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -3883,8 +3884,8 @@ const (
 )
 
 // CustomerMessagingLanguagesEnum: * `en` - en
-// * `es` - es
-// * `pt` - pt
+//   - `es` - es
+//   - `pt` - pt
 //
 // CustomerMessagingLanguagesEnum is a string with known values below. The set
 // is open: other values may appear and never cause an error.
@@ -4206,8 +4207,8 @@ func (r *RoutingPublicationRoutingCondition) UnmarshalJSON(data []byte) error {
 }
 
 // RoutingPublicationFieldEnum: * `source` - source
-// * `priority` - priority
-// * `tags` - tags
+//   - `priority` - priority
+//   - `tags` - tags
 //
 // RoutingPublicationFieldEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -4221,8 +4222,8 @@ const (
 )
 
 // RoutingPublicationOperatorEnum: * `equals` - equals
-// * `in` - in
-// * `contains` - contains
+//   - `in` - in
+//   - `contains` - contains
 //
 // RoutingPublicationOperatorEnum is a string with known values below. The set
 // is open: other values may appear and never cause an error.

@@ -188,8 +188,8 @@ func numbered(src []byte) string {
 
 // assemble adds the header, package clause and the imports the body uses.
 func assemble(body []byte) []byte {
-	var imports []string
 	s := string(body)
+	var std, mod []string
 	for _, imp := range []struct{ pkg, use string }{
 		{"context", "context."},
 		{"encoding/json", "json."},
@@ -197,16 +197,27 @@ func assemble(body []byte) []byte {
 		{"time", "time."},
 		{"github.com/didit-protocol/sdk-go/option", "option."},
 	} {
-		if strings.Contains(s, imp.use) {
-			imports = append(imports, strconv.Quote(imp.pkg))
+		if !strings.Contains(s, imp.use) {
+			continue
+		}
+		if strings.Contains(imp.pkg, ".") {
+			mod = append(mod, strconv.Quote(imp.pkg))
+		} else {
+			std = append(std, strconv.Quote(imp.pkg))
 		}
 	}
 	var b bytes.Buffer
 	b.WriteString(header)
 	b.WriteString("package didit\n\n")
-	if len(imports) > 0 {
+	if len(std)+len(mod) > 0 {
 		b.WriteString("import (\n")
-		for _, imp := range imports {
+		for _, imp := range std {
+			b.WriteString("\t" + imp + "\n")
+		}
+		if len(std) > 0 && len(mod) > 0 {
+			b.WriteString("\n")
+		}
+		for _, imp := range mod {
 			b.WriteString("\t" + imp + "\n")
 		}
 		b.WriteString(")\n\n")
@@ -530,9 +541,41 @@ func writeDoc(b *bytes.Buffer, indent, text string) {
 			}
 		}
 		for _, l := range merged {
-			wrap(b, indent, l, width)
+			switch {
+			case strings.HasPrefix(l, "|"):
+				b.WriteString(indent + "//\t" + l + "\n")
+			case strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "* "):
+				wrapItem(b, indent, "  - ", "    ", strings.TrimSpace(l[2:]), width)
+			case len(l) > 2 && l[0] >= '0' && l[0] <= '9' && strings.HasPrefix(strings.TrimLeft(l, "0123456789"), ". "):
+				num := l[:len(l)-len(strings.TrimLeft(l, "0123456789"))]
+				wrapItem(b, indent, "  "+num+". ", strings.Repeat(" ", len(num)+4), strings.TrimSpace(l[len(num)+2:]), width)
+			default:
+				wrap(b, indent, l, width)
+			}
 		}
 	}
+}
+
+// wrapItem writes a list item: first line after marker, the next ones after
+// cont (the indentation gofmt uses for doc comment lists).
+func wrapItem(b *bytes.Buffer, indent, marker, cont, text string, width int) {
+	words := strings.Fields(text)
+	cur := marker
+	empty := true
+	for _, w := range words {
+		if !empty && utf8.RuneCountInString(cur)+1+utf8.RuneCountInString(w) > width {
+			b.WriteString(indent + "//" + cur + "\n")
+			cur = cont + w
+			continue
+		}
+		if empty {
+			cur += w
+			empty = false
+		} else {
+			cur += " " + w
+		}
+	}
+	b.WriteString(indent + "//" + cur + "\n")
 }
 
 func wrap(b *bytes.Buffer, indent, line string, width int) {

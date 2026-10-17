@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // FraudChecksService holds the fraud_checks operations. Use it through
@@ -111,15 +112,15 @@ func (r FraudCheckSubjectRequest) MarshalJSON() ([]byte, error) {
 type FraudCheckIdentifierRequest struct {
 	// Identifier type. Determines which namespace fields are required.
 	//
-	// * `email` - Email
-	// * `phone` - Phone
-	// * `national_id` - National Id
-	// * `tax_number` - Tax Number
-	// * `passport_number` - Passport Number
-	// * `driving_licence_number` - Driving Licence Number
-	// * `residence_permit_number` - Residence Permit Number
-	// * `voter_id` - Voter Id
-	// * `external_id` - External Id Required.
+	//  - `email` - Email
+	//  - `phone` - Phone
+	//  - `national_id` - National Id
+	//  - `tax_number` - Tax Number
+	//  - `passport_number` - Passport Number
+	//  - `driving_licence_number` - Driving Licence Number
+	//  - `residence_permit_number` - Residence Permit Number
+	//  - `voter_id` - Voter Id
+	//  - `external_id` - External Id Required.
 	Type FraudTypeEnum `json:"type"`
 
 	// The identifier value, in any customary format. Required.
@@ -141,14 +142,14 @@ func (r FraudCheckIdentifierRequest) MarshalJSON() ([]byte, error) {
 }
 
 // FraudTypeEnum: * `email` - Email
-// * `phone` - Phone
-// * `national_id` - National Id
-// * `tax_number` - Tax Number
-// * `passport_number` - Passport Number
-// * `driving_licence_number` - Driving Licence Number
-// * `residence_permit_number` - Residence Permit Number
-// * `voter_id` - Voter Id
-// * `external_id` - External Id
+//   - `phone` - Phone
+//   - `national_id` - National Id
+//   - `tax_number` - Tax Number
+//   - `passport_number` - Passport Number
+//   - `driving_licence_number` - Driving Licence Number
+//   - `residence_permit_number` - Residence Permit Number
+//   - `voter_id` - Voter Id
+//   - `external_id` - External Id
 //
 // FraudTypeEnum is a string with known values below. The set is open: other
 // values may appear and never cause an error.
@@ -216,15 +217,15 @@ func (r FraudCheckModuleSelectionRequest) MarshalJSON() ([]byte, error) {
 }
 
 // FraudExcludeEnum: * `normalization` - Normalization
-// * `email_risk` - Email Risk
-// * `email_social` - Email Social
-// * `phone_social` - Phone Social
-// * `phone_risk` - Phone Risk
-// * `ip_risk` - Ip Risk
-// * `database_validation` - Database Validation
-// * `networks_same_org` - Networks Same Org
-// * `networks_cross_org` - Networks Cross Org
-// * `biometric_identity` - Biometric Identity
+//   - `email_risk` - Email Risk
+//   - `email_social` - Email Social
+//   - `phone_social` - Phone Social
+//   - `phone_risk` - Phone Risk
+//   - `ip_risk` - Ip Risk
+//   - `database_validation` - Database Validation
+//   - `networks_same_org` - Networks Same Org
+//   - `networks_cross_org` - Networks Cross Org
+//   - `biometric_identity` - Biometric Identity
 //
 // FraudExcludeEnum is a string with known values below. The set is open: other
 // values may appear and never cause an error.
@@ -283,9 +284,9 @@ func (r *FraudCheckResponse) UnmarshalJSON(data []byte) error {
 }
 
 // FraudProcessingStatusEnum: * `pending` - Pending
-// * `running` - Running
-// * `completed` - Completed
-// * `failed` - Failed
+//   - `running` - Running
+//   - `completed` - Completed
+//   - `failed` - Failed
 //
 // FraudProcessingStatusEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -320,11 +321,11 @@ func (r *FraudCheckInput) UnmarshalJSON(data []byte) error {
 }
 
 // FraudAvailabilityEnum: * `available` - Available
-// * `not_requested` - Not Requested
-// * `no_reference` - No Reference
-// * `insufficient_history` - Insufficient History
-// * `unsupported_region` - Unsupported Region
-// * `source_unavailable` - Source Unavailable
+//   - `not_requested` - Not Requested
+//   - `no_reference` - No Reference
+//   - `insufficient_history` - Insufficient History
+//   - `unsupported_region` - Unsupported Region
+//   - `source_unavailable` - Source Unavailable
 //
 // FraudAvailabilityEnum is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -360,9 +361,9 @@ func (r *FraudCheckModuleReport) UnmarshalJSON(data []byte) error {
 }
 
 // FraudStatusEnum: * `planned` - Planned
-// * `completed` - Completed
-// * `skipped` - Skipped
-// * `failed` - Failed
+//   - `completed` - Completed
+//   - `skipped` - Skipped
+//   - `failed` - Failed
 //
 // FraudStatusEnum is a string with known values below. The set is open: other
 // values may appear and never cause an error.
@@ -401,10 +402,10 @@ func (r *FraudCheckRisk) UnmarshalJSON(data []byte) error {
 }
 
 // FraudDimensionEnum: * `identity` - Identity
-// * `contact` - Contact
-// * `device_network` - Device Network
-// * `behavioral` - Behavioral
-// * `fraud_network` - Fraud Network
+//   - `contact` - Contact
+//   - `device_network` - Device Network
+//   - `behavioral` - Behavioral
+//   - `fraud_network` - Fraud Network
 //
 // FraudDimensionEnum is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -420,9 +421,9 @@ const (
 )
 
 // FraudBandEnum: * `low` - Low
-// * `medium` - Medium
-// * `high` - High
-// * `unknown` - Unknown
+//   - `medium` - Medium
+//   - `high` - High
+//   - `unknown` - Unknown
 //
 // FraudBandEnum is a string with known values below. The set is open: other
 // values may appear and never cause an error.
@@ -455,9 +456,9 @@ func (r *FraudCheckIdentityRelationship) UnmarshalJSON(data []byte) error {
 }
 
 // FraudResultEnum: * `match` - Match
-// * `mismatch` - Mismatch
-// * `inconclusive` - Inconclusive
-// * `no_reference` - No Reference
+//   - `mismatch` - Mismatch
+//   - `inconclusive` - Inconclusive
+//   - `no_reference` - No Reference
 //
 // FraudResultEnum is a string with known values below. The set is open: other
 // values may appear and never cause an error.
@@ -472,8 +473,8 @@ const (
 )
 
 // FraudRecommendationEnum: * `approve` - Approve
-// * `review` - Review
-// * `reject` - Reject
+//   - `review` - Review
+//   - `reject` - Reject
 //
 // FraudRecommendationEnum is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -487,9 +488,9 @@ const (
 )
 
 // FraudNextActionEnum: * `none` - None
-// * `manual_review` - Manual Review
-// * `step_up` - Step Up
-// * `resubmit_capture` - Resubmit Capture
+//   - `manual_review` - Manual Review
+//   - `step_up` - Step Up
+//   - `resubmit_capture` - Resubmit Capture
 //
 // FraudNextActionEnum is a string with known values below. The set is open:
 // other values may appear and never cause an error.

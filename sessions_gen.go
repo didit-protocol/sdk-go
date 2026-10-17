@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // SessionsService holds the sessions operations. Use it through
@@ -34,13 +35,14 @@ type SessionsService struct {
 // **Up to 20 sessions are deleted in the request, more run as a job.** The
 // number of matching sessions decides, whether they are selected by
 // `session_numbers` or with `delete_all`:
-// - Up to 20 matching sessions: they are deleted before the response, which is
-// `200` with one entry per session in `results[]`.
-// - More than 20: the response is `202` with a deletion job, and the sessions
-// are deleted in the background. Poll `GET /v3/sessions/delete/{job_id}/` until
-// `status` is `COMPLETED` or `FAILED`. A job reports counts per outcome, never
-// which sessions it deleted. A `delete_all` job deletes only the sessions
-// created before the request; sessions started while it runs are not deleted.
+//   - Up to 20 matching sessions: they are deleted before the response, which
+//     is `200` with one entry per session in `results[]`.
+//   - More than 20: the response is `202` with a deletion job, and the sessions
+//     are deleted in the background. Poll `GET /v3/sessions/delete/{job_id}/`
+//     until `status` is `COMPLETED` or `FAILED`. A job reports counts per
+//     outcome, never which sessions it deleted. A `delete_all` job deletes only
+//     the sessions created before the request; sessions started while it runs
+//     are not deleted.
 //
 // Each deleted session gets exactly the same treatment as the single-session
 // delete endpoint: the session, every verification attempt it holds, its
@@ -55,21 +57,21 @@ type SessionsService struct {
 // Deletion is permanent and irreversible.
 //
 // **Selection semantics:**
-// - Entries in `session_numbers` that do not match a live KYC session in your
-// application (unknown numbers, already-deleted sessions, or sessions owned by
-// another application) are **silently skipped**: they do not appear in
-// `results` and are not counted in a job's `total`.
-// - Validation failures (a non-numeric entry, an empty list, neither
-// `session_numbers` nor `delete_all` provided, or a template retention the
-// application cannot honour) reject the **whole request** with `400` and delete
-// nothing.
-// - Sessions are deleted in groups. If a group cannot be deleted (for example
-// because a storage service is unavailable), every session in that group is
-// reported as `face_retention_outcome: failed_retryable` and stays in place;
-// the other groups are unaffected. Repeat the request for those sessions. A job
-// retries such a group by itself.
-// - There is no documented cap on the list length; the shared write rate limit
-// (below) is the practical bound.
+//   - Entries in `session_numbers` that do not match a live KYC session in your
+//     application (unknown numbers, already-deleted sessions, or sessions owned
+//     by another application) are **silently skipped**: they do not appear in
+//     `results` and are not counted in a job's `total`.
+//   - Validation failures (a non-numeric entry, an empty list, neither
+//     `session_numbers` nor `delete_all` provided, or a template retention the
+//     application cannot honour) reject the **whole request** with `400` and
+//     delete nothing.
+//   - Sessions are deleted in groups. If a group cannot be deleted (for example
+//     because a storage service is unavailable), every session in that group is
+//     reported as `face_retention_outcome: failed_retryable` and stays in
+//     place; the other groups are unaffected. Repeat the request for those
+//     sessions. A job retries such a group by itself.
+//   - There is no documented cap on the list length; the shared write rate
+//     limit (below) is the practical bound.
 //
 // **Face biometric data:** the optional `retain_face_embeddings`,
 // `face_retention_days`, `face_retention_deadline`, `deletion_instruction`, and
@@ -183,25 +185,26 @@ func (r *SessionsService) Create(ctx context.Context, params SessionsCreateParam
 // URL.
 //
 // **What is deleted:**
-// - The session and every verification attempt it holds, including results that
-// a resubmission replaced: the decision, extracted data, all related feature
-// records (ID verification, face, liveness, face match, AML, registry checks,
-// IP analysis, and so on), its reviews and its activity log.
-// - All stored files owned by the session: document front/back photos (full,
-// cropped, and privacy-blurred variants), document-capture videos, portrait
-// crops, NFC chip portrait and signature images, face reference images,
-// liveness videos, face-match source/target images, Proof of Address documents,
-// and any extra uploaded files (KYC); uploaded company documents and extra
-// files (KYB). Previously issued media URLs (`https://<media-host>/...`) stop
-// resolving.
-// - The session's face data. Its face embedding is deleted too, unless you
-// choose to keep an image-free template (see **Face biometric data**).
-// - Webhook deliveries still queued for the session, and their retries.
-// Webhooks already delivered are not affected.
-// - For a Business Verification (KYB) session: the verifications it created for
-// its key people (KYC) and its corporate owners (KYB), recursively, reported as
-// `deleted_child_verifications`. A verification it only links to, such as an
-// existing approved KYC it reused, is not deleted.
+//   - The session and every verification attempt it holds, including results
+//     that a resubmission replaced: the decision, extracted data, all related
+//     feature records (ID verification, face, liveness, face match, AML,
+//     registry checks, IP analysis, and so on), its reviews and its activity
+//     log.
+//   - All stored files owned by the session: document front/back photos (full,
+//     cropped, and privacy-blurred variants), document-capture videos, portrait
+//     crops, NFC chip portrait and signature images, face reference images,
+//     liveness videos, face-match source/target images, Proof of Address
+//     documents, and any extra uploaded files (KYC); uploaded company documents
+//     and extra files (KYB). Previously issued media URLs
+//     (`https://<media-host>/...`) stop resolving.
+//   - The session's face data. Its face embedding is deleted too, unless you
+//     choose to keep an image-free template (see **Face biometric data**).
+//   - Webhook deliveries still queued for the session, and their retries.
+//     Webhooks already delivered are not affected.
+//   - For a Business Verification (KYB) session: the verifications it created
+//     for its key people (KYC) and its corporate owners (KYB), recursively,
+//     reported as `deleted_child_verifications`. A verification it only links
+//     to, such as an existing approved KYC it reused, is not deleted.
 //
 // The session disappears from every read endpoint immediately: `GET
 // /v3/session/{sessionId}/decision/` returns `404` and `GET /v3/sessions/`
@@ -280,8 +283,8 @@ func (r *SessionsService) Delete(ctx context.Context, sessionID string, params S
 // **Eligible statuses.** The session must already carry a final or reviewable
 // status:
 //
-// - KYC sessions: `Approved`, `Declined`, `In Review`, or `Kyc Expired`.
-// - KYB sessions: `Approved`, `Declined`, or `In Review`.
+//   - KYC sessions: `Approved`, `Declined`, `In Review`, or `Kyc Expired`.
+//   - KYB sessions: `Approved`, `Declined`, or `In Review`.
 //
 // Any other status (`Not Started`, `In Progress`, `Expired`, `Abandoned`, …)
 // returns `403` with an explanatory `detail` string - see the `403` response
@@ -290,16 +293,17 @@ func (r *SessionsService) Delete(ctx context.Context, sessionID string, params S
 // **What the report contains.** The PDF mirrors the console session view at the
 // moment of the request:
 //
-// - **KYC** - rolled-up session status, the warnings list, and one section per
-// executed feature: ID Verification (document images plus extracted fields),
-// NFC, Liveness, Face Match, Email Verification, Phone Verification, Proof of
-// Address, Questionnaire answers, Database Validation, AML Screening, and IP
-// Analysis - followed by session tags, console review activity (comments and
-// status changes), and the session event timeline.
-// - **KYB** - registry checks (company data), AML screenings, business document
-// verifications, key-people checks, questionnaire responses, phone/email
-// verifications, IP analyses, and the session event timeline, followed by tags
-// and review activity.
+//   - **KYC** - rolled-up session status, the warnings list, and one section
+//     per executed feature: ID Verification (document images plus extracted
+//     fields), NFC, Liveness, Face Match, Email Verification, Phone
+//     Verification, Proof of Address, Questionnaire answers, Database
+//     Validation, AML Screening, and IP Analysis - followed by session tags,
+//     console review activity (comments and status changes), and the session
+//     event timeline.
+//   - **KYB** - registry checks (company data), AML screenings, business
+//     document verifications, key-people checks, questionnaire responses,
+//     phone/email verifications, IP analyses, and the session event timeline,
+//     followed by tags and review activity.
 //
 // **Branding.** If your application has white-label customization, the report
 // is rendered with your logo and links to your privacy-policy URL; otherwise it
@@ -368,15 +372,15 @@ func (r *SessionsService) ImportShared(ctx context.Context, params SessionsImpor
 // /v3/session/{sessionId}/decision/`.
 //
 // **KYC and KYB sessions.** `session_kind` selects which kinds are listed:
-// - `user` (default) - User Verification (KYC) sessions only.
-// Backward-compatible behavior.
-// - `business` - Business Verification (KYB) sessions only. Rows have a
-// different, smaller shape (see the response schema).
-// - `all` - both kinds in one response: the KYC page and the KYB page for the
-// same `limit`/`offset` are concatenated in `results` (KYC rows first), so a
-// page can contain up to `2 x limit` rows. `count` is the sum of both kinds and
-// `next`/`previous` reflect the KYC-side pagination. For strict pagination of
-// mixed data, call `user` and `business` separately.
+//   - `user` (default) - User Verification (KYC) sessions only.
+//     Backward-compatible behavior.
+//   - `business` - Business Verification (KYB) sessions only. Rows have a
+//     different, smaller shape (see the response schema).
+//   - `all` - both kinds in one response: the KYC page and the KYB page for the
+//     same `limit`/`offset` are concatenated in `results` (KYC rows first), so
+//     a page can contain up to `2 x limit` rows. `count` is the sum of both
+//     kinds and `next`/`previous` reflect the KYC-side pagination. For strict
+//     pagination of mixed data, call `user` and `business` separately.
 //
 // Every row carries a `session_kind` discriminator (`"user"` or `"business"`).
 //
@@ -414,14 +418,14 @@ func (r *SessionsService) ImportShared(ctx context.Context, params SessionsImpor
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
 //	GET /v3/sessions/
-func (r *SessionsService) List(ctx context.Context, params SessionsListParams, opts ...option.RequestOption) (*Page[SessionsListResponse], error) {
-	return getPage[SessionsListResponse](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/sessions/", params: params}, opts)
+func (r *SessionsService) List(ctx context.Context, params SessionsListParams, opts ...option.RequestOption) (*Page[SessionsListResponseResults], error) {
+	return getPage[SessionsListResponseResults](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/sessions/", params: params}, opts)
 }
 
 // ListAutoPaging iterates over every item of every page of List, fetching pages
 // as needed.
-func (r *SessionsService) ListAutoPaging(ctx context.Context, params SessionsListParams, opts ...option.RequestOption) *PageIterator[SessionsListResponse] {
-	return newPageIterator(ctx, func() (*Page[SessionsListResponse], error) {
+func (r *SessionsService) ListAutoPaging(ctx context.Context, params SessionsListParams, opts ...option.RequestOption) *PageIterator[SessionsListResponseResults] {
+	return newPageIterator(ctx, func() (*Page[SessionsListResponseResults], error) {
 		return r.List(ctx, params, opts...)
 	})
 }
@@ -2153,15 +2157,15 @@ const (
 	SessionsListParamsAPIServiceEmailVerification  SessionsListParamsAPIService = "EMAIL_VERIFICATION"
 )
 
-// SessionsListResponse is a response object.
-type SessionsListResponse struct {
+// SessionsListResponseResults is a response object.
+type SessionsListResponseResults struct {
 	// Unique identifier of the verification session. Use it with `GET
 	// /v3/session/{sessionId}/decision/` to fetch the full decision payload.
 	SessionID string `json:"session_id"`
 
 	// Row discriminator. Always `"user"` for KYC rows; Business Verification (KYB)
 	// rows have `"business"` and a different shape.
-	SessionKind SessionsListResponseSessionKind `json:"session_kind"`
+	SessionKind SessionsListResponseResultsSessionKind `json:"session_kind"`
 
 	// Human-friendly sequential number of the session within your application. Also
 	// matched by the `search` parameter.
@@ -2182,7 +2186,7 @@ type SessionsListResponse struct {
 	// code has no display mapping (`SSC`, `WP`, `VISA`, `PSC`, `BC`, `OTHER`).
 	// Note: the `document_type` query parameter filters by short codes (`P`, `ID`,
 	// `DL`, `RP`, ...), not by these display values.
-	DocumentType SessionsListResponseDocumentType `json:"document_type"`
+	DocumentType SessionsListResponseResultsDocumentType `json:"document_type"`
 
 	// Best available full name for the session, resolved in order: ID document OCR,
 	// AML screened data, database-validation screened data, proof-of-address
@@ -2198,7 +2202,7 @@ type SessionsListResponse struct {
 
 	// Overall session status. See the [Verification
 	// Statuses](/integration/verification-statuses) page for the lifecycle.
-	Status SessionsListResponseStatus `json:"status"`
+	Status SessionsListResponseResultsStatus `json:"status"`
 
 	// Your own identifier for the end user, echoed back exactly as sent at session
 	// creation.
@@ -2214,22 +2218,22 @@ type SessionsListResponse struct {
 
 	// Per-feature status for every verification step configured in the session's
 	// workflow, in workflow order.
-	Features []SessionsListResponseFeatures `json:"features"`
+	Features []SessionsListResponseResultsFeatures `json:"features"`
 
 	// Phone associated with the session: the verified phone when phone verification
 	// ran, otherwise the contact phone provided at session creation. `null` when
 	// neither exists.
-	PhoneNumber SessionsListResponsePhoneNumber `json:"phone_number"`
+	PhoneNumber SessionsListResponseResultsPhoneNumber `json:"phone_number"`
 
 	// Email associated with the session: the verified email when email verification
 	// ran, otherwise the contact email provided at session creation. `null` when
 	// neither exists.
-	EmailAddress SessionsListResponseEmailAddress `json:"email_address"`
+	EmailAddress SessionsListResponseResultsEmailAddress `json:"email_address"`
 
 	// Compact per-feature extras. Only features that produced data appear as keys;
 	// `null` when no feature produced extras. Fields excluded by the workflow's
 	// response-attributes configuration are omitted.
-	AdditionalDetails SessionsListResponseAdditionalDetails `json:"additional_details"`
+	AdditionalDetails SessionsListResponseResultsAdditionalDetails `json:"additional_details"`
 
 	// Identifier of the workflow this session was created with.
 	WorkflowID string `json:"workflow_id"`
@@ -2252,120 +2256,120 @@ type SessionsListResponse struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponse leniently.
-func (r *SessionsListResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResults leniently.
+func (r *SessionsListResponseResults) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseSessionKind is a string with known values below. The set
-// is open: other values may appear and never cause an error.
-type SessionsListResponseSessionKind string
+// SessionsListResponseResultsSessionKind is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsListResponseResultsSessionKind string
 
-// Known values of SessionsListResponseSessionKind.
+// Known values of SessionsListResponseResultsSessionKind.
 const (
-	SessionsListResponseSessionKindUser     SessionsListResponseSessionKind = "user"
-	SessionsListResponseSessionKindBusiness SessionsListResponseSessionKind = "business"
+	SessionsListResponseResultsSessionKindUser     SessionsListResponseResultsSessionKind = "user"
+	SessionsListResponseResultsSessionKindBusiness SessionsListResponseResultsSessionKind = "business"
 )
 
-// SessionsListResponseDocumentType: Human-readable type of the verified ID
-// document. `null` before document verification completes, and also `null`
+// SessionsListResponseResultsDocumentType: Human-readable type of the verified
+// ID document. `null` before document verification completes, and also `null`
 // after completion when the verified code has no display mapping (`SSC`, `WP`,
 // `VISA`, `PSC`, `BC`, `OTHER`). Note: the `document_type` query parameter
 // filters by short codes (`P`, `ID`, `DL`, `RP`, ...), not by these display
 // values.
 //
-// SessionsListResponseDocumentType is a string with known values below. The set
-// is open: other values may appear and never cause an error.
-type SessionsListResponseDocumentType string
+// SessionsListResponseResultsDocumentType is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsListResponseResultsDocumentType string
 
-// Known values of SessionsListResponseDocumentType.
+// Known values of SessionsListResponseResultsDocumentType.
 const (
-	SessionsListResponseDocumentTypePassport            SessionsListResponseDocumentType = "Passport"
-	SessionsListResponseDocumentTypeIdentityCard        SessionsListResponseDocumentType = "Identity Card"
-	SessionsListResponseDocumentTypeDriverSLicense      SessionsListResponseDocumentType = "Driver's License"
-	SessionsListResponseDocumentTypeResidencePermit     SessionsListResponseDocumentType = "Residence Permit"
-	SessionsListResponseDocumentTypeHealthInsuranceCard SessionsListResponseDocumentType = "Health Insurance Card"
-	SessionsListResponseDocumentTypeTaxCard             SessionsListResponseDocumentType = "Tax Card"
+	SessionsListResponseResultsDocumentTypePassport            SessionsListResponseResultsDocumentType = "Passport"
+	SessionsListResponseResultsDocumentTypeIdentityCard        SessionsListResponseResultsDocumentType = "Identity Card"
+	SessionsListResponseResultsDocumentTypeDriverSLicense      SessionsListResponseResultsDocumentType = "Driver's License"
+	SessionsListResponseResultsDocumentTypeResidencePermit     SessionsListResponseResultsDocumentType = "Residence Permit"
+	SessionsListResponseResultsDocumentTypeHealthInsuranceCard SessionsListResponseResultsDocumentType = "Health Insurance Card"
+	SessionsListResponseResultsDocumentTypeTaxCard             SessionsListResponseResultsDocumentType = "Tax Card"
 )
 
-// SessionsListResponseStatus is a string with known values below. The set is
-// open: other values may appear and never cause an error.
-type SessionsListResponseStatus string
+// SessionsListResponseResultsStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SessionsListResponseResultsStatus string
 
-// Known values of SessionsListResponseStatus.
+// Known values of SessionsListResponseResultsStatus.
 const (
-	SessionsListResponseStatusNotStarted   SessionsListResponseStatus = "Not Started"
-	SessionsListResponseStatusInProgress   SessionsListResponseStatus = "In Progress"
-	SessionsListResponseStatusApproved     SessionsListResponseStatus = "Approved"
-	SessionsListResponseStatusDeclined     SessionsListResponseStatus = "Declined"
-	SessionsListResponseStatusInReview     SessionsListResponseStatus = "In Review"
-	SessionsListResponseStatusExpired      SessionsListResponseStatus = "Expired"
-	SessionsListResponseStatusAbandoned    SessionsListResponseStatus = "Abandoned"
-	SessionsListResponseStatusKYCExpired   SessionsListResponseStatus = "Kyc Expired"
-	SessionsListResponseStatusResubmitted  SessionsListResponseStatus = "Resubmitted"
-	SessionsListResponseStatusAwaitingUser SessionsListResponseStatus = "Awaiting User"
+	SessionsListResponseResultsStatusNotStarted   SessionsListResponseResultsStatus = "Not Started"
+	SessionsListResponseResultsStatusInProgress   SessionsListResponseResultsStatus = "In Progress"
+	SessionsListResponseResultsStatusApproved     SessionsListResponseResultsStatus = "Approved"
+	SessionsListResponseResultsStatusDeclined     SessionsListResponseResultsStatus = "Declined"
+	SessionsListResponseResultsStatusInReview     SessionsListResponseResultsStatus = "In Review"
+	SessionsListResponseResultsStatusExpired      SessionsListResponseResultsStatus = "Expired"
+	SessionsListResponseResultsStatusAbandoned    SessionsListResponseResultsStatus = "Abandoned"
+	SessionsListResponseResultsStatusKYCExpired   SessionsListResponseResultsStatus = "Kyc Expired"
+	SessionsListResponseResultsStatusResubmitted  SessionsListResponseResultsStatus = "Resubmitted"
+	SessionsListResponseResultsStatusAwaitingUser SessionsListResponseResultsStatus = "Awaiting User"
 )
 
-// SessionsListResponseFeatures is a response object.
-type SessionsListResponseFeatures struct {
+// SessionsListResponseResultsFeatures is a response object.
+type SessionsListResponseResultsFeatures struct {
 	// Verification feature identifier.
-	Feature SessionsListResponseFeaturesFeature `json:"feature"`
+	Feature SessionsListResponseResultsFeaturesFeature `json:"feature"`
 
 	// Status of this feature. `Not Finished` until the step completes.
-	Status SessionsListResponseFeaturesStatus `json:"status"`
+	Status SessionsListResponseResultsFeaturesStatus `json:"status"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseFeatures leniently.
-func (r *SessionsListResponseFeatures) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsFeatures leniently.
+func (r *SessionsListResponseResultsFeatures) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseFeaturesFeature: Verification feature identifier.
+// SessionsListResponseResultsFeaturesFeature: Verification feature identifier.
 //
-// SessionsListResponseFeaturesFeature is a string with known values below. The
-// set is open: other values may appear and never cause an error.
-type SessionsListResponseFeaturesFeature string
+// SessionsListResponseResultsFeaturesFeature is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsListResponseResultsFeaturesFeature string
 
-// Known values of SessionsListResponseFeaturesFeature.
+// Known values of SessionsListResponseResultsFeaturesFeature.
 const (
-	SessionsListResponseFeaturesFeatureIDVerification     SessionsListResponseFeaturesFeature = "ID_VERIFICATION"
-	SessionsListResponseFeaturesFeatureNFC                SessionsListResponseFeaturesFeature = "NFC"
-	SessionsListResponseFeaturesFeatureLiveness           SessionsListResponseFeaturesFeature = "LIVENESS"
-	SessionsListResponseFeaturesFeatureFaceMatch          SessionsListResponseFeaturesFeature = "FACE_MATCH"
-	SessionsListResponseFeaturesFeaturePOA                SessionsListResponseFeaturesFeature = "POA"
-	SessionsListResponseFeaturesFeatureQuestionnaire      SessionsListResponseFeaturesFeature = "QUESTIONNAIRE"
-	SessionsListResponseFeaturesFeatureEmailVerification  SessionsListResponseFeaturesFeature = "EMAIL_VERIFICATION"
-	SessionsListResponseFeaturesFeaturePhone              SessionsListResponseFeaturesFeature = "PHONE"
-	SessionsListResponseFeaturesFeatureAML                SessionsListResponseFeaturesFeature = "AML"
-	SessionsListResponseFeaturesFeatureIPAnalysis         SessionsListResponseFeaturesFeature = "IP_ANALYSIS"
-	SessionsListResponseFeaturesFeatureAgeEstimation      SessionsListResponseFeaturesFeature = "AGE_ESTIMATION"
-	SessionsListResponseFeaturesFeatureDatabaseValidation SessionsListResponseFeaturesFeature = "DATABASE_VALIDATION"
+	SessionsListResponseResultsFeaturesFeatureIDVerification     SessionsListResponseResultsFeaturesFeature = "ID_VERIFICATION"
+	SessionsListResponseResultsFeaturesFeatureNFC                SessionsListResponseResultsFeaturesFeature = "NFC"
+	SessionsListResponseResultsFeaturesFeatureLiveness           SessionsListResponseResultsFeaturesFeature = "LIVENESS"
+	SessionsListResponseResultsFeaturesFeatureFaceMatch          SessionsListResponseResultsFeaturesFeature = "FACE_MATCH"
+	SessionsListResponseResultsFeaturesFeaturePOA                SessionsListResponseResultsFeaturesFeature = "POA"
+	SessionsListResponseResultsFeaturesFeatureQuestionnaire      SessionsListResponseResultsFeaturesFeature = "QUESTIONNAIRE"
+	SessionsListResponseResultsFeaturesFeatureEmailVerification  SessionsListResponseResultsFeaturesFeature = "EMAIL_VERIFICATION"
+	SessionsListResponseResultsFeaturesFeaturePhone              SessionsListResponseResultsFeaturesFeature = "PHONE"
+	SessionsListResponseResultsFeaturesFeatureAML                SessionsListResponseResultsFeaturesFeature = "AML"
+	SessionsListResponseResultsFeaturesFeatureIPAnalysis         SessionsListResponseResultsFeaturesFeature = "IP_ANALYSIS"
+	SessionsListResponseResultsFeaturesFeatureAgeEstimation      SessionsListResponseResultsFeaturesFeature = "AGE_ESTIMATION"
+	SessionsListResponseResultsFeaturesFeatureDatabaseValidation SessionsListResponseResultsFeaturesFeature = "DATABASE_VALIDATION"
 )
 
-// SessionsListResponseFeaturesStatus: Status of this feature. `Not Finished`
-// until the step completes.
+// SessionsListResponseResultsFeaturesStatus: Status of this feature. `Not
+// Finished` until the step completes.
 //
-// SessionsListResponseFeaturesStatus is a string with known values below. The
-// set is open: other values may appear and never cause an error.
-type SessionsListResponseFeaturesStatus string
+// SessionsListResponseResultsFeaturesStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsListResponseResultsFeaturesStatus string
 
-// Known values of SessionsListResponseFeaturesStatus.
+// Known values of SessionsListResponseResultsFeaturesStatus.
 const (
-	SessionsListResponseFeaturesStatusNotFinished    SessionsListResponseFeaturesStatus = "Not Finished"
-	SessionsListResponseFeaturesStatusApproved       SessionsListResponseFeaturesStatus = "Approved"
-	SessionsListResponseFeaturesStatusDeclined       SessionsListResponseFeaturesStatus = "Declined"
-	SessionsListResponseFeaturesStatusInReview       SessionsListResponseFeaturesStatus = "In Review"
-	SessionsListResponseFeaturesStatusResubRequested SessionsListResponseFeaturesStatus = "Resub Requested"
+	SessionsListResponseResultsFeaturesStatusNotFinished    SessionsListResponseResultsFeaturesStatus = "Not Finished"
+	SessionsListResponseResultsFeaturesStatusApproved       SessionsListResponseResultsFeaturesStatus = "Approved"
+	SessionsListResponseResultsFeaturesStatusDeclined       SessionsListResponseResultsFeaturesStatus = "Declined"
+	SessionsListResponseResultsFeaturesStatusInReview       SessionsListResponseResultsFeaturesStatus = "In Review"
+	SessionsListResponseResultsFeaturesStatusResubRequested SessionsListResponseResultsFeaturesStatus = "Resub Requested"
 )
 
-// SessionsListResponsePhoneNumber: Phone associated with the session: the
-// verified phone when phone verification ran, otherwise the contact phone
+// SessionsListResponseResultsPhoneNumber: Phone associated with the session:
+// the verified phone when phone verification ran, otherwise the contact phone
 // provided at session creation. `null` when neither exists.
-type SessionsListResponsePhoneNumber struct {
+type SessionsListResponseResultsPhoneNumber struct {
 	// Phone number in E.164 format.
 	Number string `json:"number"`
 
@@ -2377,15 +2381,15 @@ type SessionsListResponsePhoneNumber struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponsePhoneNumber leniently.
-func (r *SessionsListResponsePhoneNumber) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsPhoneNumber leniently.
+func (r *SessionsListResponseResultsPhoneNumber) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseEmailAddress: Email associated with the session: the
-// verified email when email verification ran, otherwise the contact email
+// SessionsListResponseResultsEmailAddress: Email associated with the session:
+// the verified email when email verification ran, otherwise the contact email
 // provided at session creation. `null` when neither exists.
-type SessionsListResponseEmailAddress struct {
+type SessionsListResponseResultsEmailAddress struct {
 	Email string `json:"email"`
 
 	// `true` only when the email-verification feature approved this address.
@@ -2396,49 +2400,50 @@ type SessionsListResponseEmailAddress struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseEmailAddress leniently.
-func (r *SessionsListResponseEmailAddress) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsEmailAddress leniently.
+func (r *SessionsListResponseResultsEmailAddress) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseAdditionalDetails: Compact per-feature extras. Only
-// features that produced data appear as keys; `null` when no feature produced
-// extras. Fields excluded by the workflow's response-attributes configuration
-// are omitted.
-type SessionsListResponseAdditionalDetails struct {
+// SessionsListResponseResultsAdditionalDetails: Compact per-feature extras.
+// Only features that produced data appear as keys; `null` when no feature
+// produced extras. Fields excluded by the workflow's response-attributes
+// configuration are omitted.
+type SessionsListResponseResultsAdditionalDetails struct {
 	// Present when AML screening ran.
-	AML SessionsListResponseAdditionalDetailsAML `json:"aml"`
+	AML SessionsListResponseResultsAdditionalDetailsAML `json:"aml"`
 
 	// Present when database validation ran.
-	DatabaseValidation SessionsListResponseAdditionalDetailsDatabaseValidation `json:"database_validation"`
+	DatabaseValidation SessionsListResponseResultsAdditionalDetailsDatabaseValidation `json:"database_validation"`
 
 	// Present when proof of address ran.
-	POA SessionsListResponseAdditionalDetailsPOA `json:"poa"`
+	POA SessionsListResponseResultsAdditionalDetailsPOA `json:"poa"`
 
 	// Present when a liveness check ran.
-	Liveness SessionsListResponseAdditionalDetailsLiveness `json:"liveness"`
+	Liveness SessionsListResponseResultsAdditionalDetailsLiveness `json:"liveness"`
 
 	// Present when face match ran.
-	FaceMatch SessionsListResponseAdditionalDetailsFaceMatch `json:"face_match"`
+	FaceMatch SessionsListResponseResultsAdditionalDetailsFaceMatch `json:"face_match"`
 
 	// Present when phone verification ran.
-	PhoneVerification SessionsListResponseAdditionalDetailsPhoneVerification `json:"phone_verification"`
+	PhoneVerification SessionsListResponseResultsAdditionalDetailsPhoneVerification `json:"phone_verification"`
 
 	// Present when email verification ran.
-	EmailVerification SessionsListResponseAdditionalDetailsEmailVerification `json:"email_verification"`
+	EmailVerification SessionsListResponseResultsAdditionalDetailsEmailVerification `json:"email_verification"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseAdditionalDetails leniently.
-func (r *SessionsListResponseAdditionalDetails) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsAdditionalDetails leniently.
+func (r *SessionsListResponseResultsAdditionalDetails) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseAdditionalDetailsAML: Present when AML screening ran.
-type SessionsListResponseAdditionalDetailsAML struct {
+// SessionsListResponseResultsAdditionalDetailsAML: Present when AML screening
+// ran.
+type SessionsListResponseResultsAdditionalDetailsAML struct {
 	// Number of AML screening hits.
 	TotalHits int64 `json:"total_hits"`
 
@@ -2447,21 +2452,21 @@ type SessionsListResponseAdditionalDetailsAML struct {
 	IsAdverseMediaFetched bool   `json:"is_adverse_media_fetched"`
 
 	// Subset of the data that was screened. Only non-empty keys are included.
-	ScreenedData SessionsListResponseAdditionalDetailsAMLScreenedData `json:"screened_data"`
+	ScreenedData SessionsListResponseResultsAdditionalDetailsAMLScreenedData `json:"screened_data"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseAdditionalDetailsAML leniently.
-func (r *SessionsListResponseAdditionalDetailsAML) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsAdditionalDetailsAML leniently.
+func (r *SessionsListResponseResultsAdditionalDetailsAML) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseAdditionalDetailsAMLScreenedData: Subset of the data that
-// was screened. Only non-empty keys are included.
-type SessionsListResponseAdditionalDetailsAMLScreenedData struct {
+// SessionsListResponseResultsAdditionalDetailsAMLScreenedData: Subset of the
+// data that was screened. Only non-empty keys are included.
+type SessionsListResponseResultsAdditionalDetailsAMLScreenedData struct {
 	Nationality    string `json:"nationality"`
 	DocumentNumber string `json:"document_number"`
 	DateOfBirth    string `json:"date_of_birth"`
@@ -2471,14 +2476,14 @@ type SessionsListResponseAdditionalDetailsAMLScreenedData struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseAdditionalDetailsAMLScreenedData leniently.
-func (r *SessionsListResponseAdditionalDetailsAMLScreenedData) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsAdditionalDetailsAMLScreenedData leniently.
+func (r *SessionsListResponseResultsAdditionalDetailsAMLScreenedData) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseAdditionalDetailsDatabaseValidation: Present when
+// SessionsListResponseResultsAdditionalDetailsDatabaseValidation: Present when
 // database validation ran.
-type SessionsListResponseAdditionalDetailsDatabaseValidation struct {
+type SessionsListResponseResultsAdditionalDetailsDatabaseValidation struct {
 	ValidationType string `json:"validation_type"`
 	MatchType      string `json:"match_type"`
 
@@ -2490,13 +2495,14 @@ type SessionsListResponseAdditionalDetailsDatabaseValidation struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseAdditionalDetailsDatabaseValidation leniently.
-func (r *SessionsListResponseAdditionalDetailsDatabaseValidation) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsAdditionalDetailsDatabaseValidation leniently.
+func (r *SessionsListResponseResultsAdditionalDetailsDatabaseValidation) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseAdditionalDetailsPOA: Present when proof of address ran.
-type SessionsListResponseAdditionalDetailsPOA struct {
+// SessionsListResponseResultsAdditionalDetailsPOA: Present when proof of
+// address ran.
+type SessionsListResponseResultsAdditionalDetailsPOA struct {
 	DocumentType   string `json:"document_type"`
 	Issuer         string `json:"issuer"`
 	Address        string `json:"address"`
@@ -2507,14 +2513,14 @@ type SessionsListResponseAdditionalDetailsPOA struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseAdditionalDetailsPOA leniently.
-func (r *SessionsListResponseAdditionalDetailsPOA) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsAdditionalDetailsPOA leniently.
+func (r *SessionsListResponseResultsAdditionalDetailsPOA) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseAdditionalDetailsLiveness: Present when a liveness check
-// ran.
-type SessionsListResponseAdditionalDetailsLiveness struct {
+// SessionsListResponseResultsAdditionalDetailsLiveness: Present when a liveness
+// check ran.
+type SessionsListResponseResultsAdditionalDetailsLiveness struct {
 	Method string `json:"method"`
 
 	// Liveness confidence score, rounded to 2 decimals.
@@ -2525,13 +2531,14 @@ type SessionsListResponseAdditionalDetailsLiveness struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseAdditionalDetailsLiveness leniently.
-func (r *SessionsListResponseAdditionalDetailsLiveness) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsAdditionalDetailsLiveness leniently.
+func (r *SessionsListResponseResultsAdditionalDetailsLiveness) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseAdditionalDetailsFaceMatch: Present when face match ran.
-type SessionsListResponseAdditionalDetailsFaceMatch struct {
+// SessionsListResponseResultsAdditionalDetailsFaceMatch: Present when face
+// match ran.
+type SessionsListResponseResultsAdditionalDetailsFaceMatch struct {
 	// Face-match similarity score, rounded to 2 decimals.
 	Score float64 `json:"score"`
 
@@ -2546,14 +2553,14 @@ type SessionsListResponseAdditionalDetailsFaceMatch struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseAdditionalDetailsFaceMatch leniently.
-func (r *SessionsListResponseAdditionalDetailsFaceMatch) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsAdditionalDetailsFaceMatch leniently.
+func (r *SessionsListResponseResultsAdditionalDetailsFaceMatch) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseAdditionalDetailsPhoneVerification: Present when phone
-// verification ran.
-type SessionsListResponseAdditionalDetailsPhoneVerification struct {
+// SessionsListResponseResultsAdditionalDetailsPhoneVerification: Present when
+// phone verification ran.
+type SessionsListResponseResultsAdditionalDetailsPhoneVerification struct {
 	// ISO 3166-1 alpha-2 country of the phone number.
 	CountryCode string `json:"country_code"`
 	IsTemporary bool   `json:"is_temporary"`
@@ -2565,14 +2572,14 @@ type SessionsListResponseAdditionalDetailsPhoneVerification struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseAdditionalDetailsPhoneVerification leniently.
-func (r *SessionsListResponseAdditionalDetailsPhoneVerification) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsAdditionalDetailsPhoneVerification leniently.
+func (r *SessionsListResponseResultsAdditionalDetailsPhoneVerification) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListResponseAdditionalDetailsEmailVerification: Present when email
-// verification ran.
-type SessionsListResponseAdditionalDetailsEmailVerification struct {
+// SessionsListResponseResultsAdditionalDetailsEmailVerification: Present when
+// email verification ran.
+type SessionsListResponseResultsAdditionalDetailsEmailVerification struct {
 	IsBreached      bool `json:"is_breached"`
 	IsDisposable    bool `json:"is_disposable"`
 	IsUndeliverable bool `json:"is_undeliverable"`
@@ -2583,8 +2590,8 @@ type SessionsListResponseAdditionalDetailsEmailVerification struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListResponseAdditionalDetailsEmailVerification leniently.
-func (r *SessionsListResponseAdditionalDetailsEmailVerification) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsListResponseResultsAdditionalDetailsEmailVerification leniently.
+func (r *SessionsListResponseResultsAdditionalDetailsEmailVerification) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 

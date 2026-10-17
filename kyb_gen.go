@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // KYBService holds the kyb operations. Use it through Client.KYB.
@@ -122,17 +123,18 @@ func (r *KYBService) ListUBOs(ctx context.Context, params KYBListUBOsParams, opt
 // handle instead of storing it.
 //
 // **Two modes.**
-// - *Synchronous (default):* the API polls the registry until the search
-// resolves and returns the final candidate list (`search_resolved: true`).
-// - *Asynchronous:* pass `webhook_url` and the API returns immediately -
-// usually with `search_status: "pending"` and an empty candidate list - then
-// POSTs a `kyb.registry_search.resolved` callback to your URL when the registry
-// finishes. The callback body is `{"event_id", "event_type":
-// "kyb.registry_search.resolved", "request_id", "vendor_data", "metadata",
-// "search_status", "search_resolved", "kyb_registry", "timestamp",
-// "created_at"}` - note `timestamp` and `created_at` in the callback are epoch
-// integers, unlike this endpoint's ISO `created_at` - and is sent **unsigned**
-// (header `X-Didit-Unsigned-Callback: true`, no `X-Signature`).
+//   - *Synchronous (default):* the API polls the registry until the search
+//     resolves and returns the final candidate list (`search_resolved: true`).
+//   - *Asynchronous:* pass `webhook_url` and the API returns immediately -
+//     usually with `search_status: "pending"` and an empty candidate list -
+//     then POSTs a `kyb.registry_search.resolved` callback to your URL when the
+//     registry finishes. The callback body is `{"event_id", "event_type":
+//     "kyb.registry_search.resolved", "request_id", "vendor_data", "metadata",
+//     "search_status", "search_resolved", "kyb_registry", "timestamp",
+//     "created_at"}` - note `timestamp` and `created_at` in the callback are
+//     epoch integers, unlike this endpoint's ISO `created_at` - and is sent
+//     **unsigned** (header `X-Didit-Unsigned-Callback: true`, no
+//     `X-Signature`).
 //
 // **Country codes.** ISO 3166-1 alpha-2 (`GB`, `DE`), plus `XX-YY` subdivision
 // codes where registries are regional - e.g. `US-CA` for California.

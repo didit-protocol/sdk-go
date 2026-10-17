@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // FaceSearchService holds the face_search operations. Use it through
@@ -30,12 +31,12 @@ type FaceSearchService struct {
 // that session's document verification, `is_blocklisted` / `is_allowlisted`
 // flags, and a `source` discriminator (`session`, `imported`, or `list_entry`).
 //
-// - `search_type=most_similar` (default) ranks every enrolled face by
-// similarity - use it for deduplication and fraud-ring investigation.
-// - `search_type=blocklisted_or_approved` restricts candidates to blocklisted
-// faces, allowlisted faces, faces from approved sessions, and imported
-// user-profile faces, ranking blocklisted entries first - use it when the
-// primary goal is blocklist screening.
+//   - `search_type=most_similar` (default) ranks every enrolled face by
+//     similarity - use it for deduplication and fraud-ring investigation.
+//   - `search_type=blocklisted_or_approved` restricts candidates to blocklisted
+//     faces, allowlisted faces, faces from approved sessions, and imported
+//     user-profile faces, ranking blocklisted entries first - use it when the
+//     primary goal is blocklist screening.
 //
 // `status` is `Declined` only when a `FACE_IN_BLOCKLIST` or
 // `POSSIBLE_FACE_IN_BLOCKLIST` warning fires; `DUPLICATED_FACE` /

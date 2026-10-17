@@ -428,7 +428,7 @@ func (g *Gen) buildResult(op *Operation, m *Method, prefix string) error {
 }
 
 // listItemName names the item type of a paginated list.
-func listItemName(prefix string) string { return prefix + "Response" }
+func listItemName(prefix string) string { return prefix + "ResponseResults" }
 
 // pageItems returns the item schema when the operation is a paginated list:
 // a GET with limit and offset query parameters returning

@@ -4,9 +4,10 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
 	"time"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // PassiveLivenessService holds the passive_liveness operations. Use it through
@@ -24,12 +25,12 @@ type PassiveLivenessService struct {
 // **How it works.** The image is analyzed by a biometric model; the largest
 // detected face is evaluated and a liveness `score` (0-100) is computed.
 // `status` is `Declined` when any `error`-severity warning fires:
-// - `NO_FACE_DETECTED` - the liveness model found no face,
-// - `LOW_LIVENESS_SCORE` - score at or below
-// `face_liveness_score_decline_threshold` (default `30`),
-// - `LIVENESS_FACE_ATTACK` - the model detected a presentation attack,
-// - `FACE_IN_BLOCKLIST` / `POSSIBLE_FACE_IN_BLOCKLIST` - the face matches an
-// entry on your face blocklist.
+//   - `NO_FACE_DETECTED` - the liveness model found no face,
+//   - `LOW_LIVENESS_SCORE` - score at or below
+//     `face_liveness_score_decline_threshold` (default `30`),
+//   - `LIVENESS_FACE_ATTACK` - the model detected a presentation attack,
+//   - `FACE_IN_BLOCKLIST` / `POSSIBLE_FACE_IN_BLOCKLIST` - the face matches an
+//     entry on your face blocklist.
 //
 // `MULTIPLE_FACES_DETECTED` is a `warning`-severity signal (does not decline),
 // and `DUPLICATED_FACE` / `POSSIBLE_DUPLICATED_FACE` are `information`-severity

@@ -4,8 +4,9 @@ package didit
 
 import (
 	"context"
-	"github.com/didit-protocol/sdk-go/option"
 	"net/http"
+
+	"github.com/didit-protocol/sdk-go/option"
 )
 
 // WalletScreeningService holds the wallet_screening operations. Use it through
