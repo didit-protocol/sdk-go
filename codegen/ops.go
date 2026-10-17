@@ -354,7 +354,6 @@ func (g *Gen) buildResult(op *Operation, m *Method, prefix string) error {
 	var jsonSchemas []*Node
 	var jsonExamples []*Node
 	var statuses []string
-	schemaless := false
 	for _, code := range responses.ObjKeys() {
 		if !strings.HasPrefix(code, "2") {
 			continue
@@ -368,8 +367,6 @@ func (g *Gen) buildResult(op *Operation, m *Method, prefix string) error {
 			statuses = append(statuses, code)
 			if media.Has("schema") {
 				jsonSchemas = append(jsonSchemas, media.Get("schema"))
-			} else {
-				schemaless = true
 			}
 			jsonExamples = append(jsonExamples, mediaExample(media))
 			continue
@@ -394,7 +391,6 @@ func (g *Gen) buildResult(op *Operation, m *Method, prefix string) error {
 	m.ResponseExample = jsonExamples[0]
 	if len(jsonSchemas) == 0 {
 		// A JSON response without a schema: return the decoded object.
-		_ = schemaless
 		m.Return = RetJSON
 		m.Result = &GoType{Kind: TMap, Elem: &GoType{Kind: TAny}}
 		return nil
