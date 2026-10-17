@@ -12,9 +12,10 @@ package main
 //   - writes them byte for byte to openapi/verification.json and
 //     openapi/account.json, and records URL, SHA-256 and fetch time in
 //     openapi/SOURCE.json;
-//   - drops the openapi/overlay.json entries that upstream now carries
-//     identically as x-didit-sdk (an entry that differs is kept, and the
-//     summary says so; upstream wins in the generator either way);
+//   - deletes the openapi/overlay.json entries of operations that upstream
+//     now names with x-didit-sdk, identical or not: the upstream value wins
+//     (DESIGN section 3). A different name goes through the rename path
+//     below, and a different auth or scope is reported as breaking;
 //   - never deletes a public method silently: a server method whose
 //     operation was removed, or whose naming changed upstream (a rename), is
 //     recorded in openapi/deprecated-operations.json with the operation as it

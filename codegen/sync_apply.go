@@ -324,6 +324,14 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 			continue
 		}
 		if after != nil && after.server && after.name == before.name {
+			// Same method; a different auth or scope still changes how it is
+			// called (credentials, or the organization and application ids).
+			for _, field := range []string{"auth", "scope"} {
+				was, now := before.node.Get(field).Text(), after.node.Get(field).Text()
+				if was != now {
+					breaking = append(breaking, fmt.Sprintf("`%s` (%s): x-didit-sdk %s changed from %q to %q", before.name, key, field, was, now))
+				}
+			}
 			continue
 		}
 		if newServerNames[before.name] != "" {
@@ -465,9 +473,11 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 	}
 	lines = append(lines, "")
 
-	// Overlay entries that upstream now carries: an identical one is dropped;
-	// a different one is kept, so that someone looks at it, and has no effect
-	// (upstream x-didit-sdk wins in the generator).
+	// Overlay entries that upstream now carries are deleted, identical or not:
+	// the upstream value wins (DESIGN section 3). A different value changes
+	// the effective naming, which the sections above already handle (a
+	// rename keeps the old name as a deprecated alias, a changed auth or
+	// scope is breaking).
 	var overlayLines []string
 	dropped := 0
 	for _, key := range append([]string(nil), overlayOps.Keys...) {
@@ -479,14 +489,16 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		if upstream == nil || upstream.Kind == Null {
 			continue
 		}
-		if syncEqual(upstream, overlayOps.Get(key)) {
-			syncDeleteKey(overlayOps, key)
-			dropped++
-			continue
+		if !syncEqual(upstream, overlayOps.Get(key)) {
+			line := fmt.Sprintf("- `%s`: upstream x-didit-sdk %s differs from the overlay entry %s; upstream wins and the entry was deleted",
+				key, syncEncode(upstream, syncSortedInlineStyle), syncEncode(overlayOps.Get(key), syncSortedInlineStyle))
+			if before, after := oldNaming(key), newNaming(key); before != nil && after != nil && before.name != after.name && kept[before.name] {
+				line += fmt.Sprintf("; `%s` stays as a deprecated alias of `%s` until version %s", before.name, after.name, removeIn)
+			}
+			overlayLines = append(overlayLines, line+".")
 		}
-		overlayLines = append(overlayLines, fmt.Sprintf(
-			"- `%s`: upstream x-didit-sdk %s differs from the overlay entry %s; upstream wins, and the overlay entry is kept for review: delete it, or ask for the upstream value to be fixed.",
-			key, syncEncode(upstream, syncSortedInlineStyle), syncEncode(overlayOps.Get(key), syncSortedInlineStyle)))
+		syncDeleteKey(overlayOps, key)
+		dropped++
 	}
 	if dropped > 0 {
 		overlayLines = append(overlayLines, fmt.Sprintf("Dropped %d overlay entries that upstream now carries.", dropped))

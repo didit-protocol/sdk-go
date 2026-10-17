@@ -6,7 +6,7 @@ The examples are a separate Go module (`github.com/didit-protocol/sdk-go/example
 
 ```sh
 cd examples
-export DIDIT_API_KEY=...   # your application's API key (Console > API keys)
+export DIDIT_API_KEY=...   # your application's API key
 ```
 
 The examples need Go 1.25 or later, because Gin v1.12 and Echo v4.16 do. The SDK itself supports Go 1.22.
@@ -46,7 +46,7 @@ Each receiver listens on `PORT` (default 8080) at `POST /webhooks/didit`, reads 
 
 The Fiber example uses Fiber v2, because Fiber v3 requires Go 1.26.
 
-Send a test delivery from the Didit Console (Webhooks > Send test event), or expose the receiver with a tunnel such as `ngrok http 8080` and register the public URL as a webhook destination.
+To receive real deliveries during development, expose the receiver with a tunnel such as `ngrok http 8080` and register the public URL as a webhook destination of your application. The [quickstart](quickstart) shows how Didit signs a delivery, if you want to send one yourself.
 
 Never parse the body into a struct before verifying it: `X-Signature` covers the exact bytes Didit sent. If your framework only gives you the decoded JSON, use `webhook.VerifyParsed`, which checks `X-Signature-V2`.
 
