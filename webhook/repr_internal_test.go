@@ -1,6 +1,8 @@
 package webhook
 
 import (
+	"encoding/json"
+	"errors"
 	"math"
 	"strconv"
 	"testing"
@@ -81,6 +83,56 @@ func TestIsJSONNumber(t *testing.T) {
 	for _, s := range invalid {
 		if isJSONNumber(s) {
 			t.Errorf("%q should be invalid", s)
+		}
+	}
+}
+
+func TestMeasureAndLimit(t *testing.T) {
+	v := map[string]any{"a": []any{json.Number("1e300"), 1e22, -1e19, json.Number("12"), 2.5, "x\u0001"}, "b": nil}
+	full, err := canonicalJSON(v, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// measureJSON counts the floats beyond the int64 range in short form:
+	// 1e+300 for 301 digits, 1e+22 for 23, -1e+19 for 21.
+	n, err := measureJSON(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := len(full) - (301 - 6) - (23 - 5) - (21 - 6); n != want {
+		t.Errorf("measureJSON = %d, want %d (canonical JSON %s)", n, want, full)
+	}
+	small := map[string]any{"a": []any{json.Number("12"), 2.5, 1e18, "x\u0001"}, "b": nil}
+	full, _ = canonicalJSON(small, 0)
+	if n, _ := measureJSON(small); n != len(full) {
+		t.Errorf("measureJSON = %d, want the canonical length %d", n, len(full))
+	}
+
+	// The limit is inclusive, and checked before each value and at the end.
+	if got, err := canonicalJSON(small, len(full)); err != nil || string(got) != string(full) {
+		t.Errorf("at the limit: %s, %v", got, err)
+	}
+	for _, limit := range []int{1, len(full) - 1} {
+		if _, err := canonicalJSON(small, limit); !errors.Is(err, errTooLong) {
+			t.Errorf("limit %d: err = %v, want errTooLong", limit, err)
+		}
+	}
+	if _, err := measureJSON(map[string]any{"a": math.NaN()}); err == nil {
+		t.Error("measureJSON accepted NaN")
+	}
+}
+
+func TestDecimalText(t *testing.T) {
+	for in, want := range map[string]string{
+		"0": "0", "-0": "0", "+0": "0", "000": "0", "-000": "0", "7": "7", "+007": "7", "-007": "-7", "1760702400": "1760702400",
+	} {
+		if got, ok := decimalText(in); !ok || got != want {
+			t.Errorf("decimalText(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+	for _, in := range []string{"", "-", "+", "+-1", "--1", "1.0", "1e3", " 1", "0x10", "1_000"} {
+		if got, ok := decimalText(in); ok {
+			t.Errorf("decimalText(%q) = %q, want failure", in, got)
 		}
 	}
 }

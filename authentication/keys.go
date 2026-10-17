@@ -163,7 +163,10 @@ func (c *Client) sameOriginURL(name, value, fallback string) (string, error) {
 // publicKey returns the verification key for kid. A fresh cached key set is
 // used as is; a stale or missing one is fetched; a kid missing from a fresh
 // key set triggers a refetch only when the last fetch is at least a minute
-// old, so forged kids cannot make the client hammer the issuer.
+// old, so forged kids cannot make the client hammer the issuer. A fetch
+// counts even when it fails or its caller's context ends, as when a server
+// passes r.Context() and the client hangs up: the request may have reached
+// the issuer all the same.
 func (c *Client) publicKey(ctx context.Context, kid string) (*ecdsa.PublicKey, error) {
 	for {
 		c.mu.Lock()
@@ -185,8 +188,7 @@ func (c *Client) publicKey(ctx context.Context, kid string) (*ecdsa.PublicKey, e
 			return nil, unknownKey()
 		}
 		f := &flight{done: make(chan struct{})}
-		previous := c.keysFetch
-		c.keysFlight, c.keysFetch = f, now // a failed fetch counts too
+		c.keysFlight, c.keysFetch = f, now
 		c.mu.Unlock()
 
 		err := c.fetchKeys(ctx)
@@ -194,9 +196,6 @@ func (c *Client) publicKey(ctx context.Context, kid string) (*ecdsa.PublicKey, e
 		c.mu.Lock()
 		c.keysFlight = nil
 		f.end(ctx, err)
-		if f.abandoned {
-			c.keysFetch = previous
-		}
 		c.mu.Unlock()
 		close(f.done)
 		if err != nil {

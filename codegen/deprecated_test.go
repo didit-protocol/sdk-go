@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -42,13 +43,18 @@ func expiredDeprecations(data []byte, current string) ([]string, error) {
 // method stays deprecated for one minor version, and the release that
 // reaches remove_in deletes it.
 func TestDeprecatedMethodsExpire(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "openapi", "deprecated-operations.json"))
+	expectNoExpiredDeprecations(t, filepath.Join("..", "openapi", "deprecated-operations.json"))
+}
+
+func expectNoExpiredDeprecations(t *testing.T, file string) {
+	t.Helper()
+	data, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
 	expired, err := expiredDeprecations(data, version.Version)
 	if err != nil {
-		t.Fatalf("openapi/deprecated-operations.json: %v", err)
+		t.Fatalf("%s: %v", file, err)
 	}
 	for _, msg := range expired {
 		t.Error(msg)
@@ -168,5 +174,111 @@ func TestLoadDeprecatedPrefersCurrentComponents(t *testing.T) {
 	expectContains(t, all, `CurrencyEur Currency = "EUR"`)
 	if strings.Contains(all, `"XXX"`) {
 		t.Error("the entry's copy of Currency replaced the document's")
+	}
+}
+
+// TestDeprecatingSyncOfTheRepositorySpec runs a sync that fills
+// openapi/deprecated-operations.json on a copy of the repository's openapi/:
+// upstream removes one GET operation and renames another. What the
+// repository's own tests read from that file must still hold. The two
+// operations are picked from the current contract, so the test keeps working
+// after real syncs. (CI also runs every test on a checkout synced like this.)
+func TestDeprecatingSyncOfTheRepositorySpec(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "openapi")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"verification.json", "account.json", "overlay.json", "SOURCE.json", "webhook-vectors.json", "deprecated-operations.json"} {
+		data, err := os.ReadFile(filepath.Join("..", "openapi", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(name string) []byte {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+
+	// The first two GET operations, in path order, that are server methods.
+	doc := mustNode(t, string(read("verification.json")))
+	overlay := mustNode(t, string(read("overlay.json"))).Get("operations")
+	paths := doc.Get("paths")
+	var picked []string
+	keys := slices.Clone(paths.ObjKeys())
+	slices.Sort(keys)
+	for _, p := range keys {
+		op := paths.Path(p, "get")
+		naming := op.Get("x-didit-sdk")
+		if naming == nil {
+			naming = overlay.Get("GET " + p)
+		}
+		if op != nil && naming.Get("server").Truthy() && len(picked) < 2 {
+			picked = append(picked, p)
+		}
+	}
+	if len(picked) < 2 {
+		t.Fatalf("found %d GET server operations, want 2", len(picked))
+	}
+	name := func(p string) (resource, method string) {
+		naming := paths.Path(p, "get", "x-didit-sdk")
+		if naming == nil {
+			naming = overlay.Get("GET " + p)
+		}
+		return naming.Get("resource").Text(), naming.Get("method").Text()
+	}
+	removedRes, removedMethod := name(picked[0])
+	renamedRes, renamedMethod := name(picked[1])
+	syncDeleteKey(paths.Get(picked[0]), "get")
+	renamed := mustNode(t, `{"auth": "api_key", "server": true}`)
+	renamed.Set("resource", syncString(renamedRes))
+	renamed.Set("method", syncString(renamedMethod+"_renamed"))
+	paths.Path(picked[1], "get").Set("x-didit-sdk", renamed)
+
+	res, err := syncSpecs(dir, map[string][]byte{
+		"verification.json": []byte(syncEncode(doc, syncFileStyle)),
+		"account.json":      read("account.json"),
+	}, syncTestNow, version.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removedKey, renamedKey := removedRes+"."+removedMethod, renamedRes+"."+renamedMethod
+	expectContains(t, section(res.summary, "Breaking changes"),
+		"`"+removedKey+"` was removed upstream",
+		"`"+renamedKey+"` was renamed upstream to `"+renamedKey+"_renamed`")
+	methods := mustNode(t, string(read("deprecated-operations.json"))).Get("methods")
+	for _, key := range []string{removedKey, renamedKey} {
+		if !methods.Has(key) {
+			t.Errorf("%s is not in deprecated-operations.json", key)
+		}
+	}
+
+	file := filepath.Join(dir, "deprecated-operations.json")
+	expectRoundTrip(t, file)
+	expectNoExpiredDeprecations(t, file)
+
+	// The generator keeps both methods, marked deprecated.
+	spec, err := LoadSpec(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reasons := map[string]string{}
+	for _, op := range spec.Ops {
+		if op.Deprecated != nil {
+			reasons[op.Naming.Resource+"."+op.Naming.Method] = op.Deprecated.Reason
+		}
+	}
+	if reasons[removedKey] != "removed" || reasons[renamedKey] != "renamed" {
+		t.Errorf("deprecated operations: %s %q, %s %q", removedKey, reasons[removedKey], renamedKey, reasons[renamedKey])
+	}
+	if _, err := Generate(root); err != nil {
+		t.Fatalf("generate: %v", err)
 	}
 }

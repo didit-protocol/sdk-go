@@ -79,7 +79,8 @@ type APIStatusError struct {
 	// Body is the response body parsed as JSON when possible (map[string]any,
 	// []any, ...), otherwise the body as a string, or nil when empty.
 	Body any
-	// RawBody is the response body as received.
+	// RawBody is the response body as received, with the API key replaced
+	// by "[redacted]" if the server echoed it.
 	RawBody []byte
 	Header  http.Header
 	// RequestID is the request id of the response (X-Request-Id, Request-Id,
@@ -88,8 +89,8 @@ type APIStatusError struct {
 	Method    string
 	// URL is the request URL without query string or credentials.
 	URL string
-	// Response is the HTTP response. Its body has already been read; RawBody
-	// holds it.
+	// Response is the HTTP response. Its body reads RawBody, and its
+	// request's X-Api-Key header is redacted.
 	Response *http.Response
 }
 

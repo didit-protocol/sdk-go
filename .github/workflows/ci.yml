@@ -70,6 +70,30 @@ jobs:
         run: go run ./codegen -check
       - name: Generator tests
         run: go test ./codegen/...
+      - name: A sync that removes and renames operations keeps every test green
+        # What the spec sync pull request runs after a sync that deprecates
+        # methods, on a copy of the checkout. Upstream drops the first GET
+        # server operation in path order and renames the second.
+        run: |
+          upstream="$RUNNER_TEMP/upstream"
+          synced="$RUNNER_TEMP/synced"
+          mkdir -p "$upstream"
+          jq --slurpfile overlay openapi/overlay.json '
+            . as $doc
+            | def naming($p): $doc.paths[$p].get["x-didit-sdk"] // $overlay[0].operations["GET " + $p];
+            [$doc.paths | keys[] | select($doc.paths[.].get != null and naming(.).server == true)][:2] as [$removed, $renamed]
+            | del(.paths[$removed].get)
+            | .paths[$renamed].get["x-didit-sdk"] = (naming($renamed) | .method += "_renamed")
+          ' openapi/verification.json > "$upstream/verification.json"
+          cp openapi/account.json "$upstream/account.json"
+          cp -R . "$synced"
+          cd "$synced"
+          GITHUB_OUTPUT='' go run ./codegen sync -from-dir "$upstream" -summary "$RUNNER_TEMP/summary.md" > /dev/null
+          grep -q 'was removed upstream' "$RUNNER_TEMP/summary.md"
+          grep -q 'was renamed upstream' "$RUNNER_TEMP/summary.md"
+          go run ./codegen
+          go vet ./...
+          go test ./...
 
   test:
     name: Test (Go ${{ matrix.go }}, ${{ matrix.os }})

@@ -205,7 +205,9 @@ func redactURL(raw string) string {
 
 // redactedResponse copies a response for an error value, so that the error
 // does not carry the access token (request header) or the request body (codes
-// and refresh tokens) through resp.Request.
+// and refresh tokens) through resp.Request. After a redirect,
+// resp.Request.Response is the redirect response, whose Request is the
+// original request; it is dropped too.
 func redactedResponse(resp *http.Response) *http.Response {
 	copied := *resp
 	copied.Body = http.NoBody
@@ -216,6 +218,7 @@ func redactedResponse(resp *http.Response) *http.Response {
 			req.Header.Set("Authorization", "Bearer [redacted]")
 		}
 		req.Body, req.GetBody = http.NoBody, nil
+		req.Response = nil
 		copied.Request = req
 	}
 	return &copied
