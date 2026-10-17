@@ -237,3 +237,78 @@ func (op *Operation) Parameters() []*Node {
 	add(op.PathItem.Get("parameters"))
 	return out
 }
+
+// loadDeprecated adds the operations of openapi/deprecated-operations.json
+// that upstream removed. Each entry carries the operation as it was and the
+// component schemas it used, so its types keep their names.
+func (s *Spec) loadDeprecated(dir string) error {
+	data, err := os.ReadFile(filepath.Join(dir, "openapi", "deprecated-operations.json"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	root, err := ParseNode(data)
+	if err != nil {
+		return fmt.Errorf("deprecated-operations.json: %w", err)
+	}
+	existing := map[string]*Operation{}
+	for _, op := range s.Ops {
+		existing[op.Key] = op
+	}
+	for _, e := range root.Get("operations").Arr {
+		key := e.Get("key").Text()
+		entry := &DeprecatedEntry{
+			Key:             key,
+			DeprecatedSince: e.Get("deprecated_since").Text(),
+			Reason:          e.Get("reason").Text(),
+			ReplacedBy:      e.Get("replaced_by").Text(),
+		}
+		if op, ok := existing[key]; ok {
+			// Still upstream (for example a rename kept as an alias): only mark it.
+			if e.Get("alias") == nil {
+				op.Deprecated = entry
+				continue
+			}
+		}
+		doc := s.Verification
+		if strings.HasPrefix(key, "account ") {
+			doc = s.Account
+		}
+		method, path, ok := strings.Cut(strings.TrimPrefix(key, "account "), " ")
+		if !ok {
+			return fmt.Errorf("deprecated-operations.json: bad key %q", key)
+		}
+		naming, ok, err := namingOf(e.Get("naming"))
+		if err != nil || !ok {
+			return fmt.Errorf("deprecated-operations.json: %s: naming: %v", key, err)
+		}
+		if alias := e.Get("alias"); alias != nil {
+			naming.Method = alias.Text()
+		}
+		schemas := doc.Root.Path("components", "schemas")
+		if comps := e.Get("components"); comps != nil {
+			if schemas == nil {
+				schemas = &Node{Kind: Object}
+				if doc.Root.Get("components") == nil {
+					doc.Root.Set("components", &Node{Kind: Object})
+				}
+				doc.Root.Get("components").Set("schemas", schemas)
+			}
+			for _, name := range comps.Keys {
+				if !schemas.Has(name) {
+					schemas.Set(name, comps.Get(name))
+				}
+			}
+		}
+		opNode := e.Get("operation")
+		item := &Node{Kind: Object}
+		item.Set(strings.ToLower(method), opNode)
+		s.Ops = append(s.Ops, &Operation{
+			Doc: doc, Key: key + " (deprecated)", HTTPMethod: method, Path: path,
+			Node: opNode, PathItem: item, Naming: naming, Deprecated: entry,
+		})
+	}
+	return nil
+}
