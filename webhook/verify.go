@@ -370,17 +370,10 @@ func appendPyStr(b []byte, v any) ([]byte, bool) {
 			return nil, false
 		}
 		return appendPyRepr(b, f), true
-	case float64, float32:
-		// From a body decoded without UseNumber: an integral value was most
-		// likely an integer literal, which Python would print without ".0".
-		f, _ := toFloat(v)
-		if n, ok := integralFloat(f); ok && math.Abs(f) <= 1<<53 {
-			return n.Append(b, 10), true
-		}
-		if math.IsNaN(f) || math.IsInf(f, 0) {
-			return nil, false
-		}
-		return appendPyRepr(b, f), true
+	case float64:
+		return appendPyStrFloat(b, v)
+	case float32:
+		return appendPyStrFloat(b, float64(v))
 	}
 	if n, ok := integerValue(v); ok {
 		return n.Append(b, 10), true
@@ -388,12 +381,15 @@ func appendPyStr(b []byte, v any) ([]byte, bool) {
 	return nil, false
 }
 
-func toFloat(v any) (float64, bool) {
-	switch v := v.(type) {
-	case float64:
-		return v, true
-	case float32:
-		return float64(v), true
+// appendPyStrFloat formats a float64 from a body decoded without UseNumber.
+// An integral value was most likely an integer literal, which Python would
+// print without ".0".
+func appendPyStrFloat(b []byte, f float64) ([]byte, bool) {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return nil, false
 	}
-	return 0, false
+	if f == math.Trunc(f) && math.Abs(f) <= 1<<53 {
+		return strconv.AppendInt(b, int64(f), 10), true
+	}
+	return appendPyRepr(b, f), true
 }
