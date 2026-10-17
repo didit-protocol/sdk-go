@@ -111,5 +111,13 @@ func Generate(dir string) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return g.emit(root)
+	files, err := g.emit(root)
+	if err != nil {
+		return nil, err
+	}
+	tests, err := g.emitTests(root)
+	if err != nil {
+		return nil, err
+	}
+	return append(files, tests...), nil
 }

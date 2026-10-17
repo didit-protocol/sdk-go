@@ -117,7 +117,7 @@ func ExampleVerifyParsed() {
 }
 
 func ExampleCanonicalize() {
-	out, _ := webhook.Canonicalize([]byte(`{"b": 87.0, "a": "José", "c": [1e-5, 0.1]}`))
+	out, _ := webhook.Canonicalize([]byte(`{"b": 87.0, "a": "Jos\u00e9", "c": [1e-5, 0.1]}`))
 	fmt.Println(string(out))
 	// Output: {"a":"José","b":87,"c":[1e-05,0.1]}
 }

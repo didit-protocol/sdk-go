@@ -371,7 +371,7 @@ func TestAllowSimple(t *testing.T) {
 			"1760702400:12345678901234567890:0:x"},
 		{"floats", `{"timestamp":1760702400,"session_id":87.0,"status":1e16,"webhook_type":0.1}`,
 			"1760702400:87.0:1e+16:0.1"},
-		{"unicode", `{"timestamp":1760702400,"session_id":"José","status":"In Review","webhook_type":"data.updated"}`,
+		{"unicode", `{"timestamp":1760702400,"session_id":"Jos\u00e9","status":"In Review","webhook_type":"data.updated"}`,
 			"1760702400:José:In Review:data.updated"},
 	}
 	for _, c := range cases {
