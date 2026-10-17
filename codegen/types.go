@@ -82,12 +82,12 @@ const (
 
 // Decl is a generated named type.
 type Decl struct {
-	Name     string
-	Kind     DeclKind
-	Side     Side
-	Doc      string
-	Fields   []*Field
-	Values   []EnumValue
+	Name   string
+	Kind   DeclKind
+	Side   Side
+	Doc    string
+	Fields []*Field
+	Values []EnumValue
 	// Params marks the parameter struct of an operation.
 	Params bool
 	Origin string
@@ -436,7 +436,6 @@ func (g *Gen) component(doc *Doc, ref string, side Side) (*GoType, error) {
 type propInfo struct {
 	name     string
 	schemas  []*Node
-	count    int
 	required int
 }
 
