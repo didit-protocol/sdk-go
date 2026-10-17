@@ -152,11 +152,11 @@ func fail(action string, err error) {
 	)
 	switch {
 	case errors.As(err, &configErr):
-		log.Fatalf("%s: %s (is DIDIT_API_KEY set?)", action, configErr.Message)
+		log.Fatalf("%s: %s", action, configErr.Message)
 	case errors.As(err, &authErr):
 		log.Fatalf("%s: the API key was rejected (401); check DIDIT_API_KEY", action)
 	case errors.As(err, &notFound):
-		log.Fatalf("%s: not found (404); check DIDIT_WORKFLOW_ID: %v", action, err)
+		log.Fatalf("%s: not found (404): %v", action, err)
 	case errors.As(err, &statusErr):
 		log.Fatalf("%s: HTTP %d, request id %q: %v", action, statusErr.StatusCode, statusErr.RequestID, err)
 	case errors.As(err, &timeoutErr):
