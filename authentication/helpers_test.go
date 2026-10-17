@@ -285,7 +285,6 @@ func (s *stubIssuer) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, err
 		}
 		req.Body.Close()
-		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
 	s.mu.Lock()
 	s.requests = append(s.requests, recorded{
@@ -305,8 +304,12 @@ func (s *stubIssuer) RoundTrip(req *http.Request) (*http.Response, error) {
 	if handler == nil {
 		handler = s.defaultHandler
 	}
+	// Handlers get a copy with a fresh body: a RoundTripper must not modify
+	// the request.
+	served := req.Clone(req.Context())
+	served.Body = io.NopCloser(bytes.NewReader(body))
 	rec := httptest.NewRecorder()
-	handler(rec, req)
+	handler(rec, served)
 	resp := rec.Result()
 	resp.Request = req
 	return resp, nil

@@ -303,6 +303,9 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 		logAttempt(ctx, cfg, r.method, u, 0, "", time.Since(start), attempt, cerr)
 		return nil, retryable, cerr
 	}
+	if resp.Request == nil {
+		resp.Request = req
+	}
 	requestID := resp.Header.Get("X-Request-Id")
 	if r.binary && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
@@ -333,6 +336,10 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 			}
 		}
 		return resp, false, nil
+	}
+	if cfg.APIKey != "" && bytes.Contains(data, []byte(cfg.APIKey)) {
+		// Never let the API key reach an error message, even if echoed.
+		data = bytes.ReplaceAll(data, []byte(cfg.APIKey), []byte("[redacted]"))
 	}
 	statusErr := &APIStatusError{
 		StatusCode: resp.StatusCode,

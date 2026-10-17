@@ -2,7 +2,6 @@ package didit
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -267,6 +266,3 @@ func structValue(params any) (reflect.Value, bool) {
 	}
 	return rv, rv.Kind() == reflect.Struct
 }
-
-// rawJSON is used for schema-less JSON responses.
-type rawJSON = json.RawMessage

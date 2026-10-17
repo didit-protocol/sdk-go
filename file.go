@@ -1,7 +1,6 @@
 package didit
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"mime"
@@ -130,6 +129,3 @@ func (f File) detectContentType(data []byte) string {
 	}
 	return "application/octet-stream"
 }
-
-// readerOf returns a reader over b; it exists so tests can wrap it.
-func readerOf(b []byte) io.Reader { return bytes.NewReader(b) }
