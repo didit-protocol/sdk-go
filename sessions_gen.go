@@ -3364,6 +3364,14 @@ type SessionDecision struct {
 	// questionnaire metadata, sections with form elements, and the user's answers.
 	QuestionnaireResponses []SessionDecisionQuestionnaireResponses `json:"questionnaire_responses"`
 
+	// Bank Verification results, one item per Bank Verification step, for User and
+	// Business Verification. `null` until a step produces one. Each item's `method`
+	// says how the account was verified: `open_banking` (bank sign-in) or
+	// `account_lookup` (account check), or a `microdeposits` or `statement`
+	// fallback. See [Bank verification
+	// methods](/core-technology/bank-verification/verification-methods).
+	BankVerifications []BankVerificationResult `json:"bank_verifications"`
+
 	// Electronic Signature results, one item per signer and signature step, for
 	// User and Business Verification. Present only when the workflow has an
 	// Electronic Signature step; an empty array until a signer reaches it. See the
@@ -7042,6 +7050,498 @@ type SessionDecisionQuestionnaireResponsesSectionsItemsAnswer struct {
 func (r *SessionDecisionQuestionnaireResponsesSectionsItemsAnswer) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// BankVerificationResult: One Bank Verification step's result, for User and
+// Business Verification. `method` says how the account was verified. See [Bank
+// verification
+// methods](/core-technology/bank-verification/verification-methods).
+type BankVerificationResult struct {
+	// Version of this result shape. `1` today.
+	SchemaVersion int64 `json:"schema_version"`
+
+	// The ID of this result.
+	BankVerificationID string `json:"bank_verification_id"`
+
+	// The workflow node this result belongs to.
+	NodeID string `json:"node_id"`
+
+	// The step's verdict, after its actions and status rules.
+	Status BankVerificationResultStatus `json:"status"`
+
+	// The first verdict the step reached, before any later change such as a manual
+	// review.
+	OriginalStatus string `json:"original_status"`
+
+	// How the account was verified: `open_banking` (bank sign-in: the person signed
+	// in at their bank), `account_lookup` (account check: the person typed the
+	// account details and the bank confirmed the name), `microdeposits` or
+	// `statement` (a statement upload). `null` until an account is evaluated.
+	// Workflow rules read the same value as `bank.method`.
+	Method BankVerificationResultMethod `json:"method"`
+
+	// The key of the route that ran the connection. Read `method`, not this key, to
+	// tell how the account was verified.
+	Provider string `json:"provider"`
+
+	// `native`: Didit's own route, billed to your Didit balance. `byok`: a
+	// marketplace provider you connected with your own credentials.
+	CredentialSource BankVerificationResultCredentialSource `json:"credential_source"`
+
+	// The route chosen before consent. It never changes afterwards.
+	Route BankVerificationResultRoute `json:"route"`
+
+	// The latest attempt's connection. `null` before the first attempt.
+	Connection BankVerificationResultConnection `json:"connection"`
+
+	// The evaluated account. `null` until an account is evaluated.
+	Account BankVerificationResultAccount `json:"account"`
+
+	// How the account holder compared with the verified identity. `null` until an
+	// account is evaluated.
+	Ownership BankVerificationResultOwnership `json:"ownership"`
+
+	// The financial data the step read. Only bank sign-in reads it.
+	FinancialData BankVerificationResultFinancialData `json:"financial_data"`
+	Billing       BankVerificationResultBilling       `json:"billing"`
+
+	// The identity the holder was compared against, with its source.
+	ReferenceIdentity map[string]any `json:"reference_identity"`
+
+	// Account signals read from the transaction history, when the step read one.
+	Signals map[string]any `json:"signals"`
+
+	// Whether the step ended without a match after the person left at their bank.
+	ConnectionAbandoned bool `json:"connection_abandoned"`
+
+	// Whether the person's bank or country could not be reached on this step.
+	NotCovered bool `json:"not_covered"`
+
+	// When the bank evidence was deleted under `bank_evidence_retention_days`.
+	// `null` otherwise.
+	EvidencePurgedAt time.Time `json:"evidence_purged_at"`
+
+	// Informational codes, for example `holder_declared`. A warning never changes
+	// the status on its own.
+	Warnings []string `json:"warnings"`
+
+	// Why the verdict came out the way it did, for example `OWNER_NAME_PARTIAL`.
+	// Several may apply.
+	ReasonCodes []string  `json:"reason_codes"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationResult leniently.
+func (r *BankVerificationResult) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationResultStatus: The step's verdict, after its actions and
+// status rules.
+//
+// BankVerificationResultStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type BankVerificationResultStatus string
+
+// Known values of BankVerificationResultStatus.
+const (
+	BankVerificationResultStatusNotFinished BankVerificationResultStatus = "Not Finished"
+	BankVerificationResultStatusApproved    BankVerificationResultStatus = "Approved"
+	BankVerificationResultStatusDeclined    BankVerificationResultStatus = "Declined"
+	BankVerificationResultStatusInReview    BankVerificationResultStatus = "In Review"
+	BankVerificationResultStatusExpired     BankVerificationResultStatus = "Expired"
+)
+
+// BankVerificationResultMethod: How the account was verified: `open_banking`
+// (bank sign-in: the person signed in at their bank), `account_lookup` (account
+// check: the person typed the account details and the bank confirmed the name),
+// `microdeposits` or `statement` (a statement upload). `null` until an account
+// is evaluated. Workflow rules read the same value as `bank.method`.
+//
+// BankVerificationResultMethod is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type BankVerificationResultMethod string
+
+// Known values of BankVerificationResultMethod.
+const (
+	BankVerificationResultMethodOpenBanking   BankVerificationResultMethod = "open_banking"
+	BankVerificationResultMethodAccountLookup BankVerificationResultMethod = "account_lookup"
+	BankVerificationResultMethodMicrodeposits BankVerificationResultMethod = "microdeposits"
+	BankVerificationResultMethodStatement     BankVerificationResultMethod = "statement"
+)
+
+// BankVerificationResultCredentialSource: `native`: Didit's own route, billed
+// to your Didit balance. `byok`: a marketplace provider you connected with your
+// own credentials.
+//
+// BankVerificationResultCredentialSource is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type BankVerificationResultCredentialSource string
+
+// Known values of BankVerificationResultCredentialSource.
+const (
+	BankVerificationResultCredentialSourceNative BankVerificationResultCredentialSource = "native"
+	BankVerificationResultCredentialSourceByok   BankVerificationResultCredentialSource = "byok"
+)
+
+// BankVerificationResultRoute: The route chosen before consent. It never
+// changes afterwards.
+type BankVerificationResultRoute struct {
+	// The route's key.
+	ProviderKey      string                                      `json:"provider_key"`
+	CredentialSource BankVerificationResultRouteCredentialSource `json:"credential_source"`
+
+	// Whether Didit's own route stood in for a marketplace provider that could not
+	// connect.
+	IsFallback bool `json:"is_fallback"`
+
+	// The marketplace connection used, for `byok`.
+	ProviderConnectionID string `json:"provider_connection_id"`
+
+	// The data the connection asked for, for example `ownership` or `balances`.
+	RequestedScopes []string `json:"requested_scopes"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationResultRoute leniently.
+func (r *BankVerificationResultRoute) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationResultRouteCredentialSource is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type BankVerificationResultRouteCredentialSource string
+
+// Known values of BankVerificationResultRouteCredentialSource.
+const (
+	BankVerificationResultRouteCredentialSourceNative BankVerificationResultRouteCredentialSource = "native"
+	BankVerificationResultRouteCredentialSourceByok   BankVerificationResultRouteCredentialSource = "byok"
+)
+
+// BankVerificationResultConnection: The latest attempt's connection. `null`
+// before the first attempt.
+type BankVerificationResultConnection struct {
+	Status BankVerificationResultConnectionStatus `json:"status"`
+
+	// The bank's ID. `null` for an account check, where no bank is picked.
+	InstitutionID string `json:"institution_id"`
+
+	// The bank's name. `null` for an account check.
+	InstitutionName string `json:"institution_name"`
+
+	// The account's country, ISO 3166-1 alpha-3.
+	InstitutionCountry string `json:"institution_country"`
+
+	// Whether the bank sign-in ran over OAuth or app-to-app. `null` for an account
+	// check.
+	Oauth bool `json:"oauth"`
+
+	// When the connection succeeded.
+	ConnectedAt time.Time `json:"connected_at"`
+
+	// When the bank consent ends, for bank sign-in.
+	ConsentExpiresAt time.Time `json:"consent_expires_at"`
+
+	// When the financial data was last read again.
+	LastRefreshedAt time.Time `json:"last_refreshed_at"`
+
+	// The attempts the person spent on this step, every method together.
+	Attempts int64 `json:"attempts"`
+
+	// Why the connection is not simply `connected`, for example `USER_CANCELLED`,
+	// `INSTITUTION_DOWN`, `ACCOUNT_NOT_FOUND`, `REFERENCE_IDENTITY_MISSING` or
+	// `VERIFICATION_COMPLETED`.
+	ReasonCode string `json:"reason_code"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationResultConnection leniently.
+func (r *BankVerificationResultConnection) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationResultConnectionStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type BankVerificationResultConnectionStatus string
+
+// Known values of BankVerificationResultConnectionStatus.
+const (
+	BankVerificationResultConnectionStatusPending     BankVerificationResultConnectionStatus = "pending"
+	BankVerificationResultConnectionStatusConnected   BankVerificationResultConnectionStatus = "connected"
+	BankVerificationResultConnectionStatusCancelled   BankVerificationResultConnectionStatus = "cancelled"
+	BankVerificationResultConnectionStatusTimeout     BankVerificationResultConnectionStatus = "timeout"
+	BankVerificationResultConnectionStatusFailed      BankVerificationResultConnectionStatus = "failed"
+	BankVerificationResultConnectionStatusUnsupported BankVerificationResultConnectionStatus = "unsupported"
+	BankVerificationResultConnectionStatusRevoked     BankVerificationResultConnectionStatus = "revoked"
+	BankVerificationResultConnectionStatusExpired     BankVerificationResultConnectionStatus = "expired"
+)
+
+// BankVerificationResultAccount: The evaluated account. `null` until an account
+// is evaluated.
+type BankVerificationResultAccount struct {
+	// The account number, masked.
+	AccountIDMasked string `json:"account_id_masked"`
+
+	// The IBAN, masked.
+	IBANMasked string `json:"iban_masked"`
+
+	// The sort code, in the United Kingdom.
+	SortCode string `json:"sort_code"`
+
+	// The routing number, masked.
+	RoutingNumberMasked string                            `json:"routing_number_masked"`
+	Type                BankVerificationResultAccountType `json:"type"`
+
+	// The bank's own account subtype.
+	Subtype string `json:"subtype"`
+
+	// ISO 4217 currency of the account.
+	Currency     string                                  `json:"currency"`
+	HolderType   BankVerificationResultAccountHolderType `json:"holder_type"`
+	HoldersCount int64                                   `json:"holders_count"`
+	IsJoint      bool                                    `json:"is_joint"`
+	IsBusiness   bool                                    `json:"is_business"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationResultAccount leniently.
+func (r *BankVerificationResultAccount) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationResultAccountType is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type BankVerificationResultAccountType string
+
+// Known values of BankVerificationResultAccountType.
+const (
+	BankVerificationResultAccountTypeChecking BankVerificationResultAccountType = "checking"
+	BankVerificationResultAccountTypeCurrent  BankVerificationResultAccountType = "current"
+	BankVerificationResultAccountTypeSavings  BankVerificationResultAccountType = "savings"
+	BankVerificationResultAccountTypeBusiness BankVerificationResultAccountType = "business"
+	BankVerificationResultAccountTypeOther    BankVerificationResultAccountType = "other"
+)
+
+// BankVerificationResultAccountHolderType is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type BankVerificationResultAccountHolderType string
+
+// Known values of BankVerificationResultAccountHolderType.
+const (
+	BankVerificationResultAccountHolderTypePerson   BankVerificationResultAccountHolderType = "person"
+	BankVerificationResultAccountHolderTypeBusiness BankVerificationResultAccountHolderType = "business"
+	BankVerificationResultAccountHolderTypeUnknown  BankVerificationResultAccountHolderType = "unknown"
+)
+
+// BankVerificationResultOwnership: How the account holder compared with the
+// verified identity. `null` until an account is evaluated.
+type BankVerificationResultOwnership struct {
+	// `partial_match` is a close match. `not_verifiable`: the bank answered with no
+	// holder to compare. `unknown`: the evidence could not be read, or there was no
+	// identity to compare.
+	Result BankVerificationResultOwnershipResult `json:"result"`
+
+	// The step whose identity the holder was compared against: `kyc`,
+	// `database_validation`, `expected_details`, `questionnaire`, `document_ai` or
+	// `kyb`.
+	ReferenceIdentitySource string `json:"reference_identity_source"`
+
+	// Didit's holder name score.
+	NameScore int64 `json:"name_score"`
+
+	// The bank's own holder name score, when it returned one.
+	ProviderNameScore int64 `json:"provider_name_score"`
+
+	// The holder address score, when address matching ran.
+	AddressScore int64 `json:"address_score"`
+
+	// The holder email score, when email matching ran.
+	EmailScore int64 `json:"email_score"`
+
+	// The holder phone score, when phone matching ran.
+	PhoneScore int64 `json:"phone_score"`
+
+	// The holder date of birth score, when the bank shared one.
+	DOBScore int64 `json:"dob_score"`
+
+	// Whether the name landed in the close-match band.
+	CloseMatch bool `json:"close_match"`
+
+	// The person's answer when asked to confirm a close-match name. `null` when
+	// never asked.
+	HolderConfirmation BankVerificationResultOwnershipHolderConfirmation `json:"holder_confirmation"`
+
+	// Which name comparison produced the score. This is not the verification
+	// method: read the top-level `method` for that.
+	Method             BankVerificationResultOwnershipMethod `json:"method"`
+	MatchedHolderIndex int64                                 `json:"matched_holder_index"`
+
+	// Each holder the bank listed, with its scores.
+	Holders                []map[string]any                                 `json:"holders"`
+	OwnerIdentityAvailable bool                                             `json:"owner_identity_available"`
+	EvidenceFreshness      BankVerificationResultOwnershipEvidenceFreshness `json:"evidence_freshness"`
+
+	// When the verdict was computed.
+	EvaluatedAt time.Time `json:"evaluated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationResultOwnership leniently.
+func (r *BankVerificationResultOwnership) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationResultOwnershipResult: `partial_match` is a close match.
+// `not_verifiable`: the bank answered with no holder to compare. `unknown`: the
+// evidence could not be read, or there was no identity to compare.
+//
+// BankVerificationResultOwnershipResult is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type BankVerificationResultOwnershipResult string
+
+// Known values of BankVerificationResultOwnershipResult.
+const (
+	BankVerificationResultOwnershipResultMatch         BankVerificationResultOwnershipResult = "match"
+	BankVerificationResultOwnershipResultPartialMatch  BankVerificationResultOwnershipResult = "partial_match"
+	BankVerificationResultOwnershipResultNoMatch       BankVerificationResultOwnershipResult = "no_match"
+	BankVerificationResultOwnershipResultUnknown       BankVerificationResultOwnershipResult = "unknown"
+	BankVerificationResultOwnershipResultNotVerifiable BankVerificationResultOwnershipResult = "not_verifiable"
+)
+
+// BankVerificationResultOwnershipHolderConfirmation: The person's answer when
+// asked to confirm a close-match name. `null` when never asked.
+//
+// BankVerificationResultOwnershipHolderConfirmation is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type BankVerificationResultOwnershipHolderConfirmation string
+
+// Known values of BankVerificationResultOwnershipHolderConfirmation.
+const (
+	BankVerificationResultOwnershipHolderConfirmationPending   BankVerificationResultOwnershipHolderConfirmation = "pending"
+	BankVerificationResultOwnershipHolderConfirmationConfirmed BankVerificationResultOwnershipHolderConfirmation = "confirmed"
+	BankVerificationResultOwnershipHolderConfirmationRejected  BankVerificationResultOwnershipHolderConfirmation = "rejected"
+)
+
+// BankVerificationResultOwnershipMethod: Which name comparison produced the
+// score. This is not the verification method: read the top-level `method` for
+// that.
+//
+// BankVerificationResultOwnershipMethod is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type BankVerificationResultOwnershipMethod string
+
+// Known values of BankVerificationResultOwnershipMethod.
+const (
+	BankVerificationResultOwnershipMethodExact           BankVerificationResultOwnershipMethod = "exact"
+	BankVerificationResultOwnershipMethodTokenSet        BankVerificationResultOwnershipMethod = "token_set"
+	BankVerificationResultOwnershipMethodNickname        BankVerificationResultOwnershipMethod = "nickname"
+	BankVerificationResultOwnershipMethodTransliteration BankVerificationResultOwnershipMethod = "transliteration"
+	BankVerificationResultOwnershipMethodFuzzy           BankVerificationResultOwnershipMethod = "fuzzy"
+	BankVerificationResultOwnershipMethodProviderOnly    BankVerificationResultOwnershipMethod = "provider_only"
+	BankVerificationResultOwnershipMethodMicrodeposits   BankVerificationResultOwnershipMethod = "microdeposits"
+)
+
+// BankVerificationResultOwnershipEvidenceFreshness is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type BankVerificationResultOwnershipEvidenceFreshness string
+
+// Known values of BankVerificationResultOwnershipEvidenceFreshness.
+const (
+	BankVerificationResultOwnershipEvidenceFreshnessLive      BankVerificationResultOwnershipEvidenceFreshness = "live"
+	BankVerificationResultOwnershipEvidenceFreshnessCached    BankVerificationResultOwnershipEvidenceFreshness = "cached"
+	BankVerificationResultOwnershipEvidenceFreshnessRefreshed BankVerificationResultOwnershipEvidenceFreshness = "refreshed"
+)
+
+// BankVerificationResultFinancialData: The financial data the step read. Only
+// bank sign-in reads it.
+type BankVerificationResultFinancialData struct {
+	// With the `balances` scope.
+	Balances map[string]any `json:"balances"`
+
+	// With the `transactions` scope.
+	Transactions map[string]any `json:"transactions"`
+
+	// With the `income` scope.
+	Income map[string]any `json:"income"`
+
+	// Didit's categorization of the transactions read. `null` without them.
+	Categorization map[string]any `json:"categorization"`
+
+	// The data the step asked for that the method which verified the account does
+	// not collect. Balances, transactions and income come from bank sign-in only,
+	// so an account verified by account check lists them here. Never a failure.
+	// Empty otherwise.
+	NotCollected []BankVerificationResultFinancialDataNotCollected `json:"not_collected"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationResultFinancialData leniently.
+func (r *BankVerificationResultFinancialData) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationResultFinancialDataNotCollected is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type BankVerificationResultFinancialDataNotCollected string
+
+// Known values of BankVerificationResultFinancialDataNotCollected.
+const (
+	BankVerificationResultFinancialDataNotCollectedBalances     BankVerificationResultFinancialDataNotCollected = "balances"
+	BankVerificationResultFinancialDataNotCollectedIncome       BankVerificationResultFinancialDataNotCollected = "income"
+	BankVerificationResultFinancialDataNotCollectedTransactions BankVerificationResultFinancialDataNotCollected = "transactions"
+)
+
+// BankVerificationResultBilling is a response object.
+type BankVerificationResultBilling struct {
+	Route  BankVerificationResultBillingRoute `json:"route"`
+	Billed bool                               `json:"billed"`
+
+	// The marketplace platform fee charged, for `byok`.
+	MarketplaceFee string `json:"marketplace_fee"`
+
+	// The usage line the charge was booked on.
+	UsageType string `json:"usage_type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationResultBilling leniently.
+func (r *BankVerificationResultBilling) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationResultBillingRoute is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type BankVerificationResultBillingRoute string
+
+// Known values of BankVerificationResultBillingRoute.
+const (
+	BankVerificationResultBillingRouteNative BankVerificationResultBillingRoute = "native"
+	BankVerificationResultBillingRouteByok   BankVerificationResultBillingRoute = "byok"
+)
 
 // SignatureResult: One signer's result for one Electronic Signature step. See
 // the [Electronic Signature
