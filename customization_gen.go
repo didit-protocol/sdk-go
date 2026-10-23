@@ -79,6 +79,11 @@ type BrandingCustomization struct {
 	// Read-only URL of the rectangular logo. Upload via `image_rectangular`.
 	LogoRectangular string `json:"logo_rectangular"`
 
+	// Read-only. Temporary signed URL of the rectangular logo for dark mode, shown
+	// on a dark background. `null` when no dark logo is set or rectangular logos
+	// are not shown for your account. Upload it with `image_rectangular_dark`.
+	LogoRectangularDark string `json:"logo_rectangular_dark"`
+
 	// Read-only URL of the favicon. Upload via `image_favicon`.
 	Favicon               string `json:"favicon"`
 	AppPublicName         string `json:"app_public_name"`
@@ -177,16 +182,26 @@ type CustomizationUpdateParams struct {
 	// When `true`, removes the current rectangular logo.
 	DeleteLogoRectangular Opt[bool] `json:"delete_logo_rectangular"`
 
+	// When `true`, removes the current dark-mode logo, and `logo_rectangular_dark`
+	// then reads `null`. If the same multipart request also uploads
+	// `image_rectangular_dark`, the upload wins.
+	DeleteLogoRectangularDark Opt[bool] `json:"delete_logo_rectangular_dark"`
+
 	// When `true`, removes the current favicon.
 	DeleteFavicon Opt[bool] `json:"delete_favicon"`
 
-	// Square logo (1:1 aspect ratio). Max **1 MB**. Allowed: `png`, `jpg`, `jpeg`,
-	// `webp`.
+	// Square logo (1:1 aspect ratio). PNG, JPG or WebP, at least 512 px on the long
+	// side, at most **1 MB**.
 	ImageSquare Opt[File] `json:"-" form:"image_square"`
 
-	// Rectangular logo (2:1 aspect ratio). Max **1 MB**. Allowed: `png`, `jpg`,
-	// `jpeg`, `webp`.
+	// Rectangular logo (2:1 aspect ratio). PNG, JPG or WebP, at least 512 px on the
+	// long side, at most **1 MB**.
 	ImageRectangular Opt[File] `json:"-" form:"image_rectangular"`
+
+	// Rectangular logo for dark mode (2:1 aspect ratio), shown on a dark
+	// background. PNG, JPG or WebP, at least 512 px on the long side, at most **1
+	// MB**. Returned as `logo_rectangular_dark`.
+	ImageRectangularDark Opt[File] `json:"-" form:"image_rectangular_dark"`
 
 	// Favicon image. Max **500 KB**.
 	ImageFavicon Opt[File] `json:"-" form:"image_favicon"`

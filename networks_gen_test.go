@@ -10,6 +10,21 @@ import (
 	"github.com/didit-protocol/sdk-go"
 )
 
+func TestNetworksAddTag(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","network_id":"N-0042","name":null,"status":"in_review","risk":{"score":82,"band":"high","bar":0.82},"pattern_types":["exact_same_device","same_email"],"signal_types":["device","email"],"member_counts":{"total":3,"users":3,"businesses":0,"transaction_parties":0},"member_status":{"approved":1,"declined":1,"in_review":0,"not_completed":1},"signal_coverage":{"device":{"signals":1,"subjects":3,"coverage":1.0},"email":{"signals":1,"subjects":2,"coverage":0.6667}},"first_activity_at":"2026-10-01T09:12:44Z","last_activity_at":"2026-10-12T16:03:10Z","stats":{"members":{"total":3,"users":3,"businesses":0,"transaction_parties":0},"member_status":{"approved":1,"declined":1,"in_review":0,"not_completed":1},"signals":{"total":2,"by_type":{"device":{"signals":1,"subjects":3,"coverage":1.0},"email":{"signals":1,"subjects":2,"coverage":0.6667}}}},"fraud_tags":[],"risk_signals":{"residential_proxy_reuse":{"detected":false,"signal_count":0,"max_subject_count":0},"email_intelligence":{"enriched_signal_count":1,"high_risk_count":0,"social_profile_count":0},"phone_intelligence":{"enriched_signal_count":0,"high_risk_count":0}},"reviewed_at":"2026-10-12T16:30:00Z","reviewed_by":"reviewer@example.com","review_reason":"Shared device across three new accounts.","notes_count":0,"sharing_mode":"global","cross_org_available":true,"cross_org_unavailable_reason":null,"tags":[{"uuid":"7c9e6679-7425-40de-944b-e07fc1f90ae7","name":"SUSPICIOUS","color":"#6366F1","source":"custom","added_by":null,"added_at":"2026-10-13T08:15:00Z"}],"outcomes":{"approved":1,"declined":1,"in_review":0,"total":3},"patterns":[{"type":"background","score":0.8125,"members":3,"reason":null,"computed_at":"2026-10-13T08:00:00Z"}]}`)
+	var params didit.NetworkTagRequest
+	mustUnmarshal(t, `{"tag_uuid":"7c9e6679-7425-40de-944b-e07fc1f90ae7"}`, &params)
+	res, err := client.Networks.AddTag(context.Background(), "network-uuid-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/networks/network-uuid-1/tags/add/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"tag_uuid":"7c9e6679-7425-40de-944b-e07fc1f90ae7"}`)
+	expectFields(t, res.JSON, []string{"uuid", "network_id", "status", "risk", "pattern_types", "signal_types", "member_counts", "member_status", "signal_coverage", "first_activity_at", "last_activity_at", "stats", "fraud_tags", "risk_signals", "reviewed_at", "reviewed_by", "review_reason", "notes_count", "sharing_mode", "cross_org_available", "tags", "outcomes", "patterns"})
+}
+
 func TestNetworksDownloadReport(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/pdf", `binary-content`)
 	var params didit.NetworksDownloadReportParams
@@ -30,20 +45,26 @@ func TestNetworksDownloadReport(t *testing.T) {
 }
 
 func TestNetworksList(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":1,"previous":1,"results":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","network_id":"string","name":"string","status":"active","risk":{"score":1,"band":"low","bar":1.5},"pattern_types":["exact_same_device"],"signal_types":["ip_address"],"member_counts":{"key":"value"},"member_status":{"key":"value"},"signal_coverage":{"key":"value"},"first_activity_at":"2025-01-02T03:04:05Z","last_activity_at":"2025-01-02T03:04:05Z"}],"kpis":{"active":{"key":"value"},"in_review":{"key":"value"},"applicants_involved":{"key":"value"},"detected_this_period":{"key":"value"},"false_positive_rate":{"key":"value"}}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":1,"previous":1,"results":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","network_id":"string","name":"string","status":"active","risk":{"score":1,"band":"low","bar":1.5},"pattern_types":["exact_same_device"],"signal_types":["ip_address"],"member_counts":{"key":"value"},"member_status":{"key":"value"},"signal_coverage":{"key":"value"},"first_activity_at":"2025-01-02T03:04:05Z","last_activity_at":"2025-01-02T03:04:05Z"}],"kpis":{"active":{"key":"value"},"in_review":{"key":"value"},"applicants_involved":{"key":"value"},"detected_this_period":{"key":"value"},"false_positive_rate":{"key":"value"}},"counts":{"scopes":{"all":1,"identity":1,"transactions":1},"views":{"all":1,"active":1,"in_review":1,"resolved":1,"dismissed":1,"mine":1,"high_risk":1},"facets":{"total":1,"last_activity_days":{"7":1,"30":1,"90":1},"risk_min":{"50":1,"80":1},"signal_types":{"ip_address":1,"device":1,"face":1,"document_number":1,"phone":1,"email":1,"address":1},"priority":{"low":1,"medium":1,"high":1,"none":1},"assignee":{"me":1,"unassigned":1,"users":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","full_name":"string","email":"string","count":1}]},"has_case":1,"min_size":{"10":1}}},"sharing_mode":"global","cross_org_available":true,"cross_org_unavailable_reason":null}`)
 	var params didit.NetworksListParams
 	params.Status = didit.String("value")
+	params.Scope = didit.Some(didit.NetworksListParamsScopeIdentity)
 	params.SignalType = didit.String("value")
 	params.PatternType = didit.String("value")
 	params.RiskBand = didit.String("value")
 	params.MinSize = didit.Int(1)
 	params.MaxSize = didit.Int(1)
+	params.Assignee = didit.String("value")
+	params.Priority = didit.String("value")
+	params.RiskMin = didit.Int(1)
+	params.HasCase = didit.Bool(true)
 	params.DateFrom = didit.String("2025-01-02")
 	params.DateTo = didit.String("2025-01-02")
 	params.Q = didit.String("value")
 	params.Ordering = didit.String("value")
 	params.Limit = didit.Int(100)
 	params.Offset = didit.Int(0)
+	params.Summary = didit.Bool(true)
 	res, err := client.Networks.List(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +72,7 @@ func TestNetworksList(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/organization/org-test/application/app-test/networks/")
 	req.expectAPIKey(t)
-	req.expectQuery(t, map[string]string{"date_from": "2025-01-02", "date_to": "2025-01-02", "limit": "100", "max_size": "1", "min_size": "1", "offset": "0", "ordering": "value", "pattern_type": "value", "q": "value", "risk_band": "value", "signal_type": "value", "status": "value"})
+	req.expectQuery(t, map[string]string{"assignee": "value", "date_from": "2025-01-02", "date_to": "2025-01-02", "has_case": "true", "limit": "100", "max_size": "1", "min_size": "1", "offset": "0", "ordering": "value", "pattern_type": "value", "priority": "value", "q": "value", "risk_band": "value", "risk_min": "1", "scope": "identity", "signal_type": "value", "status": "value", "summary": "true"})
 	if res == nil {
 		t.Fatal("nil page")
 	}
@@ -85,8 +106,23 @@ func TestNetworksListSignals(t *testing.T) {
 	expectFields(t, res.JSON, []string{"results"})
 }
 
+func TestNetworksRemoveTag(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","network_id":"N-0042","name":null,"status":"in_review","risk":{"score":82,"band":"high","bar":0.82},"pattern_types":["exact_same_device","same_email"],"signal_types":["device","email"],"member_counts":{"total":3,"users":3,"businesses":0,"transaction_parties":0},"member_status":{"approved":1,"declined":1,"in_review":0,"not_completed":1},"signal_coverage":{"device":{"signals":1,"subjects":3,"coverage":1.0},"email":{"signals":1,"subjects":2,"coverage":0.6667}},"first_activity_at":"2026-10-01T09:12:44Z","last_activity_at":"2026-10-12T16:03:10Z","stats":{"members":{"total":3,"users":3,"businesses":0,"transaction_parties":0},"member_status":{"approved":1,"declined":1,"in_review":0,"not_completed":1},"signals":{"total":2,"by_type":{"device":{"signals":1,"subjects":3,"coverage":1.0},"email":{"signals":1,"subjects":2,"coverage":0.6667}}}},"fraud_tags":[],"risk_signals":{"residential_proxy_reuse":{"detected":false,"signal_count":0,"max_subject_count":0},"email_intelligence":{"enriched_signal_count":1,"high_risk_count":0,"social_profile_count":0},"phone_intelligence":{"enriched_signal_count":0,"high_risk_count":0}},"reviewed_at":"2026-10-12T16:30:00Z","reviewed_by":"reviewer@example.com","review_reason":"Shared device across three new accounts.","notes_count":0,"sharing_mode":"global","cross_org_available":true,"cross_org_unavailable_reason":null,"tags":[],"outcomes":{"approved":1,"declined":1,"in_review":0,"total":3},"patterns":[{"type":"background","score":0.8125,"members":3,"reason":null,"computed_at":"2026-10-13T08:00:00Z"}]}`)
+	var params didit.NetworkTagRequest
+	mustUnmarshal(t, `{"tag_uuid":"7c9e6679-7425-40de-944b-e07fc1f90ae7"}`, &params)
+	res, err := client.Networks.RemoveTag(context.Background(), "network-uuid-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/networks/network-uuid-1/tags/remove/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"tag_uuid":"7c9e6679-7425-40de-944b-e07fc1f90ae7"}`)
+	expectFields(t, res.JSON, []string{"uuid", "network_id", "status", "risk", "pattern_types", "signal_types", "member_counts", "member_status", "signal_coverage", "first_activity_at", "last_activity_at", "stats", "fraud_tags", "risk_signals", "reviewed_at", "reviewed_by", "review_reason", "notes_count", "sharing_mode", "cross_org_available", "tags", "outcomes", "patterns"})
+}
+
 func TestNetworksRetrieve(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","network_id":"string","name":"string","status":"active","risk":{"score":1,"band":"low","bar":1.5},"pattern_types":["exact_same_device"],"signal_types":["ip_address"],"member_counts":{"key":"value"},"member_status":{"key":"value"},"signal_coverage":{"key":"value"},"first_activity_at":"2025-01-02T03:04:05Z","last_activity_at":"2025-01-02T03:04:05Z","stats":{"key":"value"},"fraud_tags":[{"key":"value"}],"risk_signals":{"key":"value"},"reviewed_at":"2025-01-02T03:04:05Z","reviewed_by":"string","review_reason":"string","notes_count":0}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","network_id":"N-0042","name":null,"status":"in_review","risk":{"score":82,"band":"high","bar":0.82},"pattern_types":["exact_same_device","same_email"],"signal_types":["device","email"],"member_counts":{"total":3,"users":3,"businesses":0,"transaction_parties":0},"member_status":{"approved":1,"declined":1,"in_review":0,"not_completed":1},"signal_coverage":{"device":{"signals":1,"subjects":3,"coverage":1.0},"email":{"signals":1,"subjects":2,"coverage":0.6667}},"first_activity_at":"2026-10-01T09:12:44Z","last_activity_at":"2026-10-12T16:03:10Z","stats":{"members":{"total":3,"users":3,"businesses":0,"transaction_parties":0},"member_status":{"approved":1,"declined":1,"in_review":0,"not_completed":1},"signals":{"total":2,"by_type":{"device":{"signals":1,"subjects":3,"coverage":1.0},"email":{"signals":1,"subjects":2,"coverage":0.6667}}}},"fraud_tags":[],"risk_signals":{"residential_proxy_reuse":{"detected":false,"signal_count":0,"max_subject_count":0},"email_intelligence":{"enriched_signal_count":1,"high_risk_count":0,"social_profile_count":0},"phone_intelligence":{"enriched_signal_count":0,"high_risk_count":0}},"reviewed_at":"2026-10-12T16:30:00Z","reviewed_by":"reviewer@example.com","review_reason":"Shared device across three new accounts.","notes_count":0,"sharing_mode":"global","cross_org_available":true,"cross_org_unavailable_reason":null,"tags":[{"uuid":"7c9e6679-7425-40de-944b-e07fc1f90ae7","name":"SUSPICIOUS","color":"#6366F1","source":"custom","added_by":null,"added_at":"2026-10-13T08:15:00Z"}],"outcomes":{"approved":1,"declined":1,"in_review":0,"total":3},"patterns":[{"type":"background","score":0.8125,"members":3,"reason":null,"computed_at":"2026-10-13T08:00:00Z"}]}`)
 	res, err := client.Networks.Retrieve(context.Background(), "network-uuid-1")
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +130,7 @@ func TestNetworksRetrieve(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/organization/org-test/application/app-test/networks/network-uuid-1/")
 	req.expectAPIKey(t)
-	expectFields(t, res.JSON, []string{"uuid", "network_id", "name", "status", "risk", "pattern_types", "signal_types", "member_counts", "member_status", "signal_coverage", "first_activity_at", "last_activity_at", "stats", "fraud_tags", "risk_signals", "reviewed_at", "reviewed_by", "review_reason", "notes_count"})
+	expectFields(t, res.JSON, []string{"uuid", "network_id", "status", "risk", "pattern_types", "signal_types", "member_counts", "member_status", "signal_coverage", "first_activity_at", "last_activity_at", "stats", "fraud_tags", "risk_signals", "reviewed_at", "reviewed_by", "review_reason", "notes_count", "sharing_mode", "cross_org_available", "tags", "outcomes", "patterns"})
 }
 
 func TestNetworksRetrieveGraph(t *testing.T) {
@@ -127,14 +163,19 @@ func TestNetworksRetrieveMap(t *testing.T) {
 }
 
 func TestNetworksRetrieveTimeline(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"results":[{"event_type":"string","occurred_at":"2025-01-02T03:04:05Z","label":"string","metadata":{"key":"value"}}]}`)
-	res, err := client.Networks.RetrieveTimeline(context.Background(), "network-uuid-1")
+	client, mock := newMockClient(t, 200, "application/json", `{"results":[{"event_type":"network_detected","occurred_at":"2026-10-01T09:12:44Z","label":"Network detected","metadata":{"network_id":"N-0042"}},{"event_type":"signal_observed","occurred_at":"2026-10-12T16:03:10Z","label":"device observed","metadata":{"signal_type":"device","subject_count":3,"is_hub":false}},{"event_type":"network_in_review","occurred_at":"2026-10-12T16:30:00Z","label":"Network in_review","metadata":{"reason":"Shared device across three new accounts."}}]}`)
+	var params didit.NetworksRetrieveTimelineParams
+	params.Contract = didit.Some(didit.NetworksRetrieveTimelineParamsContract2)
+	params.Limit = didit.Int(100)
+	params.Cursor = didit.String("value")
+	res, err := client.Networks.RetrieveTimeline(context.Background(), "network-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/organization/org-test/application/app-test/networks/network-uuid-1/timeline/")
 	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"contract": "2", "cursor": "value", "limit": "100"})
 	expectFields(t, res.JSON, []string{"results"})
 }
 

@@ -31,9 +31,8 @@ func (r *BillingService) RetrieveBalance(ctx context.Context, opts ...option.Req
 
 // TopUp: Top up credits.
 //
-// Add credits via a hosted Stripe Checkout session (**$50 minimum**); not
-// available on annual plans. Redirect the customer to the returned
-// `checkout_session_url`.
+// Add credits via a hosted checkout session (**$50 minimum**); not available on
+// annual plans. Redirect the customer to the returned `checkout_session_url`.
 //
 //	POST /v3/billing/top-up/
 func (r *BillingService) TopUp(ctx context.Context, params BillingTopUpParams, opts ...option.RequestOption) (*BillingTopUpResponse, error) {
@@ -50,9 +49,9 @@ type BillingRetrieveBalanceResponse struct {
 	// Decreases as verifications are billed and increases when a top-up settles.
 	Balance string `json:"balance"`
 
-	// When `true`, Didit will automatically charge the saved Stripe payment method
-	// to add credits once the balance crosses `auto_refill_threshold`. Configured
-	// from Console → Billing.
+	// When `true`, Didit will automatically charge the saved payment method to add
+	// credits once the balance crosses `auto_refill_threshold`. Configured from
+	// Console → Billing.
 	AutoRefillEnabled bool `json:"auto_refill_enabled"`
 
 	// USD amount that will be charged on each auto-refill. `null` when auto-refill
@@ -79,15 +78,16 @@ type BillingTopUpParams struct {
 	// at checkout based on the customer's billing address. Required.
 	AmountInDollars float64 `json:"amount_in_dollars"`
 
-	// URL Stripe redirects the customer to after a successful payment. Currently
-	// defaults to `https://console.didit.me`. Pass a working URL explicitly; the
-	// default host is unavailable. Append the literal placeholder
-	// `{CHECKOUT_SESSION_ID}` if you want Stripe to substitute the session ID.
+	// URL the hosted checkout redirects the customer to after a successful payment.
+	// Currently defaults to `https://console.didit.me`. Pass a working URL
+	// explicitly; the default host is unavailable. Append the literal placeholder
+	// `{CHECKOUT_SESSION_ID}` if you want the hosted checkout to substitute the
+	// session ID.
 	SuccessURL Opt[string] `json:"success_url"`
 
-	// URL Stripe redirects the customer to when they abort or close the Checkout
-	// window. Currently defaults to `https://console.didit.me`. Pass a working URL
-	// explicitly; the default host is unavailable.
+	// URL the hosted checkout redirects the customer to when they abort or close
+	// the Checkout window. Currently defaults to `https://console.didit.me`. Pass a
+	// working URL explicitly; the default host is unavailable.
 	CancelURL Opt[string] `json:"cancel_url"`
 }
 
@@ -98,12 +98,12 @@ func (r BillingTopUpParams) MarshalJSON() ([]byte, error) {
 
 // BillingTopUpResponse is a response object.
 type BillingTopUpResponse struct {
-	// Stripe Checkout Session identifier (e.g. `cs_test_a1B2c3...`). Useful for
+	// Hosted checkout session identifier (e.g. `cs_test_a1B2c3...`). Useful for
 	// server-side reconciliation.
 	CheckoutSessionID string `json:"checkout_session_id"`
 
-	// Single-use Stripe-hosted payment page URL. Redirect the customer here to
-	// complete payment.
+	// Single-use hosted payment page URL. Redirect the customer here to complete
+	// payment.
 	CheckoutSessionURL string `json:"checkout_session_url"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown

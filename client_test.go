@@ -899,7 +899,7 @@ func TestAccountAPI(t *testing.T) {
 	if req.Header.Get("X-Api-Key") != "" {
 		t.Error("the API key was sent to the account API")
 	}
-	_, err := client.Account.Organizations.List(context.Background())
+	_, err := client.Account.Organizations.List(context.Background(), didit.AccountOrganizationsListParams{})
 	var cfgErr *didit.ConfigurationError
 	if !errors.As(err, &cfgErr) || !strings.Contains(err.Error(), "WithAccountToken") {
 		t.Fatalf("err = %v", err)

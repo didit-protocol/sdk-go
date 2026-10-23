@@ -64,7 +64,8 @@ type WalletScreeningScreenParams struct {
 	// TRX, SOL, MATIC, BNB, BASE (Base), OP (Optimism), and ARB (Arbitrum One).
 	// USDT and USDC are legacy Ethereum aliases, not multi-network searches.
 	// Connected-provider coverage varies. LIGHTNING requires a supported connected
-	// provider. Celo, Mode and Plume are not currently supported. Alias:
+	// provider. CELO (Celo), MODE (Mode) and PLUME (Plume) are screened through a
+	// connected TRM Labs account; managed screening answers 400 for them. Alias:
 	// `currency`. Required.
 	Blockchain WalletScreeningScreenParamsBlockchain `json:"blockchain"`
 
@@ -88,8 +89,9 @@ func (r WalletScreeningScreenParams) MarshalJSON() ([]byte, error) {
 // supports BTC, ETH, LTC, XRP, BCH, DOGE, TRX, SOL, MATIC, BNB, BASE (Base), OP
 // (Optimism), and ARB (Arbitrum One). USDT and USDC are legacy Ethereum
 // aliases, not multi-network searches. Connected-provider coverage varies.
-// LIGHTNING requires a supported connected provider. Celo, Mode and Plume are
-// not currently supported. Alias: `currency`.
+// LIGHTNING requires a supported connected provider. CELO (Celo), MODE (Mode)
+// and PLUME (Plume) are screened through a connected TRM Labs account; managed
+// screening answers 400 for them. Alias: `currency`.
 //
 // WalletScreeningScreenParamsBlockchain is a string with known values below.
 // The set is open: other values may appear and never cause an error.
@@ -113,6 +115,9 @@ const (
 	WalletScreeningScreenParamsBlockchainBase      WalletScreeningScreenParamsBlockchain = "BASE"
 	WalletScreeningScreenParamsBlockchainOp        WalletScreeningScreenParamsBlockchain = "OP"
 	WalletScreeningScreenParamsBlockchainArb       WalletScreeningScreenParamsBlockchain = "ARB"
+	WalletScreeningScreenParamsBlockchainCelo      WalletScreeningScreenParamsBlockchain = "CELO"
+	WalletScreeningScreenParamsBlockchainMode      WalletScreeningScreenParamsBlockchain = "MODE"
+	WalletScreeningScreenParamsBlockchainPlume     WalletScreeningScreenParamsBlockchain = "PLUME"
 )
 
 // WalletScreeningScreenParamsDirection: Optional. Whether the address is being

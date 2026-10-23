@@ -15,7 +15,25 @@ import (
 type TravelRuleService struct {
 	client *Client
 
-	WalletAddresses *TravelRuleWalletAddressesService
+	CounterpartyContacts *TravelRuleCounterpartyContactsService
+	Transfers            *TravelRuleTransfersService
+	WalletAddresses      *TravelRuleWalletAddressesService
+	Workspace            *TravelRuleWorkspaceService
+}
+
+// ClearVASPDecision: Clear your decision on a VASP.
+//
+// Clear your application's own decision on a counterparty. The response shows
+// the decision that applies afterwards: null, or for an entity of a brand the
+// brand's decision, which the entity follows again.
+//
+//	DELETE /v3/travel-rule/vasps/{vasp_id}/decision/
+func (r *TravelRuleService) ClearVASPDecision(ctx context.Context, vaspID string, opts ...option.RequestOption) (*TravelRuleCounterpartyDecisionResponse, error) {
+	res := new(TravelRuleCounterpartyDecisionResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/travel-rule/vasps/{vasp_id}/decision/", pathParams: []string{"vasp_id", vaspID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // CreateWidgetSession: Mint a wallet-ownership widget session.
@@ -35,11 +53,30 @@ func (r *TravelRuleService) CreateWidgetSession(ctx context.Context, params Trav
 	return res, nil
 }
 
+// ListVASPQuestionnaires: List due-diligence questionnaires with a VASP.
+//
+// Every due-diligence questionnaire your application sent the counterparty,
+// newest first, with its status and, once answered, the answers. Private to
+// your application.
+//
+//	GET /v3/travel-rule/vasps/{vasp_id}/questionnaires/
+func (r *TravelRuleService) ListVASPQuestionnaires(ctx context.Context, vaspID string, opts ...option.RequestOption) (*TravelRuleCounterpartyQuestionnaireList, error) {
+	res := new(TravelRuleCounterpartyQuestionnaireList)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/{vasp_id}/questionnaires/", pathParams: []string{"vasp_id", vaspID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // ListVASPs: Search the VASP directory.
 //
-// Paginated search across discoverable Didit customers with Travel Rule
-// enabled, plus VASPs catalogued in the internal counterparty registry.
-// Excludes your own application's profile.
+// Paginated, name-sorted search of the VASP directory: the shared directory
+// entries, which Didit builds from the ESMA interim MiCA register, the public
+// TRISA directory, the global LEI register and its own curation, plus the
+// members of the Didit network. Each row carries the routes your application
+// has to it today. Your own application's profile is never listed. Rows also
+// carry the shared due-diligence assessment and your application's own
+// decision, entity screening and questionnaires.
 //
 // It returns one page; ListVASPsAutoPaging iterates over every item of every
 // page.
@@ -62,8 +99,9 @@ func (r *TravelRuleService) ListVASPsAutoPaging(ctx context.Context, params Trav
 // Register Travel Rule data for a crypto deposit that already settled on-chain
 // before any exchange took place. Creates an inbound travelRule transaction (or
 // reuses an unclaimed deposit) and resolves the transfer against your wallet
-// address book. A transaction.created webhook fires for newly-created
-// transactions.
+// address book. For a newly created transaction, Didit sends
+// transaction.created first and the travel_rule.status.updated webhooks after
+// it.
 //
 //	POST /v3/travel-rule/inbound/
 func (r *TravelRuleService) RegisterInbound(ctx context.Context, params TravelRuleInboundRequest, opts ...option.RequestOption) (*TravelRuleInboundResponse, error) {
@@ -88,6 +126,105 @@ func (r *TravelRuleService) RetrieveSettings(ctx context.Context, opts ...option
 	return res, nil
 }
 
+// RetrieveVASP: Get a VASP directory entry.
+//
+// One directory entry or Didit network member by the id the search returned,
+// with the same fields and the routes your application has to it.
+//
+//	GET /v3/travel-rule/vasps/{vasp_id}/
+func (r *TravelRuleService) RetrieveVASP(ctx context.Context, vaspID string, opts ...option.RequestOption) (*VASPDirectoryEntry, error) {
+	res := new(VASPDirectoryEntry)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/{vasp_id}/", pathParams: []string{"vasp_id", vaspID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// RetrieveVASPDecision: Get your decision on a VASP.
+//
+// Your application's decision on a counterparty (a directory entry or a Didit
+// network member): approved, restricted or blocked. An entity of a brand with
+// no decision of its own follows the brand's decision, named in inherited_from.
+// Private to your application.
+//
+//	GET /v3/travel-rule/vasps/{vasp_id}/decision/
+func (r *TravelRuleService) RetrieveVASPDecision(ctx context.Context, vaspID string, opts ...option.RequestOption) (*TravelRuleCounterpartyDecisionResponse, error) {
+	res := new(TravelRuleCounterpartyDecisionResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/{vasp_id}/decision/", pathParams: []string{"vasp_id", vaspID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// RetrieveVASPScreening: Get a VASP's entity screening.
+//
+// Whether counterparty screening is on for your application, what one screening
+// costs your organization, how long a result stays fresh, and your latest
+// sanctions and adverse-media screening of the counterparty. Reading it is
+// free.
+//
+//	GET /v3/travel-rule/vasps/{vasp_id}/screening/
+func (r *TravelRuleService) RetrieveVASPScreening(ctx context.Context, vaspID string, opts ...option.RequestOption) (*TravelRuleCounterpartyScreeningStatus, error) {
+	res := new(TravelRuleCounterpartyScreeningStatus)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/{vasp_id}/screening/", pathParams: []string{"vasp_id", vaspID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ScreenVASP: Screen a VASP.
+//
+// Screen the counterparty entity against sanctions and adverse media for your
+// application. Opt-in: counterparty_screening_enabled must be on in your Travel
+// Rule settings. Each new screening is billed at your organization's Company
+// AML Screening price; a screening younger than 30 days is returned instead
+// (200, not billed) unless you send refresh: true. One screening of a
+// counterparty runs at a time per application. The result is private to your
+// application. Sandbox applications are never screened.
+//
+//	POST /v3/travel-rule/vasps/{vasp_id}/screening/
+func (r *TravelRuleService) ScreenVASP(ctx context.Context, vaspID string, params TravelRuleCounterpartyScreeningRequest, opts ...option.RequestOption) (*TravelRuleCounterpartyScreeningResult, error) {
+	res := new(TravelRuleCounterpartyScreeningResult)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/vasps/{vasp_id}/screening/", pathParams: []string{"vasp_id", vaspID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// SendComplianceEmailConfirmation: Send the compliance email confirmation.
+//
+// Emails a single-use confirmation link to your VASP profile's
+// compliance_email. Opening the link and pressing its confirm button confirms
+// the address, which the Didit network needs before it lists your profile. A
+// new request replaces the previous link; the link stops working when the
+// compliance email changes. One email per minute per address.
+//
+//	POST /v3/travel-rule/settings/compliance-email/confirmation/
+func (r *TravelRuleService) SendComplianceEmailConfirmation(ctx context.Context, opts ...option.RequestOption) (*TravelRuleSendComplianceEmailConfirmationResponse, error) {
+	res := new(TravelRuleSendComplianceEmailConfirmationResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/settings/compliance-email/confirmation/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// SendVASPQuestionnaire: Send a due-diligence questionnaire to a VASP.
+//
+// Email Didit's standard due-diligence questionnaire to a compliance address on
+// record for the counterparty, with a single-use answer link. The counterparty
+// has 30 days to answer every question; the answers stay current for 365 days.
+// A new send replaces your earlier unanswered questionnaire to the same
+// counterparty, whose link stops working. One email per minute per address.
+//
+//	POST /v3/travel-rule/vasps/{vasp_id}/questionnaires/
+func (r *TravelRuleService) SendVASPQuestionnaire(ctx context.Context, vaspID string, params TravelRuleCounterpartyQuestionnaireRequest, opts ...option.RequestOption) (*TravelRuleCounterpartyQuestionnaire, error) {
+	res := new(TravelRuleCounterpartyQuestionnaire)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/vasps/{vasp_id}/questionnaires/", pathParams: []string{"vasp_id", vaspID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // UpdateSettings: Update Travel Rule settings.
 //
 // Upsert the application's Travel Rule settings and VASP profile. Partial
@@ -104,10 +241,132 @@ func (r *TravelRuleService) UpdateSettings(ctx context.Context, params TravelRul
 	return res, nil
 }
 
+// UpdateVASPDecision: Set your decision on a VASP.
+//
+// Make or change your application's decision on a counterparty: APPROVED,
+// RESTRICTED or BLOCKED, with an optional reason. It never changes the shared
+// directory entry and acts only through your transaction rules
+// (counterparty_dd_status). A decision on a brand also covers each of its
+// entities that has no decision of its own.
+//
+//	PUT /v3/travel-rule/vasps/{vasp_id}/decision/
+func (r *TravelRuleService) UpdateVASPDecision(ctx context.Context, vaspID string, params TravelRuleCounterpartyDecisionRequest, opts ...option.RequestOption) (*TravelRuleCounterpartyDecisionResponse, error) {
+	res := new(TravelRuleCounterpartyDecisionResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPut, path: "/v3/travel-rule/vasps/{vasp_id}/decision/", pathParams: []string{"vasp_id", vaspID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// TravelRuleCounterpartyContactsService holds the travel_rule
+// counterparty_contacts operations. Use it through
+// Client.TravelRule.CounterpartyContacts.
+type TravelRuleCounterpartyContactsService struct {
+	client *Client
+}
+
+// Create: Add a counterparty contact.
+//
+// Adds a private compliance address for one directory entry. Only your
+// application sees and uses it, and the EMAIL rail writes to it before any
+// platform contact. Adding an address the entry already has among your own
+// contacts returns that contact.
+//
+//	POST /v3/travel-rule/counterparty-contacts/
+func (r *TravelRuleCounterpartyContactsService) Create(ctx context.Context, params TravelRuleCounterpartyContactCreate, opts ...option.RequestOption) (*TravelRuleCounterpartyContact, error) {
+	res := new(TravelRuleCounterpartyContact)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/counterparty-contacts/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Delete: Delete a counterparty contact.
+//
+// Deletes one of your application's own contacts. The EMAIL rail stops writing
+// to it at once. Platform contacts cannot be deleted.
+//
+//	DELETE /v3/travel-rule/counterparty-contacts/{contact_uuid}/
+func (r *TravelRuleCounterpartyContactsService) Delete(ctx context.Context, contactUUID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/travel-rule/counterparty-contacts/{contact_uuid}/", pathParams: []string{"contact_uuid", contactUUID}}, nil, opts)
+	return err
+}
+
+// List: List counterparty contacts.
+//
+// The compliance addresses the EMAIL rail may write to for your application:
+// Didit's platform contacts plus your application's own private ones, bounced
+// ones included, newest first. Paginated with `limit` (default 50) and
+// `offset`; `count` stops at 100, so 100 means 100 or more.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/travel-rule/counterparty-contacts/
+func (r *TravelRuleCounterpartyContactsService) List(ctx context.Context, params TravelRuleCounterpartyContactsListParams, opts ...option.RequestOption) (*Page[TravelRuleCounterpartyContact], error) {
+	return getPage[TravelRuleCounterpartyContact](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/counterparty-contacts/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *TravelRuleCounterpartyContactsService) ListAutoPaging(ctx context.Context, params TravelRuleCounterpartyContactsListParams, opts ...option.RequestOption) *PageIterator[TravelRuleCounterpartyContact] {
+	return newPageIterator(ctx, func() (*Page[TravelRuleCounterpartyContact], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// TravelRuleTransfersService holds the travel_rule transfers operations. Use it
+// through Client.TravelRule.Transfers.
+type TravelRuleTransfersService struct {
+	client *Client
+}
+
+// List: List Travel Rule transfers.
+//
+// Your application's Travel Rule transfers, newest first, paginated with
+// `limit` (default 50) and `offset`. Rows carry VASP names, wallets and memos
+// only, never person data. Comma-separated values select several. An unknown
+// value answers 400 naming the parameter, for example `{"direction": ["Unknown
+// value(s): inbound."]}`.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/travel-rule/transfers/
+func (r *TravelRuleTransfersService) List(ctx context.Context, params TravelRuleTransfersListParams, opts ...option.RequestOption) (*Page[TravelRuleTransferRow], error) {
+	return getPage[TravelRuleTransferRow](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/transfers/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *TravelRuleTransfersService) ListAutoPaging(ctx context.Context, params TravelRuleTransfersListParams, opts ...option.RequestOption) *PageIterator[TravelRuleTransferRow] {
+	return newPageIterator(ctx, func() (*Page[TravelRuleTransferRow], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
 // TravelRuleWalletAddressesService holds the travel_rule wallet_addresses
 // operations. Use it through Client.TravelRule.WalletAddresses.
 type TravelRuleWalletAddressesService struct {
 	client *Client
+}
+
+// BulkImport: Import wallet addresses in bulk.
+//
+// Add up to 10,000 wallets to your Travel Rule address book in one call, as
+// JSON or as a CSV file. A wallet can be sent by its address, by the SHA-256 of
+// its lowercased address (`address_hash`) to keep the address private, or both.
+// The import is idempotent: a wallet already in the book is reported as
+// `existing` and left untouched, so the same file can be sent again. Each row
+// is validated on its own, so one bad row never fails the others. A wallet
+// imported by its hash only matches transfers to that address and can be proven
+// with the wallet-ownership widget like any other entry.
+//
+//	POST /v3/travel-rule/wallet-addresses/import/
+func (r *TravelRuleWalletAddressesService) BulkImport(ctx context.Context, params TravelRuleWalletAddressesBulkImportParams, opts ...option.RequestOption) (*WalletAddressImportReport, error) {
+	res := new(WalletAddressImportReport)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/wallet-addresses/import/", params: params, body: bodyJSONOrMultipart}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // Create: Register a wallet address.
@@ -126,8 +385,10 @@ func (r *TravelRuleWalletAddressesService) Create(ctx context.Context, params Wa
 
 // Delete: Delete a wallet address.
 //
-// Deletes the entry. It stops matching new transfers immediately and the
-// address is freed up for re-registration.
+// Deletes the entry together with its ownership proofs and the screenshots they
+// stored. It stops matching new transfers immediately and the address is freed
+// up for re-registration. Transfers that already used the wallet keep their own
+// record of it and read the same. Deletion is irreversible.
 //
 //	DELETE /v3/travel-rule/wallet-addresses/{entry_uuid}/
 func (r *TravelRuleWalletAddressesService) Delete(ctx context.Context, entryUUID string, opts ...option.RequestOption) error {
@@ -171,14 +432,191 @@ func (r *TravelRuleWalletAddressesService) Update(ctx context.Context, entryUUID
 	return res, nil
 }
 
+// TravelRuleWorkspaceService holds the travel_rule workspace operations. Use it
+// through Client.TravelRule.Workspace.
+type TravelRuleWorkspaceService struct {
+	client *Client
+}
+
+// Claim: Claim a directory entry.
+//
+// Claims the directory entry this workspace is. When the work email is at a
+// domain the entry lists, the claim is proved and applies at once: the VASP
+// profile and Travel Rule settings are filled from the entry and Travel Rule is
+// turned on, so the next transfer to it routes over the Didit network.
+// Otherwise the claim waits for review (`pending_review`).
+//
+//	POST /v3/travel-rule/workspace/claim/
+func (r *TravelRuleWorkspaceService) Claim(ctx context.Context, params TravelRuleWorkspaceClaimRequest, opts ...option.RequestOption) (*TravelRuleWorkspace, error) {
+	res := new(TravelRuleWorkspace)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/workspace/claim/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ConfirmDomain: Confirm the domain verification code.
+//
+// Spends the emailed code and marks the email domain verified.
+//
+//	POST /v3/travel-rule/workspace/domain/confirm/
+func (r *TravelRuleWorkspaceService) ConfirmDomain(ctx context.Context, params TravelRuleWorkspaceDomainConfirmRequest, opts ...option.RequestOption) (*TravelRuleWorkspace, error) {
+	res := new(TravelRuleWorkspace)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/workspace/domain/confirm/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// EnableBilling: Enable outbound billing.
+//
+// Turns outbound Travel Rule billing on for the workspace. Receiving stays
+// free. This cannot be turned back off through the API: contact Didit support.
+//
+//	POST /v3/travel-rule/workspace/billing/
+func (r *TravelRuleWorkspaceService) EnableBilling(ctx context.Context, params TravelRuleWorkspaceBillingRequest, opts ...option.RequestOption) (*TravelRuleWorkspace, error) {
+	res := new(TravelRuleWorkspace)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/workspace/billing/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Get: Get the free Travel Rule workspace.
+//
+// Reads the free workspace of an application that joined free: directory claim,
+// domain proof, billing and Didit network listing.
+//
+//	GET /v3/travel-rule/workspace/
+func (r *TravelRuleWorkspaceService) Get(ctx context.Context, opts ...option.RequestOption) (*TravelRuleWorkspace, error) {
+	res := new(TravelRuleWorkspace)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/workspace/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// SendDomainCode: Email a domain verification code.
+//
+// Emails a single-use code to the workspace's work address to prove it controls
+// the email domain. Throttled, and a limited number of wrong attempts is
+// accepted per code. Also returns the TXT record for the DNS alternative.
+//
+//	POST /v3/travel-rule/workspace/domain/code/
+func (r *TravelRuleWorkspaceService) SendDomainCode(ctx context.Context, opts ...option.RequestOption) (*TravelRuleWorkspaceDomainCodeResponse, error) {
+	res := new(TravelRuleWorkspaceDomainCodeResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/workspace/domain/code/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// VerifyDomainDNS: Verify the domain from its TXT record.
+//
+// Checks for the `didit-tr-verify.<domain>` TXT record returned by the code
+// endpoint and marks the domain verified when it matches. One of the two
+// proofs, the emailed code or the TXT record, is enough.
+//
+//	POST /v3/travel-rule/workspace/domain/dns/
+func (r *TravelRuleWorkspaceService) VerifyDomainDNS(ctx context.Context, opts ...option.RequestOption) (*TravelRuleWorkspace, error) {
+	res := new(TravelRuleWorkspace)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/workspace/domain/dns/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// TravelRuleCounterpartyDecisionResponse is a response object.
+type TravelRuleCounterpartyDecisionResponse struct {
+	// The decision that applies to the counterparty for your application: its own,
+	// else (for an entity of a brand) the brand's. Null when there is none.
+	Decision TravelRuleCounterpartyDecision `json:"decision"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyDecisionResponse leniently.
+func (r *TravelRuleCounterpartyDecisionResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyDecision: Your application's decision on a counterparty
+// VASP. Private to your application: it never changes the shared directory
+// entry and another customer never sees it. It acts only through your
+// transaction rules (the counterparty_dd_status rule field and the
+// travel-rule-counterparty-blocked and travel-rule-counterparty-restricted
+// presets); it never changes how a transfer is routed.
+type TravelRuleCounterpartyDecision struct {
+	// APPROVED: your team cleared the counterparty. RESTRICTED: transfers to it may
+	// go ahead after review. BLOCKED: your team refused it.
+	Decision TravelRuleCounterpartyDecisionDecision `json:"decision"`
+
+	// Free-text reason you gave, empty when none.
+	Reason string `json:"reason"`
+
+	// The console user who made or last changed the decision. Empty when an API key
+	// made it.
+	DecidedBy string    `json:"decided_by"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// The brand whose decision this entity follows because you made none on the
+	// entity itself. Null when the decision is the counterparty's own.
+	InheritedFrom TravelRuleCounterpartyDecisionInheritedFrom `json:"inherited_from"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyDecision leniently.
+func (r *TravelRuleCounterpartyDecision) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyDecisionDecision: APPROVED: your team cleared the
+// counterparty. RESTRICTED: transfers to it may go ahead after review. BLOCKED:
+// your team refused it.
+//
+// TravelRuleCounterpartyDecisionDecision is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyDecisionDecision string
+
+// Known values of TravelRuleCounterpartyDecisionDecision.
+const (
+	TravelRuleCounterpartyDecisionDecisionApproved   TravelRuleCounterpartyDecisionDecision = "APPROVED"
+	TravelRuleCounterpartyDecisionDecisionRestricted TravelRuleCounterpartyDecisionDecision = "RESTRICTED"
+	TravelRuleCounterpartyDecisionDecisionBlocked    TravelRuleCounterpartyDecisionDecision = "BLOCKED"
+)
+
+// TravelRuleCounterpartyDecisionInheritedFrom: The brand whose decision this
+// entity follows because you made none on the entity itself. Null when the
+// decision is the counterparty's own.
+type TravelRuleCounterpartyDecisionInheritedFrom struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyDecisionInheritedFrom leniently.
+func (r *TravelRuleCounterpartyDecisionInheritedFrom) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // TravelRuleWidgetSessionCreate is a request object.
 type TravelRuleWidgetSessionCreate struct {
-	// The wallet address to verify. Required.
-	WalletAddress string `json:"wallet_address"`
+	// The wallet address to verify. Optional; when empty, the address must be
+	// supplied when a proof is started.
+	WalletAddress Opt[string] `json:"wallet_address"`
 
-	// Chain identifier for the address, e.g. "ethereum", "bitcoin", "solana".
-	// Required.
-	Chain string `json:"chain"`
+	// Chain token for the address, for example `ETH`, `BTC` or `SOL`. Use the same
+	// token as in your wallet address book. Message signing and the Satoshi test
+	// are offered only for a supported chain.
+	Chain Opt[string] `json:"chain"`
 
 	// Name of the wallet holder, used for the beneficiary name match.
 	HolderName Opt[string] `json:"holder_name"`
@@ -195,7 +633,8 @@ type TravelRuleWidgetSessionCreate struct {
 	// SATOSHI_TEST proof method.
 	SatoshiDepositAddress Opt[string] `json:"satoshi_deposit_address"`
 
-	// Optional. Where the widget returns the customer after completion.
+	// Optional. Absolute http(s) URL where the widget returns the customer after
+	// completion.
 	CallbackURL Opt[string] `json:"callback_url"`
 
 	// Optional. Lifetime of the minted link, in minutes. Automatically extended to
@@ -230,13 +669,112 @@ func (r *TravelRuleWidgetSessionResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// TravelRuleCounterpartyQuestionnaireList is a response object.
+type TravelRuleCounterpartyQuestionnaireList struct {
+	// Newest first.
+	Questionnaires []TravelRuleCounterpartyQuestionnaire `json:"questionnaires"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyQuestionnaireList leniently.
+func (r *TravelRuleCounterpartyQuestionnaireList) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyQuestionnaire: One due-diligence questionnaire your
+// application sent the counterparty: Didit's standard questionnaire, emailed to
+// a compliance address on record with a single-use answer link. Private to your
+// application.
+type TravelRuleCounterpartyQuestionnaire struct {
+	ID string `json:"id"`
+
+	// SENT: waiting for answers. ANSWERED: the counterparty answered every
+	// question. EXPIRED: the answer link closed unanswered (its deadline passed, or
+	// a newer questionnaire replaced it), or answers passed valid_until.
+	Status TravelRuleCounterpartyQuestionnaireStatus `json:"status"`
+
+	// Version of Didit's standard questionnaire the answers belong to. Currently 1.
+	FormVersion string    `json:"form_version"`
+	SentTo      string    `json:"sent_to"`
+	SentAt      time.Time `json:"sent_at"`
+
+	// The answer-by deadline, 30 days after sending. The link stops working after
+	// it.
+	ExpiresAt  time.Time `json:"expires_at"`
+	AnsweredAt time.Time `json:"answered_at"`
+
+	// How long the answers stay current: 365 days after answering. Null until
+	// answered.
+	ValidUntil time.Time `json:"valid_until"`
+
+	// true while the questionnaire is ANSWERED and valid_until has not passed.
+	Current bool `json:"current"`
+
+	// The answers keyed by question id: legal_name, licensing, jurisdictions,
+	// aml_program, compliance_officer, sanctions_screening, transaction_monitoring,
+	// travel_rule, custody, ownership, record_keeping, data_protection. Each answer
+	// is up to 2,000 characters. Empty until answered.
+	Answers map[string]string `json:"answers"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyQuestionnaire leniently.
+func (r *TravelRuleCounterpartyQuestionnaire) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyQuestionnaireStatus: SENT: waiting for answers.
+// ANSWERED: the counterparty answered every question. EXPIRED: the answer link
+// closed unanswered (its deadline passed, or a newer questionnaire replaced
+// it), or answers passed valid_until.
+//
+// TravelRuleCounterpartyQuestionnaireStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyQuestionnaireStatus string
+
+// Known values of TravelRuleCounterpartyQuestionnaireStatus.
+const (
+	TravelRuleCounterpartyQuestionnaireStatusSent     TravelRuleCounterpartyQuestionnaireStatus = "SENT"
+	TravelRuleCounterpartyQuestionnaireStatusAnswered TravelRuleCounterpartyQuestionnaireStatus = "ANSWERED"
+	TravelRuleCounterpartyQuestionnaireStatusExpired  TravelRuleCounterpartyQuestionnaireStatus = "EXPIRED"
+)
+
 // TravelRuleListVASPsParams holds the parameters of
 // Client.TravelRule.ListVASPs.
 type TravelRuleListVASPsParams struct {
-	// Case-insensitive substring match on VASP name.
+	// A name or alias fragment (case-insensitive), an exact LEI, or a domain
+	// (example.com or a URL on it). Didit network members match on their legal
+	// name, LEI or the domain of their compliance email.
 	Search Opt[string] `json:"-" query:"search"`
-	Limit  Opt[int64]  `json:"-" query:"limit"`
-	Offset Opt[int64]  `json:"-" query:"offset"`
+
+	// Only directory entries a network's member directory currently lists.
+	Network Opt[TravelRuleListVASPsParamsNetwork] `json:"-" query:"network"`
+
+	// ISO 3166 alpha-2 or alpha-3 country code. 400 for anything else.
+	Jurisdiction Opt[string] `json:"-" query:"jurisdiction"`
+
+	// true: only VASPs your application has an available route to (Didit network
+	// members included). false: only directory entries it cannot reach today.
+	Reachable Opt[bool] `json:"-" query:"reachable"`
+
+	// Only directory entries, or only Didit network members.
+	Kind Opt[TravelRuleListVASPsParamsKind] `json:"-" query:"kind"`
+
+	// Only directory entries whose risk_level is this band. Didit network members,
+	// which are not scored, never match.
+	Risk Opt[TravelRuleListVASPsParamsRisk] `json:"-" query:"risk"`
+
+	// Only directory entries whose responsiveness.status is this value. Didit
+	// network members never match.
+	Responsiveness Opt[TravelRuleListVASPsParamsResponsiveness] `json:"-" query:"responsiveness"`
+	Limit          Opt[int64]                                   `json:"-" query:"limit"`
+	Offset         Opt[int64]                                   `json:"-" query:"offset"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -244,27 +782,179 @@ func (r TravelRuleListVASPsParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
-// VASPDirectoryEntry is a response object.
+// TravelRuleListVASPsParamsNetwork is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleListVASPsParamsNetwork string
+
+// Known values of TravelRuleListVASPsParamsNetwork.
+const (
+	TravelRuleListVASPsParamsNetworkGtr        TravelRuleListVASPsParamsNetwork = "GTR"
+	TravelRuleListVASPsParamsNetworkTrust      TravelRuleListVASPsParamsNetwork = "TRUST"
+	TravelRuleListVASPsParamsNetworkVerifyvasp TravelRuleListVASPsParamsNetwork = "VERIFYVASP"
+	TravelRuleListVASPsParamsNetworkSygna      TravelRuleListVASPsParamsNetwork = "SYGNA"
+	TravelRuleListVASPsParamsNetworkTrisa      TravelRuleListVASPsParamsNetwork = "TRISA"
+)
+
+// TravelRuleListVASPsParamsKind is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleListVASPsParamsKind string
+
+// Known values of TravelRuleListVASPsParamsKind.
+const (
+	TravelRuleListVASPsParamsKindDirectory TravelRuleListVASPsParamsKind = "directory"
+	TravelRuleListVASPsParamsKindDidit     TravelRuleListVASPsParamsKind = "didit"
+)
+
+// TravelRuleListVASPsParamsRisk is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleListVASPsParamsRisk string
+
+// Known values of TravelRuleListVASPsParamsRisk.
+const (
+	TravelRuleListVASPsParamsRiskLow    TravelRuleListVASPsParamsRisk = "LOW"
+	TravelRuleListVASPsParamsRiskMedium TravelRuleListVASPsParamsRisk = "MEDIUM"
+	TravelRuleListVASPsParamsRiskHigh   TravelRuleListVASPsParamsRisk = "HIGH"
+)
+
+// TravelRuleListVASPsParamsResponsiveness is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleListVASPsParamsResponsiveness string
+
+// Known values of TravelRuleListVASPsParamsResponsiveness.
+const (
+	TravelRuleListVASPsParamsResponsivenessResponsive   TravelRuleListVASPsParamsResponsiveness = "RESPONSIVE"
+	TravelRuleListVASPsParamsResponsivenessUnresponsive TravelRuleListVASPsParamsResponsiveness = "UNRESPONSIVE"
+	TravelRuleListVASPsParamsResponsivenessUnknown      TravelRuleListVASPsParamsResponsiveness = "UNKNOWN"
+)
+
+// VASPDirectoryEntry: A VASP of the directory or a member of the Didit network,
+// with the routes your application has to it. A customer is a member of the
+// Didit network only while its application is live, its Travel Rule is on, its
+// profile is discoverable, has a legal name and a confirmed compliance email,
+// and Didit has not marked the application as a test, demo or internal one.
+// Each row also carries the shared due-diligence assessment (dd_score,
+// risk_level, responsiveness, essential_checks) and your application's own
+// decision, entity screening and questionnaires, which no other customer sees.
 type VASPDirectoryEntry struct {
-	Name           string                             `json:"name"`
-	Lei            string                             `json:"lei"`
-	Jurisdiction   string                             `json:"jurisdiction"`
-	DdStatus       VASPDirectoryEntryDdStatus         `json:"dd_status"`
-	DdScore        int64                              `json:"dd_score"`
+	// The entry's id, for GET /v3/travel-rule/vasps/{vasp_id}/.
+	ID string `json:"id"`
+
+	// directory for an entry of the shared directory; didit for a member of the
+	// Didit network.
+	Kind VASPDirectoryEntryKind `json:"kind"`
+	Name string                 `json:"name"`
+	Lei  string                 `json:"lei"`
+
+	// ISO 3166 country code, as the source gives it.
+	Jurisdiction string `json:"jurisdiction"`
+
+	// The VASP's web domains. Always empty for Didit network members.
+	Domains []string `json:"domains"`
+
+	// Whether your application has an available route to this VASP, or to one of
+	// its entities for a brand. Always true for a Didit network member, except on a
+	// sandbox application, where every row is false.
+	Reachable bool `json:"reachable"`
+
+	// Other names the VASP is found by.
+	Aliases  []VASPDirectoryEntryAliases  `json:"aliases"`
+	Networks []VASPDirectoryEntryNetworks `json:"networks"`
+	Routes   []VASPDirectoryEntryRoutes   `json:"routes"`
+
+	// The brand this entry is a regulated entity of. Null when it is not part of
+	// one.
+	Umbrella VASPDirectoryEntryUmbrella `json:"umbrella"`
+
+	// For a brand, the regulated entities that receive its transfers. A transfer
+	// naming the brand goes to the reachable entity in the jurisdiction it states
+	// (beneficiary_data.counterparty_vasp_jurisdiction), else to the entity
+	// blockchain analytics attribution linked to the destination wallet, else to
+	// the only reachable entity when no jurisdiction is stated. Two entities that
+	// fit equally are never guessed between.
+	Entities []VASPDirectoryEntryEntities `json:"entities"`
+
+	// The platform's contacts for this VASP and your application's own.
+	Contacts []VASPDirectoryEntryContacts `json:"contacts"`
+
+	// Didit's verification status of the entry, scored by the verification
+	// component of dd_score. Always COMPLETED for a Didit network member.
+	DdStatus VASPDirectoryEntryDdStatus `json:"dd_status"`
+
+	// The shared due-diligence score of a directory entry, 0 to 100, where higher
+	// is safer (see dd_score_semantic): the sum of the points in
+	// dd_score_breakdown. Null for a Didit network member, which is not scored. An
+	// entry not assessed yet (dd_assessed_at null) shows 0 with an empty
+	// risk_level, so read risk_level rather than the raw score.
+	DdScore int64 `json:"dd_score"`
+
+	// Rails recorded on the entry. Read routes for what your application can use
+	// today.
 	ReachableRails []VASPDirectoryEntryReachableRails `json:"reachable_rails"`
 
-	// true for discoverable Didit applications (dd_status is always COMPLETED,
-	// dd_score always 0 for these); false for internal counterparty-registry rows,
-	// which carry a real due-diligence status and score.
+	// true for a member of the Didit network (dd_status is always COMPLETED,
+	// dd_score null and risk_level empty for these) and for a directory entry
+	// linked to a Didit customer.
 	IsDiditCustomer bool `json:"is_didit_customer"`
 
-	// Per-component contributions to dd_score (licensing/registry, sanctions/PEP,
-	// jurisdiction risk, on-chain analytics risk), all derived from checks Didit
-	// runs in-house. Empty for Didit-customer rows.
-	DdScoreBreakdown map[string]int64 `json:"dd_score_breakdown"`
+	// One object per component of dd_score. Components, their weight (max) and
+	// their reason codes: jurisdiction, 25 (jurisdiction_not_high_risk,
+	// jurisdiction_high_risk, jurisdiction_unknown); verification, 15
+	// (dd_status_completed, dd_status_in_progress, dd_status_not_started,
+	// dd_status_rejected); protocol, 15 (native_rail, email_only, no_rail); lei, 10
+	// (lei_valid, lei_missing); history, 10 (history, no_history); essentials, 15
+	// (essential_checks, no_essential_checks); responsiveness, 10 (responsive,
+	// unresponsive, responsiveness_unknown). Empty for a Didit network member.
+	DdScoreBreakdown map[string]VASPDirectoryEntryDdScoreBreakdown `json:"dd_score_breakdown"`
 
-	// When the due-diligence assessment last ran. Null for Didit-customer rows.
+	// When dd_score, risk_level and responsiveness were last computed: after an
+	// exchange with the entry completes, finishes, expires, mismatches or is
+	// declined, when Didit refreshes or curates the entry, and in the weekly
+	// directory refresh. Null for a Didit network member.
 	DdAssessedAt time.Time `json:"dd_assessed_at"`
+
+	// Which way dd_score points: always higher_is_safer.
+	DdScoreSemantic VASPDirectoryEntryDdScoreSemantic `json:"dd_score_semantic"`
+
+	// The band dd_score falls in: LOW (70 or more), MEDIUM (40 to 69) or HIGH
+	// (below 40). Empty for a Didit network member and for an entry not assessed
+	// yet. Filter on it with risk. Your own flagged screening never changes this
+	// shared value: it makes counterparty_risk_level HIGH in your rules instead.
+	RiskLevel VASPDirectoryEntryRiskLevel `json:"risk_level"`
+
+	// Whether the VASP answers Travel Rule requests: the share of the requests
+	// Didit customers started towards it in the last 90 days that it answered. Only
+	// requests sent over a network or protocol rail, or by email to a shared
+	// address (the entry's compliance address or a platform contact), count; a
+	// request sent to an address a customer typed, or to a customer's private
+	// contact, never does. An expired request is unanswered; a completed exchange,
+	// a decline or a data mismatch is an answer; a cancelled request or an
+	// unreachable rail is neither. Always UNKNOWN with zero counts for a Didit
+	// network member.
+	Responsiveness VASPDirectoryEntryResponsiveness `json:"responsiveness"`
+
+	// The essential-checks report of a directory entry, built only from the
+	// platform's verified sources: registration (an official register lists the
+	// VASP: the EU's interim MiCA register, the public TRISA directory or the
+	// global LEI register), licence (a MiCA authorisation is on record and
+	// current), domain (the entry's domain matches its TRP endpoint or the website
+	// its register gives) and lei (its LEI record is active, issued and consistent
+	// with the entry's names and country). The essentials component of dd_score is
+	// the share of decided checks that pass. Empty until the weekly directory
+	// refresh first checks the entry, and always empty for a Didit network member.
+	EssentialChecks VASPDirectoryEntryEssentialChecks `json:"essential_checks"`
+
+	// Your application's decision on this VASP, or for an entity with no decision
+	// of its own its brand's (inherited_from names the brand). Null when there is
+	// none. Private to your application.
+	Decision TravelRuleCounterpartyDecision `json:"decision"`
+
+	// Your application's latest sanctions and adverse-media screening of this VASP.
+	// Null when you never screened it. Private to your application.
+	EntityScreening TravelRuleCounterpartyScreening `json:"entity_screening"`
+
+	// Your application's due-diligence questionnaires with this VASP, newest first.
+	// Private to your application.
+	Questionnaires []TravelRuleCounterpartyQuestionnaire `json:"questionnaires"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -276,6 +966,311 @@ func (r *VASPDirectoryEntry) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// VASPDirectoryEntryKind: directory for an entry of the shared directory; didit
+// for a member of the Didit network.
+//
+// VASPDirectoryEntryKind is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type VASPDirectoryEntryKind string
+
+// Known values of VASPDirectoryEntryKind.
+const (
+	VASPDirectoryEntryKindDirectory VASPDirectoryEntryKind = "directory"
+	VASPDirectoryEntryKindDidit     VASPDirectoryEntryKind = "didit"
+)
+
+// VASPDirectoryEntryAliases is a response object.
+type VASPDirectoryEntryAliases struct {
+	Name string `json:"name"`
+
+	// trading_name, other_legal_name (from the global LEI register), network_name
+	// (the name on a Travel Rule network), attribution (the entity name blockchain
+	// analytics gives the VASP's wallets), merged (the name of a duplicate entry
+	// merged into this one) or staff.
+	Kind VASPDirectoryEntryAliasesKind `json:"kind"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryAliases leniently.
+func (r *VASPDirectoryEntryAliases) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryAliasesKind: trading_name, other_legal_name (from the
+// global LEI register), network_name (the name on a Travel Rule network),
+// attribution (the entity name blockchain analytics gives the VASP's wallets),
+// merged (the name of a duplicate entry merged into this one) or staff.
+//
+// VASPDirectoryEntryAliasesKind is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type VASPDirectoryEntryAliasesKind string
+
+// Known values of VASPDirectoryEntryAliasesKind.
+const (
+	VASPDirectoryEntryAliasesKindTradingName    VASPDirectoryEntryAliasesKind = "trading_name"
+	VASPDirectoryEntryAliasesKindOtherLegalName VASPDirectoryEntryAliasesKind = "other_legal_name"
+	VASPDirectoryEntryAliasesKindNetworkName    VASPDirectoryEntryAliasesKind = "network_name"
+	VASPDirectoryEntryAliasesKindAttribution    VASPDirectoryEntryAliasesKind = "attribution"
+	VASPDirectoryEntryAliasesKindMerged         VASPDirectoryEntryAliasesKind = "merged"
+	VASPDirectoryEntryAliasesKindStaff          VASPDirectoryEntryAliasesKind = "staff"
+)
+
+// VASPDirectoryEntryNetworks: A current listing of this VASP in a Travel Rule
+// network's member directory. A TRISA listing says who the VASP is on TRISA;
+// Didit has no TRISA rail, so it is never a route.
+type VASPDirectoryEntryNetworks struct {
+	Network VASPDirectoryEntryNetworksNetwork `json:"network"`
+
+	// The VASP's identifier on that network.
+	Code string `json:"code"`
+
+	// The name the network lists the VASP under.
+	ListedName string `json:"listed_name"`
+
+	// The country the network lists, when it gives one.
+	Country string `json:"country"`
+
+	// When Didit staff verified the listing. Null for listings read from a public
+	// directory.
+	VerifiedAt time.Time `json:"verified_at"`
+
+	// When the source last showed the listing. A listing the source has not shown
+	// for three weeks is removed.
+	LastSeenAt time.Time `json:"last_seen_at"`
+
+	// Where the listing comes from: the public TRISA directory, or Didit staff.
+	Source VASPDirectoryEntryNetworksSource `json:"source"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryNetworks leniently.
+func (r *VASPDirectoryEntryNetworks) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryNetworksNetwork is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type VASPDirectoryEntryNetworksNetwork string
+
+// Known values of VASPDirectoryEntryNetworksNetwork.
+const (
+	VASPDirectoryEntryNetworksNetworkGtr        VASPDirectoryEntryNetworksNetwork = "GTR"
+	VASPDirectoryEntryNetworksNetworkTrust      VASPDirectoryEntryNetworksNetwork = "TRUST"
+	VASPDirectoryEntryNetworksNetworkVerifyvasp VASPDirectoryEntryNetworksNetwork = "VERIFYVASP"
+	VASPDirectoryEntryNetworksNetworkSygna      VASPDirectoryEntryNetworksNetwork = "SYGNA"
+	VASPDirectoryEntryNetworksNetworkTrisa      VASPDirectoryEntryNetworksNetwork = "TRISA"
+)
+
+// VASPDirectoryEntryNetworksSource: Where the listing comes from: the public
+// TRISA directory, or Didit staff.
+//
+// VASPDirectoryEntryNetworksSource is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type VASPDirectoryEntryNetworksSource string
+
+// Known values of VASPDirectoryEntryNetworksSource.
+const (
+	VASPDirectoryEntryNetworksSourceTrisaDirectory VASPDirectoryEntryNetworksSource = "trisa_directory"
+	VASPDirectoryEntryNetworksSourceStaff          VASPDirectoryEntryNetworksSource = "staff"
+)
+
+// VASPDirectoryEntryRoutes: One way your application can deliver Travel Rule
+// data to this VASP, in the order dispatch tries them. A network route needs a
+// membership on that network: your own (connected in the Marketplace) or
+// Didit's once Didit holds one. Without it the route is listed as unavailable
+// with the reason, never as a way to reach the VASP.
+type VASPDirectoryEntryRoutes struct {
+	Rail   VASPDirectoryEntryRoutesRail   `json:"rail"`
+	Status VASPDirectoryEntryRoutesStatus `json:"status"`
+
+	// Why an unavailable route cannot be used: no_membership (neither you nor Didit
+	// holds a membership on that network), network_switched_off (you turned that
+	// network off in your settings) or sandbox_application (a sandbox application
+	// sends only to the Didit Test VASP, so no route is available to it). Empty
+	// when the route is available.
+	Reason VASPDirectoryEntryRoutesReason `json:"reason"`
+
+	// How an available route is reached: own_membership or didit_membership for a
+	// network rail, directory for a TRP endpoint the directory verified, contact
+	// for the EMAIL rail, didit_network for a Didit network member. Empty when the
+	// route is unavailable.
+	Via VASPDirectoryEntryRoutesVia `json:"via"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryRoutes leniently.
+func (r *VASPDirectoryEntryRoutes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryRoutesRail is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type VASPDirectoryEntryRoutesRail string
+
+// Known values of VASPDirectoryEntryRoutesRail.
+const (
+	VASPDirectoryEntryRoutesRailInternal   VASPDirectoryEntryRoutesRail = "INTERNAL"
+	VASPDirectoryEntryRoutesRailTrp        VASPDirectoryEntryRoutesRail = "TRP"
+	VASPDirectoryEntryRoutesRailGtr        VASPDirectoryEntryRoutesRail = "GTR"
+	VASPDirectoryEntryRoutesRailTrust      VASPDirectoryEntryRoutesRail = "TRUST"
+	VASPDirectoryEntryRoutesRailVerifyvasp VASPDirectoryEntryRoutesRail = "VERIFYVASP"
+	VASPDirectoryEntryRoutesRailSygna      VASPDirectoryEntryRoutesRail = "SYGNA"
+	VASPDirectoryEntryRoutesRailEmail      VASPDirectoryEntryRoutesRail = "EMAIL"
+)
+
+// VASPDirectoryEntryRoutesStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type VASPDirectoryEntryRoutesStatus string
+
+// Known values of VASPDirectoryEntryRoutesStatus.
+const (
+	VASPDirectoryEntryRoutesStatusAvailable   VASPDirectoryEntryRoutesStatus = "available"
+	VASPDirectoryEntryRoutesStatusUnavailable VASPDirectoryEntryRoutesStatus = "unavailable"
+)
+
+// VASPDirectoryEntryRoutesReason: Why an unavailable route cannot be used:
+// no_membership (neither you nor Didit holds a membership on that network),
+// network_switched_off (you turned that network off in your settings) or
+// sandbox_application (a sandbox application sends only to the Didit Test VASP,
+// so no route is available to it). Empty when the route is available.
+//
+// VASPDirectoryEntryRoutesReason is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type VASPDirectoryEntryRoutesReason string
+
+// Known values of VASPDirectoryEntryRoutesReason.
+const (
+	VASPDirectoryEntryRoutesReasonEmpty              VASPDirectoryEntryRoutesReason = ""
+	VASPDirectoryEntryRoutesReasonNoMembership       VASPDirectoryEntryRoutesReason = "no_membership"
+	VASPDirectoryEntryRoutesReasonNetworkSwitchedOff VASPDirectoryEntryRoutesReason = "network_switched_off"
+	VASPDirectoryEntryRoutesReasonSandboxApplication VASPDirectoryEntryRoutesReason = "sandbox_application"
+)
+
+// VASPDirectoryEntryRoutesVia: How an available route is reached:
+// own_membership or didit_membership for a network rail, directory for a TRP
+// endpoint the directory verified, contact for the EMAIL rail, didit_network
+// for a Didit network member. Empty when the route is unavailable.
+//
+// VASPDirectoryEntryRoutesVia is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type VASPDirectoryEntryRoutesVia string
+
+// Known values of VASPDirectoryEntryRoutesVia.
+const (
+	VASPDirectoryEntryRoutesViaEmpty           VASPDirectoryEntryRoutesVia = ""
+	VASPDirectoryEntryRoutesViaOwnMembership   VASPDirectoryEntryRoutesVia = "own_membership"
+	VASPDirectoryEntryRoutesViaDiditMembership VASPDirectoryEntryRoutesVia = "didit_membership"
+	VASPDirectoryEntryRoutesViaDirectory       VASPDirectoryEntryRoutesVia = "directory"
+	VASPDirectoryEntryRoutesViaContact         VASPDirectoryEntryRoutesVia = "contact"
+	VASPDirectoryEntryRoutesViaDiditNetwork    VASPDirectoryEntryRoutesVia = "didit_network"
+)
+
+// VASPDirectoryEntryUmbrella: The brand this entry is a regulated entity of.
+// Null when it is not part of one.
+type VASPDirectoryEntryUmbrella struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryUmbrella leniently.
+func (r *VASPDirectoryEntryUmbrella) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryEntities: A regulated entity of a brand: the legal entity
+// that receives a transfer.
+type VASPDirectoryEntryEntities struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Lei          string `json:"lei"`
+	Jurisdiction string `json:"jurisdiction"`
+
+	// Whether your application has an available route to it.
+	Reachable bool `json:"reachable"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryEntities leniently.
+func (r *VASPDirectoryEntryEntities) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryContacts: A compliance contact the EMAIL rail can write to.
+type VASPDirectoryEntryContacts struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+
+	// staff: curated by Didit; application: added by your application; learned: an
+	// address that answered a Travel Rule request through its response link.
+	Source VASPDirectoryEntryContactsSource `json:"source"`
+
+	// platform contacts are used for every Didit customer's transfers; application
+	// contacts are private to your application, which sees only its own.
+	Scope VASPDirectoryEntryContactsScope `json:"scope"`
+
+	// When someone at this address answered a request. Null when it has not yet.
+	VerifiedAt time.Time `json:"verified_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryContacts leniently.
+func (r *VASPDirectoryEntryContacts) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryContactsSource: staff: curated by Didit; application: added
+// by your application; learned: an address that answered a Travel Rule request
+// through its response link.
+//
+// VASPDirectoryEntryContactsSource is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type VASPDirectoryEntryContactsSource string
+
+// Known values of VASPDirectoryEntryContactsSource.
+const (
+	VASPDirectoryEntryContactsSourceStaff       VASPDirectoryEntryContactsSource = "staff"
+	VASPDirectoryEntryContactsSourceApplication VASPDirectoryEntryContactsSource = "application"
+	VASPDirectoryEntryContactsSourceLearned     VASPDirectoryEntryContactsSource = "learned"
+)
+
+// VASPDirectoryEntryContactsScope: platform contacts are used for every Didit
+// customer's transfers; application contacts are private to your application,
+// which sees only its own.
+//
+// VASPDirectoryEntryContactsScope is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type VASPDirectoryEntryContactsScope string
+
+// Known values of VASPDirectoryEntryContactsScope.
+const (
+	VASPDirectoryEntryContactsScopePlatform    VASPDirectoryEntryContactsScope = "platform"
+	VASPDirectoryEntryContactsScopeApplication VASPDirectoryEntryContactsScope = "application"
+)
+
+// VASPDirectoryEntryDdStatus: Didit's verification status of the entry, scored
+// by the verification component of dd_score. Always COMPLETED for a Didit
+// network member.
+//
 // VASPDirectoryEntryDdStatus is a string with known values below. The set is
 // open: other values may appear and never cause an error.
 type VASPDirectoryEntryDdStatus string
@@ -294,37 +1289,304 @@ type VASPDirectoryEntryReachableRails string
 
 // Known values of VASPDirectoryEntryReachableRails.
 const (
-	VASPDirectoryEntryReachableRailsInternal VASPDirectoryEntryReachableRails = "INTERNAL"
-	VASPDirectoryEntryReachableRailsTrp      VASPDirectoryEntryReachableRails = "TRP"
-	VASPDirectoryEntryReachableRailsGtr      VASPDirectoryEntryReachableRails = "GTR"
-	VASPDirectoryEntryReachableRailsEmail    VASPDirectoryEntryReachableRails = "EMAIL"
+	VASPDirectoryEntryReachableRailsInternal   VASPDirectoryEntryReachableRails = "INTERNAL"
+	VASPDirectoryEntryReachableRailsTrp        VASPDirectoryEntryReachableRails = "TRP"
+	VASPDirectoryEntryReachableRailsGtr        VASPDirectoryEntryReachableRails = "GTR"
+	VASPDirectoryEntryReachableRailsTrust      VASPDirectoryEntryReachableRails = "TRUST"
+	VASPDirectoryEntryReachableRailsVerifyvasp VASPDirectoryEntryReachableRails = "VERIFYVASP"
+	VASPDirectoryEntryReachableRailsSygna      VASPDirectoryEntryReachableRails = "SYGNA"
+	VASPDirectoryEntryReachableRailsEmail      VASPDirectoryEntryReachableRails = "EMAIL"
+)
+
+// VASPDirectoryEntryDdScoreBreakdown is a response object.
+type VASPDirectoryEntryDdScoreBreakdown struct {
+	// Points the component contributes, rounded to one decimal.
+	Points float64 `json:"points"`
+
+	// The component's weight: the points it contributes at best.
+	Max int64 `json:"max"`
+
+	// Machine-readable code of the component's verdict.
+	Reason string `json:"reason"`
+
+	// One-line English explanation.
+	Detail string `json:"detail"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryDdScoreBreakdown leniently.
+func (r *VASPDirectoryEntryDdScoreBreakdown) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryDdScoreSemantic: Which way dd_score points: always
+// higher_is_safer.
+//
+// VASPDirectoryEntryDdScoreSemantic is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type VASPDirectoryEntryDdScoreSemantic string
+
+// Known values of VASPDirectoryEntryDdScoreSemantic.
+const (
+	VASPDirectoryEntryDdScoreSemanticHigherIsSafer VASPDirectoryEntryDdScoreSemantic = "higher_is_safer"
+)
+
+// VASPDirectoryEntryRiskLevel: The band dd_score falls in: LOW (70 or more),
+// MEDIUM (40 to 69) or HIGH (below 40). Empty for a Didit network member and
+// for an entry not assessed yet. Filter on it with risk. Your own flagged
+// screening never changes this shared value: it makes counterparty_risk_level
+// HIGH in your rules instead.
+//
+// VASPDirectoryEntryRiskLevel is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type VASPDirectoryEntryRiskLevel string
+
+// Known values of VASPDirectoryEntryRiskLevel.
+const (
+	VASPDirectoryEntryRiskLevelLow    VASPDirectoryEntryRiskLevel = "LOW"
+	VASPDirectoryEntryRiskLevelMedium VASPDirectoryEntryRiskLevel = "MEDIUM"
+	VASPDirectoryEntryRiskLevelHigh   VASPDirectoryEntryRiskLevel = "HIGH"
+	VASPDirectoryEntryRiskLevelEmpty  VASPDirectoryEntryRiskLevel = ""
+)
+
+// VASPDirectoryEntryResponsiveness: Whether the VASP answers Travel Rule
+// requests: the share of the requests Didit customers started towards it in the
+// last 90 days that it answered. Only requests sent over a network or protocol
+// rail, or by email to a shared address (the entry's compliance address or a
+// platform contact), count; a request sent to an address a customer typed, or
+// to a customer's private contact, never does. An expired request is
+// unanswered; a completed exchange, a decline or a data mismatch is an answer;
+// a cancelled request or an unreachable rail is neither. Always UNKNOWN with
+// zero counts for a Didit network member.
+type VASPDirectoryEntryResponsiveness struct {
+	// UNKNOWN with fewer than 5 decided requests in the window; UNRESPONSIVE when
+	// less than 10 percent of them were answered; RESPONSIVE otherwise.
+	Status VASPDirectoryEntryResponsivenessStatus `json:"status"`
+
+	// Decided requests in the window that the VASP answered.
+	Answered int64 `json:"answered"`
+
+	// Decided requests in the window: answered plus expired.
+	Total      int64     `json:"total"`
+	ComputedAt time.Time `json:"computed_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryResponsiveness leniently.
+func (r *VASPDirectoryEntryResponsiveness) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryResponsivenessStatus: UNKNOWN with fewer than 5 decided
+// requests in the window; UNRESPONSIVE when less than 10 percent of them were
+// answered; RESPONSIVE otherwise.
+//
+// VASPDirectoryEntryResponsivenessStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type VASPDirectoryEntryResponsivenessStatus string
+
+// Known values of VASPDirectoryEntryResponsivenessStatus.
+const (
+	VASPDirectoryEntryResponsivenessStatusResponsive   VASPDirectoryEntryResponsivenessStatus = "RESPONSIVE"
+	VASPDirectoryEntryResponsivenessStatusUnresponsive VASPDirectoryEntryResponsivenessStatus = "UNRESPONSIVE"
+	VASPDirectoryEntryResponsivenessStatusUnknown      VASPDirectoryEntryResponsivenessStatus = "UNKNOWN"
+)
+
+// VASPDirectoryEntryEssentialChecks: The essential-checks report of a directory
+// entry, built only from the platform's verified sources: registration (an
+// official register lists the VASP: the EU's interim MiCA register, the public
+// TRISA directory or the global LEI register), licence (a MiCA authorisation is
+// on record and current), domain (the entry's domain matches its TRP endpoint
+// or the website its register gives) and lei (its LEI record is active, issued
+// and consistent with the entry's names and country). The essentials component
+// of dd_score is the share of decided checks that pass. Empty until the weekly
+// directory refresh first checks the entry, and always empty for a Didit
+// network member.
+type VASPDirectoryEntryEssentialChecks struct {
+	Level     VASPDirectoryEntryEssentialChecksLevel    `json:"level"`
+	CheckedAt time.Time                                 `json:"checked_at"`
+	Checks    []VASPDirectoryEntryEssentialChecksChecks `json:"checks"`
+	Passed    int64                                     `json:"passed"`
+	Failed    int64                                     `json:"failed"`
+	Unknown   int64                                     `json:"unknown"`
+	Total     int64                                     `json:"total"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryEssentialChecks leniently.
+func (r *VASPDirectoryEntryEssentialChecks) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryEssentialChecksLevel is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type VASPDirectoryEntryEssentialChecksLevel string
+
+// Known values of VASPDirectoryEntryEssentialChecksLevel.
+const (
+	VASPDirectoryEntryEssentialChecksLevelEssential VASPDirectoryEntryEssentialChecksLevel = "essential"
+)
+
+// VASPDirectoryEntryEssentialChecksChecks is a response object.
+type VASPDirectoryEntryEssentialChecksChecks struct {
+	ID VASPDirectoryEntryEssentialChecksChecksID `json:"id"`
+
+	// unknown when no source on record can decide the check.
+	Status VASPDirectoryEntryEssentialChecksChecksStatus `json:"status"`
+
+	// Machine-readable code of the verdict.
+	Reason string `json:"reason"`
+
+	// One-line English explanation.
+	Detail string `json:"detail"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes VASPDirectoryEntryEssentialChecksChecks leniently.
+func (r *VASPDirectoryEntryEssentialChecksChecks) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// VASPDirectoryEntryEssentialChecksChecksID is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type VASPDirectoryEntryEssentialChecksChecksID string
+
+// Known values of VASPDirectoryEntryEssentialChecksChecksID.
+const (
+	VASPDirectoryEntryEssentialChecksChecksIDRegistration VASPDirectoryEntryEssentialChecksChecksID = "registration"
+	VASPDirectoryEntryEssentialChecksChecksIDLicence      VASPDirectoryEntryEssentialChecksChecksID = "licence"
+	VASPDirectoryEntryEssentialChecksChecksIDDomain       VASPDirectoryEntryEssentialChecksChecksID = "domain"
+	VASPDirectoryEntryEssentialChecksChecksIDLei          VASPDirectoryEntryEssentialChecksChecksID = "lei"
+)
+
+// VASPDirectoryEntryEssentialChecksChecksStatus: unknown when no source on
+// record can decide the check.
+//
+// VASPDirectoryEntryEssentialChecksChecksStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type VASPDirectoryEntryEssentialChecksChecksStatus string
+
+// Known values of VASPDirectoryEntryEssentialChecksChecksStatus.
+const (
+	VASPDirectoryEntryEssentialChecksChecksStatusPass    VASPDirectoryEntryEssentialChecksChecksStatus = "pass"
+	VASPDirectoryEntryEssentialChecksChecksStatusFail    VASPDirectoryEntryEssentialChecksChecksStatus = "fail"
+	VASPDirectoryEntryEssentialChecksChecksStatusUnknown VASPDirectoryEntryEssentialChecksChecksStatus = "unknown"
+)
+
+// TravelRuleCounterpartyScreening: One sanctions and adverse-media screening of
+// the counterparty entity, run for and billed to your application. Private to
+// your application: another customer never sees it.
+type TravelRuleCounterpartyScreening struct {
+	ID string `json:"id"`
+
+	// Approved: no possible match needs attention. In Review or Declined: a
+	// possible sanctions or adverse-media match.
+	Status TravelRuleCounterpartyScreeningStatusValue `json:"status"`
+
+	// How many possible matches the screening returned.
+	TotalHits int64 `json:"total_hits"`
+
+	// The highest risk score among the possible matches. Null when nothing matched.
+	Score      float64   `json:"score"`
+	ScreenedAt time.Time `json:"screened_at"`
+
+	// Whether the screening is younger than fresh_days (30 days). A fresh screening
+	// is reused instead of billed again.
+	Fresh bool `json:"fresh"`
+
+	// true while the screening is fresh and its status is In Review or Declined.
+	// While your latest screening is flagged and counterparty screening stays on,
+	// counterparty_risk_level is HIGH in your rules.
+	Flagged bool `json:"flagged"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyScreening leniently.
+func (r *TravelRuleCounterpartyScreening) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyScreeningStatusValue: Approved: no possible match needs
+// attention. In Review or Declined: a possible sanctions or adverse-media
+// match.
+//
+// TravelRuleCounterpartyScreeningStatusValue is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyScreeningStatusValue string
+
+// Known values of TravelRuleCounterpartyScreeningStatusValue.
+const (
+	TravelRuleCounterpartyScreeningStatusValueApproved TravelRuleCounterpartyScreeningStatusValue = "Approved"
+	TravelRuleCounterpartyScreeningStatusValueInReview TravelRuleCounterpartyScreeningStatusValue = "In Review"
+	TravelRuleCounterpartyScreeningStatusValueDeclined TravelRuleCounterpartyScreeningStatusValue = "Declined"
 )
 
 // TravelRuleInboundRequest is a request object.
 type TravelRuleInboundRequest struct {
-	// Chain the deposit settled on, e.g. "ethereum". Required.
+	// Chain the deposit settled on, for example `ETH`. Stored lowercase and
+	// compared case-insensitively with your wallet address book entries, so use the
+	// same chain token there. Required.
 	Chain string `json:"chain"`
 
 	// On-chain transaction hash. Deduped together with wallet_address. Required.
 	Txid string `json:"txid"`
 
-	// The destination wallet you received the deposit on. Required.
+	// The destination wallet you received the deposit on. An XRP X-address is split
+	// into its classic address and tag. Required.
 	WalletAddress string `json:"wallet_address"`
 
-	// Deposit amount as a decimal string. Required.
+	// Deposit amount as a decimal string, zero or greater, with up to 18 decimal
+	// places. Required.
 	Amount string `json:"amount"`
 
 	// Deposit asset, e.g. "USDC". Required.
 	Currency string `json:"currency"`
 
-	// IVMS-101 originator payload from the sending VASP, if known.
+	// Originator details from the sending VASP, if known, as a flat object such as
+	// `{"name": "..."}`. Didit reads name (or full_name), first_name, last_name and
+	// vendor_data from it.
 	OriginatorData Opt[map[string]any] `json:"originator_data"`
 
-	// IVMS-101 beneficiary payload (your customer).
+	// Beneficiary details (your customer), as a flat object such as `{"name":
+	// "..."}`. Didit matches name against the holder_name of the matched address
+	// book entry, and sets wallet_address and chain from the request.
 	BeneficiaryData Opt[map[string]any] `json:"beneficiary_data"`
 
-	// Optional description of the sending VASP.
+	// Optional description of the sending VASP. It stays on this transfer only
+	// (`metadata.originating_vasp`, and the transfer's originator VASP in GET
+	// /v3/travel-rule/transfers/); it never creates, edits or links a shared VASP
+	// directory entry.
 	OriginatingVASP Opt[TravelRuleInboundRequestOriginatingVASP] `json:"originating_vasp"`
+
+	// Optional. The deposit's destination tag or memo on a memo network: on a
+	// shared deposit address it is what tells your customers apart, and the
+	// address-book entry for that memo is matched. XRP: a destination tag, a whole
+	// number from 0 to 4294967295 (a JSON number is accepted). XLM: a text memo of
+	// up to 28 bytes, a 64-bit id or a 32-byte hash in hex. EOS: up to 256 bytes.
+	// ATOM: up to 256 characters. HBAR: up to 100 bytes. Bitcoin, EVM, Solana,
+	// Tron, Litecoin, Bitcoin Cash, Dogecoin and Lightning wallets take no memo:
+	// one there is a `400`. Alias: `destinationTag` or `destination_tag`.
+	Memo Opt[string] `json:"memo"`
+
+	// Optional, UTXO chains only. The deposit transaction's inputs and outputs: the
+	// sender's wallet is the declared `originator_data.wallet_address`, else the
+	// largest input.
+	Utxo Opt[TravelRuleUtxo] `json:"utxo"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -333,12 +1595,16 @@ func (r TravelRuleInboundRequest) MarshalJSON() ([]byte, error) {
 }
 
 // TravelRuleInboundRequestOriginatingVASP: Optional description of the sending
-// VASP.
+// VASP. It stays on this transfer only (`metadata.originating_vasp`, and the
+// transfer's originator VASP in GET /v3/travel-rule/transfers/); it never
+// creates, edits or links a shared VASP directory entry.
 type TravelRuleInboundRequestOriginatingVASP struct {
 	Name Opt[string] `json:"name"`
-	Lei  Opt[string] `json:"lei"`
 
-	// Travel address that lets Didit reach the sender on the TRP rail.
+	// Optional. A valid 20-character ISO 17442 LEI, or empty.
+	Lei Opt[string] `json:"lei"`
+
+	// The sender's travel address, recorded on this transfer.
 	TravelAddress Opt[string] `json:"travel_address"`
 }
 
@@ -352,11 +1618,12 @@ type TravelRuleInboundResponse struct {
 	// Didit transaction UUID for the inbound deposit.
 	TransactionID string `json:"transaction_id"`
 
-	// Didit-generated txn_id for the sunrise transaction.
+	// txn_id of the inbound transaction: Didit-generated when Didit created the
+	// transaction, or your own when an unclaimed deposit was reused.
 	TxnID string `json:"txn_id"`
 
-	// true when a new transaction was minted (HTTP 201); false when an existing
-	// unclaimed deposit was reused (HTTP 200).
+	// true when this call registered the transfer (HTTP 201); false when a transfer
+	// for the same txid and wallet_address already existed (HTTP 200).
 	Created    bool                     `json:"created"`
 	TravelRule TravelRuleTransferDetail `json:"travel_rule"`
 
@@ -376,11 +1643,15 @@ type TravelRuleSettingsDetail struct {
 	// `travelRule` transactions on this application.
 	IsEnabled bool `json:"is_enabled"`
 
-	// Your VASP's operating jurisdiction code. Default `"EU"`.
+	// Your VASP's operating jurisdiction code. Default `"EU"`. Didit maps it to the
+	// regime it stamps on your Travel Rule transactions as `travel_rule_regime`
+	// (for example `EU` or an EU member code becomes `eu`), which transaction rules
+	// can key on. Other Didit customers see it as your jurisdiction in the VASP
+	// directory once the Didit network lists your profile.
 	Jurisdiction string `json:"jurisdiction"`
 
 	// How strictly beneficiary names must match before a transfer can reach
-	// COMPLETED.
+	// COMPLETED. `CONTAINS` accepts one name whose words all appear in the other.
 	NameMatchingStrictness TravelRuleSettingsDetailNameMatchingStrictness `json:"name_matching_strictness"`
 
 	// Hours an AWAITING_COUNTERPARTY transfer may remain unconfirmed before the
@@ -388,13 +1659,32 @@ type TravelRuleSettingsDetail struct {
 	ConfirmationTimeoutHours int64 `json:"confirmation_timeout_hours"`
 
 	// What happens to the underlying transaction when a transfer expires. Default
-	// HOLD.
+	// HOLD. sunrise_policy and non_responsive_policy take precedence when they
+	// apply and are set.
 	TimeoutOutcome TravelRuleSettingsDetailTimeoutOutcome `json:"timeout_outcome"`
 
-	// Decimal string. Minimum transfer amount that triggers a managed exchange;
-	// transfers below it resolve straight to NOT_APPLICABLE. Defaults to "0.00" (EU
-	// TFR applies no minimum amount).
+	// Decimal string, in your application's default currency. Minimum transfer
+	// amount that triggers a managed exchange; transfers below it resolve straight
+	// to NOT_APPLICABLE. Didit compares the transaction amount converted to your
+	// default currency, or the `amount_in_default_currency` you send; when no
+	// converted amount is available, the threshold does not apply. Defaults to
+	// "0.00" (EU TFR applies no minimum amount).
 	ThresholdAmount string `json:"threshold_amount"`
+
+	// How much proof a wallet's ownership takes. `FULL` always needs a proof
+	// (signed message, test deposit or reviewed screenshot), never the end user's
+	// word. `SIMPLIFIED` accepts a self-declaration below
+	// `simplified_validation_threshold` and a proof above it. `AUTOMATED` lets the
+	// address book and earlier proofs answer on their own, self-declarations
+	// included while `allow_self_declaration` is true. Default `AUTOMATED`.
+	OwnershipValidationMode TravelRuleSettingsDetailOwnershipValidationMode `json:"ownership_validation_mode"`
+
+	// Decimal string, default "0.00". In `SIMPLIFIED` mode a transfer below this
+	// amount (in the threshold currency) accepts a self-declaration. A transfer
+	// with no amount in that currency counts as above it.
+	SimplifiedValidationThreshold string                      `json:"simplified_validation_threshold"`
+	DataSharingFields             TravelRuleDataSharingFields `json:"data_sharing_fields"`
+	MatchingRules                 TravelRuleMatchingRules     `json:"matching_rules"`
 
 	// Your VASP's legal name. Required (non-blank) to set is_enabled to true.
 	LegalName string `json:"legal_name"`
@@ -402,20 +1692,28 @@ type TravelRuleSettingsDetail struct {
 	// Your Legal Entity Identifier, surfaced in the VASP directory.
 	Lei string `json:"lei"`
 
-	// Compliance contact email for your VASP profile.
+	// Compliance contact email for your VASP profile. The Didit network lists your
+	// profile only once this address is confirmed through an emailed link (POST
+	// /v3/travel-rule/settings/compliance-email/confirmation/); changing it needs a
+	// new confirmation.
 	ComplianceEmail string `json:"compliance_email"`
 
-	// Whether your VASP profile appears in GET /v3/travel-rule/vasps/ search
-	// results and can be reached on the INTERNAL rail. Default true.
+	// Whether your VASP profile can be listed in the Didit network: found in GET
+	// /v3/travel-rule/vasps/ by other Didit customers and reached on the INTERNAL
+	// rail. Listing also needs a live application, Travel Rule on, a legal name and
+	// a confirmed compliance email; didit_network says which are missing. Default
+	// true.
 	IsDiscoverable bool `json:"is_discoverable"`
 
-	// When true, inbound transfers whose beneficiary wallet is a verified
-	// address-book entry with a matching name are accepted automatically, without a
-	// manual review step. Default false.
+	// When true, an inbound TRP inquiry whose beneficiary wallet is a verified
+	// address-book entry with a matching name is approved automatically. When
+	// false, that inquiry waits in ON_HOLD for you to approve or deny it with the
+	// ownership endpoint. INTERNAL-rail and after-deposit transfers are not
+	// affected. Default true.
 	InboundAutoAccept bool `json:"inbound_auto_accept"`
 
 	// When true, the wallet-ownership widget offers self-declaration as a fallback
-	// proof method. Default false.
+	// proof method. Default true.
 	AllowSelfDeclaration bool `json:"allow_self_declaration"`
 
 	// When true, the wallet-ownership widget offers screenshot upload as an
@@ -435,9 +1733,34 @@ type TravelRuleSettingsDetail struct {
 	// true.
 	VASPAttributionEnabled bool `json:"vasp_attribution_enabled"`
 
+	// Opt-in sanctions and adverse-media screening of counterparty VASPs, billed
+	// per screening at the Company AML Screening price. When on, Didit screens the
+	// counterparty an outbound exchange reaches (reusing a screening younger than
+	// 30 days) and you can screen one with POST
+	// /v3/travel-rule/vasps/{vasp_id}/screening/. Default false: nothing is
+	// screened or billed.
+	CounterpartyScreeningEnabled bool `json:"counterparty_screening_enabled"`
+
+	// What an expired transfer does to its transaction when the counterparty is a
+	// directory entry in a jurisdiction on sunrise_jurisdictions, which does not
+	// enforce the Travel Rule yet: HOLD moves it to review, REJECT declines it,
+	// PROCEED leaves its status untouched. Empty (the default) follows
+	// timeout_outcome. Applies before non_responsive_policy.
+	SunrisePolicy TravelRuleSettingsDetailSunrisePolicy `json:"sunrise_policy"`
+
+	// Read-only. The countries (ISO 3166 alpha-2) Didit treats as in a Travel Rule
+	// sunrise period, where sunrise_policy applies. Currently CO, KH and VN. Any
+	// other jurisdiction, and an empty or unknown one, follows timeout_outcome.
+	SunriseJurisdictions []string `json:"sunrise_jurisdictions"`
+
+	// What an expired transfer does to its transaction when the counterparty is a
+	// directory entry whose responsiveness is UNRESPONSIVE: HOLD, REJECT or
+	// PROCEED, as for timeout_outcome. Empty (the default) follows timeout_outcome.
+	// sunrise_policy applies first when both fit.
+	NonResponsivePolicy TravelRuleSettingsDetailNonResponsivePolicy `json:"non_responsive_policy"`
+
 	// Read-only. Your VASP's own travel address - the encoded inbound TRP inquiry
-	// endpoint other VASPs use to reach you. Populated once your VASP profile is
-	// complete.
+	// endpoint other VASPs use to reach you. Empty while `is_enabled` is false.
 	TravelAddress string `json:"travel_address"`
 
 	// Networks opted out of platform membership. Does not disable your connected
@@ -447,6 +1770,11 @@ type TravelRuleSettingsDetail struct {
 	// Effective membership configuration for each network. No network, including
 	// GTR, is included by default. This is not a live health or delivery check.
 	Networks TravelRuleSettingsDetailNetworks `json:"networks"`
+
+	// Whether the Didit network lists your VASP profile, so other Didit customers
+	// find it in the directory and reach it on the INTERNAL rail, and each
+	// condition it still misses.
+	DiditNetwork TravelRuleSettingsDetailDiditNetwork `json:"didit_network"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -459,7 +1787,8 @@ func (r *TravelRuleSettingsDetail) UnmarshalJSON(data []byte) error {
 }
 
 // TravelRuleSettingsDetailNameMatchingStrictness: How strictly beneficiary
-// names must match before a transfer can reach COMPLETED.
+// names must match before a transfer can reach COMPLETED. `CONTAINS` accepts
+// one name whose words all appear in the other.
 //
 // TravelRuleSettingsDetailNameMatchingStrictness is a string with known values
 // below. The set is open: other values may appear and never cause an error.
@@ -467,14 +1796,16 @@ type TravelRuleSettingsDetailNameMatchingStrictness string
 
 // Known values of TravelRuleSettingsDetailNameMatchingStrictness.
 const (
-	TravelRuleSettingsDetailNameMatchingStrictnessNone    TravelRuleSettingsDetailNameMatchingStrictness = "NONE"
-	TravelRuleSettingsDetailNameMatchingStrictnessStrict  TravelRuleSettingsDetailNameMatchingStrictness = "STRICT"
-	TravelRuleSettingsDetailNameMatchingStrictnessDefault TravelRuleSettingsDetailNameMatchingStrictness = "DEFAULT"
-	TravelRuleSettingsDetailNameMatchingStrictnessFuzzy   TravelRuleSettingsDetailNameMatchingStrictness = "FUZZY"
+	TravelRuleSettingsDetailNameMatchingStrictnessNone     TravelRuleSettingsDetailNameMatchingStrictness = "NONE"
+	TravelRuleSettingsDetailNameMatchingStrictnessStrict   TravelRuleSettingsDetailNameMatchingStrictness = "STRICT"
+	TravelRuleSettingsDetailNameMatchingStrictnessContains TravelRuleSettingsDetailNameMatchingStrictness = "CONTAINS"
+	TravelRuleSettingsDetailNameMatchingStrictnessDefault  TravelRuleSettingsDetailNameMatchingStrictness = "DEFAULT"
+	TravelRuleSettingsDetailNameMatchingStrictnessFuzzy    TravelRuleSettingsDetailNameMatchingStrictness = "FUZZY"
 )
 
 // TravelRuleSettingsDetailTimeoutOutcome: What happens to the underlying
-// transaction when a transfer expires. Default HOLD.
+// transaction when a transfer expires. Default HOLD. sunrise_policy and
+// non_responsive_policy take precedence when they apply and are set.
 //
 // TravelRuleSettingsDetailTimeoutOutcome is a string with known values below.
 // The set is open: other values may appear and never cause an error.
@@ -485,6 +1816,288 @@ const (
 	TravelRuleSettingsDetailTimeoutOutcomeHold    TravelRuleSettingsDetailTimeoutOutcome = "HOLD"
 	TravelRuleSettingsDetailTimeoutOutcomeReject  TravelRuleSettingsDetailTimeoutOutcome = "REJECT"
 	TravelRuleSettingsDetailTimeoutOutcomeProceed TravelRuleSettingsDetailTimeoutOutcome = "PROCEED"
+)
+
+// TravelRuleSettingsDetailOwnershipValidationMode: How much proof a wallet's
+// ownership takes. `FULL` always needs a proof (signed message, test deposit or
+// reviewed screenshot), never the end user's word. `SIMPLIFIED` accepts a
+// self-declaration below `simplified_validation_threshold` and a proof above
+// it. `AUTOMATED` lets the address book and earlier proofs answer on their own,
+// self-declarations included while `allow_self_declaration` is true. Default
+// `AUTOMATED`.
+//
+// TravelRuleSettingsDetailOwnershipValidationMode is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleSettingsDetailOwnershipValidationMode string
+
+// Known values of TravelRuleSettingsDetailOwnershipValidationMode.
+const (
+	TravelRuleSettingsDetailOwnershipValidationModeFull       TravelRuleSettingsDetailOwnershipValidationMode = "FULL"
+	TravelRuleSettingsDetailOwnershipValidationModeSimplified TravelRuleSettingsDetailOwnershipValidationMode = "SIMPLIFIED"
+	TravelRuleSettingsDetailOwnershipValidationModeAutomated  TravelRuleSettingsDetailOwnershipValidationMode = "AUTOMATED"
+)
+
+// TravelRuleDataSharingFields: The fields Didit sends to the counterparty VASP
+// about your own users, per entity type. The `name` and the `wallet_address`
+// are always sent, whatever the list says. An entity type you never chose
+// shares every field. An empty list is a choice too: it shares the name and the
+// wallet only.
+type TravelRuleDataSharingFields struct {
+	// Fields shared about a natural person.
+	Individual []TravelRuleDataSharingFieldsIndividual `json:"individual"`
+
+	// Fields shared about a legal person.
+	Company []TravelRuleDataSharingFieldsCompany `json:"company"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDataSharingFields leniently.
+func (r *TravelRuleDataSharingFields) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDataSharingFieldsIndividual is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleDataSharingFieldsIndividual string
+
+// Known values of TravelRuleDataSharingFieldsIndividual.
+const (
+	TravelRuleDataSharingFieldsIndividualName                   TravelRuleDataSharingFieldsIndividual = "name"
+	TravelRuleDataSharingFieldsIndividualWalletAddress          TravelRuleDataSharingFieldsIndividual = "wallet_address"
+	TravelRuleDataSharingFieldsIndividualAddress                TravelRuleDataSharingFieldsIndividual = "address"
+	TravelRuleDataSharingFieldsIndividualNationalID             TravelRuleDataSharingFieldsIndividual = "national_id"
+	TravelRuleDataSharingFieldsIndividualCustomerIdentification TravelRuleDataSharingFieldsIndividual = "customer_identification"
+	TravelRuleDataSharingFieldsIndividualDateOfBirth            TravelRuleDataSharingFieldsIndividual = "date_of_birth"
+	TravelRuleDataSharingFieldsIndividualPlaceOfBirth           TravelRuleDataSharingFieldsIndividual = "place_of_birth"
+)
+
+// TravelRuleDataSharingFieldsCompany is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleDataSharingFieldsCompany string
+
+// Known values of TravelRuleDataSharingFieldsCompany.
+const (
+	TravelRuleDataSharingFieldsCompanyName                   TravelRuleDataSharingFieldsCompany = "name"
+	TravelRuleDataSharingFieldsCompanyWalletAddress          TravelRuleDataSharingFieldsCompany = "wallet_address"
+	TravelRuleDataSharingFieldsCompanyAddress                TravelRuleDataSharingFieldsCompany = "address"
+	TravelRuleDataSharingFieldsCompanyNationalID             TravelRuleDataSharingFieldsCompany = "national_id"
+	TravelRuleDataSharingFieldsCompanyCustomerIdentification TravelRuleDataSharingFieldsCompany = "customer_identification"
+)
+
+// TravelRuleMatchingRules: How strictly each field of the counterparty's data
+// is compared with what you hold, per entity type. A field you leave out keeps
+// its default. `NONE` skips the comparison, `STRICT` needs exactly the same
+// words, `CONTAINS` accepts one value whose words all appear in the other,
+// `DEFAULT` is the standard subset match, and `FUZZY` accepts close spellings
+// (and, for dates of birth, a swapped day and month).
+type TravelRuleMatchingRules struct {
+	// Rules for a natural person.
+	Individual TravelRuleMatchingRulesIndividual `json:"individual"`
+
+	// Rules for a legal person.
+	Company TravelRuleMatchingRulesCompany `json:"company"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleMatchingRules leniently.
+func (r *TravelRuleMatchingRules) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleMatchingRulesIndividual: Rules for a natural person.
+type TravelRuleMatchingRulesIndividual struct {
+	// Default: follows `name_matching_strictness`.
+	Name TravelRuleMatchingRulesIndividualName `json:"name"`
+
+	// Default `NONE`.
+	DateOfBirth TravelRuleMatchingRulesIndividualDateOfBirth `json:"date_of_birth"`
+
+	// Default `NONE`.
+	Address TravelRuleMatchingRulesIndividualAddress `json:"address"`
+
+	// The wallet the exchange was routed by. Default `STRICT`.
+	Account TravelRuleMatchingRulesIndividualAccount `json:"account"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleMatchingRulesIndividual leniently.
+func (r *TravelRuleMatchingRulesIndividual) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleMatchingRulesIndividualName: Default: follows
+// `name_matching_strictness`.
+//
+// TravelRuleMatchingRulesIndividualName is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleMatchingRulesIndividualName string
+
+// Known values of TravelRuleMatchingRulesIndividualName.
+const (
+	TravelRuleMatchingRulesIndividualNameNone     TravelRuleMatchingRulesIndividualName = "NONE"
+	TravelRuleMatchingRulesIndividualNameStrict   TravelRuleMatchingRulesIndividualName = "STRICT"
+	TravelRuleMatchingRulesIndividualNameContains TravelRuleMatchingRulesIndividualName = "CONTAINS"
+	TravelRuleMatchingRulesIndividualNameDefault  TravelRuleMatchingRulesIndividualName = "DEFAULT"
+	TravelRuleMatchingRulesIndividualNameFuzzy    TravelRuleMatchingRulesIndividualName = "FUZZY"
+)
+
+// TravelRuleMatchingRulesIndividualDateOfBirth: Default `NONE`.
+//
+// TravelRuleMatchingRulesIndividualDateOfBirth is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleMatchingRulesIndividualDateOfBirth string
+
+// Known values of TravelRuleMatchingRulesIndividualDateOfBirth.
+const (
+	TravelRuleMatchingRulesIndividualDateOfBirthNone     TravelRuleMatchingRulesIndividualDateOfBirth = "NONE"
+	TravelRuleMatchingRulesIndividualDateOfBirthStrict   TravelRuleMatchingRulesIndividualDateOfBirth = "STRICT"
+	TravelRuleMatchingRulesIndividualDateOfBirthContains TravelRuleMatchingRulesIndividualDateOfBirth = "CONTAINS"
+	TravelRuleMatchingRulesIndividualDateOfBirthDefault  TravelRuleMatchingRulesIndividualDateOfBirth = "DEFAULT"
+	TravelRuleMatchingRulesIndividualDateOfBirthFuzzy    TravelRuleMatchingRulesIndividualDateOfBirth = "FUZZY"
+)
+
+// TravelRuleMatchingRulesIndividualAddress: Default `NONE`.
+//
+// TravelRuleMatchingRulesIndividualAddress is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleMatchingRulesIndividualAddress string
+
+// Known values of TravelRuleMatchingRulesIndividualAddress.
+const (
+	TravelRuleMatchingRulesIndividualAddressNone     TravelRuleMatchingRulesIndividualAddress = "NONE"
+	TravelRuleMatchingRulesIndividualAddressStrict   TravelRuleMatchingRulesIndividualAddress = "STRICT"
+	TravelRuleMatchingRulesIndividualAddressContains TravelRuleMatchingRulesIndividualAddress = "CONTAINS"
+	TravelRuleMatchingRulesIndividualAddressDefault  TravelRuleMatchingRulesIndividualAddress = "DEFAULT"
+	TravelRuleMatchingRulesIndividualAddressFuzzy    TravelRuleMatchingRulesIndividualAddress = "FUZZY"
+)
+
+// TravelRuleMatchingRulesIndividualAccount: The wallet the exchange was routed
+// by. Default `STRICT`.
+//
+// TravelRuleMatchingRulesIndividualAccount is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleMatchingRulesIndividualAccount string
+
+// Known values of TravelRuleMatchingRulesIndividualAccount.
+const (
+	TravelRuleMatchingRulesIndividualAccountNone     TravelRuleMatchingRulesIndividualAccount = "NONE"
+	TravelRuleMatchingRulesIndividualAccountStrict   TravelRuleMatchingRulesIndividualAccount = "STRICT"
+	TravelRuleMatchingRulesIndividualAccountContains TravelRuleMatchingRulesIndividualAccount = "CONTAINS"
+	TravelRuleMatchingRulesIndividualAccountDefault  TravelRuleMatchingRulesIndividualAccount = "DEFAULT"
+	TravelRuleMatchingRulesIndividualAccountFuzzy    TravelRuleMatchingRulesIndividualAccount = "FUZZY"
+)
+
+// TravelRuleMatchingRulesCompany: Rules for a legal person.
+type TravelRuleMatchingRulesCompany struct {
+	// Default: follows `name_matching_strictness`.
+	Name TravelRuleMatchingRulesCompanyName `json:"name"`
+
+	// Default `NONE`.
+	Address TravelRuleMatchingRulesCompanyAddress `json:"address"`
+
+	// The wallet the exchange was routed by. Default `STRICT`.
+	Account TravelRuleMatchingRulesCompanyAccount `json:"account"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleMatchingRulesCompany leniently.
+func (r *TravelRuleMatchingRulesCompany) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleMatchingRulesCompanyName: Default: follows
+// `name_matching_strictness`.
+//
+// TravelRuleMatchingRulesCompanyName is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleMatchingRulesCompanyName string
+
+// Known values of TravelRuleMatchingRulesCompanyName.
+const (
+	TravelRuleMatchingRulesCompanyNameNone     TravelRuleMatchingRulesCompanyName = "NONE"
+	TravelRuleMatchingRulesCompanyNameStrict   TravelRuleMatchingRulesCompanyName = "STRICT"
+	TravelRuleMatchingRulesCompanyNameContains TravelRuleMatchingRulesCompanyName = "CONTAINS"
+	TravelRuleMatchingRulesCompanyNameDefault  TravelRuleMatchingRulesCompanyName = "DEFAULT"
+	TravelRuleMatchingRulesCompanyNameFuzzy    TravelRuleMatchingRulesCompanyName = "FUZZY"
+)
+
+// TravelRuleMatchingRulesCompanyAddress: Default `NONE`.
+//
+// TravelRuleMatchingRulesCompanyAddress is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleMatchingRulesCompanyAddress string
+
+// Known values of TravelRuleMatchingRulesCompanyAddress.
+const (
+	TravelRuleMatchingRulesCompanyAddressNone     TravelRuleMatchingRulesCompanyAddress = "NONE"
+	TravelRuleMatchingRulesCompanyAddressStrict   TravelRuleMatchingRulesCompanyAddress = "STRICT"
+	TravelRuleMatchingRulesCompanyAddressContains TravelRuleMatchingRulesCompanyAddress = "CONTAINS"
+	TravelRuleMatchingRulesCompanyAddressDefault  TravelRuleMatchingRulesCompanyAddress = "DEFAULT"
+	TravelRuleMatchingRulesCompanyAddressFuzzy    TravelRuleMatchingRulesCompanyAddress = "FUZZY"
+)
+
+// TravelRuleMatchingRulesCompanyAccount: The wallet the exchange was routed by.
+// Default `STRICT`.
+//
+// TravelRuleMatchingRulesCompanyAccount is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleMatchingRulesCompanyAccount string
+
+// Known values of TravelRuleMatchingRulesCompanyAccount.
+const (
+	TravelRuleMatchingRulesCompanyAccountNone     TravelRuleMatchingRulesCompanyAccount = "NONE"
+	TravelRuleMatchingRulesCompanyAccountStrict   TravelRuleMatchingRulesCompanyAccount = "STRICT"
+	TravelRuleMatchingRulesCompanyAccountContains TravelRuleMatchingRulesCompanyAccount = "CONTAINS"
+	TravelRuleMatchingRulesCompanyAccountDefault  TravelRuleMatchingRulesCompanyAccount = "DEFAULT"
+	TravelRuleMatchingRulesCompanyAccountFuzzy    TravelRuleMatchingRulesCompanyAccount = "FUZZY"
+)
+
+// TravelRuleSettingsDetailSunrisePolicy: What an expired transfer does to its
+// transaction when the counterparty is a directory entry in a jurisdiction on
+// sunrise_jurisdictions, which does not enforce the Travel Rule yet: HOLD moves
+// it to review, REJECT declines it, PROCEED leaves its status untouched. Empty
+// (the default) follows timeout_outcome. Applies before non_responsive_policy.
+//
+// TravelRuleSettingsDetailSunrisePolicy is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleSettingsDetailSunrisePolicy string
+
+// Known values of TravelRuleSettingsDetailSunrisePolicy.
+const (
+	TravelRuleSettingsDetailSunrisePolicyEmpty   TravelRuleSettingsDetailSunrisePolicy = ""
+	TravelRuleSettingsDetailSunrisePolicyHold    TravelRuleSettingsDetailSunrisePolicy = "HOLD"
+	TravelRuleSettingsDetailSunrisePolicyReject  TravelRuleSettingsDetailSunrisePolicy = "REJECT"
+	TravelRuleSettingsDetailSunrisePolicyProceed TravelRuleSettingsDetailSunrisePolicy = "PROCEED"
+)
+
+// TravelRuleSettingsDetailNonResponsivePolicy: What an expired transfer does to
+// its transaction when the counterparty is a directory entry whose
+// responsiveness is UNRESPONSIVE: HOLD, REJECT or PROCEED, as for
+// timeout_outcome. Empty (the default) follows timeout_outcome. sunrise_policy
+// applies first when both fit.
+//
+// TravelRuleSettingsDetailNonResponsivePolicy is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleSettingsDetailNonResponsivePolicy string
+
+// Known values of TravelRuleSettingsDetailNonResponsivePolicy.
+const (
+	TravelRuleSettingsDetailNonResponsivePolicyEmpty   TravelRuleSettingsDetailNonResponsivePolicy = ""
+	TravelRuleSettingsDetailNonResponsivePolicyHold    TravelRuleSettingsDetailNonResponsivePolicy = "HOLD"
+	TravelRuleSettingsDetailNonResponsivePolicyReject  TravelRuleSettingsDetailNonResponsivePolicy = "REJECT"
+	TravelRuleSettingsDetailNonResponsivePolicyProceed TravelRuleSettingsDetailNonResponsivePolicy = "PROCEED"
 )
 
 // TravelRuleSettingsDetailDisabledNetworks is a string with known values below.
@@ -726,28 +2339,213 @@ const (
 	TravelRuleSettingsDetailNetworksSygnaModeUnavailable TravelRuleSettingsDetailNetworksSygnaMode = "unavailable"
 )
 
+// TravelRuleSettingsDetailDiditNetwork: Whether the Didit network lists your
+// VASP profile, so other Didit customers find it in the directory and reach it
+// on the INTERNAL rail, and each condition it still misses.
+type TravelRuleSettingsDetailDiditNetwork struct {
+	Listed bool `json:"listed"`
+
+	// Empty when listed. compliance_email_unconfirmed: send the confirmation with
+	// POST /v3/travel-rule/settings/compliance-email/confirmation/ and open the
+	// emailed link. excluded_by_staff: Didit marked the application as a test, demo
+	// or internal one.
+	Missing []TravelRuleSettingsDetailDiditNetworkMissing `json:"missing"`
+
+	// Whether the current compliance_email was confirmed through the emailed link.
+	ComplianceEmailConfirmed bool `json:"compliance_email_confirmed"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleSettingsDetailDiditNetwork leniently.
+func (r *TravelRuleSettingsDetailDiditNetwork) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleSettingsDetailDiditNetworkMissing is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleSettingsDetailDiditNetworkMissing string
+
+// Known values of TravelRuleSettingsDetailDiditNetworkMissing.
+const (
+	TravelRuleSettingsDetailDiditNetworkMissingTravelRuleOff              TravelRuleSettingsDetailDiditNetworkMissing = "travel_rule_off"
+	TravelRuleSettingsDetailDiditNetworkMissingSandboxApplication         TravelRuleSettingsDetailDiditNetworkMissing = "sandbox_application"
+	TravelRuleSettingsDetailDiditNetworkMissingNotDiscoverable            TravelRuleSettingsDetailDiditNetworkMissing = "not_discoverable"
+	TravelRuleSettingsDetailDiditNetworkMissingLegalNameMissing           TravelRuleSettingsDetailDiditNetworkMissing = "legal_name_missing"
+	TravelRuleSettingsDetailDiditNetworkMissingComplianceEmailMissing     TravelRuleSettingsDetailDiditNetworkMissing = "compliance_email_missing"
+	TravelRuleSettingsDetailDiditNetworkMissingComplianceEmailUnconfirmed TravelRuleSettingsDetailDiditNetworkMissing = "compliance_email_unconfirmed"
+	TravelRuleSettingsDetailDiditNetworkMissingExcludedByStaff            TravelRuleSettingsDetailDiditNetworkMissing = "excluded_by_staff"
+	TravelRuleSettingsDetailDiditNetworkMissingInternalOrganization       TravelRuleSettingsDetailDiditNetworkMissing = "internal_organization"
+)
+
+// TravelRuleCounterpartyScreeningStatus is a response object.
+type TravelRuleCounterpartyScreeningStatus struct {
+	// Your counterparty_screening_enabled Travel Rule setting. Off by default;
+	// nothing is screened or billed while it is off.
+	Enabled bool `json:"enabled"`
+
+	// Decimal string, in USD: what one screening costs your organization, the
+	// Company AML Screening price.
+	Price string `json:"price"`
+
+	// How many days a screening stays fresh and is reused.
+	FreshDays int64 `json:"fresh_days"`
+
+	// Your latest screening of the counterparty. Null when you never screened it.
+	Screening TravelRuleCounterpartyScreening `json:"screening"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyScreeningStatus leniently.
+func (r *TravelRuleCounterpartyScreeningStatus) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyScreeningRequest is a request object.
+type TravelRuleCounterpartyScreeningRequest struct {
+	// true screens again (and bills again) even when a fresh screening exists.
+	Refresh Opt[bool] `json:"refresh"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleCounterpartyScreeningRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleCounterpartyScreeningResult is a response object.
+type TravelRuleCounterpartyScreeningResult struct {
+	// screened: a new screening ran and was billed (201). reused: a fresh screening
+	// was returned and nothing was billed (200).
+	Outcome   TravelRuleCounterpartyScreeningResultOutcome `json:"outcome"`
+	Screening TravelRuleCounterpartyScreening              `json:"screening"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyScreeningResult leniently.
+func (r *TravelRuleCounterpartyScreeningResult) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyScreeningResultOutcome: screened: a new screening ran
+// and was billed (201). reused: a fresh screening was returned and nothing was
+// billed (200).
+//
+// TravelRuleCounterpartyScreeningResultOutcome is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyScreeningResultOutcome string
+
+// Known values of TravelRuleCounterpartyScreeningResultOutcome.
+const (
+	TravelRuleCounterpartyScreeningResultOutcomeScreened TravelRuleCounterpartyScreeningResultOutcome = "screened"
+	TravelRuleCounterpartyScreeningResultOutcomeReused   TravelRuleCounterpartyScreeningResultOutcome = "reused"
+)
+
+// TravelRuleSendComplianceEmailConfirmationResponse is a response object.
+type TravelRuleSendComplianceEmailConfirmationResponse struct {
+	SentTo string `json:"sent_to"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleSendComplianceEmailConfirmationResponse leniently.
+func (r *TravelRuleSendComplianceEmailConfirmationResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyQuestionnaireRequest is a request object.
+type TravelRuleCounterpartyQuestionnaireRequest struct {
+	// Optional. A compliance address on record for the counterparty: for a
+	// directory entry its compliance address or a contact your application sees,
+	// for a Didit network member its confirmed compliance email. Default: the
+	// address a Travel Rule email to the counterparty goes to (your own contact
+	// first, then a platform contact, then the entry's compliance address).
+	SentTo Opt[string] `json:"sent_to"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleCounterpartyQuestionnaireRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
 // TravelRuleSettingsUpdate: All fields optional; PUT applies a partial update.
 type TravelRuleSettingsUpdate struct {
-	IsEnabled                Opt[bool]                                           `json:"is_enabled"`
-	LegalName                Opt[string]                                         `json:"legal_name"`
-	Lei                      Opt[string]                                         `json:"lei"`
-	Jurisdiction             Opt[string]                                         `json:"jurisdiction"`
+	IsEnabled    Opt[bool]   `json:"is_enabled"`
+	LegalName    Opt[string] `json:"legal_name"`
+	Lei          Opt[string] `json:"lei"`
+	Jurisdiction Opt[string] `json:"jurisdiction"`
+
+	// `CONTAINS` accepts one name whose words all appear in the other.
 	NameMatchingStrictness   Opt[TravelRuleSettingsUpdateNameMatchingStrictness] `json:"name_matching_strictness"`
 	ConfirmationTimeoutHours Opt[int64]                                          `json:"confirmation_timeout_hours"`
 	TimeoutOutcome           Opt[TravelRuleSettingsUpdateTimeoutOutcome]         `json:"timeout_outcome"`
-	ComplianceEmail          Opt[string]                                         `json:"compliance_email"`
-	IsDiscoverable           Opt[bool]                                           `json:"is_discoverable"`
 
-	// Decimal string. Minimum transfer amount that triggers a managed exchange.
-	ThresholdAmount      Opt[string] `json:"threshold_amount"`
-	InboundAutoAccept    Opt[bool]   `json:"inbound_auto_accept"`
-	AllowSelfDeclaration Opt[bool]   `json:"allow_self_declaration"`
+	// Compliance contact email for your VASP profile. The Didit network lists your
+	// profile only once this address is confirmed through an emailed link (POST
+	// /v3/travel-rule/settings/compliance-email/confirmation/); changing it needs a
+	// new confirmation.
+	ComplianceEmail Opt[string] `json:"compliance_email"`
+
+	// Whether your VASP profile can be listed in the Didit network: found in GET
+	// /v3/travel-rule/vasps/ by other Didit customers and reached on the INTERNAL
+	// rail. Listing also needs a live application, Travel Rule on, a legal name and
+	// a confirmed compliance email; didit_network says which are missing. Default
+	// true.
+	IsDiscoverable Opt[bool] `json:"is_discoverable"`
+
+	// Decimal string, zero or greater, in your application's default currency.
+	// Minimum transfer amount that triggers a managed exchange.
+	ThresholdAmount Opt[string] `json:"threshold_amount"`
+
+	// See the response field of the same name.
+	OwnershipValidationMode Opt[TravelRuleSettingsUpdateOwnershipValidationMode] `json:"ownership_validation_mode"`
+
+	// Decimal string, 0 or more.
+	SimplifiedValidationThreshold Opt[string] `json:"simplified_validation_threshold"`
+
+	// Merged per entity type: an entity type you leave out keeps its current
+	// choice. A choice that cannot meet the originator obligations of your
+	// `jurisdiction` regime (EU TFR or FATF Recommendation 16), an empty list
+	// included, is refused with `400`.
+	DataSharingFields Opt[TravelRuleDataSharingFieldsParam] `json:"data_sharing_fields"`
+
+	// Merged per entity type, and per field inside it. A field that entity type
+	// does not compare (for example `date_of_birth` for `company`) is refused with
+	// `400`.
+	MatchingRules        Opt[TravelRuleMatchingRulesParam] `json:"matching_rules"`
+	InboundAutoAccept    Opt[bool]                         `json:"inbound_auto_accept"`
+	AllowSelfDeclaration Opt[bool]                         `json:"allow_self_declaration"`
 
 	// When true, the wallet-ownership widget offers screenshot upload as an
 	// ownership evidence method. Default true.
 	AllowScreenshotProof   Opt[bool] `json:"allow_screenshot_proof"`
 	AutoWalletVerification Opt[bool] `json:"auto_wallet_verification"`
 	VASPAttributionEnabled Opt[bool] `json:"vasp_attribution_enabled"`
+
+	// Opt-in sanctions and adverse-media screening of counterparty VASPs, billed
+	// per screening at the Company AML Screening price. When on, Didit screens the
+	// counterparty an outbound exchange reaches (reusing a screening younger than
+	// 30 days) and you can screen one with POST
+	// /v3/travel-rule/vasps/{vasp_id}/screening/. Default false: nothing is
+	// screened or billed.
+	CounterpartyScreeningEnabled Opt[bool] `json:"counterparty_screening_enabled"`
+
+	// HOLD, REJECT, PROCEED, or empty to follow timeout_outcome. See the response
+	// field of the same name.
+	SunrisePolicy Opt[TravelRuleSettingsUpdateSunrisePolicy] `json:"sunrise_policy"`
+
+	// HOLD, REJECT, PROCEED, or empty to follow timeout_outcome. See the response
+	// field of the same name.
+	NonResponsivePolicy Opt[TravelRuleSettingsUpdateNonResponsivePolicy] `json:"non_responsive_policy"`
 
 	// Networks opted out of platform membership. Does not disable your connected
 	// own memberships or provision unavailable networks.
@@ -759,16 +2557,20 @@ func (r TravelRuleSettingsUpdate) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
+// TravelRuleSettingsUpdateNameMatchingStrictness: `CONTAINS` accepts one name
+// whose words all appear in the other.
+//
 // TravelRuleSettingsUpdateNameMatchingStrictness is a string with known values
 // below. The set is open: other values may appear and never cause an error.
 type TravelRuleSettingsUpdateNameMatchingStrictness string
 
 // Known values of TravelRuleSettingsUpdateNameMatchingStrictness.
 const (
-	TravelRuleSettingsUpdateNameMatchingStrictnessNone    TravelRuleSettingsUpdateNameMatchingStrictness = "NONE"
-	TravelRuleSettingsUpdateNameMatchingStrictnessStrict  TravelRuleSettingsUpdateNameMatchingStrictness = "STRICT"
-	TravelRuleSettingsUpdateNameMatchingStrictnessDefault TravelRuleSettingsUpdateNameMatchingStrictness = "DEFAULT"
-	TravelRuleSettingsUpdateNameMatchingStrictnessFuzzy   TravelRuleSettingsUpdateNameMatchingStrictness = "FUZZY"
+	TravelRuleSettingsUpdateNameMatchingStrictnessNone     TravelRuleSettingsUpdateNameMatchingStrictness = "NONE"
+	TravelRuleSettingsUpdateNameMatchingStrictnessStrict   TravelRuleSettingsUpdateNameMatchingStrictness = "STRICT"
+	TravelRuleSettingsUpdateNameMatchingStrictnessContains TravelRuleSettingsUpdateNameMatchingStrictness = "CONTAINS"
+	TravelRuleSettingsUpdateNameMatchingStrictnessDefault  TravelRuleSettingsUpdateNameMatchingStrictness = "DEFAULT"
+	TravelRuleSettingsUpdateNameMatchingStrictnessFuzzy    TravelRuleSettingsUpdateNameMatchingStrictness = "FUZZY"
 )
 
 // TravelRuleSettingsUpdateTimeoutOutcome is a string with known values below.
@@ -780,6 +2582,124 @@ const (
 	TravelRuleSettingsUpdateTimeoutOutcomeHold    TravelRuleSettingsUpdateTimeoutOutcome = "HOLD"
 	TravelRuleSettingsUpdateTimeoutOutcomeReject  TravelRuleSettingsUpdateTimeoutOutcome = "REJECT"
 	TravelRuleSettingsUpdateTimeoutOutcomeProceed TravelRuleSettingsUpdateTimeoutOutcome = "PROCEED"
+)
+
+// TravelRuleSettingsUpdateOwnershipValidationMode: See the response field of
+// the same name.
+//
+// TravelRuleSettingsUpdateOwnershipValidationMode is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleSettingsUpdateOwnershipValidationMode string
+
+// Known values of TravelRuleSettingsUpdateOwnershipValidationMode.
+const (
+	TravelRuleSettingsUpdateOwnershipValidationModeFull       TravelRuleSettingsUpdateOwnershipValidationMode = "FULL"
+	TravelRuleSettingsUpdateOwnershipValidationModeSimplified TravelRuleSettingsUpdateOwnershipValidationMode = "SIMPLIFIED"
+	TravelRuleSettingsUpdateOwnershipValidationModeAutomated  TravelRuleSettingsUpdateOwnershipValidationMode = "AUTOMATED"
+)
+
+// TravelRuleDataSharingFieldsParam: The fields Didit sends to the counterparty
+// VASP about your own users, per entity type. The `name` and the
+// `wallet_address` are always sent, whatever the list says. An entity type you
+// never chose shares every field. An empty list is a choice too: it shares the
+// name and the wallet only.
+type TravelRuleDataSharingFieldsParam struct {
+	// Fields shared about a natural person.
+	Individual Opt[[]TravelRuleDataSharingFieldsIndividual] `json:"individual"`
+
+	// Fields shared about a legal person.
+	Company Opt[[]TravelRuleDataSharingFieldsCompany] `json:"company"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleDataSharingFieldsParam) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleMatchingRulesParam: How strictly each field of the counterparty's
+// data is compared with what you hold, per entity type. A field you leave out
+// keeps its default. `NONE` skips the comparison, `STRICT` needs exactly the
+// same words, `CONTAINS` accepts one value whose words all appear in the other,
+// `DEFAULT` is the standard subset match, and `FUZZY` accepts close spellings
+// (and, for dates of birth, a swapped day and month).
+type TravelRuleMatchingRulesParam struct {
+	// Rules for a natural person.
+	Individual Opt[TravelRuleMatchingRulesParamIndividual] `json:"individual"`
+
+	// Rules for a legal person.
+	Company Opt[TravelRuleMatchingRulesParamCompany] `json:"company"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleMatchingRulesParam) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleMatchingRulesParamIndividual: Rules for a natural person.
+type TravelRuleMatchingRulesParamIndividual struct {
+	// Default: follows `name_matching_strictness`.
+	Name Opt[TravelRuleMatchingRulesIndividualName] `json:"name"`
+
+	// Default `NONE`.
+	DateOfBirth Opt[TravelRuleMatchingRulesIndividualDateOfBirth] `json:"date_of_birth"`
+
+	// Default `NONE`.
+	Address Opt[TravelRuleMatchingRulesIndividualAddress] `json:"address"`
+
+	// The wallet the exchange was routed by. Default `STRICT`.
+	Account Opt[TravelRuleMatchingRulesIndividualAccount] `json:"account"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleMatchingRulesParamIndividual) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleMatchingRulesParamCompany: Rules for a legal person.
+type TravelRuleMatchingRulesParamCompany struct {
+	// Default: follows `name_matching_strictness`.
+	Name Opt[TravelRuleMatchingRulesCompanyName] `json:"name"`
+
+	// Default `NONE`.
+	Address Opt[TravelRuleMatchingRulesCompanyAddress] `json:"address"`
+
+	// The wallet the exchange was routed by. Default `STRICT`.
+	Account Opt[TravelRuleMatchingRulesCompanyAccount] `json:"account"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleMatchingRulesParamCompany) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleSettingsUpdateSunrisePolicy: HOLD, REJECT, PROCEED, or empty to
+// follow timeout_outcome. See the response field of the same name.
+//
+// TravelRuleSettingsUpdateSunrisePolicy is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleSettingsUpdateSunrisePolicy string
+
+// Known values of TravelRuleSettingsUpdateSunrisePolicy.
+const (
+	TravelRuleSettingsUpdateSunrisePolicyEmpty   TravelRuleSettingsUpdateSunrisePolicy = ""
+	TravelRuleSettingsUpdateSunrisePolicyHold    TravelRuleSettingsUpdateSunrisePolicy = "HOLD"
+	TravelRuleSettingsUpdateSunrisePolicyReject  TravelRuleSettingsUpdateSunrisePolicy = "REJECT"
+	TravelRuleSettingsUpdateSunrisePolicyProceed TravelRuleSettingsUpdateSunrisePolicy = "PROCEED"
+)
+
+// TravelRuleSettingsUpdateNonResponsivePolicy: HOLD, REJECT, PROCEED, or empty
+// to follow timeout_outcome. See the response field of the same name.
+//
+// TravelRuleSettingsUpdateNonResponsivePolicy is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleSettingsUpdateNonResponsivePolicy string
+
+// Known values of TravelRuleSettingsUpdateNonResponsivePolicy.
+const (
+	TravelRuleSettingsUpdateNonResponsivePolicyEmpty   TravelRuleSettingsUpdateNonResponsivePolicy = ""
+	TravelRuleSettingsUpdateNonResponsivePolicyHold    TravelRuleSettingsUpdateNonResponsivePolicy = "HOLD"
+	TravelRuleSettingsUpdateNonResponsivePolicyReject  TravelRuleSettingsUpdateNonResponsivePolicy = "REJECT"
+	TravelRuleSettingsUpdateNonResponsivePolicyProceed TravelRuleSettingsUpdateNonResponsivePolicy = "PROCEED"
 )
 
 // TravelRuleSettingsUpdateDisabledNetworks is a string with known values below.
@@ -794,22 +2714,484 @@ const (
 	TravelRuleSettingsUpdateDisabledNetworksSygna      TravelRuleSettingsUpdateDisabledNetworks = "SYGNA"
 )
 
+// TravelRuleCounterpartyDecisionRequest is a request object.
+type TravelRuleCounterpartyDecisionRequest struct {
+	// Required.
+	Decision TravelRuleCounterpartyDecisionRequestDecision `json:"decision"`
+
+	// Optional. Replaces the previous reason; omit it to clear it.
+	Reason Opt[string] `json:"reason"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleCounterpartyDecisionRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleCounterpartyDecisionRequestDecision is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyDecisionRequestDecision string
+
+// Known values of TravelRuleCounterpartyDecisionRequestDecision.
+const (
+	TravelRuleCounterpartyDecisionRequestDecisionApproved   TravelRuleCounterpartyDecisionRequestDecision = "APPROVED"
+	TravelRuleCounterpartyDecisionRequestDecisionRestricted TravelRuleCounterpartyDecisionRequestDecision = "RESTRICTED"
+	TravelRuleCounterpartyDecisionRequestDecisionBlocked    TravelRuleCounterpartyDecisionRequestDecision = "BLOCKED"
+)
+
+// TravelRuleCounterpartyContactCreate is a request object.
+type TravelRuleCounterpartyContactCreate struct {
+	// The directory entry's `id`. Required.
+	Counterparty string `json:"counterparty"`
+
+	// Required.
+	Email string `json:"email"`
+
+	// Optional label.
+	Name Opt[string] `json:"name"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleCounterpartyContactCreate) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleCounterpartyContact: A compliance address the EMAIL rail writes to
+// for one directory entry.
+type TravelRuleCounterpartyContact struct {
+	UUID string `json:"uuid"`
+
+	// The directory entry's `id`, as GET /v3/travel-rule/vasps/ shows it.
+	Counterparty     string `json:"counterparty"`
+	CounterpartyName string `json:"counterparty_name"`
+	Email            string `json:"email"`
+
+	// Optional label, for example the team name.
+	Name string `json:"name"`
+
+	// staff: curated by Didit. learned: an address at one of the VASP's own domains
+	// that answered a request through its response link. application: added by your
+	// application.
+	Source TravelRuleCounterpartyContactSource `json:"source"`
+
+	// platform: curated by Didit or learned from a verified answer, used for every
+	// Didit customer, read-only for you. application: private to your application.
+	Scope TravelRuleCounterpartyContactScope `json:"scope"`
+
+	// Empty for platform contacts and for contacts an API key added.
+	CreatedBy string `json:"created_by"`
+
+	// When this address last answered a request through its response link.
+	VerifiedAt time.Time `json:"verified_at"`
+
+	// true once the address bounced or complained; the EMAIL rail skips it.
+	IsInvalid     bool                                       `json:"is_invalid"`
+	InvalidReason TravelRuleCounterpartyContactInvalidReason `json:"invalid_reason"`
+
+	// The receiving mail server's reason, when it gave one.
+	InvalidDetail string    `json:"invalid_detail"`
+	InvalidAt     time.Time `json:"invalid_at"`
+	CreatedAt     time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyContact leniently.
+func (r *TravelRuleCounterpartyContact) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyContactSource: staff: curated by Didit. learned: an
+// address at one of the VASP's own domains that answered a request through its
+// response link. application: added by your application.
+//
+// TravelRuleCounterpartyContactSource is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyContactSource string
+
+// Known values of TravelRuleCounterpartyContactSource.
+const (
+	TravelRuleCounterpartyContactSourceStaff       TravelRuleCounterpartyContactSource = "staff"
+	TravelRuleCounterpartyContactSourceApplication TravelRuleCounterpartyContactSource = "application"
+	TravelRuleCounterpartyContactSourceLearned     TravelRuleCounterpartyContactSource = "learned"
+)
+
+// TravelRuleCounterpartyContactScope: platform: curated by Didit or learned
+// from a verified answer, used for every Didit customer, read-only for you.
+// application: private to your application.
+//
+// TravelRuleCounterpartyContactScope is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyContactScope string
+
+// Known values of TravelRuleCounterpartyContactScope.
+const (
+	TravelRuleCounterpartyContactScopePlatform    TravelRuleCounterpartyContactScope = "platform"
+	TravelRuleCounterpartyContactScopeApplication TravelRuleCounterpartyContactScope = "application"
+)
+
+// TravelRuleCounterpartyContactInvalidReason is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyContactInvalidReason string
+
+// Known values of TravelRuleCounterpartyContactInvalidReason.
+const (
+	TravelRuleCounterpartyContactInvalidReasonEmpty         TravelRuleCounterpartyContactInvalidReason = ""
+	TravelRuleCounterpartyContactInvalidReasonHardBounce    TravelRuleCounterpartyContactInvalidReason = "hard_bounce"
+	TravelRuleCounterpartyContactInvalidReasonSoftBounce    TravelRuleCounterpartyContactInvalidReason = "soft_bounce"
+	TravelRuleCounterpartyContactInvalidReasonSpamComplaint TravelRuleCounterpartyContactInvalidReason = "spam_complaint"
+	TravelRuleCounterpartyContactInvalidReasonSuppressed    TravelRuleCounterpartyContactInvalidReason = "suppressed"
+)
+
+// TravelRuleCounterpartyContactsListParams holds the parameters of
+// Client.TravelRule.CounterpartyContacts.List.
+type TravelRuleCounterpartyContactsListParams struct {
+	// Only the contacts of this directory entry. Must be a UUID; an empty value
+	// means no filter.
+	Counterparty Opt[string] `json:"-" query:"counterparty"`
+
+	// Page size, default 50.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Rows to skip.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleCounterpartyContactsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleTransfersListParams holds the parameters of
+// Client.TravelRule.Transfers.List.
+type TravelRuleTransfersListParams struct {
+	// INBOUND, OUTBOUND, or both comma-separated. Case-sensitive.
+	Direction Opt[string] `json:"-" query:"direction"`
+
+	// One or more transfer statuses, comma-separated.
+	Status Opt[string] `json:"-" query:"status"`
+
+	// One or more of INTERNAL, TRP, GTR, TRUST, VERIFYVASP, SYGNA, EMAIL,
+	// TEST_VASP, comma-separated.
+	Rail Opt[string] `json:"-" query:"rail"`
+
+	// withdrawal, deposit or message, comma-separated.
+	Kind Opt[string] `json:"-" query:"kind"`
+
+	// The transaction's currency, case-insensitive.
+	Currency Opt[string] `json:"-" query:"currency"`
+
+	// Transfers created on or after this day (UTC), YYYY-MM-DD.
+	StartDate Opt[string] `json:"-" query:"start_date"`
+
+	// Transfers created on or before this day (UTC), YYYY-MM-DD.
+	EndDate Opt[string] `json:"-" query:"end_date"`
+
+	// The `id` of a directory entry or Didit network member from GET
+	// /v3/travel-rule/vasps/: your transfers with that counterparty. A value that
+	// is not a valid id answers 400.
+	Counterparty Opt[string] `json:"-" query:"counterparty"`
+
+	// Page size, default 50.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Rows to skip.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleTransfersListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleTransferRow: One Travel Rule transfer as the transfers list shows
+// it: VASP names, wallets and memos only, never the originator or beneficiary
+// person data.
+type TravelRuleTransferRow struct {
+	// The transfer's id.
+	ID string `json:"id"`
+
+	// The Didit transaction the transfer belongs to.
+	TransactionID string `json:"transaction_id"`
+
+	// Your own id for the transaction. Transfers Didit books for you, such as a
+	// Didit Test VASP inbound transfer, carry a generated one.
+	TxnID   string    `json:"txn_id"`
+	TxnDate time.Time `json:"txn_date"`
+
+	// withdrawal: outbound. message: an inbound transfer a rail created from a
+	// counterparty's message (a TRP inquiry, the INTERNAL inbound leg, or a GTR,
+	// VerifyVASP or Sygna Bridge message). deposit: any other inbound transfer.
+	Kind      TravelRuleTransferRowKind      `json:"kind"`
+	Direction TravelRuleTransferRowDirection `json:"direction"`
+	Status    TravelRuleTransferRowStatus    `json:"status"`
+
+	// Why a `COUNTERPARTY_VASP_NOT_FOUND` or `COUNTERPARTY_VASP_NOT_REACHABLE`
+	// transfer is stuck, the same value as the transfer's own `reason`, so the list
+	// tells a bounced compliance email from a counterparty with no route without
+	// opening each transfer. `""` for any other status. See [Why a transfer is
+	// stuck](/transaction-monitoring/travel-rule#why-a-transfer-is-stuck).
+	Reason string                    `json:"reason"`
+	Rail   TravelRuleTransferRowRail `json:"rail"`
+
+	// The transaction's currency.
+	Asset string `json:"asset"`
+
+	// The amount as a plain decimal, for example "1.25".
+	Amount string `json:"amount"`
+
+	// Outbound: your VASP's legal name. Inbound: the counterparty's name, from its
+	// directory entry, the Didit network member, the TRP sender, the Didit Test
+	// VASP, or the name the transfer declared. Empty when none is known.
+	OriginatorVASP string `json:"originator_vasp"`
+
+	// Outbound: the counterparty's name, worked out the same way. Inbound: your
+	// VASP's legal name.
+	BeneficiaryVASP   string `json:"beneficiary_vasp"`
+	OriginatorWallet  string `json:"originator_wallet"`
+	BeneficiaryWallet string `json:"beneficiary_wallet"`
+
+	// Memo or destination tag, empty on chains without one.
+	OriginatorMemo  string `json:"originator_memo"`
+	BeneficiaryMemo string `json:"beneficiary_memo"`
+
+	// vasp, self_hosted (declared unhosted) or own (a wallet your address book
+	// records as yours). Your own side is always vasp.
+	OriginatorWalletType  TravelRuleTransferRowOriginatorWalletType  `json:"originator_wallet_type"`
+	BeneficiaryWalletType TravelRuleTransferRowBeneficiaryWalletType `json:"beneficiary_wallet_type"`
+
+	// The other side of a deposit you matched to an announced transfer by hand.
+	MatchedTransactionID string `json:"matched_transaction_id"`
+
+	// When the transfer expires if it is still waiting on its counterparty. Set on
+	// every transfer you create with `POST /v3/transactions/` that needs an
+	// exchange, outbound or inbound. Null below the threshold, on a Lightning
+	// payment the Travel Rule does not apply to, and on inbound transfers Didit
+	// creates when a counterparty reaches you (an inbound TRP inquiry, a network
+	// message or the INTERNAL inbound leg).
+	DeadlineAt time.Time `json:"deadline_at"`
+	CreatedAt  time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleTransferRow leniently.
+func (r *TravelRuleTransferRow) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleTransferRowKind: withdrawal: outbound. message: an inbound transfer
+// a rail created from a counterparty's message (a TRP inquiry, the INTERNAL
+// inbound leg, or a GTR, VerifyVASP or Sygna Bridge message). deposit: any
+// other inbound transfer.
+//
+// TravelRuleTransferRowKind is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleTransferRowKind string
+
+// Known values of TravelRuleTransferRowKind.
+const (
+	TravelRuleTransferRowKindWithdrawal TravelRuleTransferRowKind = "withdrawal"
+	TravelRuleTransferRowKindDeposit    TravelRuleTransferRowKind = "deposit"
+	TravelRuleTransferRowKindMessage    TravelRuleTransferRowKind = "message"
+)
+
+// TravelRuleTransferRowDirection is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleTransferRowDirection string
+
+// Known values of TravelRuleTransferRowDirection.
+const (
+	TravelRuleTransferRowDirectionInbound  TravelRuleTransferRowDirection = "INBOUND"
+	TravelRuleTransferRowDirectionOutbound TravelRuleTransferRowDirection = "OUTBOUND"
+)
+
+// TravelRuleTransferRowStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleTransferRowStatus string
+
+// Known values of TravelRuleTransferRowStatus.
+const (
+	TravelRuleTransferRowStatusAwaitingCounterparty           TravelRuleTransferRowStatus = "AWAITING_COUNTERPARTY"
+	TravelRuleTransferRowStatusOnHold                         TravelRuleTransferRowStatus = "ON_HOLD"
+	TravelRuleTransferRowStatusCompleted                      TravelRuleTransferRowStatus = "COMPLETED"
+	TravelRuleTransferRowStatusFinished                       TravelRuleTransferRowStatus = "FINISHED"
+	TravelRuleTransferRowStatusCancelled                      TravelRuleTransferRowStatus = "CANCELLED"
+	TravelRuleTransferRowStatusExpired                        TravelRuleTransferRowStatus = "EXPIRED"
+	TravelRuleTransferRowStatusCounterpartyMismatchedData     TravelRuleTransferRowStatus = "COUNTERPARTY_MISMATCHED_DATA"
+	TravelRuleTransferRowStatusCounterpartyVASPNotFound       TravelRuleTransferRowStatus = "COUNTERPARTY_VASP_NOT_FOUND"
+	TravelRuleTransferRowStatusCounterpartyVASPNotReachable   TravelRuleTransferRowStatus = "COUNTERPARTY_VASP_NOT_REACHABLE"
+	TravelRuleTransferRowStatusUnconfirmedOwnership           TravelRuleTransferRowStatus = "UNCONFIRMED_OWNERSHIP"
+	TravelRuleTransferRowStatusCounterpartyVASPGeneralDecline TravelRuleTransferRowStatus = "COUNTERPARTY_VASP_GENERAL_DECLINE"
+	TravelRuleTransferRowStatusNotEnoughCounterpartyData      TravelRuleTransferRowStatus = "NOT_ENOUGH_COUNTERPARTY_DATA"
+	TravelRuleTransferRowStatusNotApplicable                  TravelRuleTransferRowStatus = "NOT_APPLICABLE"
+)
+
+// TravelRuleTransferRowRail is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleTransferRowRail string
+
+// Known values of TravelRuleTransferRowRail.
+const (
+	TravelRuleTransferRowRailInternal   TravelRuleTransferRowRail = "INTERNAL"
+	TravelRuleTransferRowRailTrp        TravelRuleTransferRowRail = "TRP"
+	TravelRuleTransferRowRailGtr        TravelRuleTransferRowRail = "GTR"
+	TravelRuleTransferRowRailTrust      TravelRuleTransferRowRail = "TRUST"
+	TravelRuleTransferRowRailVerifyvasp TravelRuleTransferRowRail = "VERIFYVASP"
+	TravelRuleTransferRowRailSygna      TravelRuleTransferRowRail = "SYGNA"
+	TravelRuleTransferRowRailEmail      TravelRuleTransferRowRail = "EMAIL"
+	TravelRuleTransferRowRailTestVASP   TravelRuleTransferRowRail = "TEST_VASP"
+)
+
+// TravelRuleTransferRowOriginatorWalletType: vasp, self_hosted (declared
+// unhosted) or own (a wallet your address book records as yours). Your own side
+// is always vasp.
+//
+// TravelRuleTransferRowOriginatorWalletType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleTransferRowOriginatorWalletType string
+
+// Known values of TravelRuleTransferRowOriginatorWalletType.
+const (
+	TravelRuleTransferRowOriginatorWalletTypeVASP       TravelRuleTransferRowOriginatorWalletType = "vasp"
+	TravelRuleTransferRowOriginatorWalletTypeSelfHosted TravelRuleTransferRowOriginatorWalletType = "self_hosted"
+	TravelRuleTransferRowOriginatorWalletTypeOwn        TravelRuleTransferRowOriginatorWalletType = "own"
+)
+
+// TravelRuleTransferRowBeneficiaryWalletType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleTransferRowBeneficiaryWalletType string
+
+// Known values of TravelRuleTransferRowBeneficiaryWalletType.
+const (
+	TravelRuleTransferRowBeneficiaryWalletTypeVASP       TravelRuleTransferRowBeneficiaryWalletType = "vasp"
+	TravelRuleTransferRowBeneficiaryWalletTypeSelfHosted TravelRuleTransferRowBeneficiaryWalletType = "self_hosted"
+	TravelRuleTransferRowBeneficiaryWalletTypeOwn        TravelRuleTransferRowBeneficiaryWalletType = "own"
+)
+
+// TravelRuleWalletAddressesBulkImportParams holds the parameters of
+// Client.TravelRule.WalletAddresses.BulkImport.
+type TravelRuleWalletAddressesBulkImportParams struct {
+	// Body is the JSON request body: an object or an array. Leave it nil to send
+	// File instead.
+	Body any `json:"-" body:"json"`
+
+	// A UTF-8 CSV file of at most 5 MB with a header row naming its columns (the
+	// row fields or their aliases). Empty cells count as not sent; columns the
+	// import does not read are ignored.
+	File Opt[File] `json:"-" form:"file"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleWalletAddressesBulkImportParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// WalletAddressImportReport: What happened to each row of an import, in the
+// order sent.
+type WalletAddressImportReport struct {
+	Total     int64                           `json:"total"`
+	Created   int64                           `json:"created"`
+	Existing  int64                           `json:"existing"`
+	Duplicate int64                           `json:"duplicate"`
+	Failed    int64                           `json:"failed"`
+	Rows      []WalletAddressImportReportRows `json:"rows"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WalletAddressImportReport leniently.
+func (r *WalletAddressImportReport) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WalletAddressImportReportRows is a response object.
+type WalletAddressImportReportRows struct {
+	// The row's number, from 1.
+	Row int64 `json:"row"`
+
+	// `created`: added to the book. `existing`: the wallet is already in the book
+	// and was left untouched. `duplicate`: repeats an earlier row of this import.
+	// `failed`: see `errors`.
+	Status WalletAddressImportReportRowsStatus `json:"status"`
+
+	// The address-book entry the row created or found.
+	EntryID string `json:"entry_id"`
+
+	// Field errors of a `failed` row; empty otherwise.
+	Errors map[string]any `json:"errors"`
+
+	// On a `duplicate` row, the row it repeats.
+	DuplicateOfRow int64 `json:"duplicate_of_row"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WalletAddressImportReportRows leniently.
+func (r *WalletAddressImportReportRows) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WalletAddressImportReportRowsStatus: `created`: added to the book.
+// `existing`: the wallet is already in the book and was left untouched.
+// `duplicate`: repeats an earlier row of this import. `failed`: see `errors`.
+//
+// WalletAddressImportReportRowsStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type WalletAddressImportReportRowsStatus string
+
+// Known values of WalletAddressImportReportRowsStatus.
+const (
+	WalletAddressImportReportRowsStatusCreated   WalletAddressImportReportRowsStatus = "created"
+	WalletAddressImportReportRowsStatusExisting  WalletAddressImportReportRowsStatus = "existing"
+	WalletAddressImportReportRowsStatusDuplicate WalletAddressImportReportRowsStatus = "duplicate"
+	WalletAddressImportReportRowsStatusFailed    WalletAddressImportReportRowsStatus = "failed"
+)
+
 // WalletAddressEntryCreate is a request object.
 type WalletAddressEntryCreate struct {
-	// Required.
-	Address          string      `json:"address"`
+	// The wallet address. An XRP X-address is stored as its classic address and its
+	// tag, so it matches transfers that name either form. Required.
+	Address string `json:"address"`
+
+	// Chain token for the address, for example `ETH` or `BTC`. When Didit routes or
+	// registers a transfer, it matches address book entries on the wallet address
+	// and, when the transfer carries a chain, on this value too, ignoring case. A
+	// transfer's chain is `beneficiary_data.chain`, filled from the transaction's
+	// crypto chain or currency symbol (for example `ETH`) when you do not send it,
+	// or the `chain` of an after-deposit registration, so use the same token
+	// everywhere. An entry with an empty chain matches any chain.
 	Chain            Opt[string] `json:"chain"`
 	HolderVendorData Opt[string] `json:"holder_vendor_data"`
 	HolderName       Opt[string] `json:"holder_name"`
 	EntityType       Opt[string] `json:"entity_type"`
 
 	// Write-only. When true, the entry is created already ownership-verified via a
-	// SELF_DECLARATION proof.
+	// SELF_DECLARATION proof. Returns 400 when `allow_self_declaration` is off in
+	// your Travel Rule settings.
 	SelfDeclared Opt[bool] `json:"self_declared"`
 
 	// Optional. The counterparty VASP's travel address for this wallet, enabling
-	// TRP routing.
+	// TRP routing for the assets TRP carries (BTC, ETH, and USDC on a named
+	// network). An invalid travel address returns 400.
 	TravelAddress Opt[string] `json:"travel_address"`
+
+	// Optional. The destination tag or memo that is part of the wallet. XRP: a
+	// destination tag, a whole number from 0 to 4294967295 (a JSON number is
+	// accepted). XLM: a text memo of up to 28 bytes, a 64-bit id or a 32-byte hash
+	// in hex. EOS: up to 256 bytes. ATOM: up to 256 characters. HBAR: up to 100
+	// bytes. Bitcoin, EVM, Solana, Tron, Litecoin, Bitcoin Cash, Dogecoin and
+	// Lightning wallets take no memo: one there is a `400`. Alias: `destinationTag`
+	// or `destination_tag`.
+	Memo Opt[string] `json:"memo"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -821,11 +3203,20 @@ func (r WalletAddressEntryCreate) MarshalJSON() ([]byte, error) {
 type WalletAddressEntry struct {
 	UUID string `json:"uuid"`
 
-	// The wallet address. Unique per application and chain among non-deleted
-	// entries.
+	// The wallet address; `""` for an entry imported by its hash only. Unique per
+	// application, chain and memo, comparing the address without regard to case.
+	// After you delete an entry, you can register the same address again.
 	Address string `json:"address"`
 
-	// Free-text chain identifier, e.g. "ethereum", "bitcoin".
+	// Chain token for the address, for example `ETH` or `BTC`. When Didit routes or
+	// registers a transfer, it matches address book entries on the wallet address
+	// and, when the transfer carries a chain, on this value too, ignoring case. A
+	// transfer's chain is `beneficiary_data.chain`, filled from the transaction's
+	// crypto chain or currency symbol (for example `ETH`) when you do not send it,
+	// or the `chain` of an after-deposit registration, so use the same token
+	// everywhere. An entry with an empty chain matches any chain. A Lightning payee
+	// (a node id or a Lightning Address) registered on bitcoin is stored lowercased
+	// on `LIGHTNING`, where Lightning transfers are matched.
 	Chain string `json:"chain"`
 
 	// Your internal identifier for the holder.
@@ -841,12 +3232,25 @@ type WalletAddressEntry struct {
 	IsOwnershipVerified bool      `json:"is_ownership_verified"`
 	CreatedAt           time.Time `json:"created_at"`
 
-	// Whether the entry was created as a self-declared ownership proof.
-	SelfDeclared bool `json:"self_declared"`
-
 	// The counterparty VASP's travel address for this wallet, if known. Lets Didit
-	// route this beneficiary's transfers over the TRP rail.
+	// route this beneficiary's transfers over the TRP rail, for the assets TRP
+	// carries (BTC, ETH, and USDC on a named network).
 	TravelAddress string `json:"travel_address"`
+
+	// Read-only. SHA-256 of the lowercased address, in lowercase hex. An entry
+	// imported by its hash only is matched on it.
+	AddressHash string `json:"address_hash"`
+
+	// The destination tag or memo that is part of the wallet on a memo network
+	// (XRP, XLM, EOS, ATOM, HBAR); `""` for the whole address. An entry with a memo
+	// matches only transfers naming that memo; one without matches the whole
+	// address.
+	Memo string `json:"memo"`
+
+	// Your per-wallet travel address for this wallet: give it to the sending VASP
+	// so its TRP inquiry names this wallet. Empty for a wallet recorded as another
+	// VASP's, while Travel Rule is off, and before your VASP profile is saved.
+	ReceivingTravelAddress string `json:"receiving_travel_address"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -871,7 +3275,8 @@ func (r TravelRuleWalletAddressesListParams) MarshalJSON() ([]byte, error) {
 }
 
 // WalletAddressEntryUpdateParam: PATCH is a partial update; the response echoes
-// only holder_name, holder_vendor_data, entity_type, and travel_address.
+// only holder_name, holder_vendor_data, entity_type, travel_address,
+// receiving_travel_address, label, and owner_type.
 type WalletAddressEntryUpdateParam struct {
 	HolderName       Opt[string] `json:"holder_name"`
 	HolderVendorData Opt[string] `json:"holder_vendor_data"`
@@ -885,7 +3290,8 @@ func (r WalletAddressEntryUpdateParam) MarshalJSON() ([]byte, error) {
 }
 
 // WalletAddressEntryUpdate: PATCH is a partial update; the response echoes only
-// holder_name, holder_vendor_data, entity_type, and travel_address.
+// holder_name, holder_vendor_data, entity_type, travel_address,
+// receiving_travel_address, label, and owner_type.
 type WalletAddressEntryUpdate struct {
 	HolderName       string `json:"holder_name"`
 	HolderVendorData string `json:"holder_vendor_data"`
@@ -901,3 +3307,175 @@ type WalletAddressEntryUpdate struct {
 func (r *WalletAddressEntryUpdate) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// TravelRuleWorkspaceClaimRequest is a request object.
+type TravelRuleWorkspaceClaimRequest struct {
+	// The directory entry this workspace is. Read ids from `GET
+	// /v3/travel-rule/vasps/`. Required.
+	VASPID string `json:"vasp_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleWorkspaceClaimRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleWorkspace: The free Travel Rule workspace of an application that
+// joined free.
+type TravelRuleWorkspace struct {
+	JoinedFree bool                     `json:"joined_free"`
+	WorkEmail  string                   `json:"work_email"`
+	JoinedAt   time.Time                `json:"joined_at"`
+	Claim      TravelRuleWorkspaceClaim `json:"claim"`
+
+	// Profile values taken from the directory entry: `vasp_id`, `legal_name`,
+	// `lei`, `jurisdiction`, `compliance_email`, `domains`. Nothing is written
+	// until the claim is made.
+	Prefill map[string]any            `json:"prefill"`
+	Domain  TravelRuleWorkspaceDomain `json:"domain"`
+
+	// Receiving Travel Rule data is free. Sending is billed only after billing is
+	// enabled.
+	BillingEnabled   bool      `json:"billing_enabled"`
+	BillingEnabledAt time.Time `json:"billing_enabled_at"`
+
+	// Whether the Didit network lists this VASP and, when not, each condition it
+	// still misses.
+	DiditNetwork map[string]any           `json:"didit_network"`
+	Settings     TravelRuleSettingsDetail `json:"settings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWorkspace leniently.
+func (r *TravelRuleWorkspace) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWorkspaceClaim is a response object.
+type TravelRuleWorkspaceClaim struct {
+	Status         TravelRuleWorkspaceClaimStatus `json:"status"`
+	ProvedByDomain bool                           `json:"proved_by_domain"`
+	ClaimedAt      time.Time                      `json:"claimed_at"`
+	ReviewedAt     time.Time                      `json:"reviewed_at"`
+	ReviewNote     string                         `json:"review_note"`
+	VASPID         string                         `json:"vasp_id"`
+	VASPName       string                         `json:"vasp_name"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWorkspaceClaim leniently.
+func (r *TravelRuleWorkspaceClaim) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWorkspaceClaimStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleWorkspaceClaimStatus string
+
+// Known values of TravelRuleWorkspaceClaimStatus.
+const (
+	TravelRuleWorkspaceClaimStatusUnclaimed     TravelRuleWorkspaceClaimStatus = "unclaimed"
+	TravelRuleWorkspaceClaimStatusPendingReview TravelRuleWorkspaceClaimStatus = "pending_review"
+	TravelRuleWorkspaceClaimStatusClaimed       TravelRuleWorkspaceClaimStatus = "claimed"
+	TravelRuleWorkspaceClaimStatusRejected      TravelRuleWorkspaceClaimStatus = "rejected"
+)
+
+// TravelRuleWorkspaceDomain is a response object.
+type TravelRuleWorkspaceDomain struct {
+	Domain     string                          `json:"domain"`
+	Status     TravelRuleWorkspaceDomainStatus `json:"status"`
+	VerifiedAt time.Time                       `json:"verified_at"`
+	Txt        TravelRuleWorkspaceTxtRecord    `json:"txt"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWorkspaceDomain leniently.
+func (r *TravelRuleWorkspaceDomain) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWorkspaceDomainStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleWorkspaceDomainStatus string
+
+// Known values of TravelRuleWorkspaceDomainStatus.
+const (
+	TravelRuleWorkspaceDomainStatusUnverified TravelRuleWorkspaceDomainStatus = "unverified"
+	TravelRuleWorkspaceDomainStatusCodeSent   TravelRuleWorkspaceDomainStatus = "code_sent"
+	TravelRuleWorkspaceDomainStatusVerified   TravelRuleWorkspaceDomainStatus = "verified"
+)
+
+// TravelRuleWorkspaceTxtRecord: The TXT record to publish for the DNS proof.
+// Empty until a proof has been started.
+type TravelRuleWorkspaceTxtRecord struct {
+	Host  string `json:"host"`
+	Value string `json:"value"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWorkspaceTxtRecord leniently.
+func (r *TravelRuleWorkspaceTxtRecord) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWorkspaceDomainConfirmRequest is a request object.
+type TravelRuleWorkspaceDomainConfirmRequest struct {
+	// Required.
+	Code string `json:"code"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleWorkspaceDomainConfirmRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleWorkspaceBillingRequest is a request object.
+type TravelRuleWorkspaceBillingRequest struct {
+	// Only `true` is accepted: outbound billing cannot be turned back off through
+	// the API.
+	Enabled Opt[bool] `json:"enabled"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleWorkspaceBillingRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleWorkspaceDomainCodeResponse is a response object.
+type TravelRuleWorkspaceDomainCodeResponse struct {
+	Domain string                                      `json:"domain"`
+	Status TravelRuleWorkspaceDomainCodeResponseStatus `json:"status"`
+	Txt    TravelRuleWorkspaceTxtRecord                `json:"txt"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWorkspaceDomainCodeResponse leniently.
+func (r *TravelRuleWorkspaceDomainCodeResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWorkspaceDomainCodeResponseStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleWorkspaceDomainCodeResponseStatus string
+
+// Known values of TravelRuleWorkspaceDomainCodeResponseStatus.
+const (
+	TravelRuleWorkspaceDomainCodeResponseStatusUnverified TravelRuleWorkspaceDomainCodeResponseStatus = "unverified"
+	TravelRuleWorkspaceDomainCodeResponseStatusCodeSent   TravelRuleWorkspaceDomainCodeResponseStatus = "code_sent"
+	TravelRuleWorkspaceDomainCodeResponseStatusVerified   TravelRuleWorkspaceDomainCodeResponseStatus = "verified"
+)

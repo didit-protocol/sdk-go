@@ -17,13 +17,16 @@ type UsersService struct {
 
 // BatchDelete: Batch delete users.
 //
-// **Permanently delete** users - the user records are removed permanently. For
+// **Permanently delete** users: the user records are removed permanently. For
 // everyday blocking prefer [Update User
 // Status](#patch-/v3/users/-vendor_data-/update-status/) with `BLOCKED`. Select
 // users with `vendor_data_list`, with `didit_internal_id_list`, or with both at
-// once; or pass `delete_all: true`. The Console's `filter_*` batch params are
-// rejected with a `400` rather than ignored, so a narrowed intent can never
-// turn into a full wipe.
+// once; or pass `delete_all: true`. This endpoint never narrows `delete_all`
+// with filters. The Console's People filters are refused with a `400` (see the
+// `400` response), so a narrowed intent does not turn into a full wipe. Two
+// exceptions: `filter_has_approved_sessions` and `filter_has_declined_sessions`
+// are not refused and not applied, so with `delete_all: true` they still delete
+// every user; do not send them.
 //
 // **Biometric templates:** every image-free biometric template retained for
 // these users after session deletion (see `/v3/biometric-templates/`) is purged
@@ -43,13 +46,32 @@ func (r *UsersService) BatchDelete(ctx context.Context, params UsersBatchDeleteP
 
 // Create: Create user.
 //
-// Pre-create a [user](/entities/users) by `vendor_data` *without* a
-// verification session. `vendor_data` must be unique among non-deleted users
-// for the application (exact match; conflicts return 400). Not idempotent.
+// Create a [user](/entities/users) by `vendor_data`, before or without a
+// verification session. `vendor_data` must be unique among the application's
+// users (a duplicate returns `400`). Not idempotent.
+//
+// **Contact details:** `email` and `phone_number` are stored in
+// `metadata.contact`, and `country` in `metadata.address`. When you send
+// `first_name` or `last_name` without `full_name`, Didit joins them into
+// `full_name`.
+//
+// **Verification link:** with `send_verification_link: true`, Didit also
+// creates a verification session for the person on `workflow_id` and emails
+// them the link at `email`. The session runs the same checks as [Create
+// Session](/sessions-api/create-session), such as the blocklist and your credit
+// balance. The person and the session are created together or not at all: if
+// any check fails, nothing is written and no email is sent. The response's
+// `verification_link` describes the session, and is `null` when you don't ask
+// for a link.
+//
+// **API key access:** a scoped API key needs `users` write. With
+// `send_verification_link: true` it also needs `sessions` write, or the call
+// answers `403` before anything is written. Full-access keys are unaffected.
+// See [API keys](/console/api-keys).
 //
 //	POST /v3/users/create/
-func (r *UsersService) Create(ctx context.Context, params UsersCreateParams, opts ...option.RequestOption) (*UserDetailItem, error) {
-	res := new(UserDetailItem)
+func (r *UsersService) Create(ctx context.Context, params UsersCreateParams, opts ...option.RequestOption) (*UsersCreateResponse, error) {
+	res := new(UsersCreateResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/users/create/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
@@ -144,8 +166,8 @@ func (r *UsersService) ListAutoPaging(ctx context.Context, params UsersListParam
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/users/{vendor_user_uuid}/networks/
-func (r *UsersService) ListNetworks(ctx context.Context, vendorUserUUID string, opts ...option.RequestOption) (*UsersListNetworksResponse, error) {
-	res := new(UsersListNetworksResponse)
+func (r *UsersService) ListNetworks(ctx context.Context, vendorUserUUID string, opts ...option.RequestOption) (*EntityNetworkMembershipList, error) {
+	res := new(EntityNetworkMembershipList)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/users/{vendor_user_uuid}/networks/", pathParams: []string{"vendor_user_uuid", vendorUserUUID}, appScope: true}, res, opts); err != nil {
 		return nil, err
 	}
@@ -175,8 +197,8 @@ func (r *UsersService) Retrieve(ctx context.Context, vendorData string, opts ...
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/vendor-users/toggle-ongoing-monitoring/{job_id}/
-func (r *UsersService) RetrieveOngoingMonitoringJob(ctx context.Context, jobID string, opts ...option.RequestOption) (*UsersRetrieveOngoingMonitoringJobResponse, error) {
-	res := new(UsersRetrieveOngoingMonitoringJobResponse)
+func (r *UsersService) RetrieveOngoingMonitoringJob(ctx context.Context, jobID string, opts ...option.RequestOption) (*OngoingMonitoringJob, error) {
+	res := new(OngoingMonitoringJob)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/vendor-users/toggle-ongoing-monitoring/{job_id}/", pathParams: []string{"job_id", jobID}, appScope: true}, res, opts); err != nil {
 		return nil, err
 	}
@@ -224,7 +246,7 @@ func (r *UsersService) SetAMLMonitoring(ctx context.Context, params UsersSetAMLM
 // The organization and application ids come from the client options.
 //
 //	PATCH /v3/organization/{organization_id}/application/{application_id}/vendor-users/toggle-ongoing-monitoring/
-func (r *UsersService) SetOngoingMonitoring(ctx context.Context, params UsersSetOngoingMonitoringParams, opts ...option.RequestOption) (*UsersSetOngoingMonitoringResponse, error) {
+func (r *UsersService) SetOngoingMonitoring(ctx context.Context, params OngoingMonitoringToggleRequest, opts ...option.RequestOption) (*UsersSetOngoingMonitoringResponse, error) {
 	res := new(UsersSetOngoingMonitoringResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/organization/{organization_id}/application/{application_id}/vendor-users/toggle-ongoing-monitoring/", appScope: true, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
@@ -236,11 +258,12 @@ func (r *UsersService) SetOngoingMonitoring(ctx context.Context, params UsersSet
 //
 // Partial update of a user: `display_name`, `full_name`, `date_of_birth`,
 // `status`, `metadata`, `approved_emails`/`approved_phones`/`issuing_states`.
-// `metadata` fully replaces. **Note:** unlike [Update User
-// Status](#patch-/v3/users/-vendor_data-/update-status/), changing `status`
-// here does NOT record a status-change activity and does NOT sync the system
-// blocklist - use the dedicated update-status endpoint for `BLOCKED`/unblock
-// flows.
+// `metadata` fully replaces. Changing `status` here works like [Update User
+// Status](#patch-/v3/users/-vendor_data-/update-status/): it records a
+// `STATUS_CHANGED` activity with the optional `reason`, and `BLOCKED` adds the
+// `vendor_data` to the system blocklist (moving away from `BLOCKED` removes
+// that entry). Changes to `display_name`, `full_name`, `date_of_birth` or
+// `metadata` are recorded as a `PROFILE_UPDATED` activity.
 //
 //	PATCH /v3/users/{vendor_data}/
 func (r *UsersService) Update(ctx context.Context, vendorData string, params UsersUpdateParams, opts ...option.RequestOption) (*UserDetailItem, error) {
@@ -253,10 +276,13 @@ func (r *UsersService) Update(ctx context.Context, vendorData string, params Use
 
 // UpdateStatus: Update user status.
 //
-// Flip only the lifecycle `status` of a user - `ACTIVE`/`FLAGGED`/`BLOCKED`
-// (NOT session statuses). `BLOCKED` adds the `vendor_data` to the system
+// Flip only the lifecycle `status` of a user: `ACTIVE`, `FLAGGED` or `BLOCKED`
+// (not session statuses). `BLOCKED` adds the `vendor_data` to the system
 // blocklist; moving away from `BLOCKED` removes that entry. Each change is
-// recorded as a `STATUS_CHANGED` activity on the user.
+// recorded as a `STATUS_CHANGED` activity on the user, with the optional
+// `reason` as its `comment`. Sending the current status changes nothing and
+// records no `reason`. The `user.status.updated` webhook does not carry
+// `reason`.
 //
 //	PATCH /v3/users/{vendor_data}/update-status/
 func (r *UsersService) UpdateStatus(ctx context.Context, vendorData string, params UsersUpdateStatusParams, opts ...option.RequestOption) (*UserDetailItem, error) {
@@ -323,8 +349,7 @@ func (r *UsersBatchDeleteResponse) UnmarshalJSON(data []byte) error {
 // UsersCreateParams holds the parameters of Client.Users.Create.
 type UsersCreateParams struct {
 	// Your unique identifier for this user (free-form string, NOT a UUID). Must be
-	// unique among non-deleted users for the application; matched exactly as sent.
-	// Required.
+	// unique among the application's users; matched exactly as sent. Required.
 	VendorData string `json:"vendor_data"`
 
 	// Full legal name of the user.
@@ -351,6 +376,45 @@ type UsersCreateParams struct {
 
 	// Pre-recorded issuing countries (ISO 3166-1 alpha-3), e.g. `["USA"]`.
 	IssuingStates Opt[[]string] `json:"issuing_states"`
+
+	// Given name. When `full_name` is not sent, Didit joins `first_name` and
+	// `last_name` with a space into `full_name`. Not returned as a separate field.
+	FirstName Opt[string] `json:"first_name"`
+
+	// Family name. Joined with `first_name` into `full_name` when `full_name` is
+	// not sent. Not returned as a separate field.
+	LastName Opt[string] `json:"last_name"`
+
+	// Contact email, stored in `metadata.contact.email` (it replaces an `email` you
+	// send inside `metadata.contact`). Required when `send_verification_link` is
+	// `true`: the link is sent to this address. If `metadata.contact` is not a JSON
+	// object, the call answers `400` on this field.
+	Email Opt[string] `json:"email"`
+
+	// Contact phone number, stored in `metadata.contact.phone_number`. If
+	// `metadata.contact` is not a JSON object, the call answers `400` on this
+	// field.
+	PhoneNumber Opt[string] `json:"phone_number"`
+
+	// Country as an ISO 3166 code, alpha-2 or alpha-3 (`ES` or `ESP`). Stored
+	// uppercased in `metadata.address.country`. If `metadata.address` is not a JSON
+	// object, the call answers `400` on this field.
+	Country Opt[string] `json:"country"`
+
+	// When `true`, Didit creates a verification session for the person on
+	// `workflow_id` and emails them the link at `email`. Requires `email` and
+	// `workflow_id`. A scoped API key also needs `sessions` write.
+	SendVerificationLink Opt[bool] `json:"send_verification_link"`
+
+	// The workflow of the verification session. Required when
+	// `send_verification_link` is `true`. It must verify a person: a Business
+	// Verification (KYB) workflow is refused. Ignored otherwise.
+	WorkflowID Opt[string] `json:"workflow_id"`
+
+	// Language of the verification email, as a [supported
+	// language](/integration/supported-languages) code. English when omitted.
+	// Ignored when `send_verification_link` is not `true`.
+	Language Opt[string] `json:"language"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -370,6 +434,430 @@ const (
 	UsersCreateParamsStatusFlagged UsersCreateParamsStatus = "FLAGGED"
 	UsersCreateParamsStatusBlocked UsersCreateParamsStatus = "BLOCKED"
 )
+
+// UsersCreateResponse is a response object.
+type UsersCreateResponse struct {
+	// Didit's stable internal UUID for this user.
+	DiditInternalID string `json:"didit_internal_id"`
+
+	// Your unique identifier for this user (passed when creating sessions). This
+	// can be null when no vendor identifier was supplied.
+	VendorData string `json:"vendor_data"`
+
+	// Custom display name set by you
+	DisplayName string `json:"display_name"`
+
+	// Full name extracted from verified documents
+	FullName    string `json:"full_name"`
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Best available name: display_name if set, otherwise full_name
+	EffectiveName string `json:"effective_name"`
+
+	// Lifecycle status of the user record (NOT a session status). `ACTIVE` is the
+	// default, `FLAGGED` marks the user for manual attention, `BLOCKED` prevents
+	// new sessions for this `vendor_data`.
+	Status UsersCreateResponseStatus `json:"status"`
+
+	// Presigned URL of the user's portrait photo (expires after a few hours)
+	PortraitImageURL string `json:"portrait_image_url"`
+
+	// Total number of verification sessions for this user
+	SessionCount int64 `json:"session_count"`
+
+	// Number of approved sessions
+	ApprovedCount int64 `json:"approved_count"`
+
+	// Number of declined sessions
+	DeclinedCount int64 `json:"declined_count"`
+
+	// Number of sessions in review
+	InReviewCount int64 `json:"in_review_count"`
+
+	// ISO 3166-1 alpha-3 codes of issuing countries seen on this user's approved ID
+	// documents, e.g. `["USA", "ESP"]`. Empty array when none.
+	IssuingStates []string `json:"issuing_states"`
+
+	// Verified email addresses collected from this user's approved sessions, e.g.
+	// `["john@example.com"]`.
+	ApprovedEmails []string `json:"approved_emails"`
+
+	// Verified phone numbers collected from this user's approved sessions, e.g.
+	// `["+14155551234"]`.
+	ApprovedPhones []string `json:"approved_phones"`
+
+	// Aggregated per-feature status across all of this user's sessions. Possible
+	// keys: `ID_VERIFICATION`, `NFC`, `LIVENESS`, `FACE_MATCH`, `POA`,
+	// `QUESTIONNAIRE`, `EMAIL_VERIFICATION`, `PHONE`, `AML`, `IP_ANALYSIS`,
+	// `AGE_ESTIMATION`, `DATABASE_VALIDATION`. Possible values: `Approved`,
+	// `Declined`, `In Review`, `Not Finished`, `Resub Requested`.
+	Features map[string]any `json:"features"`
+
+	// Same data as `features`, as an ordered array of `{feature, status}` objects.
+	FeaturesList []UsersCreateResponseFeaturesList `json:"features_list"`
+
+	// Timestamp of the most recent session
+	LastSessionAt time.Time `json:"last_session_at"`
+
+	// Timestamp of the first session
+	FirstSessionAt time.Time `json:"first_session_at"`
+
+	// Timestamp of the most recent activity on this user (session, transaction,
+	// status change, data edit, etc.).
+	LastActivityAt time.Time `json:"last_activity_at"`
+
+	// Tags assigned to this user
+	Tags      []UsersCreateResponseTags `json:"tags"`
+	CreatedAt time.Time                 `json:"created_at"`
+
+	// Custom metadata JSON you attached to this user. Defaults to `{}`.
+	Metadata map[string]any `json:"metadata"`
+
+	// Activity log and comments for this user (status changes, profile edits,
+	// manual notes).
+	Comments  []UsersCreateResponseComments `json:"comments"`
+	UpdatedAt time.Time                     `json:"updated_at"`
+
+	// The verification session Didit created and emailed to the person. Always
+	// present: `null` when `send_verification_link` was not `true`.
+	VerificationLink UsersCreateResponseVerificationLink `json:"verification_link"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UsersCreateResponse leniently.
+func (r *UsersCreateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UsersCreateResponseStatus: Lifecycle status of the user record (NOT a session
+// status). `ACTIVE` is the default, `FLAGGED` marks the user for manual
+// attention, `BLOCKED` prevents new sessions for this `vendor_data`.
+//
+// UsersCreateResponseStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type UsersCreateResponseStatus string
+
+// Known values of UsersCreateResponseStatus.
+const (
+	UsersCreateResponseStatusActive  UsersCreateResponseStatus = "ACTIVE"
+	UsersCreateResponseStatusFlagged UsersCreateResponseStatus = "FLAGGED"
+	UsersCreateResponseStatusBlocked UsersCreateResponseStatus = "BLOCKED"
+)
+
+// UsersCreateResponseFeaturesList is a response object.
+type UsersCreateResponseFeaturesList struct {
+	Feature string `json:"feature"`
+	Status  string `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UsersCreateResponseFeaturesList leniently.
+func (r *UsersCreateResponseFeaturesList) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UsersCreateResponseTags is a response object.
+type UsersCreateResponseTags struct {
+	UUID         string                     `json:"uuid"`
+	Name         string                     `json:"name"`
+	Color        string                     `json:"color"`
+	Tag          UsersCreateResponseTagsTag `json:"tag"`
+	AddedByEmail string                     `json:"added_by_email"`
+	AddedByName  string                     `json:"added_by_name"`
+	CreatedAt    time.Time                  `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UsersCreateResponseTags leniently.
+func (r *UsersCreateResponseTags) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UsersCreateResponseTagsTag is a response object.
+type UsersCreateResponseTagsTag struct {
+	UUID        string                           `json:"uuid"`
+	Name        string                           `json:"name"`
+	Color       string                           `json:"color"`
+	Description string                           `json:"description"`
+	Source      UsersCreateResponseTagsTagSource `json:"source"`
+	CreatedAt   time.Time                        `json:"created_at"`
+	UpdatedAt   time.Time                        `json:"updated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UsersCreateResponseTagsTag leniently.
+func (r *UsersCreateResponseTagsTag) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UsersCreateResponseTagsTagSource is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type UsersCreateResponseTagsTagSource string
+
+// Known values of UsersCreateResponseTagsTagSource.
+const (
+	UsersCreateResponseTagsTagSourceDidit  UsersCreateResponseTagsTagSource = "didit"
+	UsersCreateResponseTagsTagSourceCustom UsersCreateResponseTagsTagSource = "custom"
+)
+
+// UsersCreateResponseComments is a response object.
+type UsersCreateResponseComments struct {
+	UUID           string                                    `json:"uuid"`
+	CommentType    UsersCreateResponseCommentsCommentType    `json:"comment_type"`
+	Comment        string                                    `json:"comment"`
+	ActorEmail     string                                    `json:"actor_email"`
+	ActorName      string                                    `json:"actor_name"`
+	PreviousStatus UsersCreateResponseCommentsPreviousStatus `json:"previous_status"`
+	NewStatus      UsersCreateResponseCommentsNewStatus      `json:"new_status"`
+
+	// Previous field values for PROFILE_UPDATED entries.
+	PreviousValue map[string]any `json:"previous_value"`
+
+	// New field values for PROFILE_UPDATED entries.
+	NewValue map[string]any `json:"new_value"`
+
+	// Names of the fields changed by a PROFILE_UPDATED entry.
+	ChangedFields   []string       `json:"changed_fields"`
+	Metadata        map[string]any `json:"metadata"`
+	MentionedEmails []string       `json:"mentioned_emails"`
+	CreatedAt       time.Time      `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UsersCreateResponseComments leniently.
+func (r *UsersCreateResponseComments) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UsersCreateResponseCommentsCommentType is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type UsersCreateResponseCommentsCommentType string
+
+// Known values of UsersCreateResponseCommentsCommentType.
+const (
+	UsersCreateResponseCommentsCommentTypeComment         UsersCreateResponseCommentsCommentType = "COMMENT"
+	UsersCreateResponseCommentsCommentTypeStatusChanged   UsersCreateResponseCommentsCommentType = "STATUS_CHANGED"
+	UsersCreateResponseCommentsCommentTypeMetadataUpdated UsersCreateResponseCommentsCommentType = "METADATA_UPDATED"
+	UsersCreateResponseCommentsCommentTypeTagAdded        UsersCreateResponseCommentsCommentType = "TAG_ADDED"
+	UsersCreateResponseCommentsCommentTypeTagRemoved      UsersCreateResponseCommentsCommentType = "TAG_REMOVED"
+	UsersCreateResponseCommentsCommentTypeProfileUpdated  UsersCreateResponseCommentsCommentType = "PROFILE_UPDATED"
+)
+
+// UsersCreateResponseCommentsPreviousStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type UsersCreateResponseCommentsPreviousStatus string
+
+// Known values of UsersCreateResponseCommentsPreviousStatus.
+const (
+	UsersCreateResponseCommentsPreviousStatusActive  UsersCreateResponseCommentsPreviousStatus = "ACTIVE"
+	UsersCreateResponseCommentsPreviousStatusFlagged UsersCreateResponseCommentsPreviousStatus = "FLAGGED"
+	UsersCreateResponseCommentsPreviousStatusBlocked UsersCreateResponseCommentsPreviousStatus = "BLOCKED"
+)
+
+// UsersCreateResponseCommentsNewStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type UsersCreateResponseCommentsNewStatus string
+
+// Known values of UsersCreateResponseCommentsNewStatus.
+const (
+	UsersCreateResponseCommentsNewStatusActive  UsersCreateResponseCommentsNewStatus = "ACTIVE"
+	UsersCreateResponseCommentsNewStatusFlagged UsersCreateResponseCommentsNewStatus = "FLAGGED"
+	UsersCreateResponseCommentsNewStatusBlocked UsersCreateResponseCommentsNewStatus = "BLOCKED"
+)
+
+// UsersCreateResponseVerificationLink: The verification session Didit created
+// and emailed to the person. Always present: `null` when
+// `send_verification_link` was not `true`.
+type UsersCreateResponseVerificationLink struct {
+	// ID of the verification session.
+	SessionID string `json:"session_id"`
+
+	// Sequential number of the session inside your application.
+	SessionNumber int64 `json:"session_number"`
+
+	// Status of the session, `Not Started` for a session that was just created.
+	Status string `json:"status"`
+
+	// The verification link Didit emailed to the person.
+	URL string `json:"url"`
+
+	// The workflow the session runs.
+	WorkflowID string `json:"workflow_id"`
+
+	// The address the link was sent to.
+	Email string `json:"email"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UsersCreateResponseVerificationLink leniently.
+func (r *UsersCreateResponseVerificationLink) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UsersListParams holds the parameters of Client.Users.List.
+type UsersListParams struct {
+	// Page size. Defaults to 50 when omitted. There is no enforced maximum, but
+	// keep pages small for latency.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Zero-based offset of the first record to return. Prefer following the `next`
+	// URL from the previous page over computing this by hand.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r UsersListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// UserListItem: A verified user.
+type UserListItem struct {
+	// Didit's stable internal UUID for this user.
+	DiditInternalID string `json:"didit_internal_id"`
+
+	// Your unique identifier for this user (passed when creating sessions). This
+	// can be null when no vendor identifier was supplied.
+	VendorData string `json:"vendor_data"`
+
+	// Custom display name set by you
+	DisplayName string `json:"display_name"`
+
+	// Full name extracted from verified documents
+	FullName    string `json:"full_name"`
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Best available name: display_name if set, otherwise full_name
+	EffectiveName string `json:"effective_name"`
+
+	// Lifecycle status of the user record (NOT a session status). `ACTIVE` is the
+	// default, `FLAGGED` marks the user for manual attention, `BLOCKED` prevents
+	// new sessions for this `vendor_data`.
+	Status UserListItemStatus `json:"status"`
+
+	// Presigned URL of the user's portrait photo (expires after a few hours)
+	PortraitImageURL string `json:"portrait_image_url"`
+
+	// Total number of verification sessions for this user
+	SessionCount int64 `json:"session_count"`
+
+	// Number of approved sessions
+	ApprovedCount int64 `json:"approved_count"`
+
+	// Number of declined sessions
+	DeclinedCount int64 `json:"declined_count"`
+
+	// Number of sessions in review
+	InReviewCount int64 `json:"in_review_count"`
+
+	// ISO 3166-1 alpha-3 codes of issuing countries seen on this user's approved ID
+	// documents, e.g. `["USA", "ESP"]`. Empty array when none.
+	IssuingStates []string `json:"issuing_states"`
+
+	// Verified email addresses collected from this user's approved sessions, e.g.
+	// `["john@example.com"]`.
+	ApprovedEmails []string `json:"approved_emails"`
+
+	// Verified phone numbers collected from this user's approved sessions, e.g.
+	// `["+14155551234"]`.
+	ApprovedPhones []string `json:"approved_phones"`
+
+	// Aggregated per-feature status across all of this user's sessions. Possible
+	// keys: `ID_VERIFICATION`, `NFC`, `LIVENESS`, `FACE_MATCH`, `POA`,
+	// `QUESTIONNAIRE`, `EMAIL_VERIFICATION`, `PHONE`, `AML`, `IP_ANALYSIS`,
+	// `AGE_ESTIMATION`, `DATABASE_VALIDATION`. Possible values: `Approved`,
+	// `Declined`, `In Review`, `Not Finished`, `Resub Requested`.
+	Features map[string]any `json:"features"`
+
+	// Same data as `features`, as an ordered array of `{feature, status}` objects.
+	FeaturesList []UserListItemFeaturesList `json:"features_list"`
+
+	// Timestamp of the most recent session
+	LastSessionAt time.Time `json:"last_session_at"`
+
+	// Timestamp of the first session
+	FirstSessionAt time.Time `json:"first_session_at"`
+
+	// Timestamp of the most recent activity on this user (session, transaction,
+	// status change, data edit, etc.).
+	LastActivityAt time.Time `json:"last_activity_at"`
+
+	// Tags assigned to this user
+	Tags      []UserListItemTags `json:"tags"`
+	CreatedAt time.Time          `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UserListItem leniently.
+func (r *UserListItem) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UserListItemStatus: Lifecycle status of the user record (NOT a session
+// status). `ACTIVE` is the default, `FLAGGED` marks the user for manual
+// attention, `BLOCKED` prevents new sessions for this `vendor_data`.
+//
+// UserListItemStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type UserListItemStatus string
+
+// Known values of UserListItemStatus.
+const (
+	UserListItemStatusActive  UserListItemStatus = "ACTIVE"
+	UserListItemStatusFlagged UserListItemStatus = "FLAGGED"
+	UserListItemStatusBlocked UserListItemStatus = "BLOCKED"
+)
+
+// UserListItemFeaturesList is a response object.
+type UserListItemFeaturesList struct {
+	Feature string `json:"feature"`
+	Status  string `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UserListItemFeaturesList leniently.
+func (r *UserListItemFeaturesList) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UserListItemTags is a response object.
+type UserListItemTags struct {
+	UUID  string `json:"uuid"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UserListItemTags leniently.
+func (r *UserListItemTags) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // UserDetailItem: Full user detail. Extends UserListItem with metadata,
 // comments, and updated_at.
@@ -613,275 +1101,6 @@ const (
 	UserDetailItemCommentsNewStatusBlocked UserDetailItemCommentsNewStatus = "BLOCKED"
 )
 
-// UsersListParams holds the parameters of Client.Users.List.
-type UsersListParams struct {
-	// Page size. Defaults to 50 when omitted. There is no enforced maximum, but
-	// keep pages small for latency.
-	Limit Opt[int64] `json:"-" query:"limit"`
-
-	// Zero-based offset of the first record to return. Prefer following the `next`
-	// URL from the previous page over computing this by hand.
-	Offset Opt[int64] `json:"-" query:"offset"`
-}
-
-// MarshalJSON encodes the fields that are set.
-func (r UsersListParams) MarshalJSON() ([]byte, error) {
-	return marshalParams(r)
-}
-
-// UserListItem: A verified user.
-type UserListItem struct {
-	// Didit's stable internal UUID for this user.
-	DiditInternalID string `json:"didit_internal_id"`
-
-	// Your unique identifier for this user (passed when creating sessions). This
-	// can be null when no vendor identifier was supplied.
-	VendorData string `json:"vendor_data"`
-
-	// Custom display name set by you
-	DisplayName string `json:"display_name"`
-
-	// Full name extracted from verified documents
-	FullName    string `json:"full_name"`
-	DateOfBirth string `json:"date_of_birth"`
-
-	// Best available name: display_name if set, otherwise full_name
-	EffectiveName string `json:"effective_name"`
-
-	// Lifecycle status of the user record (NOT a session status). `ACTIVE` is the
-	// default, `FLAGGED` marks the user for manual attention, `BLOCKED` prevents
-	// new sessions for this `vendor_data`.
-	Status UserListItemStatus `json:"status"`
-
-	// Presigned URL of the user's portrait photo (expires after a few hours)
-	PortraitImageURL string `json:"portrait_image_url"`
-
-	// Total number of verification sessions for this user
-	SessionCount int64 `json:"session_count"`
-
-	// Number of approved sessions
-	ApprovedCount int64 `json:"approved_count"`
-
-	// Number of declined sessions
-	DeclinedCount int64 `json:"declined_count"`
-
-	// Number of sessions in review
-	InReviewCount int64 `json:"in_review_count"`
-
-	// ISO 3166-1 alpha-3 codes of issuing countries seen on this user's approved ID
-	// documents, e.g. `["USA", "ESP"]`. Empty array when none.
-	IssuingStates []string `json:"issuing_states"`
-
-	// Verified email addresses collected from this user's approved sessions, e.g.
-	// `["john@example.com"]`.
-	ApprovedEmails []string `json:"approved_emails"`
-
-	// Verified phone numbers collected from this user's approved sessions, e.g.
-	// `["+14155551234"]`.
-	ApprovedPhones []string `json:"approved_phones"`
-
-	// Aggregated per-feature status across all of this user's sessions. Possible
-	// keys: `ID_VERIFICATION`, `NFC`, `LIVENESS`, `FACE_MATCH`, `POA`,
-	// `QUESTIONNAIRE`, `EMAIL_VERIFICATION`, `PHONE`, `AML`, `IP_ANALYSIS`,
-	// `AGE_ESTIMATION`, `DATABASE_VALIDATION`. Possible values: `Approved`,
-	// `Declined`, `In Review`, `Not Finished`, `Resub Requested`.
-	Features map[string]any `json:"features"`
-
-	// Same data as `features`, as an ordered array of `{feature, status}` objects.
-	FeaturesList []UserListItemFeaturesList `json:"features_list"`
-
-	// Timestamp of the most recent session
-	LastSessionAt time.Time `json:"last_session_at"`
-
-	// Timestamp of the first session
-	FirstSessionAt time.Time `json:"first_session_at"`
-
-	// Timestamp of the most recent activity on this user (session, transaction,
-	// status change, data edit, etc.).
-	LastActivityAt time.Time `json:"last_activity_at"`
-
-	// Tags assigned to this user
-	Tags      []UserListItemTags `json:"tags"`
-	CreatedAt time.Time          `json:"created_at"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes UserListItem leniently.
-func (r *UserListItem) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// UserListItemStatus: Lifecycle status of the user record (NOT a session
-// status). `ACTIVE` is the default, `FLAGGED` marks the user for manual
-// attention, `BLOCKED` prevents new sessions for this `vendor_data`.
-//
-// UserListItemStatus is a string with known values below. The set is open:
-// other values may appear and never cause an error.
-type UserListItemStatus string
-
-// Known values of UserListItemStatus.
-const (
-	UserListItemStatusActive  UserListItemStatus = "ACTIVE"
-	UserListItemStatusFlagged UserListItemStatus = "FLAGGED"
-	UserListItemStatusBlocked UserListItemStatus = "BLOCKED"
-)
-
-// UserListItemFeaturesList is a response object.
-type UserListItemFeaturesList struct {
-	Feature string `json:"feature"`
-	Status  string `json:"status"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes UserListItemFeaturesList leniently.
-func (r *UserListItemFeaturesList) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// UserListItemTags is a response object.
-type UserListItemTags struct {
-	UUID  string `json:"uuid"`
-	Name  string `json:"name"`
-	Color string `json:"color"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes UserListItemTags leniently.
-func (r *UserListItemTags) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// UsersListNetworksResponse is a response object.
-type UsersListNetworksResponse struct {
-	Results []EntityNetworkMembership `json:"results"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes UsersListNetworksResponse leniently.
-func (r *UsersListNetworksResponse) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// UsersRetrieveOngoingMonitoringJobResponse is a response object.
-type UsersRetrieveOngoingMonitoringJobResponse struct {
-	JobID     string                                          `json:"job_id"`
-	Status    UsersRetrieveOngoingMonitoringJobResponseStatus `json:"status"`
-	IsEnabled bool                                            `json:"is_enabled"`
-	Total     int64                                           `json:"total"`
-	Processed int64                                           `json:"processed"`
-
-	// Per-entity outcome counters. Nothing is silently skipped: every requested
-	// entity resolves to exactly one counter.
-	Outcomes UsersRetrieveOngoingMonitoringJobResponseOutcomes `json:"outcomes"`
-	Error    string                                            `json:"error"`
-
-	// Cost preview. Returned directly when estimate_only is true (no writes are
-	// performed).
-	Estimate UsersRetrieveOngoingMonitoringJobResponseEstimate `json:"estimate"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes UsersRetrieveOngoingMonitoringJobResponse leniently.
-func (r *UsersRetrieveOngoingMonitoringJobResponse) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// UsersRetrieveOngoingMonitoringJobResponseStatus is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type UsersRetrieveOngoingMonitoringJobResponseStatus string
-
-// Known values of UsersRetrieveOngoingMonitoringJobResponseStatus.
-const (
-	UsersRetrieveOngoingMonitoringJobResponseStatusPending    UsersRetrieveOngoingMonitoringJobResponseStatus = "PENDING"
-	UsersRetrieveOngoingMonitoringJobResponseStatusProcessing UsersRetrieveOngoingMonitoringJobResponseStatus = "PROCESSING"
-	UsersRetrieveOngoingMonitoringJobResponseStatusCompleted  UsersRetrieveOngoingMonitoringJobResponseStatus = "COMPLETED"
-	UsersRetrieveOngoingMonitoringJobResponseStatusFailed     UsersRetrieveOngoingMonitoringJobResponseStatus = "FAILED"
-)
-
-// UsersRetrieveOngoingMonitoringJobResponseOutcomes: Per-entity outcome
-// counters. Nothing is silently skipped: every requested entity resolves to
-// exactly one counter.
-type UsersRetrieveOngoingMonitoringJobResponseOutcomes struct {
-	// Monitoring enabled on an existing AML screening.
-	Enabled int64 `json:"enabled"`
-
-	// A new AML screening was created (billed) and monitoring enabled.
-	ScreenedAndEnabled int64 `json:"screened_and_enabled"`
-
-	// Monitoring was already active (legacy duplicate rows are consolidated).
-	AlreadyEnabled int64 `json:"already_enabled"`
-
-	// Monitoring disabled on every AML row of the entity.
-	Disabled int64 `json:"disabled"`
-
-	// Skipped: no full name + date of birth + country available to screen.
-	SkippedNoIdentityData int64 `json:"skipped_no_identity_data"`
-
-	// Skipped: the user is blocked.
-	SkippedBlocked int64 `json:"skipped_blocked"`
-
-	// Skipped: sandbox application.
-	SkippedSandbox int64 `json:"skipped_sandbox"`
-
-	// The screening provider call failed.
-	FailedProvider int64 `json:"failed_provider"`
-
-	// Balance ran out mid-job.
-	FailedInsufficientBalance int64 `json:"failed_insufficient_balance"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes UsersRetrieveOngoingMonitoringJobResponseOutcomes leniently.
-func (r *UsersRetrieveOngoingMonitoringJobResponseOutcomes) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// UsersRetrieveOngoingMonitoringJobResponseEstimate: Cost preview. Returned
-// directly when estimate_only is true (no writes are performed).
-type UsersRetrieveOngoingMonitoringJobResponseEstimate struct {
-	// Entities in the selection.
-	UsersTotal     int64 `json:"users_total"`
-	AlreadyEnabled int64 `json:"already_enabled"`
-
-	// Entities whose existing AML screening will be switched to monitored.
-	WithExistingAML int64 `json:"with_existing_aml"`
-
-	// Entities without any AML screening that will be screened first (billed).
-	NeedingScreening                 int64   `json:"needing_screening"`
-	SkippedNoIdentityData            int64   `json:"skipped_no_identity_data"`
-	SkippedBlocked                   int64   `json:"skipped_blocked"`
-	EstimatedScreeningCostUsd        float64 `json:"estimated_screening_cost_usd"`
-	EstimatedAnnualMonitoringCostUsd float64 `json:"estimated_annual_monitoring_cost_usd"`
-	BalanceSufficient                bool    `json:"balance_sufficient"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes UsersRetrieveOngoingMonitoringJobResponseEstimate leniently.
-func (r *UsersRetrieveOngoingMonitoringJobResponseEstimate) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
 // UsersSetAMLMonitoringParams holds the parameters of
 // Client.Users.SetAMLMonitoring.
 type UsersSetAMLMonitoringParams struct {
@@ -1102,33 +1321,6 @@ func (r *UsersSetAMLMonitoringResponseEstimate) UnmarshalJSON(data []byte) error
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// UsersSetOngoingMonitoringParams holds the parameters of
-// Client.Users.SetOngoingMonitoring.
-type UsersSetOngoingMonitoringParams struct {
-	// true to enable monitoring, false to disable it. Required.
-	IsEnabled bool `json:"is_enabled"`
-
-	// When true, returns the cost estimate and performs no writes.
-	EstimateOnly Opt[bool] `json:"estimate_only"`
-
-	// Apply to every entity of the application (scoped by the filter_* params when
-	// present).
-	UpdateAll      Opt[bool]     `json:"update_all"`
-	FilterSearch   Opt[string]   `json:"filter_search"`
-	FilterStatus   Opt[[]string] `json:"filter_status"`
-	FilterCountry  Opt[string]   `json:"filter_country"`
-	FilterDateFrom Opt[string]   `json:"filter_date_from"`
-	FilterDateTo   Opt[string]   `json:"filter_date_to"`
-
-	// Entities to toggle. Required unless update_all is true.
-	DiditInternalIDList Opt[[]string] `json:"didit_internal_id_list"`
-}
-
-// MarshalJSON encodes the fields that are set.
-func (r UsersSetOngoingMonitoringParams) MarshalJSON() ([]byte, error) {
-	return marshalParams(r)
-}
-
 // UsersSetOngoingMonitoringResponse is a response object.
 type UsersSetOngoingMonitoringResponse struct {
 	JobID     string                                  `json:"job_id"`
@@ -1248,9 +1440,9 @@ type UsersUpdateParams struct {
 	// Date of birth in YYYY-MM-DD format
 	DateOfBirth Opt[string] `json:"date_of_birth"`
 
-	// User lifecycle status. Changing it via this generic PATCH does NOT sync the
-	// system blocklist or record a status-change activity; prefer the update-status
-	// endpoint.
+	// User lifecycle status. A change is recorded as a `STATUS_CHANGED` activity,
+	// and `BLOCKED` adds the `vendor_data` to the system blocklist (moving away
+	// from `BLOCKED` removes that entry).
 	Status Opt[UsersUpdateParamsStatus] `json:"status"`
 
 	// Arbitrary JSON object you attach to the user. **Fully replaces** the existing
@@ -1267,6 +1459,11 @@ type UsersUpdateParams struct {
 	// Issuing countries (ISO 3166-1 alpha-3), e.g. `["USA"]`. Fully replaces the
 	// stored list.
 	IssuingStates Opt[[]string] `json:"issuing_states"`
+
+	// Why the status changed. Recorded on the status-change entry of the user's
+	// activity (`comments[].comment`, and **Activity** in the Business Console),
+	// only when the status actually changes. Webhooks do not carry it.
+	Reason Opt[string] `json:"reason"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -1274,9 +1471,9 @@ func (r UsersUpdateParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
-// UsersUpdateParamsStatus: User lifecycle status. Changing it via this generic
-// PATCH does NOT sync the system blocklist or record a status-change activity;
-// prefer the update-status endpoint.
+// UsersUpdateParamsStatus: User lifecycle status. A change is recorded as a
+// `STATUS_CHANGED` activity, and `BLOCKED` adds the `vendor_data` to the system
+// blocklist (moving away from `BLOCKED` removes that entry).
 //
 // UsersUpdateParamsStatus is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -1294,6 +1491,11 @@ type UsersUpdateStatusParams struct {
 	// New lifecycle status. `BLOCKED` also adds the `vendor_data` to the system
 	// blocklist. Required.
 	Status UsersUpdateStatusParamsStatus `json:"status"`
+
+	// Why the status changed. Recorded on the status-change entry of the user's
+	// activity (`comments[].comment`, and **Activity** in the Business Console),
+	// only when the status actually changes. Webhooks do not carry it.
+	Reason Opt[string] `json:"reason"`
 }
 
 // MarshalJSON encodes the fields that are set.

@@ -9,10 +9,24 @@ import (
 	"github.com/didit-protocol/sdk-go"
 )
 
+func TestTravelRuleClearVASPDecision(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"decision":null}`)
+	res, err := client.TravelRule.ClearVASPDecision(context.Background(), "vasp-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/travel-rule/vasps/vasp-id-1/decision/")
+	req.expectAPIKey(t)
+	if res == nil {
+		t.Fatal("nil result")
+	}
+}
+
 func TestTravelRuleCreateWidgetSession(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"widget_session_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","token":"sample-token","url":"string","expires_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.TravelRuleWidgetSessionCreate
-	mustUnmarshal(t, `{"wallet_address":"0xBeneficiaryWallet01","chain":"ethereum","holder_name":"Ana Diaz","vendor_data":"user-042","transaction_id":"22222222-3333-4444-5555-666666666666","expires_in_minutes":60}`, &params)
+	mustUnmarshal(t, `{"wallet_address":"0xd3b62acb76fb27a7f8961ec40fa11746b113aca9","chain":"ETH","holder_name":"Jane Doe","vendor_data":"user-042","transaction_id":"99999999-aaaa-bbbb-cccc-dddddddddddd","expires_in_minutes":60}`, &params)
 	res, err := client.TravelRule.CreateWidgetSession(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -20,14 +34,32 @@ func TestTravelRuleCreateWidgetSession(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/travel-rule/widget-session/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"wallet_address":"0xBeneficiaryWallet01","chain":"ethereum","holder_name":"Ana Diaz","vendor_data":"user-042","transaction_id":"22222222-3333-4444-5555-666666666666","expires_in_minutes":60}`)
+	req.expectJSON(t, `{"wallet_address":"0xd3b62acb76fb27a7f8961ec40fa11746b113aca9","chain":"ETH","holder_name":"Jane Doe","vendor_data":"user-042","transaction_id":"99999999-aaaa-bbbb-cccc-dddddddddddd","expires_in_minutes":60}`)
 	expectFields(t, res.JSON, []string{"widget_session_id", "token", "url", "expires_at"})
 }
 
+func TestTravelRuleListVASPQuestionnaires(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"questionnaires":[{"id":"3f9e8d7c-6b5a-4c3d-9e2f-1a0b9c8d7e6f","status":"SENT","form_version":"1","sent_to":"travelrule@counterparty.example","sent_at":"2026-10-14T10:00:00Z","expires_at":"2026-11-13T10:00:00Z","answered_at":null,"valid_until":null,"current":false,"answers":{}},{"id":"8b7a6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d","status":"ANSWERED","form_version":"1","sent_to":"travelrule@counterparty.example","sent_at":"2026-09-02T08:00:00Z","expires_at":"2026-10-02T08:00:00Z","answered_at":"2026-09-04T15:20:00Z","valid_until":"2027-09-04T15:20:00Z","current":true,"answers":{"legal_name":"Example Counterparty VASP, incorporated in the example jurisdiction.","licensing":"Crypto-asset service provider authorised under MiCA by its national regulator, licence active.","jurisdictions":"EU and EEA. We do not serve the United States.","aml_program":"Written AML/CFT policy, annual independent review, last completed in March 2026.","compliance_officer":"Head of Compliance, reachable at compliance@counterparty.example.","sanctions_screening":"Customers at onboarding and daily; counterparties on every transfer.","transaction_monitoring":"Rule-based monitoring with analyst review; suspicious activity reports filed with the FIU.","travel_rule":"TRP and email; we answer requests within one business day.","custody":"Segregated customer wallets held with a qualified custodian, insured.","ownership":"No shareholder holds 25 percent or more; parent company Example Holding Group.","record_keeping":"Five-year record-keeping for Travel Rule and transaction data, as our regulator requires.","data_protection":"Encrypted at rest and in transit, stored in the EU."}}]}`)
+	res, err := client.TravelRule.ListVASPQuestionnaires(context.Background(), "vasp-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/vasps/vasp-id-1/questionnaires/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"questionnaires"})
+}
+
 func TestTravelRuleListVASPs(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"string","previous":"string","results":[{"name":"string","lei":"string","jurisdiction":"string","dd_status":"NOT_STARTED","dd_score":1,"reachable_rails":["INTERNAL"],"is_didit_customer":true,"dd_score_breakdown":{"key":1},"dd_assessed_at":"2025-01-02T03:04:05Z"}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"string","previous":"string","results":[{"id":"0d6f3c2a-6a1e-4c55-9a39-1f2b0c7d8e91","kind":"directory","name":"Example Counterparty VASP","lei":"529900EXAMPLECPTY001","jurisdiction":"DE","domains":["counterparty.example"],"reachable":true,"aliases":[{"name":"Example Counterparty","kind":"trading_name"}],"networks":[{"network":"GTR","code":"EXAMPLE01","listed_name":"Example Counterparty VASP","country":"DE","verified_at":"2026-10-12T09:30:00Z","last_seen_at":"2026-10-12T09:30:00Z","source":"staff"}],"routes":[{"rail":"GTR","status":"unavailable","reason":"no_membership","via":""},{"rail":"EMAIL","status":"available","reason":"","via":"contact"}],"umbrella":null,"entities":[],"contacts":[{"id":"6c1f9b8e-2d4a-4f7e-8b3c-5a9d0e1f2a3b","email":"travelrule@counterparty.example","name":"Travel Rule desk","source":"staff","scope":"platform","verified_at":null}],"dd_status":"NOT_STARTED","dd_score":62,"reachable_rails":["GTR","EMAIL"],"is_didit_customer":false,"dd_score_breakdown":{"jurisdiction":{"points":25.0,"max":25,"reason":"jurisdiction_not_high_risk","detail":"DEU is not on the high-risk jurisdiction list"},"verification":{"points":3.8,"max":15,"reason":"dd_status_not_started","detail":"due diligence status NOT_STARTED"},"protocol":{"points":6.0,"max":15,"reason":"email_only","detail":"reachable over the email fallback only"},"lei":{"points":10.0,"max":10,"reason":"lei_valid","detail":"valid LEI on record"},"history":{"points":5.0,"max":10,"reason":"no_history","detail":"no exchange history"},"essentials":{"points":7.5,"max":15,"reason":"no_essential_checks","detail":"no decided essential check yet"},"responsiveness":{"points":5.0,"max":10,"reason":"responsiveness_unknown","detail":"0 decided recent requests, too few to judge"}},"dd_assessed_at":"2026-10-12T09:30:00Z","dd_score_semantic":"higher_is_safer","risk_level":"MEDIUM","responsiveness":{"status":"UNKNOWN","answered":0,"total":0,"computed_at":"2026-10-12T09:30:00Z"},"essential_checks":{},"decision":{"decision":"APPROVED","reason":"Licensed in DE, questionnaire reviewed","decided_by":"","updated_at":"2026-10-14T10:05:00Z","inherited_from":null},"entity_screening":{"id":"7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d","status":"Approved","total_hits":0,"score":null,"screened_at":"2026-10-14T09:58:00Z","fresh":true,"flagged":false},"questionnaires":[{"id":"8b7a6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d","status":"ANSWERED","form_version":"1","sent_to":"travelrule@counterparty.example","sent_at":"2026-09-02T08:00:00Z","expires_at":"2026-10-02T08:00:00Z","answered_at":"2026-09-04T15:20:00Z","valid_until":"2027-09-04T15:20:00Z","current":true,"answers":{"legal_name":"Example Counterparty VASP, incorporated in the example jurisdiction.","licensing":"Crypto-asset service provider authorised under MiCA by its national regulator, licence active.","jurisdictions":"EU and EEA. We do not serve the United States.","aml_program":"Written AML/CFT policy, annual independent review, last completed in March 2026.","compliance_officer":"Head of Compliance, reachable at compliance@counterparty.example.","sanctions_screening":"Customers at onboarding and daily; counterparties on every transfer.","transaction_monitoring":"Rule-based monitoring with analyst review; suspicious activity reports filed with the FIU.","travel_rule":"TRP and email; we answer requests within one business day.","custody":"Segregated customer wallets held with a qualified custodian, insured.","ownership":"No shareholder holds 25 percent or more; parent company Example Holding Group.","record_keeping":"Five-year record-keeping for Travel Rule and transaction data, as our regulator requires.","data_protection":"Encrypted at rest and in transit, stored in the EU."}}]}]}`)
 	var params didit.TravelRuleListVASPsParams
 	params.Search = didit.String("value")
+	params.Network = didit.Some(didit.TravelRuleListVASPsParamsNetworkGtr)
+	params.Jurisdiction = didit.String("value")
+	params.Reachable = didit.Bool(true)
+	params.Kind = didit.Some(didit.TravelRuleListVASPsParamsKindDirectory)
+	params.Risk = didit.Some(didit.TravelRuleListVASPsParamsRiskLow)
+	params.Responsiveness = didit.Some(didit.TravelRuleListVASPsParamsResponsivenessResponsive)
 	params.Limit = didit.Int(50)
 	params.Offset = didit.Int(0)
 	res, err := client.TravelRule.ListVASPs(context.Background(), params)
@@ -37,20 +69,20 @@ func TestTravelRuleListVASPs(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/travel-rule/vasps/")
 	req.expectAPIKey(t)
-	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0", "search": "value"})
+	req.expectQuery(t, map[string]string{"jurisdiction": "value", "kind": "directory", "limit": "50", "network": "GTR", "offset": "0", "reachable": "true", "responsiveness": "RESPONSIVE", "risk": "LOW", "search": "value"})
 	if res == nil {
 		t.Fatal("nil page")
 	}
 	if len(res.Results) == 0 {
 		t.Fatal("no results")
 	}
-	expectFields(t, res.Results[0].JSON, []string{"name", "lei", "jurisdiction", "dd_status", "dd_score", "reachable_rails", "is_didit_customer", "dd_score_breakdown", "dd_assessed_at"})
+	expectFields(t, res.Results[0].JSON, []string{"id", "kind", "name", "lei", "jurisdiction", "domains", "reachable", "aliases", "networks", "routes", "entities", "contacts", "dd_status", "dd_score", "reachable_rails", "is_didit_customer", "dd_score_breakdown", "dd_assessed_at", "dd_score_semantic", "risk_level", "responsiveness", "essential_checks", "decision", "entity_screening", "questionnaires"})
 }
 
 func TestTravelRuleRegisterInbound(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"transaction_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","txn_id":"string","created":true,"travel_rule":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","direction":"INBOUND","rail":"INTERNAL","protocol":"string","ivms_version":"ivms101.2023","required":true,"ownership_confirmed":true,"deadline_at":"2025-01-02T03:04:05Z","timeline":[{"status":"string","at":"2025-01-02T03:04:05Z","detail":"string"}],"counterparty_vasp":{"name":"string","lei":"string","dd_score":1},"originator_data":{"key":"value"},"beneficiary_data":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"transaction_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","txn_id":"string","created":true,"travel_rule":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","direction":"INBOUND","rail":"INTERNAL","protocol":"string","ivms_version":"ivms101.2023","required":true,"ownership_confirmed":true,"deadline_at":"2025-01-02T03:04:05Z","timeline":[{"status":"string","at":"2025-01-02T03:04:05Z","detail":"string","name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"reason":"string"}],"counterparty_vasp":{"name":"string","lei":"string","dd_score":1,"dd_score_breakdown":{"key":{"points":1.5,"max":1,"reason":"string","detail":"string"}},"dd_assessed_at":"2025-01-02T03:04:05Z"},"originator_data":{"key":"value"},"beneficiary_data":{"key":"value"},"name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"data_match":{"matched":true,"mismatched_fields":["name"],"fields":{"key":{"result":"matched","strictness":"NONE"}}},"mismatched_fields":["string"],"data_unmasked":{"at":"2025-01-02T03:04:05Z","reason":"ownership_confirmed","actor":"string"},"data_masked":true,"created_at":"2025-01-02T03:04:05Z","delivery":{"kind":"SEND","status":"QUEUED","rail":"INTERNAL","attempts":0,"last_error":"email undeliverable","next_attempt_at":"2025-01-02T03:04:05Z","delivered_at":"2025-01-02T03:04:05Z"},"discovery":[{"step":"internal_address_book","outcome":"match","reason":"string","vasp":"3fa85f64-5717-4562-b3fc-2c963f66afa6","rail":"string","at":"2025-01-02T03:04:05Z"}],"reason":"string","next_actions":[{"action":"select_counterparty_vasp","url":"https://example.com/path"}],"chain_details":{"chain":"string","shape":"utxo","originator":{"address":"string","memo":"string","source":"declared"},"beneficiary":{"address":"string","memo":"string","source":"declared"},"utxo":{"inputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"outputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"change_output_indexes":[1],"beneficiary_output_index":1},"lightning":{"key":"value"},"warnings":["declared_originator_not_an_input"],"not_applicable_reason":"LIGHTNING_NO_PAYEE_IDENTIFIER"}}}`)
 	var params didit.TravelRuleInboundRequest
-	mustUnmarshal(t, `{"chain":"ethereum","txid":"0xdeposit-hash","wallet_address":"0xYourDepositWallet","amount":"500.00","currency":"USDC","originator_data":{"name":"Origin CASP SL"},"beneficiary_data":{"name":"Ana Diaz"},"originating_vasp":{"name":"Origin CASP SL","lei":"","travel_address":"ta..."}}`, &params)
+	mustUnmarshal(t, `{"chain":"ETH","txid":"0xdeposit-hash","wallet_address":"0xYourDepositWallet","amount":"500.00","currency":"USDC","originator_data":{"name":"Origin CASP SL"},"beneficiary_data":{"name":"Ana Diaz"},"originating_vasp":{"name":"Origin CASP SL","lei":"","travel_address":"ta9JbXbsBSuS5ozArJRFVgvBHMVnDGUnrPPChSZYQsuZTn3kPrJXUQ7RSLUEJ5KjyPvr8C9sAxmPtZfGsQVKCi4n8ShxP9BkbDdbtjtA9aumNybAZ1BxC"}}`, &params)
 	res, err := client.TravelRule.RegisterInbound(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -58,12 +90,12 @@ func TestTravelRuleRegisterInbound(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/travel-rule/inbound/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"chain":"ethereum","txid":"0xdeposit-hash","wallet_address":"0xYourDepositWallet","amount":"500.00","currency":"USDC","originator_data":{"name":"Origin CASP SL"},"beneficiary_data":{"name":"Ana Diaz"},"originating_vasp":{"name":"Origin CASP SL","lei":"","travel_address":"ta..."}}`)
+	req.expectJSON(t, `{"chain":"ETH","txid":"0xdeposit-hash","wallet_address":"0xYourDepositWallet","amount":"500.00","currency":"USDC","originator_data":{"name":"Origin CASP SL"},"beneficiary_data":{"name":"Ana Diaz"},"originating_vasp":{"name":"Origin CASP SL","lei":"","travel_address":"ta9JbXbsBSuS5ozArJRFVgvBHMVnDGUnrPPChSZYQsuZTn3kPrJXUQ7RSLUEJ5KjyPvr8C9sAxmPtZfGsQVKCi4n8ShxP9BkbDdbtjtA9aumNybAZ1BxC"}}`)
 	expectFields(t, res.JSON, []string{"transaction_id", "txn_id", "created", "travel_rule"})
 }
 
 func TestTravelRuleRetrieveSettings(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"is_enabled":false,"jurisdiction":"EU","name_matching_strictness":"DEFAULT","confirmation_timeout_hours":48,"timeout_outcome":"HOLD","threshold_amount":"0.00","legal_name":"","lei":"","compliance_email":"","is_discoverable":true,"disabled_networks":[],"networks":{"gtr":{"rail":"GTR","mode":"unavailable","platform_available":false,"connected":false},"trust":{"rail":"TRUST","mode":"unavailable","platform_available":false,"connected":false},"verifyvasp":{"rail":"VERIFYVASP","mode":"unavailable","platform_available":false,"connected":false},"sygna":{"rail":"SYGNA","mode":"unavailable","platform_available":false,"connected":false}}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"is_enabled":false,"jurisdiction":"EU","name_matching_strictness":"DEFAULT","confirmation_timeout_hours":48,"timeout_outcome":"HOLD","threshold_amount":"0.00","inbound_auto_accept":true,"allow_self_declaration":true,"allow_screenshot_proof":true,"auto_wallet_verification":true,"vasp_attribution_enabled":true,"legal_name":"","lei":"","compliance_email":"","is_discoverable":true,"counterparty_screening_enabled":false,"sunrise_policy":"","sunrise_jurisdictions":["CO","KH","VN"],"non_responsive_policy":"","travel_address":"","disabled_networks":[],"networks":{"gtr":{"rail":"GTR","mode":"unavailable","platform_available":false,"connected":false},"trust":{"rail":"TRUST","mode":"unavailable","platform_available":false,"connected":false},"verifyvasp":{"rail":"VERIFYVASP","mode":"unavailable","platform_available":false,"connected":false},"sygna":{"rail":"SYGNA","mode":"unavailable","platform_available":false,"connected":false}},"didit_network":{"listed":false,"missing":["travel_rule_off","legal_name_missing","compliance_email_missing"],"compliance_email_confirmed":false}}`)
 	res, err := client.TravelRule.RetrieveSettings(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -71,11 +103,89 @@ func TestTravelRuleRetrieveSettings(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/travel-rule/settings/")
 	req.expectAPIKey(t)
-	expectFields(t, res.JSON, []string{"is_enabled", "jurisdiction", "name_matching_strictness", "confirmation_timeout_hours", "timeout_outcome", "threshold_amount", "legal_name", "lei", "compliance_email", "is_discoverable", "disabled_networks", "networks"})
+	expectFields(t, res.JSON, []string{"is_enabled", "jurisdiction", "name_matching_strictness", "confirmation_timeout_hours", "timeout_outcome", "threshold_amount", "legal_name", "lei", "compliance_email", "is_discoverable", "inbound_auto_accept", "allow_self_declaration", "allow_screenshot_proof", "auto_wallet_verification", "vasp_attribution_enabled", "counterparty_screening_enabled", "sunrise_policy", "sunrise_jurisdictions", "non_responsive_policy", "travel_address", "disabled_networks", "networks", "didit_network"})
+}
+
+func TestTravelRuleRetrieveVASP(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"id":"0d6f3c2a-6a1e-4c55-9a39-1f2b0c7d8e91","kind":"directory","name":"Example Counterparty VASP","lei":"529900EXAMPLECPTY001","jurisdiction":"DE","domains":["counterparty.example"],"reachable":true,"aliases":[{"name":"Example Counterparty","kind":"trading_name"}],"networks":[{"network":"GTR","code":"EXAMPLE01","listed_name":"Example Counterparty VASP","country":"DE","verified_at":"2026-10-12T09:30:00Z","last_seen_at":"2026-10-12T09:30:00Z","source":"staff"}],"routes":[{"rail":"GTR","status":"unavailable","reason":"no_membership","via":""},{"rail":"EMAIL","status":"available","reason":"","via":"contact"}],"umbrella":null,"entities":[],"contacts":[{"id":"6c1f9b8e-2d4a-4f7e-8b3c-5a9d0e1f2a3b","email":"travelrule@counterparty.example","name":"Travel Rule desk","source":"staff","scope":"platform","verified_at":null}],"dd_status":"NOT_STARTED","dd_score":62,"reachable_rails":["GTR","EMAIL"],"is_didit_customer":false,"dd_score_breakdown":{"jurisdiction":{"points":25.0,"max":25,"reason":"jurisdiction_not_high_risk","detail":"DEU is not on the high-risk jurisdiction list"},"verification":{"points":3.8,"max":15,"reason":"dd_status_not_started","detail":"due diligence status NOT_STARTED"},"protocol":{"points":6.0,"max":15,"reason":"email_only","detail":"reachable over the email fallback only"},"lei":{"points":10.0,"max":10,"reason":"lei_valid","detail":"valid LEI on record"},"history":{"points":5.0,"max":10,"reason":"no_history","detail":"no exchange history"},"essentials":{"points":7.5,"max":15,"reason":"no_essential_checks","detail":"no decided essential check yet"},"responsiveness":{"points":5.0,"max":10,"reason":"responsiveness_unknown","detail":"0 decided recent requests, too few to judge"}},"dd_assessed_at":"2026-10-12T09:30:00Z","dd_score_semantic":"higher_is_safer","risk_level":"MEDIUM","responsiveness":{"status":"UNKNOWN","answered":0,"total":0,"computed_at":"2026-10-12T09:30:00Z"},"essential_checks":{},"decision":{"decision":"APPROVED","reason":"Licensed in DE, questionnaire reviewed","decided_by":"","updated_at":"2026-10-14T10:05:00Z","inherited_from":null},"entity_screening":{"id":"7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d","status":"Approved","total_hits":0,"score":null,"screened_at":"2026-10-14T09:58:00Z","fresh":true,"flagged":false},"questionnaires":[{"id":"8b7a6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d","status":"ANSWERED","form_version":"1","sent_to":"travelrule@counterparty.example","sent_at":"2026-09-02T08:00:00Z","expires_at":"2026-10-02T08:00:00Z","answered_at":"2026-09-04T15:20:00Z","valid_until":"2027-09-04T15:20:00Z","current":true,"answers":{"legal_name":"Example Counterparty VASP, incorporated in the example jurisdiction.","licensing":"Crypto-asset service provider authorised under MiCA by its national regulator, licence active.","jurisdictions":"EU and EEA. We do not serve the United States.","aml_program":"Written AML/CFT policy, annual independent review, last completed in March 2026.","compliance_officer":"Head of Compliance, reachable at compliance@counterparty.example.","sanctions_screening":"Customers at onboarding and daily; counterparties on every transfer.","transaction_monitoring":"Rule-based monitoring with analyst review; suspicious activity reports filed with the FIU.","travel_rule":"TRP and email; we answer requests within one business day.","custody":"Segregated customer wallets held with a qualified custodian, insured.","ownership":"No shareholder holds 25 percent or more; parent company Example Holding Group.","record_keeping":"Five-year record-keeping for Travel Rule and transaction data, as our regulator requires.","data_protection":"Encrypted at rest and in transit, stored in the EU."}}]}`)
+	res, err := client.TravelRule.RetrieveVASP(context.Background(), "vasp-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/vasps/vasp-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"id", "kind", "name", "lei", "jurisdiction", "domains", "reachable", "aliases", "networks", "routes", "entities", "contacts", "dd_status", "dd_score", "reachable_rails", "is_didit_customer", "dd_score_breakdown", "dd_assessed_at", "dd_score_semantic", "risk_level", "responsiveness", "essential_checks", "decision", "entity_screening", "questionnaires"})
+}
+
+func TestTravelRuleRetrieveVASPDecision(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"decision":{"decision":"APPROVED","reason":"Licensed in DE, questionnaire reviewed","decided_by":"","updated_at":"2026-10-14T10:05:00Z","inherited_from":null}}`)
+	res, err := client.TravelRule.RetrieveVASPDecision(context.Background(), "vasp-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/vasps/vasp-id-1/decision/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"decision"})
+}
+
+func TestTravelRuleRetrieveVASPScreening(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"enabled":true,"price":"0.20","fresh_days":30,"screening":{"id":"7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d","status":"Approved","total_hits":0,"score":null,"screened_at":"2026-10-14T09:58:00Z","fresh":true,"flagged":false}}`)
+	res, err := client.TravelRule.RetrieveVASPScreening(context.Background(), "vasp-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/vasps/vasp-id-1/screening/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"enabled", "price", "fresh_days", "screening"})
+}
+
+func TestTravelRuleScreenVASP(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"outcome":"reused","screening":{"id":"7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d","status":"Approved","total_hits":0,"score":null,"screened_at":"2026-10-14T09:58:00Z","fresh":true,"flagged":false}}`)
+	var params didit.TravelRuleCounterpartyScreeningRequest
+	mustUnmarshal(t, `{"refresh":false}`, &params)
+	res, err := client.TravelRule.ScreenVASP(context.Background(), "vasp-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/vasps/vasp-id-1/screening/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"refresh":false}`)
+	expectFields(t, res.JSON, []string{"outcome", "screening"})
+}
+
+func TestTravelRuleSendComplianceEmailConfirmation(t *testing.T) {
+	client, mock := newMockClient(t, 202, "application/json", `{"sent_to":"compliance@your-vasp.example"}`)
+	res, err := client.TravelRule.SendComplianceEmailConfirmation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/settings/compliance-email/confirmation/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"sent_to"})
+}
+
+func TestTravelRuleSendVASPQuestionnaire(t *testing.T) {
+	client, mock := newMockClient(t, 202, "application/json", `{"id":"3f9e8d7c-6b5a-4c3d-9e2f-1a0b9c8d7e6f","status":"SENT","form_version":"1","sent_to":"travelrule@counterparty.example","sent_at":"2026-10-14T10:00:00Z","expires_at":"2026-11-13T10:00:00Z","answered_at":null,"valid_until":null,"current":false,"answers":{}}`)
+	var params didit.TravelRuleCounterpartyQuestionnaireRequest
+	mustUnmarshal(t, `{"sent_to":"travelrule@counterparty.example"}`, &params)
+	res, err := client.TravelRule.SendVASPQuestionnaire(context.Background(), "vasp-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/vasps/vasp-id-1/questionnaires/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"sent_to":"travelrule@counterparty.example"}`)
+	expectFields(t, res.JSON, []string{"id", "status", "form_version", "sent_to", "sent_at", "expires_at", "current", "answers"})
 }
 
 func TestTravelRuleUpdateSettings(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"is_enabled":true,"jurisdiction":"string","name_matching_strictness":"NONE","confirmation_timeout_hours":1,"timeout_outcome":"HOLD","threshold_amount":"string","legal_name":"string","lei":"string","compliance_email":"user@example.com","is_discoverable":true,"inbound_auto_accept":true,"allow_self_declaration":true,"allow_screenshot_proof":true,"auto_wallet_verification":true,"vasp_attribution_enabled":true,"travel_address":"string","disabled_networks":["GTR"],"networks":{"gtr":{"rail":"GTR","mode":"own","platform_available":true,"connected":true},"trust":{"rail":"TRUST","mode":"own","platform_available":true,"connected":true},"verifyvasp":{"rail":"VERIFYVASP","mode":"own","platform_available":true,"connected":true},"sygna":{"rail":"SYGNA","mode":"own","platform_available":true,"connected":true}}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"is_enabled":true,"jurisdiction":"string","name_matching_strictness":"NONE","confirmation_timeout_hours":1,"timeout_outcome":"HOLD","threshold_amount":"string","ownership_validation_mode":"FULL","simplified_validation_threshold":"string","data_sharing_fields":{"individual":["name"],"company":["name"]},"matching_rules":{"individual":{"name":"NONE","date_of_birth":"NONE","address":"NONE","account":"NONE"},"company":{"name":"NONE","address":"NONE","account":"NONE"}},"legal_name":"string","lei":"string","compliance_email":"user@example.com","is_discoverable":true,"inbound_auto_accept":true,"allow_self_declaration":true,"allow_screenshot_proof":true,"auto_wallet_verification":true,"vasp_attribution_enabled":true,"counterparty_screening_enabled":true,"sunrise_policy":"","sunrise_jurisdictions":["string"],"non_responsive_policy":"","travel_address":"string","disabled_networks":["GTR"],"networks":{"gtr":{"rail":"GTR","mode":"own","platform_available":true,"connected":true},"trust":{"rail":"TRUST","mode":"own","platform_available":true,"connected":true},"verifyvasp":{"rail":"VERIFYVASP","mode":"own","platform_available":true,"connected":true},"sygna":{"rail":"SYGNA","mode":"own","platform_available":true,"connected":true}},"didit_network":{"listed":true,"missing":["travel_rule_off"],"compliance_email_confirmed":true}}`)
 	var params didit.TravelRuleSettingsUpdate
 	mustUnmarshal(t, `{"is_enabled":true,"legal_name":"Origin CASP SL","jurisdiction":"EU","name_matching_strictness":"DEFAULT","confirmation_timeout_hours":48,"timeout_outcome":"HOLD","is_discoverable":true}`, &params)
 	res, err := client.TravelRule.UpdateSettings(context.Background(), params)
@@ -86,13 +196,121 @@ func TestTravelRuleUpdateSettings(t *testing.T) {
 	req.expect(t, "PUT", "/v3/travel-rule/settings/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"is_enabled":true,"legal_name":"Origin CASP SL","jurisdiction":"EU","name_matching_strictness":"DEFAULT","confirmation_timeout_hours":48,"timeout_outcome":"HOLD","is_discoverable":true}`)
-	expectFields(t, res.JSON, []string{"is_enabled", "jurisdiction", "name_matching_strictness", "confirmation_timeout_hours", "timeout_outcome", "threshold_amount", "legal_name", "lei", "compliance_email", "is_discoverable", "inbound_auto_accept", "allow_self_declaration", "allow_screenshot_proof", "auto_wallet_verification", "vasp_attribution_enabled", "travel_address", "disabled_networks", "networks"})
+	expectFields(t, res.JSON, []string{"is_enabled", "jurisdiction", "name_matching_strictness", "confirmation_timeout_hours", "timeout_outcome", "threshold_amount", "ownership_validation_mode", "simplified_validation_threshold", "data_sharing_fields", "matching_rules", "legal_name", "lei", "compliance_email", "is_discoverable", "inbound_auto_accept", "allow_self_declaration", "allow_screenshot_proof", "auto_wallet_verification", "vasp_attribution_enabled", "counterparty_screening_enabled", "sunrise_policy", "sunrise_jurisdictions", "non_responsive_policy", "travel_address", "disabled_networks", "networks", "didit_network"})
+}
+
+func TestTravelRuleUpdateVASPDecision(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"decision":{"decision":"BLOCKED","reason":"Unlicensed in its home jurisdiction","decided_by":"","updated_at":"2026-10-14T10:05:00Z","inherited_from":null}}`)
+	var params didit.TravelRuleCounterpartyDecisionRequest
+	mustUnmarshal(t, `{"decision":"BLOCKED","reason":"Unlicensed in its home jurisdiction"}`, &params)
+	res, err := client.TravelRule.UpdateVASPDecision(context.Background(), "vasp-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PUT", "/v3/travel-rule/vasps/vasp-id-1/decision/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"decision":"BLOCKED","reason":"Unlicensed in its home jurisdiction"}`)
+	expectFields(t, res.JSON, []string{"decision"})
+}
+
+func TestTravelRuleCounterpartyContactsCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"6c1f9b8e-2d4a-4f7e-8b3c-5a9d0e1f2a3b","counterparty":"0d6f3c2a-6a1e-4c55-9a39-1f2b0c7d8e91","counterparty_name":"Example Counterparty VASP","email":"compliance@counterparty.example","name":"Compliance desk","source":"application","scope":"application","created_by":"","verified_at":null,"is_invalid":false,"invalid_reason":"","invalid_detail":"","invalid_at":null,"created_at":"2026-10-19T09:00:00Z"}`)
+	var params didit.TravelRuleCounterpartyContactCreate
+	mustUnmarshal(t, `{"counterparty":"0d6f3c2a-6a1e-4c55-9a39-1f2b0c7d8e91","email":"compliance@counterparty.example","name":"Compliance desk"}`, &params)
+	res, err := client.TravelRule.CounterpartyContacts.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/counterparty-contacts/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"counterparty":"0d6f3c2a-6a1e-4c55-9a39-1f2b0c7d8e91","email":"compliance@counterparty.example","name":"Compliance desk"}`)
+	expectFields(t, res.JSON, []string{"uuid", "counterparty", "counterparty_name", "email", "name", "source", "scope", "created_by", "is_invalid", "invalid_reason", "invalid_detail", "created_at"})
+}
+
+func TestTravelRuleCounterpartyContactsDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.TravelRule.CounterpartyContacts.Delete(context.Background(), "contact-uuid-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/travel-rule/counterparty-contacts/contact-uuid-1/")
+	req.expectAPIKey(t)
+}
+
+func TestTravelRuleCounterpartyContactsList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"uuid":"6c1f9b8e-2d4a-4f7e-8b3c-5a9d0e1f2a3b","counterparty":"0d6f3c2a-6a1e-4c55-9a39-1f2b0c7d8e91","counterparty_name":"Example Counterparty VASP","email":"compliance@counterparty.example","name":"Compliance desk","source":"application","scope":"application","created_by":"","verified_at":null,"is_invalid":false,"invalid_reason":"","invalid_detail":"","invalid_at":null,"created_at":"2026-10-19T09:00:00Z"}]}`)
+	var params didit.TravelRuleCounterpartyContactsListParams
+	params.Counterparty = didit.String("3fa85f64-5717-4562-b3fc-2c963f66afa6")
+	params.Limit = didit.Int(1)
+	params.Offset = didit.Int(1)
+	res, err := client.TravelRule.CounterpartyContacts.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/counterparty-contacts/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"counterparty": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "limit": "1", "offset": "1"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"uuid", "counterparty", "counterparty_name", "email", "name", "source", "scope", "created_by", "is_invalid", "invalid_reason", "invalid_detail", "created_at"})
+}
+
+func TestTravelRuleTransfersList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"id":"5b0f6c2e-2a4d-4f0e-9a41-0c3f9a7e1d22","transaction_id":"a3c1e8f4-7b62-4d1a-8e0b-2f9d6c4b7a10","txn_id":"wd-2026-10-19-0042","txn_date":"2026-10-19T08:41:12Z","kind":"withdrawal","direction":"OUTBOUND","status":"AWAITING_COUNTERPARTY","rail":"TRP","asset":"ETH","amount":"1.25","originator_vasp":"Origin CASP SL","beneficiary_vasp":"Example Counterparty VASP","originator_wallet":"0x77ccff0cc624a53cd8b8d8703ced826710211ec7","beneficiary_wallet":"0xede2d7e4f5b097e6391ab6bbcf2f47a53f4778cb","originator_memo":"","beneficiary_memo":"","originator_wallet_type":"vasp","beneficiary_wallet_type":"vasp","matched_transaction_id":null,"deadline_at":"2026-10-21T08:41:13Z","created_at":"2026-10-19T08:41:13Z"}]}`)
+	var params didit.TravelRuleTransfersListParams
+	params.Direction = didit.String("value")
+	params.Status = didit.String("value")
+	params.Rail = didit.String("value")
+	params.Kind = didit.String("value")
+	params.Currency = didit.String("value")
+	params.StartDate = didit.String("2025-01-02")
+	params.EndDate = didit.String("2025-01-02")
+	params.Counterparty = didit.String("3fa85f64-5717-4562-b3fc-2c963f66afa6")
+	params.Limit = didit.Int(1)
+	params.Offset = didit.Int(1)
+	res, err := client.TravelRule.Transfers.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/transfers/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"counterparty": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "currency": "value", "direction": "value", "end_date": "2025-01-02", "kind": "value", "limit": "1", "offset": "1", "rail": "value", "start_date": "2025-01-02", "status": "value"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"id", "transaction_id", "txn_id", "txn_date", "kind", "direction", "status", "rail", "asset", "amount", "originator_vasp", "beneficiary_vasp", "originator_wallet", "beneficiary_wallet", "originator_memo", "beneficiary_memo", "originator_wallet_type", "beneficiary_wallet_type", "deadline_at", "created_at"})
+}
+
+func TestTravelRuleWalletAddressesBulkImport(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"total":3,"created":2,"existing":1,"duplicate":0,"failed":0,"rows":[{"row":1,"status":"existing","entry_id":"11111111-2222-3333-4444-555555555555","errors":{},"duplicate_of_row":null},{"row":2,"status":"created","entry_id":"22222222-3333-4444-5555-666666666666","errors":{},"duplicate_of_row":null},{"row":3,"status":"created","entry_id":"33333333-4444-5555-6666-777777777777","errors":{},"duplicate_of_row":null}]}`)
+	var params didit.TravelRuleWalletAddressesBulkImportParams
+	mustUnmarshal(t, `{"entries":[{"address":"0xBeneficiaryWallet01","chain":"ETH","holder_name":"Ana Diaz","holder_vendor_data":"user-042"},{"address_hash":"4f7d2e1c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e","chain":"bitcoin","holder_vendor_data":"user-043"},{"address":"rExchangeSharedAddress01","chain":"XRP","memo":"104729","holder_name":"Ana Diaz"}]}`, &params.Body)
+	res, err := client.TravelRule.WalletAddresses.BulkImport(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/wallet-addresses/import/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"entries":[{"address":"0xBeneficiaryWallet01","chain":"ETH","holder_name":"Ana Diaz","holder_vendor_data":"user-042"},{"address_hash":"4f7d2e1c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e","chain":"bitcoin","holder_vendor_data":"user-043"},{"address":"rExchangeSharedAddress01","chain":"XRP","memo":"104729","holder_name":"Ana Diaz"}]}`)
+	expectFields(t, res.JSON, []string{"total", "created", "existing", "duplicate", "failed", "rows"})
 }
 
 func TestTravelRuleWalletAddressesCreate(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","address":"string","chain":"string","holder_vendor_data":"string","holder_name":"string","entity_type":"string","is_ownership_verified":true,"created_at":"2025-01-02T03:04:05Z","self_declared":true,"travel_address":"string"}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","address":"string","chain":"string","holder_vendor_data":"string","holder_name":"string","entity_type":"string","is_ownership_verified":true,"created_at":"2025-01-02T03:04:05Z","travel_address":"string","address_hash":"string","memo":"string","receiving_travel_address":"string"}`)
 	var params didit.WalletAddressEntryCreate
-	mustUnmarshal(t, `{"address":"0xBeneficiaryWallet01","chain":"ethereum","holder_vendor_data":"user-042","holder_name":"Ana Diaz","self_declared":true}`, &params)
+	mustUnmarshal(t, `{"address":"0xBeneficiaryWallet01","chain":"ETH","holder_vendor_data":"user-042","holder_name":"Ana Diaz","self_declared":true}`, &params)
 	res, err := client.TravelRule.WalletAddresses.Create(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -100,8 +318,8 @@ func TestTravelRuleWalletAddressesCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/travel-rule/wallet-addresses/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"address":"0xBeneficiaryWallet01","chain":"ethereum","holder_vendor_data":"user-042","holder_name":"Ana Diaz","self_declared":true}`)
-	expectFields(t, res.JSON, []string{"uuid", "address", "chain", "holder_vendor_data", "holder_name", "entity_type", "is_ownership_verified", "created_at", "self_declared", "travel_address"})
+	req.expectJSON(t, `{"address":"0xBeneficiaryWallet01","chain":"ETH","holder_vendor_data":"user-042","holder_name":"Ana Diaz","self_declared":true}`)
+	expectFields(t, res.JSON, []string{"uuid", "address", "chain", "holder_vendor_data", "holder_name", "entity_type", "is_ownership_verified", "created_at", "travel_address", "address_hash", "memo", "receiving_travel_address"})
 }
 
 func TestTravelRuleWalletAddressesDelete(t *testing.T) {
@@ -115,7 +333,7 @@ func TestTravelRuleWalletAddressesDelete(t *testing.T) {
 }
 
 func TestTravelRuleWalletAddressesList(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"string","previous":"string","results":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","address":"string","chain":"string","holder_vendor_data":"string","holder_name":"string","entity_type":"string","is_ownership_verified":true,"created_at":"2025-01-02T03:04:05Z","self_declared":true,"travel_address":"string"}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"string","previous":"string","results":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","address":"string","chain":"string","holder_vendor_data":"string","holder_name":"string","entity_type":"string","is_ownership_verified":true,"created_at":"2025-01-02T03:04:05Z","travel_address":"string","address_hash":"string","memo":"string","receiving_travel_address":"string"}]}`)
 	var params didit.TravelRuleWalletAddressesListParams
 	params.Limit = didit.Int(50)
 	params.Offset = didit.Int(0)
@@ -133,13 +351,13 @@ func TestTravelRuleWalletAddressesList(t *testing.T) {
 	if len(res.Results) == 0 {
 		t.Fatal("no results")
 	}
-	expectFields(t, res.Results[0].JSON, []string{"uuid", "address", "chain", "holder_vendor_data", "holder_name", "entity_type", "is_ownership_verified", "created_at", "self_declared", "travel_address"})
+	expectFields(t, res.Results[0].JSON, []string{"uuid", "address", "chain", "holder_vendor_data", "holder_name", "entity_type", "is_ownership_verified", "created_at", "travel_address", "address_hash", "memo", "receiving_travel_address"})
 }
 
 func TestTravelRuleWalletAddressesUpdate(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"holder_name":"string","holder_vendor_data":"string","entity_type":"string","travel_address":"string"}`)
 	var params didit.WalletAddressEntryUpdateParam
-	mustUnmarshal(t, `{"holder_name":"Ana Updated","travel_address":"ta..."}`, &params)
+	mustUnmarshal(t, `{"holder_name":"Ana Updated","travel_address":"ta2ih1MicegQ3JqiKz9xT89KsSuwaDJYw8DgzmeSEp1h9tduJcNDZ5SgKLEHeyGMcS1s2HgbM6undFrMQknhM5aTXw3G9KBzi16hx"}`, &params)
 	res, err := client.TravelRule.WalletAddresses.Update(context.Background(), "entry-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -147,6 +365,87 @@ func TestTravelRuleWalletAddressesUpdate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "PATCH", "/v3/travel-rule/wallet-addresses/entry-uuid-1/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"holder_name":"Ana Updated","travel_address":"ta..."}`)
+	req.expectJSON(t, `{"holder_name":"Ana Updated","travel_address":"ta2ih1MicegQ3JqiKz9xT89KsSuwaDJYw8DgzmeSEp1h9tduJcNDZ5SgKLEHeyGMcS1s2HgbM6undFrMQknhM5aTXw3G9KBzi16hx"}`)
 	expectFields(t, res.JSON, []string{"holder_name", "holder_vendor_data", "entity_type", "travel_address"})
+}
+
+func TestTravelRuleWorkspaceClaim(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"joined_free":true,"work_email":"user@example.com","joined_at":"2025-01-02T03:04:05Z","claim":{"status":"unclaimed","proved_by_domain":true,"claimed_at":"2025-01-02T03:04:05Z","reviewed_at":"2025-01-02T03:04:05Z","review_note":"string","vasp_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","vasp_name":"string"},"prefill":{"key":"value"},"domain":{"domain":"string","status":"unverified","verified_at":"2025-01-02T03:04:05Z","txt":{"host":"didit-tr-verify.example.com","value":"string"}},"billing_enabled":true,"billing_enabled_at":"2025-01-02T03:04:05Z","didit_network":{"key":"value"},"settings":{"is_enabled":true,"jurisdiction":"string","name_matching_strictness":"NONE","confirmation_timeout_hours":1,"timeout_outcome":"HOLD","threshold_amount":"string","ownership_validation_mode":"FULL","simplified_validation_threshold":"string","data_sharing_fields":{"individual":["name"],"company":["name"]},"matching_rules":{"individual":{"name":"NONE","date_of_birth":"NONE","address":"NONE","account":"NONE"},"company":{"name":"NONE","address":"NONE","account":"NONE"}},"legal_name":"string","lei":"string","compliance_email":"user@example.com","is_discoverable":true,"inbound_auto_accept":true,"allow_self_declaration":true,"allow_screenshot_proof":true,"auto_wallet_verification":true,"vasp_attribution_enabled":true,"counterparty_screening_enabled":true,"sunrise_policy":"","sunrise_jurisdictions":["string"],"non_responsive_policy":"","travel_address":"string","disabled_networks":["GTR"],"networks":{"gtr":{"rail":"GTR","mode":"own","platform_available":true,"connected":true},"trust":{"rail":"TRUST","mode":"own","platform_available":true,"connected":true},"verifyvasp":{"rail":"VERIFYVASP","mode":"own","platform_available":true,"connected":true},"sygna":{"rail":"SYGNA","mode":"own","platform_available":true,"connected":true}},"didit_network":{"listed":true,"missing":["travel_rule_off"],"compliance_email_confirmed":true}}}`)
+	var params didit.TravelRuleWorkspaceClaimRequest
+	mustUnmarshal(t, `{"vasp_id":"0b0c9d3e-5a53-4a3e-9d6e-1f2f6f6a1c11"}`, &params)
+	res, err := client.TravelRule.Workspace.Claim(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/workspace/claim/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"vasp_id":"0b0c9d3e-5a53-4a3e-9d6e-1f2f6f6a1c11"}`)
+	expectFields(t, res.JSON, []string{"joined_free", "work_email", "joined_at", "claim", "prefill", "domain", "billing_enabled", "billing_enabled_at", "didit_network", "settings"})
+}
+
+func TestTravelRuleWorkspaceConfirmDomain(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"joined_free":true,"work_email":"user@example.com","joined_at":"2025-01-02T03:04:05Z","claim":{"status":"unclaimed","proved_by_domain":true,"claimed_at":"2025-01-02T03:04:05Z","reviewed_at":"2025-01-02T03:04:05Z","review_note":"string","vasp_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","vasp_name":"string"},"prefill":{"key":"value"},"domain":{"domain":"string","status":"unverified","verified_at":"2025-01-02T03:04:05Z","txt":{"host":"didit-tr-verify.example.com","value":"string"}},"billing_enabled":true,"billing_enabled_at":"2025-01-02T03:04:05Z","didit_network":{"key":"value"},"settings":{"is_enabled":true,"jurisdiction":"string","name_matching_strictness":"NONE","confirmation_timeout_hours":1,"timeout_outcome":"HOLD","threshold_amount":"string","ownership_validation_mode":"FULL","simplified_validation_threshold":"string","data_sharing_fields":{"individual":["name"],"company":["name"]},"matching_rules":{"individual":{"name":"NONE","date_of_birth":"NONE","address":"NONE","account":"NONE"},"company":{"name":"NONE","address":"NONE","account":"NONE"}},"legal_name":"string","lei":"string","compliance_email":"user@example.com","is_discoverable":true,"inbound_auto_accept":true,"allow_self_declaration":true,"allow_screenshot_proof":true,"auto_wallet_verification":true,"vasp_attribution_enabled":true,"counterparty_screening_enabled":true,"sunrise_policy":"","sunrise_jurisdictions":["string"],"non_responsive_policy":"","travel_address":"string","disabled_networks":["GTR"],"networks":{"gtr":{"rail":"GTR","mode":"own","platform_available":true,"connected":true},"trust":{"rail":"TRUST","mode":"own","platform_available":true,"connected":true},"verifyvasp":{"rail":"VERIFYVASP","mode":"own","platform_available":true,"connected":true},"sygna":{"rail":"SYGNA","mode":"own","platform_available":true,"connected":true}},"didit_network":{"listed":true,"missing":["travel_rule_off"],"compliance_email_confirmed":true}}}`)
+	var params didit.TravelRuleWorkspaceDomainConfirmRequest
+	mustUnmarshal(t, `{"code":"123456"}`, &params)
+	res, err := client.TravelRule.Workspace.ConfirmDomain(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/workspace/domain/confirm/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"code":"123456"}`)
+	expectFields(t, res.JSON, []string{"joined_free", "work_email", "joined_at", "claim", "prefill", "domain", "billing_enabled", "billing_enabled_at", "didit_network", "settings"})
+}
+
+func TestTravelRuleWorkspaceEnableBilling(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"joined_free":true,"work_email":"user@example.com","joined_at":"2025-01-02T03:04:05Z","claim":{"status":"unclaimed","proved_by_domain":true,"claimed_at":"2025-01-02T03:04:05Z","reviewed_at":"2025-01-02T03:04:05Z","review_note":"string","vasp_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","vasp_name":"string"},"prefill":{"key":"value"},"domain":{"domain":"string","status":"unverified","verified_at":"2025-01-02T03:04:05Z","txt":{"host":"didit-tr-verify.example.com","value":"string"}},"billing_enabled":true,"billing_enabled_at":"2025-01-02T03:04:05Z","didit_network":{"key":"value"},"settings":{"is_enabled":true,"jurisdiction":"string","name_matching_strictness":"NONE","confirmation_timeout_hours":1,"timeout_outcome":"HOLD","threshold_amount":"string","ownership_validation_mode":"FULL","simplified_validation_threshold":"string","data_sharing_fields":{"individual":["name"],"company":["name"]},"matching_rules":{"individual":{"name":"NONE","date_of_birth":"NONE","address":"NONE","account":"NONE"},"company":{"name":"NONE","address":"NONE","account":"NONE"}},"legal_name":"string","lei":"string","compliance_email":"user@example.com","is_discoverable":true,"inbound_auto_accept":true,"allow_self_declaration":true,"allow_screenshot_proof":true,"auto_wallet_verification":true,"vasp_attribution_enabled":true,"counterparty_screening_enabled":true,"sunrise_policy":"","sunrise_jurisdictions":["string"],"non_responsive_policy":"","travel_address":"string","disabled_networks":["GTR"],"networks":{"gtr":{"rail":"GTR","mode":"own","platform_available":true,"connected":true},"trust":{"rail":"TRUST","mode":"own","platform_available":true,"connected":true},"verifyvasp":{"rail":"VERIFYVASP","mode":"own","platform_available":true,"connected":true},"sygna":{"rail":"SYGNA","mode":"own","platform_available":true,"connected":true}},"didit_network":{"listed":true,"missing":["travel_rule_off"],"compliance_email_confirmed":true}}}`)
+	var params didit.TravelRuleWorkspaceBillingRequest
+	mustUnmarshal(t, `{"enabled":true}`, &params)
+	res, err := client.TravelRule.Workspace.EnableBilling(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/workspace/billing/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"enabled":true}`)
+	expectFields(t, res.JSON, []string{"joined_free", "work_email", "joined_at", "claim", "prefill", "domain", "billing_enabled", "billing_enabled_at", "didit_network", "settings"})
+}
+
+func TestTravelRuleWorkspaceGet(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"joined_free":true,"work_email":"user@example.com","joined_at":"2025-01-02T03:04:05Z","claim":{"status":"unclaimed","proved_by_domain":true,"claimed_at":"2025-01-02T03:04:05Z","reviewed_at":"2025-01-02T03:04:05Z","review_note":"string","vasp_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","vasp_name":"string"},"prefill":{"key":"value"},"domain":{"domain":"string","status":"unverified","verified_at":"2025-01-02T03:04:05Z","txt":{"host":"didit-tr-verify.example.com","value":"string"}},"billing_enabled":true,"billing_enabled_at":"2025-01-02T03:04:05Z","didit_network":{"key":"value"},"settings":{"is_enabled":true,"jurisdiction":"string","name_matching_strictness":"NONE","confirmation_timeout_hours":1,"timeout_outcome":"HOLD","threshold_amount":"string","ownership_validation_mode":"FULL","simplified_validation_threshold":"string","data_sharing_fields":{"individual":["name"],"company":["name"]},"matching_rules":{"individual":{"name":"NONE","date_of_birth":"NONE","address":"NONE","account":"NONE"},"company":{"name":"NONE","address":"NONE","account":"NONE"}},"legal_name":"string","lei":"string","compliance_email":"user@example.com","is_discoverable":true,"inbound_auto_accept":true,"allow_self_declaration":true,"allow_screenshot_proof":true,"auto_wallet_verification":true,"vasp_attribution_enabled":true,"counterparty_screening_enabled":true,"sunrise_policy":"","sunrise_jurisdictions":["string"],"non_responsive_policy":"","travel_address":"string","disabled_networks":["GTR"],"networks":{"gtr":{"rail":"GTR","mode":"own","platform_available":true,"connected":true},"trust":{"rail":"TRUST","mode":"own","platform_available":true,"connected":true},"verifyvasp":{"rail":"VERIFYVASP","mode":"own","platform_available":true,"connected":true},"sygna":{"rail":"SYGNA","mode":"own","platform_available":true,"connected":true}},"didit_network":{"listed":true,"missing":["travel_rule_off"],"compliance_email_confirmed":true}}}`)
+	res, err := client.TravelRule.Workspace.Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/workspace/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"joined_free", "work_email", "joined_at", "claim", "prefill", "domain", "billing_enabled", "billing_enabled_at", "didit_network", "settings"})
+}
+
+func TestTravelRuleWorkspaceSendDomainCode(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"domain":"string","status":"unverified","txt":{"host":"didit-tr-verify.example.com","value":"string"}}`)
+	res, err := client.TravelRule.Workspace.SendDomainCode(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/workspace/domain/code/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"domain", "status", "txt"})
+}
+
+func TestTravelRuleWorkspaceVerifyDomainDNS(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"joined_free":true,"work_email":"user@example.com","joined_at":"2025-01-02T03:04:05Z","claim":{"status":"unclaimed","proved_by_domain":true,"claimed_at":"2025-01-02T03:04:05Z","reviewed_at":"2025-01-02T03:04:05Z","review_note":"string","vasp_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","vasp_name":"string"},"prefill":{"key":"value"},"domain":{"domain":"string","status":"unverified","verified_at":"2025-01-02T03:04:05Z","txt":{"host":"didit-tr-verify.example.com","value":"string"}},"billing_enabled":true,"billing_enabled_at":"2025-01-02T03:04:05Z","didit_network":{"key":"value"},"settings":{"is_enabled":true,"jurisdiction":"string","name_matching_strictness":"NONE","confirmation_timeout_hours":1,"timeout_outcome":"HOLD","threshold_amount":"string","ownership_validation_mode":"FULL","simplified_validation_threshold":"string","data_sharing_fields":{"individual":["name"],"company":["name"]},"matching_rules":{"individual":{"name":"NONE","date_of_birth":"NONE","address":"NONE","account":"NONE"},"company":{"name":"NONE","address":"NONE","account":"NONE"}},"legal_name":"string","lei":"string","compliance_email":"user@example.com","is_discoverable":true,"inbound_auto_accept":true,"allow_self_declaration":true,"allow_screenshot_proof":true,"auto_wallet_verification":true,"vasp_attribution_enabled":true,"counterparty_screening_enabled":true,"sunrise_policy":"","sunrise_jurisdictions":["string"],"non_responsive_policy":"","travel_address":"string","disabled_networks":["GTR"],"networks":{"gtr":{"rail":"GTR","mode":"own","platform_available":true,"connected":true},"trust":{"rail":"TRUST","mode":"own","platform_available":true,"connected":true},"verifyvasp":{"rail":"VERIFYVASP","mode":"own","platform_available":true,"connected":true},"sygna":{"rail":"SYGNA","mode":"own","platform_available":true,"connected":true}},"didit_network":{"listed":true,"missing":["travel_rule_off"],"compliance_email_confirmed":true}}}`)
+	res, err := client.TravelRule.Workspace.VerifyDomainDNS(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/workspace/domain/dns/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"joined_free", "work_email", "joined_at", "claim", "prefill", "domain", "billing_enabled", "billing_enabled_at", "didit_network", "settings"})
 }

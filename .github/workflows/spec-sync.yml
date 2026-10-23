@@ -159,6 +159,25 @@ jobs:
           LEASE: ${{ steps.guard.outputs.head }}
         run: |
           title="chore(spec): sync API spec ${SYNC_DATE}"
+          # GitHub refuses a pull request body of more than 65536 characters. A large sync cuts the
+          # operations and schemas listing (the full text is in the job summary) and keeps the
+          # Checks section, which says whether the generated SDK builds.
+          body="$RUNNER_TEMP/spec-sync-body.md"
+          perl -CSD -e '
+            local $/;
+            $s = <STDIN>;
+            $max = 60000;
+            if (length($s) <= $max) { print $s; exit }
+            $i = rindex($s, "\n## Checks\n");
+            $tail = $i >= 0 ? substr($s, $i) : "";
+            $head = $i >= 0 ? substr($s, 0, $i) : $s;
+            $note = "\n**The summary is cut here: it has " . length($s) . " characters, more than fit. The full summary is in the job summary of the spec sync run.**\n";
+            $room = $max - length($tail) - length($note) - 1;
+            $room = 0 if $room < 0;
+            $c = rindex($head, "\n", $room);
+            $c = $room if $c <= 0;
+            print substr($head, 0, $c) . "\n" . $note . $tail;
+          ' < "$SUMMARY" > "$body"
           git config user.name "$BOT_NAME"
           git config user.email "$BOT_EMAIL"
           git checkout -B "$SYNC_BRANCH"
@@ -181,10 +200,10 @@ jobs:
               draft=(--draft)
             fi
             gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE" --head "$SYNC_BRANCH" \
-              --title "$title" --body-file "$SUMMARY" "${draft[@]}"
+              --title "$title" --body-file "$body" "${draft[@]}"
             exit 0
           fi
-          gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$SUMMARY"
+          gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
           is_draft="$(gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')"
           if [ "$CHECKS_FAILED" = "true" ] && [ "$is_draft" = "false" ]; then
             gh pr ready "$number" --repo "$GITHUB_REPOSITORY" --undo

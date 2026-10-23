@@ -9,6 +9,18 @@ import (
 	"github.com/didit-protocol/sdk-go"
 )
 
+func TestAMLRetrieveDatasetFreshness(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"dataset_freshness":{"captured_at":"2026-10-17T06:00:12.345678+00:00","provider":"aml_data_source","catalog_version":"20261017054500-abc","sources":{"sanctions":{"last_updated_at":"2026-10-17T04:10:00+00:00","oldest_updated_at":"2026-10-15T22:30:00+00:00","dataset_count":48,"dated_dataset_count":48},"pep":{"last_updated_at":"2026-10-16T23:05:00+00:00","oldest_updated_at":null,"dataset_count":12,"dated_dataset_count":11}}},"availability":"available"}`)
+	res, err := client.AML.RetrieveDatasetFreshness(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/aml/dataset-freshness/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"dataset_freshness", "availability"})
+}
+
 func TestAMLScreen(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"d27c5509-7a66-45a9-b05e-d69d9f4c336a","aml":{"status":"Approved","total_hits":0,"entity_type":"person","hits":[],"score":0,"screened_data":{"full_name":"Maximilian Mustermann-Doe","date_of_birth":"1992-03-14","nationality":"DE","document_number":null},"warnings":[]},"vendor_data":"user-1234","metadata":{"internal_ref":"abc-123"},"created_at":"2026-06-11T10:21:07.013938+00:00"}`)
 	var params didit.AMLScreenParams

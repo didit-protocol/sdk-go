@@ -6,6 +6,91 @@ import (
 	"time"
 )
 
+// AMLDatasetFreshness: How current the AML datasets were when a screening ran.
+// Dates are never estimated.
+type AMLDatasetFreshness struct {
+	// When Didit read the dataset catalog this freshness comes from.
+	CapturedAt time.Time `json:"captured_at"`
+
+	// Opaque identifier of the AML data source. Treat it as an opaque string; do
+	// not branch on it.
+	Provider string `json:"provider"`
+
+	// Version identifier of the dataset catalog, when the source reports one.
+	CatalogVersion string `json:"catalog_version"`
+
+	// Freshness per dataset family. A family whose datasets reported no update date
+	// is absent rather than filled with `null`.
+	Sources AMLDatasetFreshnessSources `json:"sources"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLDatasetFreshness leniently.
+func (r *AMLDatasetFreshness) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLDatasetFreshnessSources: Freshness per dataset family. A family whose
+// datasets reported no update date is absent rather than filled with `null`.
+type AMLDatasetFreshnessSources struct {
+	Sanctions    AMLDatasetSourceFreshness `json:"sanctions"`
+	PEP          AMLDatasetSourceFreshness `json:"pep"`
+	Warnings     AMLDatasetSourceFreshness `json:"warnings"`
+	AdverseMedia AMLDatasetSourceFreshness `json:"adverse_media"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLDatasetFreshnessSources leniently.
+func (r *AMLDatasetFreshnessSources) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLDatasetSourceFreshness: Freshness of one family of AML datasets.
+type AMLDatasetSourceFreshness struct {
+	// Most recent update of any dataset in the family.
+	LastUpdatedAt time.Time `json:"last_updated_at"`
+
+	// Staleness bound: every dataset in the family is at least this current. `null`
+	// when at least one dataset in the family reported no update date, because the
+	// bound is then unknown.
+	OldestUpdatedAt time.Time `json:"oldest_updated_at"`
+
+	// Number of datasets in the family.
+	DatasetCount int64 `json:"dataset_count"`
+
+	// Number of those datasets that reported an update date.
+	DatedDatasetCount int64 `json:"dated_dataset_count"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLDatasetSourceFreshness leniently.
+func (r *AMLDatasetSourceFreshness) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// EntityNetworkMembershipList is a response object.
+type EntityNetworkMembershipList struct {
+	Results []EntityNetworkMembership `json:"results"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes EntityNetworkMembershipList leniently.
+func (r *EntityNetworkMembershipList) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // EntityNetworkMembership is a response object.
 type EntityNetworkMembership struct {
 	Network     NetworkListItem                      `json:"network"`
@@ -161,6 +246,831 @@ const (
 	EntityNetworkMembershipSignalTypesPhone          EntityNetworkMembershipSignalTypes = "phone"
 	EntityNetworkMembershipSignalTypesEmail          EntityNetworkMembershipSignalTypes = "email"
 	EntityNetworkMembershipSignalTypesAddress        EntityNetworkMembershipSignalTypes = "address"
+)
+
+// OngoingMonitoringJob is a response object.
+type OngoingMonitoringJob struct {
+	JobID     string                     `json:"job_id"`
+	Status    OngoingMonitoringJobStatus `json:"status"`
+	IsEnabled bool                       `json:"is_enabled"`
+	Total     int64                      `json:"total"`
+	Processed int64                      `json:"processed"`
+
+	// Per-entity outcome counters. Nothing is silently skipped: every requested
+	// entity resolves to exactly one counter.
+	Outcomes OngoingMonitoringJobOutcomes `json:"outcomes"`
+	Error    string                       `json:"error"`
+
+	// Cost preview. Returned directly when estimate_only is true (no writes are
+	// performed).
+	Estimate OngoingMonitoringJobEstimate `json:"estimate"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes OngoingMonitoringJob leniently.
+func (r *OngoingMonitoringJob) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// OngoingMonitoringJobStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type OngoingMonitoringJobStatus string
+
+// Known values of OngoingMonitoringJobStatus.
+const (
+	OngoingMonitoringJobStatusPending    OngoingMonitoringJobStatus = "PENDING"
+	OngoingMonitoringJobStatusProcessing OngoingMonitoringJobStatus = "PROCESSING"
+	OngoingMonitoringJobStatusCompleted  OngoingMonitoringJobStatus = "COMPLETED"
+	OngoingMonitoringJobStatusFailed     OngoingMonitoringJobStatus = "FAILED"
+)
+
+// OngoingMonitoringJobOutcomes: Per-entity outcome counters. Nothing is
+// silently skipped: every requested entity resolves to exactly one counter.
+type OngoingMonitoringJobOutcomes struct {
+	// Monitoring enabled on an existing AML screening.
+	Enabled int64 `json:"enabled"`
+
+	// A new AML screening was created (billed) and monitoring enabled.
+	ScreenedAndEnabled int64 `json:"screened_and_enabled"`
+
+	// Monitoring was already active (legacy duplicate rows are consolidated).
+	AlreadyEnabled int64 `json:"already_enabled"`
+
+	// Monitoring disabled on every AML row of the entity.
+	Disabled int64 `json:"disabled"`
+
+	// Skipped: no full name + date of birth + country available to screen.
+	SkippedNoIdentityData int64 `json:"skipped_no_identity_data"`
+
+	// Skipped: the user is blocked.
+	SkippedBlocked int64 `json:"skipped_blocked"`
+
+	// Skipped: sandbox application.
+	SkippedSandbox int64 `json:"skipped_sandbox"`
+
+	// The screening provider call failed.
+	FailedProvider int64 `json:"failed_provider"`
+
+	// Balance ran out mid-job.
+	FailedInsufficientBalance int64 `json:"failed_insufficient_balance"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes OngoingMonitoringJobOutcomes leniently.
+func (r *OngoingMonitoringJobOutcomes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// OngoingMonitoringJobEstimate: Cost preview. Returned directly when
+// estimate_only is true (no writes are performed).
+type OngoingMonitoringJobEstimate struct {
+	// Entities in the selection.
+	UsersTotal     int64 `json:"users_total"`
+	AlreadyEnabled int64 `json:"already_enabled"`
+
+	// Entities whose existing AML screening will be switched to monitored.
+	WithExistingAML int64 `json:"with_existing_aml"`
+
+	// Entities without any AML screening that will be screened first (billed).
+	NeedingScreening                 int64   `json:"needing_screening"`
+	SkippedNoIdentityData            int64   `json:"skipped_no_identity_data"`
+	SkippedBlocked                   int64   `json:"skipped_blocked"`
+	EstimatedScreeningCostUsd        float64 `json:"estimated_screening_cost_usd"`
+	EstimatedAnnualMonitoringCostUsd float64 `json:"estimated_annual_monitoring_cost_usd"`
+	BalanceSufficient                bool    `json:"balance_sufficient"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes OngoingMonitoringJobEstimate leniently.
+func (r *OngoingMonitoringJobEstimate) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// OngoingMonitoringToggleRequest is a request object.
+type OngoingMonitoringToggleRequest struct {
+	// true to enable monitoring, false to disable it. Required.
+	IsEnabled bool `json:"is_enabled"`
+
+	// When true, returns the cost estimate and performs no writes.
+	EstimateOnly Opt[bool] `json:"estimate_only"`
+
+	// Apply to every entity of the application (scoped by the filter_* params when
+	// present).
+	UpdateAll      Opt[bool]     `json:"update_all"`
+	FilterSearch   Opt[string]   `json:"filter_search"`
+	FilterStatus   Opt[[]string] `json:"filter_status"`
+	FilterCountry  Opt[string]   `json:"filter_country"`
+	FilterDateFrom Opt[string]   `json:"filter_date_from"`
+	FilterDateTo   Opt[string]   `json:"filter_date_to"`
+
+	// Entities to toggle. Required unless update_all is true.
+	DiditInternalIDList Opt[[]string] `json:"didit_internal_id_list"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r OngoingMonitoringToggleRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// AMLScreening is a response object.
+type AMLScreening struct {
+	// Unique identifier for this AML step in the workflow graph.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this AML screening. Independent of the top-level
+	// session `status` - a session can reach its overall decision while an
+	// individual feature stays `In Review`.
+	Status AMLScreeningStatus `json:"status"`
+
+	// Total number of matches found
+	TotalHits int64 `json:"total_hits"`
+
+	// Type of entity screened: person or company
+	EntityType string             `json:"entity_type"`
+	Hits       []AMLScreeningHits `json:"hits"`
+
+	// Overall AML screening score - the highest risk score across all hits (float,
+	// 0-100). `null` until computed.
+	Score        float64                  `json:"score"`
+	ScreenedData AMLScreeningScreenedData `json:"screened_data"`
+
+	// Whether AML ongoing monitoring is enabled for this screening. When `true`,
+	// the entity is re-screened periodically and any new hits update the report.
+	IsOngoingMonitoringEnabled bool `json:"is_ongoing_monitoring_enabled"`
+
+	// Date (YYYY-MM-DD) when this ongoing-monitoring subscription will next be
+	// billed. Computed as the date of the last ongoing-monitoring billing plus 365
+	// days when `is_ongoing_monitoring_enabled = true`; otherwise `null`. This is a
+	// billing date, not a screening date - use `last_ongoing_screening_at` for
+	// that.
+	NextOngoingMonitoringBillDate string `json:"next_ongoing_monitoring_bill_date"`
+
+	// When ongoing monitoring last completed a re-screening of this record, whether
+	// or not the result changed. `null` when the record has never been re-screened;
+	// it is never back-filled from the enablement or billing date.
+	LastOngoingScreeningAt time.Time `json:"last_ongoing_screening_at"`
+
+	// The most recent AML dataset update date the provider reported at the time of
+	// that screening. `null` when the provider reported no dataset dates; never
+	// estimated.
+	LastOngoingScreeningDatasetsUpdatedAt time.Time              `json:"last_ongoing_screening_datasets_updated_at"`
+	Warnings                              []AMLScreeningWarnings `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreening leniently.
+func (r *AMLScreening) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningStatus: Feature-level status of this AML screening. Independent
+// of the top-level session `status` - a session can reach its overall decision
+// while an individual feature stays `In Review`.
+//
+// AMLScreeningStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type AMLScreeningStatus string
+
+// Known values of AMLScreeningStatus.
+const (
+	AMLScreeningStatusNotFinished    AMLScreeningStatus = "Not Finished"
+	AMLScreeningStatusApproved       AMLScreeningStatus = "Approved"
+	AMLScreeningStatusDeclined       AMLScreeningStatus = "Declined"
+	AMLScreeningStatusInReview       AMLScreeningStatus = "In Review"
+	AMLScreeningStatusResubRequested AMLScreeningStatus = "Resub Requested"
+)
+
+// AMLScreeningHits is a response object.
+type AMLScreeningHits struct {
+	// Unique identifier of the match
+	ID string `json:"id"`
+
+	// Source URL for the match
+	URL string `json:"url"`
+
+	// Whether this is a confirmed match
+	Match bool `json:"match"`
+
+	// Deprecated weighted match score in the 0-1 range (e.g. `0.73`). Use
+	// `match_score` (0-100) instead.
+	Score float64 `json:"score"`
+
+	// Whether the matched entity is the direct target of the listing (as opposed to
+	// a related party). `null` when the source does not specify it.
+	Target bool `json:"target"`
+
+	// Caption or title of the match
+	Caption string `json:"caption"`
+
+	// List of dataset categories where the match was found. Indicates whether the
+	// entity appeared in PEP lists (with level), sanctions databases, adverse
+	// media, warnings/regulatory enforcement, or other compliance datasets.
+	Datasets []AMLScreeningHitsDatasets `json:"datasets"`
+
+	// Additional features of the match
+	Features map[string]any `json:"features"`
+
+	// RCA name if applicable
+	RcaName string `json:"rca_name"`
+
+	// Date when match was last seen
+	LastSeen time.Time                `json:"last_seen"`
+	RiskView AMLScreeningHitsRiskView `json:"risk_view"`
+
+	// Date when match was first seen
+	FirstSeen  time.Time                  `json:"first_seen"`
+	Properties AMLScreeningHitsProperties `json:"properties"`
+
+	// Weighted identity confidence score (0-100) calculated from name similarity,
+	// date of birth, and country matching. Used to determine if hit is a False
+	// Positive or Possible Match.
+	MatchScore float64 `json:"match_score"`
+
+	// Entity risk score (0-100). Used to determine final AML status (Approved/In
+	// Review/Declined) based on the highest risk_score among non-False-Positive
+	// hits.
+	RiskScore float64 `json:"risk_score"`
+
+	// Review status for this hit. Can be 'Unreviewed', 'Confirmed Match', 'False
+	// Positive', or 'Inconclusive'.
+	ReviewStatus AMLScreeningHitsReviewStatus `json:"review_status"`
+
+	// Detailed breakdown of how the match_score was calculated.
+	ScoreBreakdown AMLScreeningHitsScoreBreakdown   `json:"score_breakdown"`
+	PEPMatches     []AMLScreeningHitsPEPMatches     `json:"pep_matches"`
+	LinkedEntities []AMLScreeningHitsLinkedEntities `json:"linked_entities"`
+
+	// List of warning and regulatory enforcement matches. Includes entries from
+	// categories: Warning, SIP, Warnings and Regulatory Enforcement, Fitness and
+	// Probity, SIE, and Insolvency.
+	WarningMatches []AMLScreeningHitsWarningMatches `json:"warning_matches"`
+
+	// List of sanction list matches found for this entity.
+	SanctionMatches       []AMLScreeningHitsSanctionMatches     `json:"sanction_matches"`
+	AdverseMediaDetails   AMLScreeningHitsAdverseMediaDetails   `json:"adverse_media_details"`
+	AdverseMediaMatches   []AMLScreeningHitsAdverseMediaMatches `json:"adverse_media_matches"`
+	AdditionalInformation map[string]any                        `json:"additional_information"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHits leniently.
+func (r *AMLScreeningHits) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsDatasets is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type AMLScreeningHitsDatasets string
+
+// Known values of AMLScreeningHitsDatasets.
+const (
+	AMLScreeningHitsDatasetsPEP                              AMLScreeningHitsDatasets = "PEP"
+	AMLScreeningHitsDatasetsPEPLevel1                        AMLScreeningHitsDatasets = "PEP Level 1"
+	AMLScreeningHitsDatasetsPEPLevel2                        AMLScreeningHitsDatasets = "PEP Level 2"
+	AMLScreeningHitsDatasetsPEPLevel3                        AMLScreeningHitsDatasets = "PEP Level 3"
+	AMLScreeningHitsDatasetsPEPLevel4                        AMLScreeningHitsDatasets = "PEP Level 4"
+	AMLScreeningHitsDatasetsSanctions                        AMLScreeningHitsDatasets = "Sanctions"
+	AMLScreeningHitsDatasetsAdverseMedia                     AMLScreeningHitsDatasets = "Adverse Media"
+	AMLScreeningHitsDatasetsWarningsAndRegulatoryEnforcement AMLScreeningHitsDatasets = "Warnings and Regulatory Enforcement"
+	AMLScreeningHitsDatasetsFitnessAndProbity                AMLScreeningHitsDatasets = "Fitness and Probity"
+	AMLScreeningHitsDatasetsSip                              AMLScreeningHitsDatasets = "SIP"
+	AMLScreeningHitsDatasetsSie                              AMLScreeningHitsDatasets = "SIE"
+	AMLScreeningHitsDatasetsInsolvency                       AMLScreeningHitsDatasets = "Insolvency"
+)
+
+// AMLScreeningHitsRiskView is a response object.
+type AMLScreeningHitsRiskView struct {
+	Crimes     AMLScreeningHitsRiskViewCrimes     `json:"crimes"`
+	Countries  AMLScreeningHitsRiskViewCountries  `json:"countries"`
+	Categories AMLScreeningHitsRiskViewCategories `json:"categories"`
+	CustomList map[string]any                     `json:"custom_list"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsRiskView leniently.
+func (r *AMLScreeningHitsRiskView) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsRiskViewCrimes is a response object.
+type AMLScreeningHitsRiskViewCrimes struct {
+	Score      int64          `json:"score"`
+	Weightage  int64          `json:"weightage"`
+	RiskLevel  string         `json:"risk_level"`
+	RiskScores map[string]any `json:"risk_scores"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsRiskViewCrimes leniently.
+func (r *AMLScreeningHitsRiskViewCrimes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsRiskViewCountries is a response object.
+type AMLScreeningHitsRiskViewCountries struct {
+	Score      int64          `json:"score"`
+	Weightage  int64          `json:"weightage"`
+	RiskLevel  string         `json:"risk_level"`
+	RiskScores map[string]any `json:"risk_scores"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsRiskViewCountries leniently.
+func (r *AMLScreeningHitsRiskViewCountries) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsRiskViewCategories is a response object.
+type AMLScreeningHitsRiskViewCategories struct {
+	Score      int64          `json:"score"`
+	Weightage  int64          `json:"weightage"`
+	RiskLevel  string         `json:"risk_level"`
+	RiskScores map[string]any `json:"risk_scores"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsRiskViewCategories leniently.
+func (r *AMLScreeningHitsRiskViewCategories) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsProperties is a response object.
+type AMLScreeningHitsProperties struct {
+	Name        []string `json:"name"`
+	Alias       []string `json:"alias"`
+	Notes       []string `json:"notes"`
+	Title       string   `json:"title"`
+	Gender      []string `json:"gender"`
+	Height      string   `json:"height"`
+	Topics      string   `json:"topics"`
+	Weight      string   `json:"weight"`
+	Address     string   `json:"address"`
+	Country     string   `json:"country"`
+	Website     string   `json:"website"`
+	EyeColor    string   `json:"eyeColor"`
+	Keywords    string   `json:"keywords"`
+	LastName    []string `json:"lastName"`
+	Position    string   `json:"position"`
+	Religion    string   `json:"religion"`
+	BirthDate   []string `json:"birthDate"`
+	Education   []string `json:"education"`
+	Ethnicity   string   `json:"ethnicity"`
+	FirstName   []string `json:"firstName"`
+	HairColor   string   `json:"hairColor"`
+	WeakAlias   string   `json:"weakAlias"`
+	BirthPlace  []string `json:"birthPlace"`
+	ModifiedAt  string   `json:"modifiedAt"`
+	WikidataID  string   `json:"wikidataId"`
+	Citizenship string   `json:"citizenship"`
+	Nationality string   `json:"nationality"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsProperties leniently.
+func (r *AMLScreeningHitsProperties) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsReviewStatus: Review status for this hit. Can be
+// 'Unreviewed', 'Confirmed Match', 'False Positive', or 'Inconclusive'.
+//
+// AMLScreeningHitsReviewStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type AMLScreeningHitsReviewStatus string
+
+// Known values of AMLScreeningHitsReviewStatus.
+const (
+	AMLScreeningHitsReviewStatusUnreviewed     AMLScreeningHitsReviewStatus = "Unreviewed"
+	AMLScreeningHitsReviewStatusConfirmedMatch AMLScreeningHitsReviewStatus = "Confirmed Match"
+	AMLScreeningHitsReviewStatusFalsePositive  AMLScreeningHitsReviewStatus = "False Positive"
+	AMLScreeningHitsReviewStatusInconclusive   AMLScreeningHitsReviewStatus = "Inconclusive"
+)
+
+// AMLScreeningHitsScoreBreakdown: Detailed breakdown of how the match_score was
+// calculated.
+type AMLScreeningHitsScoreBreakdown struct {
+	// Raw name similarity percentage (0-100).
+	NameScore int64 `json:"name_score"`
+
+	// Original weight for name from config (0-100).
+	NameWeight int64 `json:"name_weight"`
+
+	// Normalized weight for name after re-weighting for missing data (0-100).
+	NameWeightNormalized float64 `json:"name_weight_normalized"`
+
+	// Points contributed by name to the total score.
+	NameContribution float64 `json:"name_contribution"`
+
+	// DOB match score (-100 to 100).
+	DOBScore int64 `json:"dob_score"`
+
+	// Original weight for DOB from config (0-100).
+	DOBWeight int64 `json:"dob_weight"`
+
+	// Normalized weight for DOB after re-weighting for missing data (0-100).
+	DOBWeightNormalized float64 `json:"dob_weight_normalized"`
+
+	// Points contributed by DOB to the total score.
+	DOBContribution float64 `json:"dob_contribution"`
+
+	// Country match score (-100 to 100).
+	CountryScore int64 `json:"country_score"`
+
+	// Original weight for country from config (0-100).
+	CountryWeight int64 `json:"country_weight"`
+
+	// Normalized weight for country after re-weighting for missing data (0-100).
+	CountryWeightNormalized float64 `json:"country_weight_normalized"`
+
+	// Points contributed by country to the total score.
+	CountryContribution float64 `json:"country_contribution"`
+
+	// Result of document number 'Golden Key' evaluation.
+	DocumentNumberMatchType AMLScreeningHitsScoreBreakdownDocumentNumberMatchType `json:"document_number_match_type"`
+
+	// Human-readable description of the document number effect on the score.
+	DocumentNumberEffect string `json:"document_number_effect"`
+
+	// Final weighted match score (0-100).
+	TotalScore int64 `json:"total_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsScoreBreakdown leniently.
+func (r *AMLScreeningHitsScoreBreakdown) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsScoreBreakdownDocumentNumberMatchType: Result of document
+// number 'Golden Key' evaluation.
+//
+// AMLScreeningHitsScoreBreakdownDocumentNumberMatchType is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type AMLScreeningHitsScoreBreakdownDocumentNumberMatchType string
+
+// Known values of AMLScreeningHitsScoreBreakdownDocumentNumberMatchType.
+const (
+	AMLScreeningHitsScoreBreakdownDocumentNumberMatchTypeMatch        AMLScreeningHitsScoreBreakdownDocumentNumberMatchType = "MATCH"
+	AMLScreeningHitsScoreBreakdownDocumentNumberMatchTypeNeutral      AMLScreeningHitsScoreBreakdownDocumentNumberMatchType = "NEUTRAL"
+	AMLScreeningHitsScoreBreakdownDocumentNumberMatchTypeHardMismatch AMLScreeningHitsScoreBreakdownDocumentNumberMatchType = "HARD_MISMATCH"
+)
+
+// AMLScreeningHitsPEPMatches is a response object.
+type AMLScreeningHitsPEPMatches struct {
+	Aliases      []string `json:"aliases"`
+	Education    []string `json:"education"`
+	ListName     string   `json:"list_name"`
+	Publisher    string   `json:"publisher"`
+	SourceURL    string   `json:"source_url"`
+	Description  string   `json:"description"`
+	MatchedName  string   `json:"matched_name"`
+	PEPPosition  string   `json:"pep_position"`
+	DateOfBirth  string   `json:"date_of_birth"`
+	OtherSources []string `json:"other_sources"`
+	PlaceOfBirth string   `json:"place_of_birth"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsPEPMatches leniently.
+func (r *AMLScreeningHitsPEPMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsLinkedEntities is a response object.
+type AMLScreeningHitsLinkedEntities struct {
+	Name     []string `json:"name"`
+	Active   []string `json:"active"`
+	Status   []string `json:"status"`
+	Details  []string `json:"details"`
+	Relation []string `json:"relation"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsLinkedEntities leniently.
+func (r *AMLScreeningHitsLinkedEntities) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsWarningMatches is a response object.
+type AMLScreeningHitsWarningMatches struct {
+	// Name of the warning list publisher
+	ListName string `json:"list_name"`
+
+	// Name matched in the warning list
+	MatchedName string `json:"matched_name"`
+
+	// Description of the warning entry
+	Description string `json:"description"`
+
+	// Publisher or source of the warning
+	Publisher string `json:"publisher"`
+
+	// URL to the source of the warning
+	SourceURL string `json:"source_url"`
+
+	// Additional source URLs
+	OtherSources []string `json:"other_sources"`
+
+	// Countries associated with the warning
+	Countries []string `json:"countries"`
+
+	// Date the warning entry was created
+	CreatedAt string `json:"created_at"`
+
+	// Date the warning entry was last updated
+	UpdatedAt string `json:"updated_at"`
+
+	// Additional data from the warning source. May contain a `data` object with
+	// `case_details` array.
+	AdditionalData AMLScreeningHitsWarningMatchesAdditionalData `json:"additional_data"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsWarningMatches leniently.
+func (r *AMLScreeningHitsWarningMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsWarningMatchesAdditionalData: Additional data from the
+// warning source. May contain a `data` object with `case_details` array.
+type AMLScreeningHitsWarningMatchesAdditionalData struct {
+	Data AMLScreeningHitsWarningMatchesAdditionalDataData `json:"data"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsWarningMatchesAdditionalData leniently.
+func (r *AMLScreeningHitsWarningMatchesAdditionalData) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsWarningMatchesAdditionalDataData is a response object.
+type AMLScreeningHitsWarningMatchesAdditionalDataData struct {
+	// Details of warning cases associated with this match
+	CaseDetails []AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetails `json:"case_details"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsWarningMatchesAdditionalDataData leniently.
+func (r *AMLScreeningHitsWarningMatchesAdditionalDataData) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetails is a response
+// object.
+type AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetails struct {
+	// Type of the warning case
+	CaseType AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType `json:"case_type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetails leniently.
+func (r *AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType: Type of
+// the warning case
+//
+// AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType is a
+// string with known values below. The set is open: other values may appear and
+// never cause an error.
+type AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType string
+
+// Known values of AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType.
+const (
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeAccusation              AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Accusation"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeArrest                  AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Arrest"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeBribery                 AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Bribery"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeCriminal                AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Criminal"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeFraud                   AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Fraud"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeIllegalFundraising      AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Illegal Fundraising"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeNonConvictionTerror     AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Non-conviction Terror"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeProclaimedOffender      AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Proclaimed Offender"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeRegulatoryEnforcement   AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Regulatory Enforcement"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeTerrorism               AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Terrorism"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeTerrorismRelated        AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Terrorism-related"
+	AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeTerrorismRelatedListing AMLScreeningHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Terrorism-related listing"
+)
+
+// AMLScreeningHitsSanctionMatches is a response object.
+type AMLScreeningHitsSanctionMatches struct {
+	// Name(s) of the sanction list(s)
+	ListName []string `json:"list_name"`
+
+	// Name matched in the sanction list
+	MatchedName string `json:"matched_name"`
+
+	// Description of the sanction entry
+	Description string `json:"description"`
+
+	// Free-text reason why the entity was sanctioned. Joined from the sanction
+	// list's reason entries. Examples: 'Executive Order 13224 (Terrorism)',
+	// 'Support for actions undermining Ukraine's sovereignty', 'Listed due to
+	// national security concerns.'
+	Reason string `json:"reason"`
+
+	// URL to the source of the sanction
+	SourceURL string `json:"source_url"`
+
+	// Additional source URLs
+	OtherSources []string `json:"other_sources"`
+
+	// Additional details about the sanction
+	Details []string `json:"details"`
+
+	// Legal basis for the sanction
+	LegalBasis []string `json:"legal_basis"`
+
+	// Date(s) when the entity was listed
+	ListedOn []string `json:"listed_on"`
+
+	// Sanction list identifier(s)
+	SanctionList []string `json:"sanction_list"`
+
+	// Sanction program(s) the entity is listed under
+	SanctionProgram []string `json:"sanction_program"`
+
+	// Authority/authorities that imposed the sanction
+	SanctioningAuthority []string `json:"sanctioning_authority"`
+
+	// Date(s) when the sanction entry was last updated
+	UpdatedOn []string `json:"updated_on"`
+
+	// Additional data from the sanction source not captured in the main fields
+	AdditionalData map[string]any `json:"additional_data"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsSanctionMatches leniently.
+func (r *AMLScreeningHitsSanctionMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsAdverseMediaDetails is a response object.
+type AMLScreeningHitsAdverseMediaDetails struct {
+	Sentiment       string           `json:"sentiment"`
+	EntityType      string           `json:"entity_type"`
+	SentimentScore  int64            `json:"sentiment_score"`
+	AdverseKeywords map[string]int64 `json:"adverse_keywords"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsAdverseMediaDetails leniently.
+func (r *AMLScreeningHitsAdverseMediaDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningHitsAdverseMediaMatches is a response object.
+type AMLScreeningHitsAdverseMediaMatches struct {
+	Country         string    `json:"country"`
+	Summary         string    `json:"summary"`
+	Headline        string    `json:"headline"`
+	Sentiment       string    `json:"sentiment"`
+	Thumbnail       string    `json:"thumbnail"`
+	SourceURL       string    `json:"source_url"`
+	AuthorName      string    `json:"author_name"`
+	OtherSources    []string  `json:"other_sources"`
+	AdverseKeywords []string  `json:"adverse_keywords"`
+	SentimentScore  int64     `json:"sentiment_score"`
+	PublicationDate time.Time `json:"publication_date"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningHitsAdverseMediaMatches leniently.
+func (r *AMLScreeningHitsAdverseMediaMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningScreenedData is a response object.
+type AMLScreeningScreenedData struct {
+	FullName       string `json:"full_name"`
+	Nationality    string `json:"nationality"`
+	DateOfBirth    string `json:"date_of_birth"`
+	DocumentNumber string `json:"document_number"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningScreenedData leniently.
+func (r *AMLScreeningScreenedData) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningWarnings is a response object.
+type AMLScreeningWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Within an AML screening this is typically
+	// `AML`, but the enum above is authoritative across all feature warnings on the
+	// decision payload.
+	Feature          AMLScreeningWarningsFeature `json:"feature"`
+	Risk             string                      `json:"risk"`
+	AdditionalData   map[string]any              `json:"additional_data"`
+	LogType          string                      `json:"log_type"`
+	ShortDescription string                      `json:"short_description"`
+	LongDescription  string                      `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLScreeningWarnings leniently.
+func (r *AMLScreeningWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLScreeningWarningsFeature: The feature that generated this warning. The
+// value identifies the feature block the warning belongs to. Within an AML
+// screening this is typically `AML`, but the enum above is authoritative across
+// all feature warnings on the decision payload.
+//
+// AMLScreeningWarningsFeature is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type AMLScreeningWarningsFeature string
+
+// Known values of AMLScreeningWarningsFeature.
+const (
+	AMLScreeningWarningsFeatureIDVerification     AMLScreeningWarningsFeature = "ID_VERIFICATION"
+	AMLScreeningWarningsFeatureNFC                AMLScreeningWarningsFeature = "NFC"
+	AMLScreeningWarningsFeatureLiveness           AMLScreeningWarningsFeature = "LIVENESS"
+	AMLScreeningWarningsFeatureFacematch          AMLScreeningWarningsFeature = "FACEMATCH"
+	AMLScreeningWarningsFeatureProofOfAddress     AMLScreeningWarningsFeature = "PROOF_OF_ADDRESS"
+	AMLScreeningWarningsFeaturePhone              AMLScreeningWarningsFeature = "PHONE"
+	AMLScreeningWarningsFeatureEmail              AMLScreeningWarningsFeature = "EMAIL"
+	AMLScreeningWarningsFeatureAML                AMLScreeningWarningsFeature = "AML"
+	AMLScreeningWarningsFeatureLocation           AMLScreeningWarningsFeature = "LOCATION"
+	AMLScreeningWarningsFeatureDatabaseValidation AMLScreeningWarningsFeature = "DATABASE_VALIDATION"
+	AMLScreeningWarningsFeatureQuestionnaire      AMLScreeningWarningsFeature = "QUESTIONNAIRE"
+	AMLScreeningWarningsFeatureDocumentAi         AMLScreeningWarningsFeature = "DOCUMENT_AI"
+	AMLScreeningWarningsFeatureKYBRegistry        AMLScreeningWarningsFeature = "KYB_REGISTRY"
+	AMLScreeningWarningsFeatureKYBDocuments       AMLScreeningWarningsFeature = "KYB_DOCUMENTS"
+	AMLScreeningWarningsFeatureKYBKeyPeople       AMLScreeningWarningsFeature = "KYB_KEY_PEOPLE"
 )
 
 // RegulatoryReportDetail is a response object.
@@ -545,6 +1455,242 @@ const (
 	SocialFootprintProfilePrivacyStatusPrivate SocialFootprintProfilePrivacyStatus = "PRIVATE"
 )
 
+// InvestigatorDecision: How the item left the Investigator queue. `decided_by`,
+// `original_outcome` and `overrides` are returned by the accept and override
+// endpoints and the report; the `investigator` block of a session decision
+// carries the other fields.
+type InvestigatorDecision struct {
+	// `accepted` or `edited` took the recommendation (`edited` with a rewritten
+	// narrative), `overridden` took another action, `decided_elsewhere` is a
+	// decision taken outside the Investigator while the report was open,
+	// `automated` is a decision the Investigator took on its own.
+	Outcome          InvestigatorDecisionOutcome          `json:"outcome"`
+	Action           InvestigatorDecisionAction           `json:"action"`
+	ActorEmail       string                               `json:"actor_email"`
+	ActorName        string                               `json:"actor_name"`
+	OverrideCategory InvestigatorDecisionOverrideCategory `json:"override_category"`
+	OverrideReason   string                               `json:"override_reason"`
+
+	// The item's status after the decision.
+	FinalStatus string `json:"final_status"`
+
+	// Whether the decision matched the recommendation.
+	Agreed    bool      `json:"agreed"`
+	DecidedAt time.Time `json:"decided_at"`
+
+	// The review was charged.
+	Billed    bool                          `json:"billed"`
+	DecidedBy InvestigatorDecisionDecidedBy `json:"decided_by"`
+
+	// The decision the Investigator took on its own, unchanged by later overrides.
+	// Null for a decision the team took.
+	OriginalOutcome InvestigatorDecisionOriginalOutcome `json:"original_outcome"`
+
+	// Every override of a decision the Investigator took on its own, oldest first.
+	Overrides []InvestigatorDecisionOverrides `json:"overrides"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes InvestigatorDecision leniently.
+func (r *InvestigatorDecision) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// InvestigatorDecisionOutcome: `accepted` or `edited` took the recommendation
+// (`edited` with a rewritten narrative), `overridden` took another action,
+// `decided_elsewhere` is a decision taken outside the Investigator while the
+// report was open, `automated` is a decision the Investigator took on its own.
+//
+// InvestigatorDecisionOutcome is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type InvestigatorDecisionOutcome string
+
+// Known values of InvestigatorDecisionOutcome.
+const (
+	InvestigatorDecisionOutcomeAccepted         InvestigatorDecisionOutcome = "accepted"
+	InvestigatorDecisionOutcomeEdited           InvestigatorDecisionOutcome = "edited"
+	InvestigatorDecisionOutcomeOverridden       InvestigatorDecisionOutcome = "overridden"
+	InvestigatorDecisionOutcomeDecidedElsewhere InvestigatorDecisionOutcome = "decided_elsewhere"
+	InvestigatorDecisionOutcomeAutomated        InvestigatorDecisionOutcome = "automated"
+)
+
+// InvestigatorDecisionAction is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type InvestigatorDecisionAction string
+
+// Known values of InvestigatorDecisionAction.
+const (
+	InvestigatorDecisionActionApprove  InvestigatorDecisionAction = "approve"
+	InvestigatorDecisionActionDecline  InvestigatorDecisionAction = "decline"
+	InvestigatorDecisionActionEscalate InvestigatorDecisionAction = "escalate"
+	InvestigatorDecisionActionRequest  InvestigatorDecisionAction = "request"
+)
+
+// InvestigatorDecisionOverrideCategory is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type InvestigatorDecisionOverrideCategory string
+
+// Known values of InvestigatorDecisionOverrideCategory.
+const (
+	InvestigatorDecisionOverrideCategoryMissingContext   InvestigatorDecisionOverrideCategory = "missing_context"
+	InvestigatorDecisionOverrideCategoryNeedsInformation InvestigatorDecisionOverrideCategory = "needs_information"
+	InvestigatorDecisionOverrideCategoryPolicyDiffers    InvestigatorDecisionOverrideCategory = "policy_differs"
+	InvestigatorDecisionOverrideCategoryEvidenceMisread  InvestigatorDecisionOverrideCategory = "evidence_misread"
+	InvestigatorDecisionOverrideCategoryOther            InvestigatorDecisionOverrideCategory = "other"
+	InvestigatorDecisionOverrideCategoryEmpty            InvestigatorDecisionOverrideCategory = ""
+)
+
+// InvestigatorDecisionDecidedBy is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type InvestigatorDecisionDecidedBy string
+
+// Known values of InvestigatorDecisionDecidedBy.
+const (
+	InvestigatorDecisionDecidedByInvestigator InvestigatorDecisionDecidedBy = "investigator"
+	InvestigatorDecisionDecidedByMember       InvestigatorDecisionDecidedBy = "member"
+)
+
+// InvestigatorDecisionOriginalOutcome: The decision the Investigator took on
+// its own, unchanged by later overrides. Null for a decision the team took.
+type InvestigatorDecisionOriginalOutcome struct {
+	Action      string    `json:"action"`
+	FinalStatus string    `json:"final_status"`
+	DecidedAt   time.Time `json:"decided_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes InvestigatorDecisionOriginalOutcome leniently.
+func (r *InvestigatorDecisionOriginalOutcome) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// InvestigatorDecisionOverrides is a response object.
+type InvestigatorDecisionOverrides struct {
+	Action           string    `json:"action"`
+	ActorEmail       string    `json:"actor_email"`
+	ActorName        string    `json:"actor_name"`
+	OverrideCategory string    `json:"override_category"`
+	OverrideReason   string    `json:"override_reason"`
+	PreviousStatus   string    `json:"previous_status"`
+	FinalStatus      string    `json:"final_status"`
+	Agreed           bool      `json:"agreed"`
+	OverriddenAt     time.Time `json:"overridden_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes InvestigatorDecisionOverrides leniently.
+func (r *InvestigatorDecisionOverrides) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// InvestigatorBlock: The item's latest Investigator review, or null when it
+// never had one. Carried by the V3 session and business session decision (and
+// so by `status.updated` webhooks).
+type InvestigatorBlock struct {
+	RunID                string                          `json:"run_id"`
+	Status               InvestigatorBlockStatus         `json:"status"`
+	Stage                InvestigatorBlockStage          `json:"stage"`
+	Queue                InvestigatorBlockQueue          `json:"queue"`
+	IsOpen               bool                            `json:"is_open"`
+	Recommendation       InvestigatorBlockRecommendation `json:"recommendation"`
+	RecommendationDetail string                          `json:"recommendation_detail"`
+	Confidence           InvestigatorBlockConfidence     `json:"confidence"`
+	Summary              string                          `json:"summary"`
+	ReadyToAccept        bool                            `json:"ready_to_accept"`
+	PreparedAt           time.Time                       `json:"prepared_at"`
+
+	// The Investigator decided on its own, even if the decision was later
+	// overridden.
+	Automated bool                       `json:"automated"`
+	DecidedBy InvestigatorBlockDecidedBy `json:"decided_by"`
+	Decision  InvestigatorDecision       `json:"decision"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes InvestigatorBlock leniently.
+func (r *InvestigatorBlock) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// InvestigatorBlockStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type InvestigatorBlockStatus string
+
+// Known values of InvestigatorBlockStatus.
+const (
+	InvestigatorBlockStatusRunning   InvestigatorBlockStatus = "running"
+	InvestigatorBlockStatusCompleted InvestigatorBlockStatus = "completed"
+	InvestigatorBlockStatusFailed    InvestigatorBlockStatus = "failed"
+)
+
+// InvestigatorBlockStage is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type InvestigatorBlockStage string
+
+// Known values of InvestigatorBlockStage.
+const (
+	InvestigatorBlockStageShadow InvestigatorBlockStage = "shadow"
+	InvestigatorBlockStageLive   InvestigatorBlockStage = "live"
+)
+
+// InvestigatorBlockQueue is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type InvestigatorBlockQueue string
+
+// Known values of InvestigatorBlockQueue.
+const (
+	InvestigatorBlockQueueKYC          InvestigatorBlockQueue = "kyc"
+	InvestigatorBlockQueueKYB          InvestigatorBlockQueue = "kyb"
+	InvestigatorBlockQueueAML          InvestigatorBlockQueue = "aml"
+	InvestigatorBlockQueueTransactions InvestigatorBlockQueue = "transactions"
+	InvestigatorBlockQueueCases        InvestigatorBlockQueue = "cases"
+)
+
+// InvestigatorBlockRecommendation is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type InvestigatorBlockRecommendation string
+
+// Known values of InvestigatorBlockRecommendation.
+const (
+	InvestigatorBlockRecommendationApprove  InvestigatorBlockRecommendation = "approve"
+	InvestigatorBlockRecommendationDecline  InvestigatorBlockRecommendation = "decline"
+	InvestigatorBlockRecommendationEscalate InvestigatorBlockRecommendation = "escalate"
+	InvestigatorBlockRecommendationRequest  InvestigatorBlockRecommendation = "request"
+)
+
+// InvestigatorBlockConfidence is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type InvestigatorBlockConfidence string
+
+// Known values of InvestigatorBlockConfidence.
+const (
+	InvestigatorBlockConfidenceHigh     InvestigatorBlockConfidence = "high"
+	InvestigatorBlockConfidenceModerate InvestigatorBlockConfidence = "moderate"
+	InvestigatorBlockConfidenceLow      InvestigatorBlockConfidence = "low"
+)
+
+// InvestigatorBlockDecidedBy is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type InvestigatorBlockDecidedBy string
+
+// Known values of InvestigatorBlockDecidedBy.
+const (
+	InvestigatorBlockDecidedByInvestigator InvestigatorBlockDecidedBy = "investigator"
+	InvestigatorBlockDecidedByMember       InvestigatorBlockDecidedBy = "member"
+)
+
 // KYBRegistryShareholding: What an owner holds, in the same shape for every
 // country and registry source. Null when the registry states no holding. A band
 // (for example a UK PSC's 25-50%) is not a stake: `percentage` is null and the
@@ -766,14 +1912,678 @@ func (r *KYBRegistryOwnershipUnresolved) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// WebhookEvent: Supported webhook event name. Use these exact strings in
+// `subscribed_events`; unsupported values are rejected.
+//
+// WebhookEvent is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type WebhookEvent string
+
+// Known values of WebhookEvent.
+const (
+	WebhookEventStatusUpdated                   WebhookEvent = "status.updated"
+	WebhookEventDataUpdated                     WebhookEvent = "data.updated"
+	WebhookEventUserStatusUpdated               WebhookEvent = "user.status.updated"
+	WebhookEventUserDataUpdated                 WebhookEvent = "user.data.updated"
+	WebhookEventBusinessStatusUpdated           WebhookEvent = "business.status.updated"
+	WebhookEventBusinessDataUpdated             WebhookEvent = "business.data.updated"
+	WebhookEventActivityCreated                 WebhookEvent = "activity.created"
+	WebhookEventTransactionCreated              WebhookEvent = "transaction.created"
+	WebhookEventTransactionStatusUpdated        WebhookEvent = "transaction.status.updated"
+	WebhookEventTravelRuleStatusUpdated         WebhookEvent = "travel_rule.status.updated"
+	WebhookEventWorkflowComplianceChanged       WebhookEvent = "workflow.compliance_changed"
+	WebhookEventAuthSignup                      WebhookEvent = "auth.signup"
+	WebhookEventAuthLogin                       WebhookEvent = "auth.login"
+	WebhookEventAuthLoginFailed                 WebhookEvent = "auth.login_failed"
+	WebhookEventAuthPasswordResetRequested      WebhookEvent = "auth.password_reset_requested"
+	WebhookEventAuthPasswordResetCompleted      WebhookEvent = "auth.password_reset_completed"
+	WebhookEventAuthMFAChanged                  WebhookEvent = "auth.mfa_changed"
+	WebhookEventAuthNewDevice                   WebhookEvent = "auth.new_device"
+	WebhookEventAuthAccountLocked               WebhookEvent = "auth.account_locked"
+	WebhookEventInvestigatorReportReady         WebhookEvent = "investigator.report.ready"
+	WebhookEventInvestigatorDecisionAutomated   WebhookEvent = "investigator.decision.automated"
+	WebhookEventInvestigatorDecisionOverridden  WebhookEvent = "investigator.decision.overridden"
+	WebhookEventInvestigatorDecisionContested   WebhookEvent = "investigator.decision.contested"
+	WebhookEventInvestigatorQuestionRaised      WebhookEvent = "investigator.question.raised"
+	WebhookEventInvestigatorAutomationPaused    WebhookEvent = "investigator.automation.paused"
+	WebhookEventInvestigatorRfiAnswered         WebhookEvent = "investigator.rfi.answered"
+	WebhookEventInvestigatorRfiOverdue          WebhookEvent = "investigator.rfi.overdue"
+	WebhookEventInvestigatorDriftDetected       WebhookEvent = "investigator.drift.detected"
+	WebhookEventInvestigatorSLABreached         WebhookEvent = "investigator.sla.breached"
+	WebhookEventInvestigatorQaFailed            WebhookEvent = "investigator.qa.failed"
+	WebhookEventInvestigatorExternalReportReady WebhookEvent = "investigator.external.report.ready"
+)
+
+// TravelRuleUtxo: The inputs and outputs of a UTXO transfer (BTC, LTC, BCH,
+// DOGE). Only accepted on those chains: on any other chain it is a `400`. From
+// them Didit infers the originator wallet (the declared one, else the input
+// address that contributed the most) and the beneficiary output (the declared
+// one, else the only output that does not pay an input address back as change,
+// else the one output paying the transfer amount). The result is on the
+// transfer's `chain_details`.
+type TravelRuleUtxo struct {
+	// Optional. Without inputs no originator is inferred and no change output is
+	// recognised.
+	Inputs Opt[[]TravelRuleUtxoEntryParam] `json:"inputs"`
+
+	// Required.
+	Outputs []TravelRuleUtxoEntryParam `json:"outputs"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleUtxo) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleUtxoEntryParam: One input or output of a UTXO transaction, as the
+// chain recorded it.
+type TravelRuleUtxoEntryParam struct {
+	// Required.
+	Address string `json:"address"`
+
+	// Decimal string in the coin's own unit (BTC, not satoshis). Optional.
+	Amount Opt[string] `json:"amount"`
+
+	// Optional. The transaction an input spends.
+	Txid Opt[string] `json:"txid"`
+
+	// Optional. The output index an input spends.
+	Vout Opt[int64] `json:"vout"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleUtxoEntryParam) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleDataMatch: Field-by-field comparison of the transfer's party data
+// with what the other side knows about the wallet holder. It names fields and
+// results, never values, so it stays readable while the counterparty's data is
+// masked. Null until a comparison ran.
+type TravelRuleDataMatch struct {
+	// True when no compared field differs.
+	Matched bool `json:"matched"`
+
+	// The fields that differ.
+	MismatchedFields []TravelRuleDataMatchMismatchedFields `json:"mismatched_fields"`
+
+	// One entry per field compared for the party's entity type (`name`,
+	// `date_of_birth`, `address`, `account`; a company has no `date_of_birth`).
+	Fields map[string]TravelRuleDataMatchFields `json:"fields"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDataMatch leniently.
+func (r *TravelRuleDataMatch) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDataMatchMismatchedFields is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleDataMatchMismatchedFields string
+
+// Known values of TravelRuleDataMatchMismatchedFields.
+const (
+	TravelRuleDataMatchMismatchedFieldsName        TravelRuleDataMatchMismatchedFields = "name"
+	TravelRuleDataMatchMismatchedFieldsDateOfBirth TravelRuleDataMatchMismatchedFields = "date_of_birth"
+	TravelRuleDataMatchMismatchedFieldsAddress     TravelRuleDataMatchMismatchedFields = "address"
+	TravelRuleDataMatchMismatchedFieldsAccount     TravelRuleDataMatchMismatchedFields = "account"
+)
+
+// TravelRuleDataMatchFields is a response object.
+type TravelRuleDataMatchFields struct {
+	// `not_compared` when the rule is `NONE` or either side has no value for the
+	// field.
+	Result     TravelRuleDataMatchFieldsResult     `json:"result"`
+	Strictness TravelRuleDataMatchFieldsStrictness `json:"strictness"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDataMatchFields leniently.
+func (r *TravelRuleDataMatchFields) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDataMatchFieldsResult: `not_compared` when the rule is `NONE` or
+// either side has no value for the field.
+//
+// TravelRuleDataMatchFieldsResult is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleDataMatchFieldsResult string
+
+// Known values of TravelRuleDataMatchFieldsResult.
+const (
+	TravelRuleDataMatchFieldsResultMatched     TravelRuleDataMatchFieldsResult = "matched"
+	TravelRuleDataMatchFieldsResultMismatched  TravelRuleDataMatchFieldsResult = "mismatched"
+	TravelRuleDataMatchFieldsResultNotCompared TravelRuleDataMatchFieldsResult = "not_compared"
+)
+
+// TravelRuleDataMatchFieldsStrictness is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleDataMatchFieldsStrictness string
+
+// Known values of TravelRuleDataMatchFieldsStrictness.
+const (
+	TravelRuleDataMatchFieldsStrictnessNone     TravelRuleDataMatchFieldsStrictness = "NONE"
+	TravelRuleDataMatchFieldsStrictnessStrict   TravelRuleDataMatchFieldsStrictness = "STRICT"
+	TravelRuleDataMatchFieldsStrictnessContains TravelRuleDataMatchFieldsStrictness = "CONTAINS"
+	TravelRuleDataMatchFieldsStrictnessDefault  TravelRuleDataMatchFieldsStrictness = "DEFAULT"
+	TravelRuleDataMatchFieldsStrictnessFuzzy    TravelRuleDataMatchFieldsStrictness = "FUZZY"
+)
+
+// TravelRuleDataUnmasked: Audit record of the moment the counterparty's data
+// was unmasked. Null while the data is still masked, and for outbound
+// transfers.
+type TravelRuleDataUnmasked struct {
+	At time.Time `json:"at"`
+
+	// What confirmed ownership: ownership_confirmed (your confirmation through the
+	// console or the API), wallet_proof (a wallet proof in the widget, or an
+	// INTERNAL inbound transfer, set when it is created), address_book_match (a
+	// verified address-book wallet), own_verified_wallet (your user's own verified
+	// wallet), inquiry_approved (your approval of an inbound TRP inquiry or a GTR
+	// or Sygna message), known_payment_method (a wallet your user already paid
+	// with) or travel_address (the per-wallet travel address named the wallet).
+	Reason TravelRuleDataUnmaskedReason `json:"reason"`
+
+	// Who confirmed it: the console user's email or the API key's label. Blank for
+	// an automatic decision.
+	Actor string `json:"actor"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDataUnmasked leniently.
+func (r *TravelRuleDataUnmasked) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDataUnmaskedReason: What confirmed ownership: ownership_confirmed
+// (your confirmation through the console or the API), wallet_proof (a wallet
+// proof in the widget, or an INTERNAL inbound transfer, set when it is
+// created), address_book_match (a verified address-book wallet),
+// own_verified_wallet (your user's own verified wallet), inquiry_approved (your
+// approval of an inbound TRP inquiry or a GTR or Sygna message),
+// known_payment_method (a wallet your user already paid with) or travel_address
+// (the per-wallet travel address named the wallet).
+//
+// TravelRuleDataUnmaskedReason is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleDataUnmaskedReason string
+
+// Known values of TravelRuleDataUnmaskedReason.
+const (
+	TravelRuleDataUnmaskedReasonOwnershipConfirmed TravelRuleDataUnmaskedReason = "ownership_confirmed"
+	TravelRuleDataUnmaskedReasonWalletProof        TravelRuleDataUnmaskedReason = "wallet_proof"
+	TravelRuleDataUnmaskedReasonAddressBookMatch   TravelRuleDataUnmaskedReason = "address_book_match"
+	TravelRuleDataUnmaskedReasonOwnVerifiedWallet  TravelRuleDataUnmaskedReason = "own_verified_wallet"
+	TravelRuleDataUnmaskedReasonInquiryApproved    TravelRuleDataUnmaskedReason = "inquiry_approved"
+	TravelRuleDataUnmaskedReasonKnownPaymentMethod TravelRuleDataUnmaskedReason = "known_payment_method"
+	TravelRuleDataUnmaskedReasonTravelAddress      TravelRuleDataUnmaskedReason = "travel_address"
+)
+
+// TravelRuleDelivery: Where the latest message the transfer owes the other side
+// stands. Didit contacts the counterparty after the request that created or
+// changed the transfer has returned, so this object says whether that message
+// got through: queued, being sent, waiting to be retried after an error,
+// delivered, or failed. A failure the network may still recover from (no answer
+// in time, a failed connection, HTTP `408`, `429` or `5xx`) is tried again
+// after 30 seconds, 2 minutes, 10 minutes, 30 minutes and 1 hour. When a first
+// message (`kind: SEND`) fails for good, because the network refused it or the
+// sixth attempt failed too, the transfer moves to
+// `COUNTERPARTY_VASP_NOT_REACHABLE` with `last_error` in its `timeline`; any
+// other message that fails for good is noted in the `timeline`. The transfer's
+// `status` stays the source of truth for the exchange itself.
+type TravelRuleDelivery struct {
+	// What the message carries. `SEND`: the transfer's first message to the
+	// counterparty (outbound; the rail is chosen when it is sent). `ANSWER`: your
+	// accept or decline, owed to the network that asked (inbound). `TXID`: the
+	// on-chain transaction hash, after you finish the transfer. `CANCEL`: the
+	// cancellation, after you cancel it. `POLL`: a status query to a network that
+	// offers one, repeated every 5 minutes while the transfer waits on the
+	// counterparty.
+	Kind TravelRuleDeliveryKind `json:"kind"`
+
+	// `QUEUED`: waiting to be sent. `SENDING`: an attempt is running. `RETRYING`:
+	// an attempt failed and the next one runs at `next_attempt_at`. `DELIVERED`:
+	// the other side took the message. `FAILED`: the other side refused it, or the
+	// last attempt failed.
+	Status TravelRuleDeliveryStatus `json:"status"`
+
+	// The rail that carries the message. Empty until Didit has chosen one for a
+	// first message.
+	Rail TravelRuleDeliveryRail `json:"rail"`
+
+	// Attempts made so far for this message. A message that is not a status poll is
+	// attempted at most 6 times.
+	Attempts int64 `json:"attempts"`
+
+	// The kind of failure the last attempt hit, `""` when none did: for example
+	// `email undeliverable`, `trp identity endpoint unreachable` or `trp transfer
+	// inquiry delivery failed`. It never carries the counterparty's own answer,
+	// which stays on the transfer's `timeline`. When GTR answers with an error, its
+	// own status code and message are included. Response bodies are never included.
+	LastError string `json:"last_error"`
+
+	// When the next attempt runs while the message is `QUEUED` or `RETRYING`.
+	NextAttemptAt time.Time `json:"next_attempt_at"`
+
+	// When the other side took the message.
+	DeliveredAt time.Time `json:"delivered_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDelivery leniently.
+func (r *TravelRuleDelivery) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDeliveryKind: What the message carries. `SEND`: the transfer's
+// first message to the counterparty (outbound; the rail is chosen when it is
+// sent). `ANSWER`: your accept or decline, owed to the network that asked
+// (inbound). `TXID`: the on-chain transaction hash, after you finish the
+// transfer. `CANCEL`: the cancellation, after you cancel it. `POLL`: a status
+// query to a network that offers one, repeated every 5 minutes while the
+// transfer waits on the counterparty.
+//
+// TravelRuleDeliveryKind is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type TravelRuleDeliveryKind string
+
+// Known values of TravelRuleDeliveryKind.
+const (
+	TravelRuleDeliveryKindSend   TravelRuleDeliveryKind = "SEND"
+	TravelRuleDeliveryKindAnswer TravelRuleDeliveryKind = "ANSWER"
+	TravelRuleDeliveryKindTxid   TravelRuleDeliveryKind = "TXID"
+	TravelRuleDeliveryKindCancel TravelRuleDeliveryKind = "CANCEL"
+	TravelRuleDeliveryKindPoll   TravelRuleDeliveryKind = "POLL"
+)
+
+// TravelRuleDeliveryStatus: `QUEUED`: waiting to be sent. `SENDING`: an attempt
+// is running. `RETRYING`: an attempt failed and the next one runs at
+// `next_attempt_at`. `DELIVERED`: the other side took the message. `FAILED`:
+// the other side refused it, or the last attempt failed.
+//
+// TravelRuleDeliveryStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleDeliveryStatus string
+
+// Known values of TravelRuleDeliveryStatus.
+const (
+	TravelRuleDeliveryStatusQueued    TravelRuleDeliveryStatus = "QUEUED"
+	TravelRuleDeliveryStatusSending   TravelRuleDeliveryStatus = "SENDING"
+	TravelRuleDeliveryStatusRetrying  TravelRuleDeliveryStatus = "RETRYING"
+	TravelRuleDeliveryStatusDelivered TravelRuleDeliveryStatus = "DELIVERED"
+	TravelRuleDeliveryStatusFailed    TravelRuleDeliveryStatus = "FAILED"
+)
+
+// TravelRuleDeliveryRail: The rail that carries the message. Empty until Didit
+// has chosen one for a first message.
+//
+// TravelRuleDeliveryRail is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type TravelRuleDeliveryRail string
+
+// Known values of TravelRuleDeliveryRail.
+const (
+	TravelRuleDeliveryRailInternal   TravelRuleDeliveryRail = "INTERNAL"
+	TravelRuleDeliveryRailTrp        TravelRuleDeliveryRail = "TRP"
+	TravelRuleDeliveryRailGtr        TravelRuleDeliveryRail = "GTR"
+	TravelRuleDeliveryRailTrust      TravelRuleDeliveryRail = "TRUST"
+	TravelRuleDeliveryRailVerifyvasp TravelRuleDeliveryRail = "VERIFYVASP"
+	TravelRuleDeliveryRailSygna      TravelRuleDeliveryRail = "SYGNA"
+	TravelRuleDeliveryRailEmail      TravelRuleDeliveryRail = "EMAIL"
+	TravelRuleDeliveryRailEmpty      TravelRuleDeliveryRail = ""
+)
+
+// TravelRuleDiscoveryStep: One step of the counterparty discovery Didit ran for
+// an outbound transfer, in the order it ran them. The first step that names a
+// VASP with a route ends the chain.
+type TravelRuleDiscoveryStep struct {
+	// `internal_address_book`: another Didit customer that proved control of the
+	// destination wallet. `wallet_attribution`: the wallet's blockchain analytics
+	// attribution. `network_lookup`: a network that can say which VASP holds the
+	// address. `customer_hint`: the VASP name, LEI or jurisdiction you sent in
+	// `beneficiary_data`. `end_user`: the counterparty the end user (or you)
+	// picked, or the request to pick one.
+	Step TravelRuleDiscoveryStepStep `json:"step"`
+
+	// `match`: the step named a counterparty. `miss`: it ran and found none.
+	// `skipped`: it could not run, and `reason` says why.
+	Outcome TravelRuleDiscoveryStepOutcome `json:"outcome"`
+
+	// Machine-readable reason, `""` on a match: `no_proven_internal_wallet`,
+	// `attribution_disabled`, `already_attributed`, `no_attributed_entity`,
+	// `directory_match_no_route`, `gtr_address_lookup_runs_on_dispatch`,
+	// `no_membership`, `network_switched_off`, `no_network_address_lookup`,
+	// `no_directory_match`, `awaiting_end_user` or
+	// `picked_member_without_proven_wallet`.
+	Reason string `json:"reason"`
+
+	// The directory VASP the step named, when it named one.
+	VASP string `json:"vasp"`
+
+	// The rail that reaches that counterparty, when the step found one.
+	Rail string    `json:"rail"`
+	At   time.Time `json:"at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDiscoveryStep leniently.
+func (r *TravelRuleDiscoveryStep) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDiscoveryStepStep: `internal_address_book`: another Didit customer
+// that proved control of the destination wallet. `wallet_attribution`: the
+// wallet's blockchain analytics attribution. `network_lookup`: a network that
+// can say which VASP holds the address. `customer_hint`: the VASP name, LEI or
+// jurisdiction you sent in `beneficiary_data`. `end_user`: the counterparty the
+// end user (or you) picked, or the request to pick one.
+//
+// TravelRuleDiscoveryStepStep is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleDiscoveryStepStep string
+
+// Known values of TravelRuleDiscoveryStepStep.
+const (
+	TravelRuleDiscoveryStepStepInternalAddressBook TravelRuleDiscoveryStepStep = "internal_address_book"
+	TravelRuleDiscoveryStepStepWalletAttribution   TravelRuleDiscoveryStepStep = "wallet_attribution"
+	TravelRuleDiscoveryStepStepNetworkLookup       TravelRuleDiscoveryStepStep = "network_lookup"
+	TravelRuleDiscoveryStepStepCustomerHint        TravelRuleDiscoveryStepStep = "customer_hint"
+	TravelRuleDiscoveryStepStepEndUser             TravelRuleDiscoveryStepStep = "end_user"
+)
+
+// TravelRuleDiscoveryStepOutcome: `match`: the step named a counterparty.
+// `miss`: it ran and found none. `skipped`: it could not run, and `reason` says
+// why.
+//
+// TravelRuleDiscoveryStepOutcome is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleDiscoveryStepOutcome string
+
+// Known values of TravelRuleDiscoveryStepOutcome.
+const (
+	TravelRuleDiscoveryStepOutcomeMatch   TravelRuleDiscoveryStepOutcome = "match"
+	TravelRuleDiscoveryStepOutcomeMiss    TravelRuleDiscoveryStepOutcome = "miss"
+	TravelRuleDiscoveryStepOutcomeSkipped TravelRuleDiscoveryStepOutcome = "skipped"
+)
+
+// TravelRuleNextAction: One thing that moves a `COUNTERPARTY_VASP_NOT_FOUND` or
+// `COUNTERPARTY_VASP_NOT_REACHABLE` transfer on. See [Why a transfer is
+// stuck](/transaction-monitoring/travel-rule#why-a-transfer-is-stuck).
+type TravelRuleNextAction struct {
+	// `select_counterparty_vasp`: the end user picks the destination VASP in the
+	// wallet-ownership widget. `declare_self_hosted`: the end user declares the
+	// wallet self-hosted in the widget. `add_vasp_hint`: tell Didit who the
+	// counterparty is, with a VASP name, LEI or travel address (for example a
+	// `travel_address` on the destination wallet's address-book entry), then
+	// resend. `update_compliance_email` and `resend` are `action` values of `PATCH
+	// /v3/transactions/{transaction_id}/travel-rule/`: give the counterparty's
+	// compliance email again, and re-run routing.
+	Action TravelRuleNextActionAction `json:"action"`
+
+	// The wallet-ownership widget link, on `select_counterparty_vasp` and
+	// `declare_self_hosted` while the transfer has an open widget session.
+	URL string `json:"url"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNextAction leniently.
+func (r *TravelRuleNextAction) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNextActionAction: `select_counterparty_vasp`: the end user picks
+// the destination VASP in the wallet-ownership widget. `declare_self_hosted`:
+// the end user declares the wallet self-hosted in the widget. `add_vasp_hint`:
+// tell Didit who the counterparty is, with a VASP name, LEI or travel address
+// (for example a `travel_address` on the destination wallet's address-book
+// entry), then resend. `update_compliance_email` and `resend` are `action`
+// values of `PATCH /v3/transactions/{transaction_id}/travel-rule/`: give the
+// counterparty's compliance email again, and re-run routing.
+//
+// TravelRuleNextActionAction is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleNextActionAction string
+
+// Known values of TravelRuleNextActionAction.
+const (
+	TravelRuleNextActionActionSelectCounterpartyVASP TravelRuleNextActionAction = "select_counterparty_vasp"
+	TravelRuleNextActionActionDeclareSelfHosted      TravelRuleNextActionAction = "declare_self_hosted"
+	TravelRuleNextActionActionAddVASPHint            TravelRuleNextActionAction = "add_vasp_hint"
+	TravelRuleNextActionActionUpdateComplianceEmail  TravelRuleNextActionAction = "update_compliance_email"
+	TravelRuleNextActionActionResend                 TravelRuleNextActionAction = "resend"
+)
+
+// TravelRuleChainDetails: How the transfer's chain names its two wallets, when
+// that is more than one address paying another. Empty (`{}`) for an
+// account-chain transfer (EVM, Solana, Tron), where the two addresses are the
+// wallets. Matching, routing and the address book read the wallets from here
+// first.
+type TravelRuleChainDetails struct {
+	// Canonical chain, e.g. `BTC`, `XRP`, or `LIGHTNING` for a Lightning transfer.
+	Chain       string                      `json:"chain"`
+	Shape       TravelRuleChainDetailsShape `json:"shape"`
+	Originator  TravelRuleChainSide         `json:"originator"`
+	Beneficiary TravelRuleChainSide         `json:"beneficiary"`
+
+	// On a UTXO transfer: the inputs and outputs as stored (amounts as decimal
+	// strings) and which outputs Didit read as what.
+	Utxo TravelRuleChainDetailsUtxo `json:"utxo"`
+
+	// On a Lightning transfer: what the payment request says. Always `kind`
+	// (`bolt11`, `bolt12_offer`, `bolt12_invoice`, `bolt12_invoice_request`,
+	// `lnurl`, `lightning_address`, `node_id` or `unknown`); a BOLT11 invoice adds
+	// `network`, `payee_node_id`, `payment_hash`, `amount_msat`, `created_at` and
+	// `expires_at`; a BOLT12 string `blinded_paths` and `payee_node_id`; an LNURL
+	// or a Lightning Address its `domain`. Nothing is resolved over the network:
+	// the request is decoded only.
+	Lightning map[string]any `json:"lightning"`
+
+	// UTXO inconsistencies worth a look: the declared originator is not an input,
+	// the declared beneficiary is not an output, no single beneficiary output could
+	// be told apart, or the beneficiary output pays a different amount than the
+	// transaction states.
+	Warnings []TravelRuleChainDetailsWarnings `json:"warnings"`
+
+	// On an outbound Lightning transfer whose payment request names no payee: why
+	// the transfer is `NOT_APPLICABLE`. `LIGHTNING_NO_PAYEE_IDENTIFIER` (the
+	// request names no payee node, or could not be decoded),
+	// `LIGHTNING_BOLT12_BLINDED_PAYEE` (the offer hides its payee behind blinded
+	// paths), `LIGHTNING_LNURL_NAMES_NO_PAYEE` (an LNURL names a service, not a
+	// payee). The same code opens the transfer's last `timeline` entry.
+	NotApplicableReason TravelRuleChainDetailsNotApplicableReason `json:"not_applicable_reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleChainDetails leniently.
+func (r *TravelRuleChainDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleChainDetailsShape is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleChainDetailsShape string
+
+// Known values of TravelRuleChainDetailsShape.
+const (
+	TravelRuleChainDetailsShapeUtxo      TravelRuleChainDetailsShape = "utxo"
+	TravelRuleChainDetailsShapeMemo      TravelRuleChainDetailsShape = "memo"
+	TravelRuleChainDetailsShapeLightning TravelRuleChainDetailsShape = "lightning"
+)
+
+// TravelRuleChainSide: One side's wallet as Didit resolved it from the chain
+// data.
+type TravelRuleChainSide struct {
+	// The wallet. On a memo network the classic address (an XRP X-address is split
+	// into its classic address and its tag); on Lightning the payee node id or
+	// Lightning Address.
+	Address string `json:"address"`
+
+	// The destination tag or memo that is part of the wallet; `""` for none.
+	Memo string `json:"memo"`
+
+	// Where the wallet came from: `declared` (your request), `x_address` (split
+	// from an XRP X-address), `largest_input` (the UTXO input address that
+	// contributed the most), `only_non_change_output` (the only UTXO output that is
+	// not change), `amount_match` (the one UTXO output paying the transfer amount),
+	// `invoice_payee` (the payee a Lightning payment request names), `updated` (set
+	// later with `action: update_originator_wallet`).
+	Source TravelRuleChainSideSource `json:"source"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleChainSide leniently.
+func (r *TravelRuleChainSide) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleChainSideSource: Where the wallet came from: `declared` (your
+// request), `x_address` (split from an XRP X-address), `largest_input` (the
+// UTXO input address that contributed the most), `only_non_change_output` (the
+// only UTXO output that is not change), `amount_match` (the one UTXO output
+// paying the transfer amount), `invoice_payee` (the payee a Lightning payment
+// request names), `updated` (set later with `action:
+// update_originator_wallet`).
+//
+// TravelRuleChainSideSource is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleChainSideSource string
+
+// Known values of TravelRuleChainSideSource.
+const (
+	TravelRuleChainSideSourceDeclared            TravelRuleChainSideSource = "declared"
+	TravelRuleChainSideSourceXAddress            TravelRuleChainSideSource = "x_address"
+	TravelRuleChainSideSourceLargestInput        TravelRuleChainSideSource = "largest_input"
+	TravelRuleChainSideSourceOnlyNonChangeOutput TravelRuleChainSideSource = "only_non_change_output"
+	TravelRuleChainSideSourceAmountMatch         TravelRuleChainSideSource = "amount_match"
+	TravelRuleChainSideSourceInvoicePayee        TravelRuleChainSideSource = "invoice_payee"
+	TravelRuleChainSideSourceUpdated             TravelRuleChainSideSource = "updated"
+)
+
+// TravelRuleChainDetailsUtxo: On a UTXO transfer: the inputs and outputs as
+// stored (amounts as decimal strings) and which outputs Didit read as what.
+type TravelRuleChainDetailsUtxo struct {
+	Inputs  []TravelRuleUtxoEntry `json:"inputs"`
+	Outputs []TravelRuleUtxoEntry `json:"outputs"`
+
+	// Outputs that pay an input address back.
+	ChangeOutputIndexes []int64 `json:"change_output_indexes"`
+
+	// The output that pays the beneficiary; null when none could be told apart.
+	BeneficiaryOutputIndex int64 `json:"beneficiary_output_index"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleChainDetailsUtxo leniently.
+func (r *TravelRuleChainDetailsUtxo) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleUtxoEntry: One input or output of a UTXO transaction, as the chain
+// recorded it.
+type TravelRuleUtxoEntry struct {
+	Address string `json:"address"`
+
+	// Decimal string in the coin's own unit (BTC, not satoshis). Optional.
+	Amount string `json:"amount"`
+
+	// Optional. The transaction an input spends.
+	Txid string `json:"txid"`
+
+	// Optional. The output index an input spends.
+	Vout int64 `json:"vout"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleUtxoEntry leniently.
+func (r *TravelRuleUtxoEntry) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleChainDetailsWarnings is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleChainDetailsWarnings string
+
+// Known values of TravelRuleChainDetailsWarnings.
+const (
+	TravelRuleChainDetailsWarningsDeclaredOriginatorNotAnInput   TravelRuleChainDetailsWarnings = "declared_originator_not_an_input"
+	TravelRuleChainDetailsWarningsDeclaredBeneficiaryNotAnOutput TravelRuleChainDetailsWarnings = "declared_beneficiary_not_an_output"
+	TravelRuleChainDetailsWarningsBeneficiaryOutputAmbiguous     TravelRuleChainDetailsWarnings = "beneficiary_output_ambiguous"
+	TravelRuleChainDetailsWarningsBeneficiaryOutputAmountDiffers TravelRuleChainDetailsWarnings = "beneficiary_output_amount_differs"
+)
+
+// TravelRuleChainDetailsNotApplicableReason: On an outbound Lightning transfer
+// whose payment request names no payee: why the transfer is `NOT_APPLICABLE`.
+// `LIGHTNING_NO_PAYEE_IDENTIFIER` (the request names no payee node, or could
+// not be decoded), `LIGHTNING_BOLT12_BLINDED_PAYEE` (the offer hides its payee
+// behind blinded paths), `LIGHTNING_LNURL_NAMES_NO_PAYEE` (an LNURL names a
+// service, not a payee). The same code opens the transfer's last `timeline`
+// entry.
+//
+// TravelRuleChainDetailsNotApplicableReason is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleChainDetailsNotApplicableReason string
+
+// Known values of TravelRuleChainDetailsNotApplicableReason.
+const (
+	TravelRuleChainDetailsNotApplicableReasonLightningNoPayeeIdentifier  TravelRuleChainDetailsNotApplicableReason = "LIGHTNING_NO_PAYEE_IDENTIFIER"
+	TravelRuleChainDetailsNotApplicableReasonLightningBolt12BlindedPayee TravelRuleChainDetailsNotApplicableReason = "LIGHTNING_BOLT12_BLINDED_PAYEE"
+	TravelRuleChainDetailsNotApplicableReasonLightningLnurlNamesNoPayee  TravelRuleChainDetailsNotApplicableReason = "LIGHTNING_LNURL_NAMES_NO_PAYEE"
+)
+
 // TravelRuleTransferDetail: Full transfer object returned by the
-// ownership-confirmation and finish/cancel endpoints.
-// originator_data/beneficiary_data are omitted while PII is masked (see
-// description).
+// ownership-confirmation and finish/cancel endpoints. While an inbound
+// transfer's wallet ownership is unconfirmed, the counterparty's
+// `originator_data` and `beneficiary_data` come back masked (the first letter
+// of each word is kept; the wallet, chain and VASP routing stay readable) and
+// `data_masked` is true.
 type TravelRuleTransferDetail struct {
-	UUID               string                                   `json:"uuid"`
-	Status             TravelRuleTransferDetailStatus           `json:"status"`
-	Direction          TravelRuleTransferDetailDirection        `json:"direction"`
+	UUID      string                            `json:"uuid"`
+	Status    TravelRuleTransferDetailStatus    `json:"status"`
+	Direction TravelRuleTransferDetailDirection `json:"direction"`
+
+	// The rail the transfer was routed over, or null when no rail was selected (for
+	// example below the threshold, a self-hosted counterparty wallet, an
+	// after-deposit registration, or no reachable counterparty). INTERNAL means
+	// both sides are Didit applications; EMAIL means the counterparty was reached
+	// by an emailed pickup link. TEST_VASP means the Didit Test VASP answered a
+	// sandbox application's transfer. Over GTR, VERIFYVASP and SYGNA, Didit reads
+	// the counterparty's answer from the network's response or by polling it every
+	// 5 minutes. TRUST only sends, so a TRUST transfer stays AWAITING_COUNTERPARTY
+	// until it expires. A network rail is used only when you have connected your
+	// own membership for that network. It is chosen after the transaction create
+	// returns, so it is null in that response.
 	Rail               TravelRuleTransferDetailRail             `json:"rail"`
 	Protocol           string                                   `json:"protocol"`
 	IvmsVersion        string                                   `json:"ivms_version"`
@@ -782,9 +2592,66 @@ type TravelRuleTransferDetail struct {
 	DeadlineAt         time.Time                                `json:"deadline_at"`
 	Timeline           []TravelRuleTransferDetailTimeline       `json:"timeline"`
 	CounterpartyVASP   TravelRuleTransferDetailCounterpartyVASP `json:"counterparty_vasp"`
-	OriginatorData     map[string]any                           `json:"originator_data"`
-	BeneficiaryData    map[string]any                           `json:"beneficiary_data"`
-	CreatedAt          time.Time                                `json:"created_at"`
+
+	// Originator party. For an inbound transfer the counterparty's values are
+	// masked until ownership is confirmed.
+	OriginatorData map[string]any `json:"originator_data"`
+
+	// Beneficiary party. For an inbound transfer the counterparty's values are
+	// masked until ownership is confirmed.
+	BeneficiaryData map[string]any `json:"beneficiary_data"`
+
+	// The name comparison that decided the transfer, or null until one ran. While
+	// the parties are masked, and on the other customer's copy of an INTERNAL
+	// exchange, `transfer_name`, `compared_name`, `matched_names` and
+	// `mismatched_names` are hidden. `score` and `matched` can disagree: `matched`
+	// follows the strictness, `score` is the similarity of the two full names.
+	NameMatch TravelRuleNameMatch `json:"name_match"`
+	DataMatch TravelRuleDataMatch `json:"data_match"`
+
+	// Shortcut for `data_match.mismatched_fields`. Empty when nothing differs.
+	MismatchedFields []string               `json:"mismatched_fields"`
+	DataUnmasked     TravelRuleDataUnmasked `json:"data_unmasked"`
+
+	// True while the counterparty's personal data is masked in this response.
+	DataMasked bool      `json:"data_masked"`
+	CreatedAt  time.Time `json:"created_at"`
+
+	// Where the latest message this transfer owes the other side stands. Null when
+	// the transfer never owed one (for example below `threshold_amount`, a declared
+	// self-hosted wallet, or a sunrise registration).
+	Delivery TravelRuleDelivery `json:"delivery"`
+
+	// How Didit looked for the counterparty, one entry per step that ran. Empty
+	// when no discovery ran, for example on an inbound transfer.
+	Discovery []TravelRuleDiscoveryStep `json:"discovery"`
+
+	// Why a `COUNTERPARTY_VASP_NOT_FOUND` or `COUNTERPARTY_VASP_NOT_REACHABLE`
+	// transfer is stuck; `""` for any other status. A failed delivery decides it
+	// first, on `COUNTERPARTY_VASP_NOT_REACHABLE` only: `email_undeliverable` (the
+	// mail provider refused the compliance email and no address is left to try:
+	// when it was sent, on a reminder, or as a permanent bounce reported later) or
+	// `delivery_failed` (the rail that was delivering failed for good: a network
+	// rail refused the message or ran out of retries, a `TRP` identity host did not
+	// answer, or the counterparty's `TRP` host did not accept the inquiry).
+	// Otherwise the `discovery` trace decides it: `awaiting_end_user` (no step
+	// named a counterparty Didit can reach), `directory_match_no_route` (a step
+	// named a directory VASP that has no route),
+	// `picked_member_without_proven_wallet` (the end user picked a Didit customer
+	// that has not proven control of the wallet), or `no_directory_match` when the
+	// trace gives no other reason. A resend moves the transfer on, so the reason
+	// clears. See [Why a transfer is
+	// stuck](/transaction-monitoring/travel-rule#why-a-transfer-is-stuck).
+	Reason string `json:"reason"`
+
+	// What moves the transfer on; `[]` for any status but
+	// `COUNTERPARTY_VASP_NOT_FOUND` or `COUNTERPARTY_VASP_NOT_REACHABLE`.
+	// `email_undeliverable` offers `update_compliance_email`, then `resend`.
+	// `delivery_failed` offers `resend`. A discovery reason offers
+	// `select_counterparty_vasp`, `declare_self_hosted`, `add_vasp_hint` and
+	// `resend`.
+	NextActions  []TravelRuleNextAction `json:"next_actions"`
+	ChainDetails TravelRuleChainDetails `json:"chain_details"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -827,16 +2694,33 @@ const (
 	TravelRuleTransferDetailDirectionOutbound TravelRuleTransferDetailDirection = "OUTBOUND"
 )
 
+// TravelRuleTransferDetailRail: The rail the transfer was routed over, or null
+// when no rail was selected (for example below the threshold, a self-hosted
+// counterparty wallet, an after-deposit registration, or no reachable
+// counterparty). INTERNAL means both sides are Didit applications; EMAIL means
+// the counterparty was reached by an emailed pickup link. TEST_VASP means the
+// Didit Test VASP answered a sandbox application's transfer. Over GTR,
+// VERIFYVASP and SYGNA, Didit reads the counterparty's answer from the
+// network's response or by polling it every 5 minutes. TRUST only sends, so a
+// TRUST transfer stays AWAITING_COUNTERPARTY until it expires. A network rail
+// is used only when you have connected your own membership for that network. It
+// is chosen after the transaction create returns, so it is null in that
+// response.
+//
 // TravelRuleTransferDetailRail is a string with known values below. The set is
 // open: other values may appear and never cause an error.
 type TravelRuleTransferDetailRail string
 
 // Known values of TravelRuleTransferDetailRail.
 const (
-	TravelRuleTransferDetailRailInternal TravelRuleTransferDetailRail = "INTERNAL"
-	TravelRuleTransferDetailRailTrp      TravelRuleTransferDetailRail = "TRP"
-	TravelRuleTransferDetailRailGtr      TravelRuleTransferDetailRail = "GTR"
-	TravelRuleTransferDetailRailEmail    TravelRuleTransferDetailRail = "EMAIL"
+	TravelRuleTransferDetailRailInternal   TravelRuleTransferDetailRail = "INTERNAL"
+	TravelRuleTransferDetailRailTrp        TravelRuleTransferDetailRail = "TRP"
+	TravelRuleTransferDetailRailGtr        TravelRuleTransferDetailRail = "GTR"
+	TravelRuleTransferDetailRailTrust      TravelRuleTransferDetailRail = "TRUST"
+	TravelRuleTransferDetailRailVerifyvasp TravelRuleTransferDetailRail = "VERIFYVASP"
+	TravelRuleTransferDetailRailSygna      TravelRuleTransferDetailRail = "SYGNA"
+	TravelRuleTransferDetailRailEmail      TravelRuleTransferDetailRail = "EMAIL"
+	TravelRuleTransferDetailRailTestVASP   TravelRuleTransferDetailRail = "TEST_VASP"
 )
 
 // TravelRuleTransferDetailTimeline is a response object.
@@ -844,6 +2728,15 @@ type TravelRuleTransferDetailTimeline struct {
 	Status string    `json:"status"`
 	At     time.Time `json:"at"`
 	Detail string    `json:"detail"`
+
+	// The name comparison this entry decided, next to `detail`. Absent on entries
+	// that compared no name.
+	NameMatch TravelRuleNameMatch `json:"name_match"`
+
+	// Present only on the entry of a transition a failed delivery caused:
+	// `email_undeliverable` or `delivery_failed`, the value the transfer's `reason`
+	// reports.
+	Reason string `json:"reason"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -855,11 +2748,117 @@ func (r *TravelRuleTransferDetailTimeline) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// TravelRuleNameMatch: The name comparison that decided the transfer, or null
+// until one ran. While the parties are masked, and on the other customer's copy
+// of an INTERNAL exchange, `transfer_name`, `compared_name`, `matched_names`
+// and `mismatched_names` are hidden. `score` and `matched` can disagree:
+// `matched` follows the strictness, `score` is the similarity of the two full
+// names.
+type TravelRuleNameMatch struct {
+	// Similarity of the two full names, 0 to 100. 0 when either name is blank.
+	Score int64 `json:"score"`
+
+	// Whether the names satisfy `strictness`. The transfer's outcome follows
+	// `data_match`, which compares every field, so a transfer can be
+	// COUNTERPARTY_MISMATCHED_DATA while this is true.
+	Matched bool `json:"matched"`
+
+	// How `matched` was decided: none (`NONE`), exact_token (`STRICT`),
+	// token_subset (`DEFAULT`), token_containment (`CONTAINS`) or sequence_ratio
+	// (`FUZZY`).
+	Method     TravelRuleNameMatchMethod     `json:"method"`
+	Strictness TravelRuleNameMatchStrictness `json:"strictness"`
+
+	// wallet_holder: the holder recorded for the wallet. counterparty_vasp: the
+	// name the counterparty answered on the email response page, or the Didit Test
+	// VASP's answer in sandbox.
+	ComparedWith TravelRuleNameMatchComparedWith `json:"compared_with"`
+
+	// The name on the transfer.
+	TransferName string `json:"transfer_name"`
+
+	// The name it was compared with.
+	ComparedName string `json:"compared_name"`
+
+	// Words of `transfer_name` found in `compared_name`.
+	MatchedNames []string `json:"matched_names"`
+
+	// Words of `transfer_name` missing from `compared_name`, then words of
+	// `compared_name` missing from `transfer_name`.
+	MismatchedNames []string `json:"mismatched_names"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNameMatch leniently.
+func (r *TravelRuleNameMatch) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNameMatchMethod: How `matched` was decided: none (`NONE`),
+// exact_token (`STRICT`), token_subset (`DEFAULT`), token_containment
+// (`CONTAINS`) or sequence_ratio (`FUZZY`).
+//
+// TravelRuleNameMatchMethod is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleNameMatchMethod string
+
+// Known values of TravelRuleNameMatchMethod.
+const (
+	TravelRuleNameMatchMethodNone             TravelRuleNameMatchMethod = "none"
+	TravelRuleNameMatchMethodExactToken       TravelRuleNameMatchMethod = "exact_token"
+	TravelRuleNameMatchMethodTokenSubset      TravelRuleNameMatchMethod = "token_subset"
+	TravelRuleNameMatchMethodTokenContainment TravelRuleNameMatchMethod = "token_containment"
+	TravelRuleNameMatchMethodSequenceRatio    TravelRuleNameMatchMethod = "sequence_ratio"
+)
+
+// TravelRuleNameMatchStrictness is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleNameMatchStrictness string
+
+// Known values of TravelRuleNameMatchStrictness.
+const (
+	TravelRuleNameMatchStrictnessNone     TravelRuleNameMatchStrictness = "NONE"
+	TravelRuleNameMatchStrictnessStrict   TravelRuleNameMatchStrictness = "STRICT"
+	TravelRuleNameMatchStrictnessContains TravelRuleNameMatchStrictness = "CONTAINS"
+	TravelRuleNameMatchStrictnessDefault  TravelRuleNameMatchStrictness = "DEFAULT"
+	TravelRuleNameMatchStrictnessFuzzy    TravelRuleNameMatchStrictness = "FUZZY"
+)
+
+// TravelRuleNameMatchComparedWith: wallet_holder: the holder recorded for the
+// wallet. counterparty_vasp: the name the counterparty answered on the email
+// response page, or the Didit Test VASP's answer in sandbox.
+//
+// TravelRuleNameMatchComparedWith is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleNameMatchComparedWith string
+
+// Known values of TravelRuleNameMatchComparedWith.
+const (
+	TravelRuleNameMatchComparedWithWalletHolder     TravelRuleNameMatchComparedWith = "wallet_holder"
+	TravelRuleNameMatchComparedWithCounterpartyVASP TravelRuleNameMatchComparedWith = "counterparty_vasp"
+)
+
 // TravelRuleTransferDetailCounterpartyVASP is a response object.
 type TravelRuleTransferDetailCounterpartyVASP struct {
-	Name    string `json:"name"`
-	Lei     string `json:"lei"`
-	DdScore int64  `json:"dd_score"`
+	Name string `json:"name"`
+	Lei  string `json:"lei"`
+
+	// Due-diligence score from 0 to 100, where higher is better. Same scale as in
+	// the VASP directory.
+	DdScore int64 `json:"dd_score"`
+
+	// Per-component contributions to dd_score, one object per component as in the
+	// VASP directory (jurisdiction, verification, protocol, lei, history,
+	// essentials, responsiveness), each {points, max, reason, detail}. {} until the
+	// counterparty has been assessed.
+	DdScoreBreakdown map[string]TravelRuleTransferDetailCounterpartyVASPDdScoreBreakdown `json:"dd_score_breakdown"`
+
+	// When the due-diligence assessment last ran. Null until the counterparty has
+	// been assessed.
+	DdAssessedAt time.Time `json:"dd_assessed_at"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -868,5 +2867,30 @@ type TravelRuleTransferDetailCounterpartyVASP struct {
 
 // UnmarshalJSON decodes TravelRuleTransferDetailCounterpartyVASP leniently.
 func (r *TravelRuleTransferDetailCounterpartyVASP) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleTransferDetailCounterpartyVASPDdScoreBreakdown is a response
+// object.
+type TravelRuleTransferDetailCounterpartyVASPDdScoreBreakdown struct {
+	// Points awarded for this component.
+	Points float64 `json:"points"`
+
+	// Maximum points this component can award.
+	Max int64 `json:"max"`
+
+	// Machine-readable code of the component's verdict.
+	Reason string `json:"reason"`
+
+	// Human-readable reason for the awarded points.
+	Detail string `json:"detail"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleTransferDetailCounterpartyVASPDdScoreBreakdown leniently.
+func (r *TravelRuleTransferDetailCounterpartyVASPDdScoreBreakdown) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }

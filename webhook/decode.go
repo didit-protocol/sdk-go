@@ -236,7 +236,7 @@ func rawField(body map[string]any, key string, limit int) json.RawMessage {
 // A field of the decision with an unexpected type is left at its zero value
 // (json.Unmarshal fills the others); a decision that is not an object gives
 // nil.
-func decisionField(body map[string]any, limit int) *didit.SessionsRetrieveDecisionResponse {
+func decisionField(body map[string]any, limit int) *didit.SessionDecision {
 	obj, ok := body["decision"].(map[string]any)
 	if !ok {
 		return nil
@@ -245,7 +245,7 @@ func decisionField(body map[string]any, limit int) *didit.SessionsRetrieveDecisi
 	if err != nil {
 		return nil
 	}
-	d := new(didit.SessionsRetrieveDecisionResponse)
+	d := new(didit.SessionDecision)
 	if err := json.Unmarshal(b, d); err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if !errors.As(err, &typeErr) {

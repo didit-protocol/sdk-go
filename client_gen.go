@@ -15,8 +15,10 @@ type Client struct {
 	AgeEstimation      *AgeEstimationService
 	AML                *AMLService
 	AMLMonitoring      *AMLMonitoringService
+	Analytics          *AnalyticsService
 	Billing            *BillingService
 	BiometricTemplates *BiometricTemplatesService
+	Blocklist          *BlocklistService
 	BusinessSessions   *BusinessSessionsService
 	Businesses         *BusinessesService
 	Cases              *CasesService
@@ -29,8 +31,11 @@ type Client struct {
 	FraudChecks        *FraudChecksService
 	IDVerification     *IDVerificationService
 	IDWallets          *IDWalletsService
+	Investigator       *InvestigatorService
 	IP                 *IPService
 	KYB                *KYBService
+	Lists              *ListsService
+	MonitoringEvents   *MonitoringEventsService
 	Networks           *NetworksService
 	PassiveLiveness    *PassiveLivenessService
 	Phone              *PhoneService
@@ -54,8 +59,10 @@ func (c *Client) init() {
 	c.AgeEstimation = &AgeEstimationService{client: c}
 	c.AML = &AMLService{client: c}
 	c.AMLMonitoring = &AMLMonitoringService{client: c}
+	c.Analytics = &AnalyticsService{client: c}
 	c.Billing = &BillingService{client: c}
 	c.BiometricTemplates = &BiometricTemplatesService{client: c}
+	c.Blocklist = &BlocklistService{client: c}
 	c.BusinessSessions = &BusinessSessionsService{client: c}
 	c.Businesses = &BusinessesService{client: c}
 	c.Cases = &CasesService{client: c}
@@ -76,8 +83,12 @@ func (c *Client) init() {
 	c.FraudChecks = &FraudChecksService{client: c}
 	c.IDVerification = &IDVerificationService{client: c}
 	c.IDWallets = &IDWalletsService{client: c}
+	c.Investigator = &InvestigatorService{client: c}
 	c.IP = &IPService{client: c}
 	c.KYB = &KYBService{client: c}
+	c.Lists = &ListsService{client: c}
+	c.Lists.Entries = &ListsEntriesService{client: c}
+	c.MonitoringEvents = &MonitoringEventsService{client: c}
 	c.Networks = &NetworksService{client: c}
 	c.Networks.Notes = &NetworksNotesService{client: c}
 	c.PassiveLiveness = &PassiveLivenessService{client: c}
@@ -89,11 +100,17 @@ func (c *Client) init() {
 	c.Sessions = &SessionsService{client: c}
 	c.Sessions.Imports = &SessionsImportsService{client: c}
 	c.Sessions.Reviews = &SessionsReviewsService{client: c}
+	c.Sessions.Signatures = &SessionsSignaturesService{client: c}
+	c.Sessions.Webhooks = &SessionsWebhooksService{client: c}
 	c.Transactions = &TransactionsService{client: c}
+	c.Transactions.Notes = &TransactionsNotesService{client: c}
 	c.Transactions.Rules = &TransactionsRulesService{client: c}
 	c.Transactions.TravelRule = &TransactionsTravelRuleService{client: c}
 	c.TravelRule = &TravelRuleService{client: c}
+	c.TravelRule.CounterpartyContacts = &TravelRuleCounterpartyContactsService{client: c}
+	c.TravelRule.Transfers = &TravelRuleTransfersService{client: c}
 	c.TravelRule.WalletAddresses = &TravelRuleWalletAddressesService{client: c}
+	c.TravelRule.Workspace = &TravelRuleWorkspaceService{client: c}
 	c.Users = &UsersService{client: c}
 	c.WalletScreening = &WalletScreeningService{client: c}
 	c.Webhooks = &WebhooksService{client: c}

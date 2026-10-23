@@ -15,6 +15,7 @@ import (
 type TransactionsService struct {
 	client *Client
 
+	Notes      *TransactionsNotesService
 	Rules      *TransactionsRulesService
 	TravelRule *TransactionsTravelRuleService
 }
@@ -26,7 +27,18 @@ type TransactionsService struct {
 // run inline and may flip the returned `status` to `IN_REVIEW` or `DECLINED`.
 // **`transaction_id` is your idempotency key** (max 128 chars, unique per app);
 // reusing it returns 400. A `transaction.created` webhook is dispatched on
-// success (sandbox applications are not billed and do not emit webhooks).
+// success for live applications. Sandbox applications are not billed and do not
+// emit `transaction.created` or `transaction.status.updated` webhooks. Sandbox
+// Travel Rule exchanges do emit `travel_rule.status.updated` webhooks with
+// `environment: sandbox`. A Travel Rule transfer is stored and returned before
+// any counterparty is contacted: `travel_rule.status` comes back
+// `AWAITING_COUNTERPARTY` (or `NOT_APPLICABLE` below your threshold,
+// `UNCONFIRMED_OWNERSHIP` for a declared self-hosted wallet, `COMPLETED` when
+// the other wallet is your own verified wallet) and `travel_rule.protocol` is
+// null. Didit then chooses the rail and sends the exchange, and every later
+// status change of the transfer, including `COUNTERPARTY_VASP_NOT_FOUND` when
+// no rail reaches the counterparty, arrives as a `travel_rule.status.updated`
+// webhook. Your rules run again when the rail or the status changes.
 //
 //	POST /v3/transactions/
 func (r *TransactionsService) Create(ctx context.Context, params TransactionsCreateParams, opts ...option.RequestOption) (*TransactionDetail, error) {
@@ -55,6 +67,36 @@ func (r *TransactionsService) CreateSDKToken(ctx context.Context, params Transac
 		return nil, err
 	}
 	return res, nil
+}
+
+// GeneratePDF: Download a transaction PDF report.
+//
+// Render one monitored transaction as a PDF report: overview and verdict,
+// parties and payment methods, custom properties, alerts and rule runs,
+// screening and Travel Rule results, the network summary, the cost breakdown,
+// up to 50 related transactions and the 20 most recent activity entries. The
+// body is the PDF itself (`application/pdf`), not JSON.
+//
+// The report is rendered from the transaction's current data on every call, so
+// request it again after a status change. Nothing is stored and nothing is
+// billed. Rendering can take a few seconds, so use a generous client timeout.
+//
+// This endpoint lives on an application-scoped path: put your organization ID
+// and the ID of the application your API key belongs to in the URL ([find your
+// organization
+// ID](https://docs.didit.me/getting-started/api-authentication#find-your-organization-id)).
+// A PDF report counts as media: a scoped API key needs `media: read` and
+// `transactions: read`, and a key limited to some workflows or to approved
+// sessions cannot call it.
+//
+// The response is a file (application/pdf). Read it from the returned
+// response's body and close it.
+//
+// The organization and application ids come from the client options.
+//
+//	GET /v3/organization/{organization_id}/application/{application_id}/transactions/{transaction_uuid}/pdf/
+func (r *TransactionsService) GeneratePDF(ctx context.Context, transactionUUID string, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/transactions/{transaction_uuid}/pdf/", pathParams: []string{"transaction_uuid", transactionUUID}, appScope: true, binary: true, accept: "application/pdf"}, nil, opts)
 }
 
 // List: List transactions.
@@ -86,8 +128,8 @@ func (r *TransactionsService) ListAutoPaging(ctx context.Context, params Transac
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/transactions/{transaction_uuid}/networks/
-func (r *TransactionsService) ListNetworks(ctx context.Context, transactionUUID string, opts ...option.RequestOption) (*TransactionsListNetworksResponse, error) {
-	res := new(TransactionsListNetworksResponse)
+func (r *TransactionsService) ListNetworks(ctx context.Context, transactionUUID string, opts ...option.RequestOption) (*EntityNetworkMembershipList, error) {
+	res := new(EntityNetworkMembershipList)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/transactions/{transaction_uuid}/networks/", pathParams: []string{"transaction_uuid", transactionUUID}, appScope: true}, res, opts); err != nil {
 		return nil, err
 	}
@@ -103,12 +145,48 @@ func (r *TransactionsService) ListNetworks(ctx context.Context, transactionUUID 
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/transactions/{transaction_uuid}/parties/{transaction_party_uuid}/networks/
-func (r *TransactionsService) ListPartyNetworks(ctx context.Context, transactionUUID string, transactionPartyUUID string, opts ...option.RequestOption) (*TransactionsListPartyNetworksResponse, error) {
-	res := new(TransactionsListPartyNetworksResponse)
+func (r *TransactionsService) ListPartyNetworks(ctx context.Context, transactionUUID string, transactionPartyUUID string, opts ...option.RequestOption) (*EntityNetworkMembershipList, error) {
+	res := new(EntityNetworkMembershipList)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/transactions/{transaction_uuid}/parties/{transaction_party_uuid}/networks/", pathParams: []string{"transaction_uuid", transactionUUID, "transaction_party_uuid", transactionPartyUUID}, appScope: true}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
+}
+
+// ListRelated: List related transactions.
+//
+// List the other transactions in your application that involve the same people
+// or companies as this one. A transaction is related when any of its parties,
+// in any role, has the same `vendor_data` as one of this transaction's parties.
+// The transaction itself is never returned, and parties without `vendor_data`
+// are ignored: when none of this transaction's parties has one, the result is
+// always empty.
+//
+// Results use the summary shape of `GET /v3/transactions/`, newest first
+// (`txn_date`, then `created_at`). Paginated with `limit` and `offset`; `count`
+// is exact up to 100 and capped at 100 above that, so follow `next` until it is
+// `null`.
+//
+// A scoped API key needs `transactions: read`; a key limited to some workflows
+// or to approved sessions cannot call this endpoint. Send the same
+// `vendor_data` for the same person or company on every
+// [transaction](https://docs.didit.me/transaction-monitoring/transactions#subject-and-counterparty)
+// to make this list complete.
+//
+// It returns one page; ListRelatedAutoPaging iterates over every item of every
+// page.
+//
+//	GET /v3/transactions/{transaction_id}/related/
+func (r *TransactionsService) ListRelated(ctx context.Context, transactionID string, params TransactionsListRelatedParams, opts ...option.RequestOption) (*Page[TransactionSummary], error) {
+	return getPage[TransactionSummary](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/transactions/{transaction_id}/related/", pathParams: []string{"transaction_id", transactionID}, params: params}, opts)
+}
+
+// ListRelatedAutoPaging iterates over every item of every page of ListRelated,
+// fetching pages as needed.
+func (r *TransactionsService) ListRelatedAutoPaging(ctx context.Context, transactionID string, params TransactionsListRelatedParams, opts ...option.RequestOption) *PageIterator[TransactionSummary] {
+	return newPageIterator(ctx, func() (*Page[TransactionSummary], error) {
+		return r.ListRelated(ctx, transactionID, params, opts...)
+	})
 }
 
 // Retrieve: Get transaction.
@@ -123,6 +201,73 @@ func (r *TransactionsService) Retrieve(ctx context.Context, transactionID string
 		return nil, err
 	}
 	return res, nil
+}
+
+// TransactionsNotesService holds the transactions notes operations. Use it
+// through Client.Transactions.Notes.
+type TransactionsNotesService struct {
+	client *Client
+}
+
+// Create: Create transaction note.
+//
+// Add a plain-text note to a monitored transaction's review timeline, where
+// Console reviewers see it. A note is context, not a decision: the
+// transaction's `status`, `score` and alerts do not change, no webhook is sent,
+// and nothing is billed. The transaction's `activities` gain a
+// `TRANSACTION_NOTE_ADDED` entry.
+//
+// Notes created with an API key have no author: `actor_email` and `actor_name`
+// are `null`, so put the author in the text if you need it. Every address in
+// `mentioned_emails` must belong to a member of your organization, otherwise
+// the whole request fails with `400`; mentions are stored lower-cased and
+// de-duplicated, and this endpoint does not notify the mentioned members.
+//
+// Each call creates a new note, so retrying a timed-out request can add it
+// twice: list the notes before retrying. There is no API endpoint to edit or
+// remove a note. A scoped API key needs `transactions: write`; a key limited to
+// some workflows or to approved sessions cannot call this endpoint.
+//
+//	POST /v3/transactions/{transaction_id}/notes/
+func (r *TransactionsNotesService) Create(ctx context.Context, transactionID string, params TransactionsNotesCreateParams, opts ...option.RequestOption) (*TransactionNote, error) {
+	res := new(TransactionNote)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/transactions/{transaction_id}/notes/", pathParams: []string{"transaction_id", transactionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// List: List transaction notes.
+//
+// List the notes on one monitored transaction, newest first (`created_at`
+// descending): notes you add through the API, notes and status changes
+// reviewers make in the Console, and notes Didit adds automatically (a rule's
+// `add_note` action, or a problem creating the user-action verification
+// session), which carry `actor_name` `Rule Engine`. `metadata` tells the note
+// types apart.
+//
+// Paginated with `limit` and `offset`. `count` is exact up to 100 and capped at
+// 100 above that, so follow `next` until it is `null` instead of computing
+// pages from `count`. This is a read with no side effects.
+//
+// A scoped API key needs `transactions: read`; a key limited to some workflows
+// or to approved sessions cannot call this endpoint. Reviewers see the same
+// list under **Notes** on the [transaction
+// detail](https://docs.didit.me/transaction-monitoring/console#transaction-detail).
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/transactions/{transaction_id}/notes/
+func (r *TransactionsNotesService) List(ctx context.Context, transactionID string, params TransactionsNotesListParams, opts ...option.RequestOption) (*Page[TransactionNote], error) {
+	return getPage[TransactionNote](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/transactions/{transaction_id}/notes/", pathParams: []string{"transaction_id", transactionID}, params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *TransactionsNotesService) ListAutoPaging(ctx context.Context, transactionID string, params TransactionsNotesListParams, opts ...option.RequestOption) *PageIterator[TransactionNote] {
+	return newPageIterator(ctx, func() (*Page[TransactionNote], error) {
+		return r.List(ctx, transactionID, params, opts...)
+	})
 }
 
 // TransactionsRulesService holds the transactions rules operations. Use it
@@ -181,8 +326,15 @@ func (r *TransactionsRulesService) Delete(ctx context.Context, ruleUUID string, 
 // InstallLibrary: Install library rules.
 //
 // Install one or more presets onto the application, by `library_keys` or a
-// whole `bundle`. Installed presets evaluate immediately in their default mode;
-// already-installed keys are skipped.
+// whole `bundle`. An installed preset is active at once while transaction
+// monitoring is on, and disabled otherwise; already-installed keys are skipped.
+// A library rule whose conditions read data the rules engine cannot evaluate
+// yet is withheld until it can run. A request that names one in `library_keys`
+// answers 400 and installs nothing ("These library rules cannot run yet: their
+// conditions read data the rules engine cannot evaluate." followed by the
+// keys), and a `bundle` install skips it. A withheld rule comes back on its own
+// once its conditions can be evaluated. A `library_keys` entry that is not in
+// the library is skipped, not refused.
 //
 //	POST /v3/transactions/rules/install/
 func (r *TransactionsRulesService) InstallLibrary(ctx context.Context, params TransactionRuleInstallRequest, opts ...option.RequestOption) (*TransactionRuleInstallResult, error) {
@@ -220,7 +372,9 @@ func (r *TransactionsRulesService) ListAutoPaging(ctx context.Context, params Tr
 //
 // Browse the full preset rule library (150+ rules) with each entry's complete
 // configuration and an `is_installed` flag for this application. Filter by
-// bundle, category, or free-text search.
+// bundle, category, or free-text search. A library rule whose conditions read
+// data the rules engine cannot evaluate yet is withheld until it can run.
+// Withheld rules are not listed.
 //
 // It returns one page; ListLibraryAutoPaging iterates over every item of every
 // page.
@@ -270,7 +424,10 @@ func (r *TransactionsRulesService) UninstallLibrary(ctx context.Context, params 
 //
 // Partially update a rule. Custom rules accept every configuration field.
 // Library (PRESET) rules accept only `mode` - use it to activate, disable, or
-// switch a preset to TEST; any other field returns 400.
+// switch a preset to TEST; any other field returns 400. An installed copy of a
+// withheld library rule is switched off: setting its `mode` to anything but
+// `DISABLED` answers 400 ("This library rule cannot run yet: its conditions
+// read data the rules engine cannot evaluate.").
 //
 //	PATCH /v3/transactions/rules/{rule_uuid}/
 func (r *TransactionsRulesService) Update(ctx context.Context, ruleUUID string, params TransactionRuleUpdateRequest, opts ...option.RequestOption) (*TransactionRuleDetail, error) {
@@ -289,10 +446,34 @@ type TransactionsTravelRuleService struct {
 
 // ConfirmOwnership: Confirm or deny wallet ownership.
 //
-// Called by the beneficiary's application when its INTERNAL-rail transfer is
-// UNCONFIRMED_OWNERSHIP. Confirming marks the matching wallet address book
-// entry as ownership-verified and runs the beneficiary name match on both sides
-// of the transfer; denying declines both sides.
+// Resolve a transfer that waits on wallet ownership: call it on your own side
+// of the transfer when it is UNCONFIRMED_OWNERSHIP, or when it is an inbound
+// transfer in ON_HOLD. Confirming marks the matching wallet address book entry
+// as ownership-verified (for an inbound ON_HOLD transfer with no entry, Didit
+// creates one from beneficiary_data.wallet_address) and runs the beneficiary
+// name match on both sides of the transfer; denying declines both sides. An
+// inbound transfer whose deposit already settled moves on to FINISHED when the
+// match succeeds. When the counterparty wallet was declared self-hosted
+// (counterparty.payment_method.method_type: unhosted_wallet), confirming
+// records that the customer verified who controls that wallet and completes the
+// transfer (COMPLETED) in both directions, or FINISHED for an inbound deposit
+// whose on-chain hash is already known. The wallet verified is the
+// counterparty's: the destination of an outbound withdrawal, or the source
+// (originator's wallet) of an inbound deposit. If it is not in your wallet
+// address book yet, Didit adds it as ownership-verified under the
+// counterparty's name; if the book already holds it under a different holder
+// name, the transfer moves to COUNTERPARTY_MISMATCHED_DATA. For an inbound TRP
+// transfer in UNCONFIRMED_OWNERSHIP, ON_HOLD or COUNTERPARTY_MISMATCHED_DATA,
+// Didit sends your decision to the originating VASP instead: approving returns
+// the payment address (wallet_address, or the matched entry's address) and
+// moves the transfer to COMPLETED, and denying declines it. The same call also
+// decides an inbound transfer that a GTR or Sygna Bridge counterparty sent and
+// that waits for your review (`UNCONFIRMED_OWNERSHIP`, `ON_HOLD` or
+// `COUNTERPARTY_MISMATCHED_DATA`): `confirmed: true` approves it (pass
+// `wallet_address` when the transfer names none) and `confirmed: false`
+// declines it, and the network is answered after the response, with retries.
+// VerifyVASP takes its answer when it asks, so a VerifyVASP transfer that would
+// need your review is declined at once and cannot be decided later.
 //
 //	POST /v3/transactions/{transaction_id}/travel-rule/ownership/
 func (r *TransactionsTravelRuleService) ConfirmOwnership(ctx context.Context, transactionID string, params TravelRuleOwnershipConfirmRequest, opts ...option.RequestOption) (*TravelRuleTransferDetail, error) {
@@ -303,15 +484,88 @@ func (r *TransactionsTravelRuleService) ConfirmOwnership(ctx context.Context, tr
 	return res, nil
 }
 
-// UpdateTransfer: Finish, cancel, or resend a Travel Rule transfer.
+// CreateMessage: Send a Travel Rule message or document request.
+//
+// Sends a message or a document request to the counterparty VASP. Works on
+// INTERNAL transfers (the other Didit customer sees it on its side of the pair)
+// and EMAIL transfers (the counterparty is emailed and answers in the pickup
+// portal). A transfer over TRP, GTR, TRUST, VerifyVASP or Sygna carries no
+// messages, because those protocols have none. Limits: 100 messages per
+// transfer, 5000 characters per body, 10 requested documents, 5 files of 10 MB
+// each.
+//
+//	POST /v3/transactions/{transaction_id}/travel-rule/messages/
+func (r *TransactionsTravelRuleService) CreateMessage(ctx context.Context, transactionID string, params TravelRuleMessageCreateRequest, opts ...option.RequestOption) (*TravelRuleMessage, error) {
+	res := new(TravelRuleMessage)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/transactions/{transaction_id}/travel-rule/messages/", pathParams: []string{"transaction_id", transactionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ListMessages: List Travel Rule messages.
+//
+// Messages and document requests exchanged with the counterparty VASP about
+// this transfer.
+//
+//	GET /v3/transactions/{transaction_id}/travel-rule/messages/
+func (r *TransactionsTravelRuleService) ListMessages(ctx context.Context, transactionID string, opts ...option.RequestOption) ([]TravelRuleMessage, error) {
+	var res []TravelRuleMessage
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/transactions/{transaction_id}/travel-rule/messages/", pathParams: []string{"transaction_id", transactionID}}, &res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// TriggerTestVASPInbound: Trigger an inbound transfer from the Didit Test VASP
+// (sandbox).
+//
+// Sandbox applications only. The Didit Test VASP sends your application an
+// inbound Travel Rule transfer, so you can exercise the receiving side of an
+// exchange end to end before going live. The transfer is booked and decided by
+// the same logic a real inbound transfer from a network runs against your
+// wallet address book, so the inbox, the decision and the wallet ownership flow
+// behave as they do live. Nothing leaves Didit. A live application receives
+// 400. Send the same `reference` again to get the transfer the first call
+// booked instead of a second one.
+//
+//	POST /v3/travel-rule/test-vasp/inbound/
+func (r *TransactionsTravelRuleService) TriggerTestVASPInbound(ctx context.Context, params TravelRuleTestVASPInboundRequest, opts ...option.RequestOption) (*TravelRuleTestVASPInboundResponse, error) {
+	res := new(TravelRuleTestVASPInboundResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/test-vasp/inbound/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// UpdateTransfer: Finish, cancel, resend, or update the originator wallet of a
+// Travel Rule transfer.
 //
 // Provide `payment_txn_id` to report the on-chain hash and move an outbound
 // COMPLETED transfer to FINISHED (its INTERNAL-rail counterpart also moves to
 // FINISHED), `{"action": "cancel"}` to cancel a non-terminal transfer, or
-// `{"action": "resend"}` to re-run routing for an outbound transfer stuck in
+// `{"action": "resend"}` to route an outbound transfer stuck in
 // COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE, or
-// NOT_ENOUGH_COUNTERPARTY_DATA (improve the counterparty data first, e.g. add a
-// travel_address to the destination wallet entry).
+// NOT_ENOUGH_COUNTERPARTY_DATA again (improve the counterparty data first, e.g.
+// add a travel_address to the destination wallet entry). resend applies to
+// outbound transfers only. `{"action": "update_compliance_email",
+// "compliance_email": "desk@example.com"}` replaces the compliance email of an
+// outbound transfer in one of those three statuses, the fix for `reason:
+// email_undeliverable`: the status does not change, and the next `resend` sends
+// the request to that address. A resend is queued, not run inside the request:
+// the response shows the transfer back in AWAITING_COUNTERPARTY with a `resend
+// queued` timeline entry and a queued `delivery`, and where it went arrives as
+// a `travel_rule.status.updated` webhook. When the transfer went over GTR,
+// VerifyVASP or Sygna Bridge, the network learns the on-chain hash or the
+// cancellation after the response, with retries; `delivery` shows how that
+// message stands. `{"action": "update_originator_wallet", "wallet_address":
+// "..."}` records the wallet the funds actually left from on an outbound
+// transfer, for example the address a UTXO withdrawal was broadcast from rather
+// than the main wallet you declared. It changes the record only: nothing is
+// sent to the counterparty again and the status stays. The originator becomes
+// `chain_details.originator` with `source: updated`, the change is added to the
+// `timeline` with the previous and the new wallet, and the INTERNAL-rail
+// counterpart of the transfer is updated the same way.
 //
 //	PATCH /v3/transactions/{transaction_id}/travel-rule/
 func (r *TransactionsTravelRuleService) UpdateTransfer(ctx context.Context, transactionID string, params TravelRuleTransferPatchRequest, opts ...option.RequestOption) (*TravelRuleTransferDetail, error) {
@@ -351,7 +605,16 @@ type TransactionsCreateParams struct {
 	// referenced in rule conditions with the field path `custom_values.<key>`.
 	CustomProperties Opt[map[string]any] `json:"custom_properties"`
 
-	// Travel Rule compliance metadata.
+	// Travel Rule data. When Travel Rule is enabled and transaction_category is
+	// travel_rule, Didit runs the exchange itself: it ignores status, protocol,
+	// required and obligations_count, and uses originator_data, beneficiary_data
+	// and metadata. Otherwise Didit stores these values as a passive Travel Rule
+	// record. While Travel Rule is on, an outbound transfer at or above your
+	// threshold must carry what its regime requires (EU TFR or FATF Recommendation
+	// 16), checked on the sides you send: a missing field answers 400 under
+	// `travel_rule_details.originator_data` or
+	// `travel_rule_details.beneficiary_data`, for example "EU TFR requires the
+	// originator name."
 	TravelRuleDetails Opt[TransactionsCreateParamsTravelRuleDetails] `json:"travel_rule_details"`
 
 	// Pre-computed network graph snapshot.
@@ -479,9 +742,17 @@ const (
 type TransactionsCreateParamsTransactionDetailsCryptoParams struct {
 	// Actual network used for screening. Managed screening supports BTC, ETH, LTC,
 	// XRP, BCH, DOGE, TRX, SOL, MATIC, BNB, BASE (Base), OP (Optimism) and ARB
-	// (Arbitrum One). Always specify this for multi-network tokens.
-	// Connected-provider coverage varies; LIGHTNING requires a supported connected
-	// provider.
+	// (Arbitrum One). Always specify this for multi-network tokens. When it is
+	// missing for USDT, USDC or ETH sent with a 0x transaction hash, Didit looks
+	// the hash up on Ethereum, BNB Chain, Polygon, Base, Arbitrum and Optimism and
+	// screens it on the network where it is found; if no network has it, the
+	// transaction is not screened and custom_values.aml_screening_status is FAILED
+	// with the reason in custom_values.aml_screening_error. When it is missing for
+	// USDT or USDC screened by wallet (no transaction hash), a Tron address is
+	// screened on Tron, a Solana address on Solana, and a 0x address on the first
+	// of those six networks where it has sent a transaction or holds the token, or
+	// on Ethereum when it is active on none of them. Connected-provider coverage
+	// varies; LIGHTNING requires a supported connected provider.
 	CryptoChain Opt[string] `json:"crypto_chain"`
 }
 
@@ -647,8 +918,27 @@ type TransactionsCreateParamsSubjectPaymentMethod struct {
 	// should contain the wallet address for this participant. Inbound
 	// transaction-hash screening requires the service/customer deposit address on
 	// the subject. Outbound screening uses the destination wallet on the
-	// counterparty.
+	// counterparty. On a crypto transfer on bitcoin or Lightning it may be a
+	// Lightning payment request (BOLT11 invoice, BOLT12 offer, LNURL) or a
+	// Lightning Address: Didit stores the payee it names as the account ("" when it
+	// names none) and what the request says on the Travel Rule transfer's
+	// `chain_details.lightning`. At most 255 characters once stored. On a crypto
+	// transfer on bitcoin or Lightning it may be a Lightning payment request
+	// (BOLT11 invoice, BOLT12 offer, LNURL) or a Lightning Address: Didit stores
+	// the payee it names as the account ("" when it names none) and what the
+	// request says on the Travel Rule transfer's `chain_details.lightning`. At most
+	// 255 characters once stored.
 	AccountID Opt[string] `json:"account_id"`
+
+	// The destination tag or memo that is part of the wallet on a memo network
+	// (XRP, XLM, EOS, ATOM, HBAR). On one shared exchange address each memo is its
+	// own payment method. XRP: a destination tag, a whole number from 0 to
+	// 4294967295 (a JSON number is accepted). XLM: a text memo of up to 28 bytes, a
+	// 64-bit id or a 32-byte hash in hex. EOS: up to 256 bytes. ATOM: up to 256
+	// characters. HBAR: up to 100 bytes. Bitcoin, EVM, Solana, Tron, Litecoin,
+	// Bitcoin Cash, Dogecoin and Lightning wallets take no memo: one there is a
+	// `400`. Alias: `destinationTag` or `destination_tag`.
+	Memo Opt[string] `json:"memo"`
 
 	// ISO 3166-1 alpha-3 country code of the issuer.
 	IssuingCountry Opt[string] `json:"issuing_country"`
@@ -785,8 +1075,27 @@ type TransactionsCreateParamsCounterpartyPaymentMethod struct {
 	// self-hosted wallet for the Travel Rule.
 	MethodType Opt[string] `json:"method_type"`
 
-	// Account identifier (e.g. IBAN or wallet address).
-	AccountID      Opt[string] `json:"account_id"`
+	// Account identifier (e.g. IBAN or wallet address). On a crypto transfer on
+	// bitcoin or Lightning it may be a Lightning payment request (BOLT11 invoice,
+	// BOLT12 offer, LNURL) or a Lightning Address: Didit stores the payee it names
+	// as the account ("" when it names none) and what the request says on the
+	// Travel Rule transfer's `chain_details.lightning`. At most 255 characters once
+	// stored. On a crypto transfer on bitcoin or Lightning it may be a Lightning
+	// payment request (BOLT11 invoice, BOLT12 offer, LNURL) or a Lightning Address:
+	// Didit stores the payee it names as the account ("" when it names none) and
+	// what the request says on the Travel Rule transfer's
+	// `chain_details.lightning`. At most 255 characters once stored.
+	AccountID Opt[string] `json:"account_id"`
+
+	// The destination tag or memo that is part of the wallet on a memo network
+	// (XRP, XLM, EOS, ATOM, HBAR). On one shared exchange address each memo is its
+	// own payment method. XRP: a destination tag, a whole number from 0 to
+	// 4294967295 (a JSON number is accepted). XLM: a text memo of up to 28 bytes, a
+	// 64-bit id or a 32-byte hash in hex. EOS: up to 256 bytes. ATOM: up to 256
+	// characters. HBAR: up to 100 bytes. Bitcoin, EVM, Solana, Tron, Litecoin,
+	// Bitcoin Cash, Dogecoin and Lightning wallets take no memo: one there is a
+	// `400`. Alias: `destinationTag` or `destination_tag`.
+	Memo           Opt[string] `json:"memo"`
 	IssuingCountry Opt[string] `json:"issuing_country"`
 }
 
@@ -795,16 +1104,64 @@ func (r TransactionsCreateParamsCounterpartyPaymentMethod) MarshalJSON() ([]byte
 	return marshalParams(r)
 }
 
-// TransactionsCreateParamsTravelRuleDetails: Travel Rule compliance metadata.
+// TransactionsCreateParamsTravelRuleDetails: Travel Rule data. When Travel Rule
+// is enabled and transaction_category is travel_rule, Didit runs the exchange
+// itself: it ignores status, protocol, required and obligations_count, and uses
+// originator_data, beneficiary_data and metadata. Otherwise Didit stores these
+// values as a passive Travel Rule record. While Travel Rule is on, an outbound
+// transfer at or above your threshold must carry what its regime requires (EU
+// TFR or FATF Recommendation 16), checked on the sides you send: a missing
+// field answers 400 under `travel_rule_details.originator_data` or
+// `travel_rule_details.beneficiary_data`, for example "EU TFR requires the
+// originator name."
 type TransactionsCreateParamsTravelRuleDetails struct {
-	// Required.
-	Status           string              `json:"status"`
-	Protocol         Opt[string]         `json:"protocol"`
-	Required         Opt[bool]           `json:"required"`
-	ObligationsCount Opt[int64]          `json:"obligations_count"`
-	OriginatorData   Opt[map[string]any] `json:"originator_data"`
-	BeneficiaryData  Opt[map[string]any] `json:"beneficiary_data"`
-	Metadata         Opt[map[string]any] `json:"metadata"`
+	// Required whenever you send travel_rule_details. One of the Travel Rule
+	// transfer statuses (for example AWAITING_COUNTERPARTY, COMPLETED,
+	// NOT_APPLICABLE); lowercase and camelCase spellings and the legacy values
+	// UNKNOWN, COMPLIANT, PENDING_ACTION, PENDING_COUNTERPARTY, FAILED and EXEMPT
+	// are also accepted and mapped. Any other value returns 400. Required.
+	Status           string      `json:"status"`
+	Protocol         Opt[string] `json:"protocol"`
+	Required         Opt[bool]   `json:"required"`
+	ObligationsCount Opt[int64]  `json:"obligations_count"`
+
+	// Originator party, as flat fields or one IVMS 101 person. For your user with
+	// an approved KYC verification, Didit replaces the fields the verification
+	// holds with the verified values (see `metadata.originator_provenance`). It
+	// must be an object: anything else is a `400`. On a memo network a `memo` key
+	// names the originator wallet's memo or tag.
+	OriginatorData Opt[map[string]any] `json:"originator_data"`
+
+	// Beneficiary party, as flat fields or one IVMS 101 person. An empty
+	// `wallet_address` is filled from `counterparty.payment_method.account_id`. It
+	// must be an object: anything else is a `400`. On a memo network `memo` names
+	// the beneficiary wallet's memo or tag; `wallet_address` and `memo` win over
+	// the counterparty's payment method.
+	BeneficiaryData Opt[map[string]any] `json:"beneficiary_data"`
+	Metadata        Opt[map[string]any] `json:"metadata"`
+
+	// Optional, UTXO chains only (BTC, LTC, BCH, DOGE). The transaction's inputs
+	// and outputs, from which Didit infers the originator wallet and the
+	// beneficiary output when you do not declare them.
+	Utxo Opt[TravelRuleUtxo] `json:"utxo"`
+
+	// An IVMS 101 originator block: `originatorPersons` (one `naturalPerson` or
+	// `legalPerson`; a legal person makes the party a company) and `accountNumber`
+	// (wallet addresses). Used for `originator_data` when that object is empty. A
+	// malformed block answers 400 keyed by its path, for example
+	// `originator.originatorPersons`.
+	Originator Opt[map[string]any] `json:"originator"`
+
+	// An IVMS 101 beneficiary block: `beneficiaryPersons` (one `naturalPerson` or
+	// `legalPerson`; a legal person makes the party a company) and `accountNumber`
+	// (wallet addresses). Used for `beneficiary_data` when that object is empty. A
+	// malformed block answers 400 keyed by its path, for example
+	// `beneficiary.beneficiaryPersons`.
+	Beneficiary Opt[map[string]any] `json:"beneficiary"`
+
+	// The `originator` and `beneficiary` blocks wrapped in one IVMS 101 object
+	// (`IVMS101` is accepted too). Top-level blocks win over the wrapper's.
+	Ivms101 Opt[map[string]any] `json:"ivms101"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -957,8 +1314,10 @@ type TransactionDetail struct {
 	// submitted, and also when Travel Rule is enabled and the transaction was
 	// created with `transaction_category: travelRule` (Didit initiates the exchange
 	// itself, even without `travel_rule_details`). `null` when no transfer or check
-	// exists.
-	TravelRule TransactionDetailTravelRule `json:"travel_rule"`
+	// exists. On an inbound transfer, the counterparty's `originator_data` and
+	// `beneficiary_data` stay masked (`data_masked: true`) until wallet ownership
+	// is confirmed.
+	TravelRule TransactionTravelRule `json:"travel_rule"`
 
 	// Graph snapshot of related transactions/parties used by the rules engine.
 	// Either the `network_snapshot` submitted with the transaction or the graph
@@ -1513,7 +1872,9 @@ type TransactionDetailRuleRuns struct {
 	// `metric`, `field`, `operator`, `expected_value`, the `computed_value` the
 	// aggregate evaluated to, `window`, `filters`, `matched` and
 	// `sample_references`; deferred async aggregations have `computed_value: null`
-	// and `deferred: true`.
+	// and `deferred: true`. A nested condition group is one `conditions[]` entry
+	// with `operator` `any_of` or `all_of`, `field` null, and its members' results
+	// under its own `conditions`.
 	Metadata  map[string]any `json:"metadata"`
 	CreatedAt time.Time      `json:"created_at"`
 
@@ -1576,28 +1937,161 @@ const (
 	TransactionDetailProviderResultsResultTypeCustom               TransactionDetailProviderResultsResultType = "CUSTOM"
 )
 
-// TransactionDetailTravelRule: Travel Rule transfer or check. Populated when
-// `travel_rule_details` was submitted, and also when Travel Rule is enabled and
-// the transaction was created with `transaction_category: travelRule` (Didit
-// initiates the exchange itself, even without `travel_rule_details`). `null`
-// when no transfer or check exists.
-type TransactionDetailTravelRule struct {
-	UUID             string         `json:"uuid"`
-	Status           string         `json:"status"`
-	Protocol         string         `json:"protocol"`
-	Required         bool           `json:"required"`
-	ObligationsCount int64          `json:"obligations_count"`
-	OriginatorData   map[string]any `json:"originator_data"`
-	BeneficiaryData  map[string]any `json:"beneficiary_data"`
-	Metadata         map[string]any `json:"metadata"`
+// TransactionTravelRule: A transaction's Travel Rule transfer, as `GET
+// /v3/transactions/{transaction_id}/`, the `201` of `POST /v3/transactions/`
+// and each row of `GET /v3/transactions/` return it. `direction`, `rail`,
+// `counterparty_vasp`, `delivery`, `discovery`, `reason` and `next_actions`
+// have the same shape as on `PATCH
+// /v3/transactions/{transaction_id}/travel-rule/`, so one read of a transaction
+// says why its transfer is stuck and what moves it on.
+type TransactionTravelRule struct {
+	UUID             string `json:"uuid"`
+	Status           string `json:"status"`
+	Protocol         string `json:"protocol"`
+	Required         bool   `json:"required"`
+	ObligationsCount int64  `json:"obligations_count"`
+
+	// Originator party. For an inbound transfer the counterparty's values are
+	// masked until ownership is confirmed.
+	OriginatorData map[string]any `json:"originator_data"`
+
+	// Beneficiary party. For an inbound transfer the counterparty's values are
+	// masked until ownership is confirmed.
+	BeneficiaryData map[string]any `json:"beneficiary_data"`
+
+	// The name comparison that decided the transfer (score and strictness). Null
+	// until one ran. The compared names are masked together with the parties.
+	NameMatch map[string]any      `json:"name_match"`
+	DataMatch TravelRuleDataMatch `json:"data_match"`
+
+	// Shortcut for `data_match.mismatched_fields`. Empty when nothing differs.
+	MismatchedFields []string               `json:"mismatched_fields"`
+	DataUnmasked     TravelRuleDataUnmasked `json:"data_unmasked"`
+
+	// True while the counterparty's personal data is masked in this response.
+	DataMasked bool           `json:"data_masked"`
+	Metadata   map[string]any `json:"metadata"`
+
+	// Which side of the exchange this transfer is.
+	Direction TransactionTravelRuleDirection `json:"direction"`
+
+	// The rail the transfer went over: `INTERNAL`, `TRP`, `GTR`, `TRUST`,
+	// `VERIFYVASP`, `SYGNA` or `EMAIL` (`TEST_VASP` on a sandbox application, when
+	// the Didit Test VASP answered), or `null` until a rail is chosen.
+	Rail string `json:"rail"`
+
+	// The counterparty's directory entry, or `null` when the transfer links none.
+	CounterpartyVASP TransactionTravelRuleCounterpartyVASP `json:"counterparty_vasp"`
+
+	// The newest message the transfer owes another party. `null` when it has owed
+	// none, for example below `threshold_amount` or for a declared self-hosted
+	// wallet.
+	Delivery TravelRuleDelivery `json:"delivery"`
+
+	// How Didit looked for the counterparty, one entry per step that ran. Empty
+	// when no discovery ran, for example on an inbound transfer.
+	Discovery []TravelRuleDiscoveryStep `json:"discovery"`
+
+	// Why a `COUNTERPARTY_VASP_NOT_FOUND` or `COUNTERPARTY_VASP_NOT_REACHABLE`
+	// transfer is stuck; `""` for any other status. A failed delivery decides it
+	// first, on `COUNTERPARTY_VASP_NOT_REACHABLE` only: `email_undeliverable` (the
+	// mail provider refused the compliance email and no address is left to try:
+	// when it was sent, on a reminder, or as a permanent bounce reported later) or
+	// `delivery_failed` (the rail that was delivering failed for good: a network
+	// rail refused the message or ran out of retries, a `TRP` identity host did not
+	// answer, or the counterparty's `TRP` host did not accept the inquiry).
+	// Otherwise the `discovery` trace decides it: `awaiting_end_user` (no step
+	// named a counterparty Didit can reach), `directory_match_no_route` (a step
+	// named a directory VASP that has no route),
+	// `picked_member_without_proven_wallet` (the end user picked a Didit customer
+	// that has not proven control of the wallet), or `no_directory_match` when the
+	// trace gives no other reason. A resend moves the transfer on, so the reason
+	// clears. See [Why a transfer is
+	// stuck](/transaction-monitoring/travel-rule#why-a-transfer-is-stuck).
+	Reason string `json:"reason"`
+
+	// What moves the transfer on; `[]` for any status but
+	// `COUNTERPARTY_VASP_NOT_FOUND` or `COUNTERPARTY_VASP_NOT_REACHABLE`.
+	// `email_undeliverable` offers `update_compliance_email`, then `resend`.
+	// `delivery_failed` offers `resend`. A discovery reason offers
+	// `select_counterparty_vasp`, `declare_self_hosted`, `add_vasp_hint` and
+	// `resend`.
+	NextActions  []TravelRuleNextAction `json:"next_actions"`
+	ChainDetails TravelRuleChainDetails `json:"chain_details"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes TransactionDetailTravelRule leniently.
-func (r *TransactionDetailTravelRule) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes TransactionTravelRule leniently.
+func (r *TransactionTravelRule) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionTravelRuleDirection: Which side of the exchange this transfer is.
+//
+// TransactionTravelRuleDirection is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TransactionTravelRuleDirection string
+
+// Known values of TransactionTravelRuleDirection.
+const (
+	TransactionTravelRuleDirectionInbound  TransactionTravelRuleDirection = "INBOUND"
+	TransactionTravelRuleDirectionOutbound TransactionTravelRuleDirection = "OUTBOUND"
+)
+
+// TransactionTravelRuleCounterpartyVASP: The counterparty's directory entry, or
+// `null` when the transfer links none.
+type TransactionTravelRuleCounterpartyVASP struct {
+	Name string `json:"name"`
+	Lei  string `json:"lei"`
+
+	// Due-diligence score from 0 to 100, where higher is better. Same scale as in
+	// the VASP directory.
+	DdScore int64 `json:"dd_score"`
+
+	// Per-component contributions to dd_score, one object per component as in the
+	// VASP directory (jurisdiction, verification, protocol, lei, history,
+	// essentials, responsiveness), each {points, max, reason, detail}. {} until the
+	// counterparty has been assessed.
+	DdScoreBreakdown map[string]TransactionTravelRuleCounterpartyVASPDdScoreBreakdown `json:"dd_score_breakdown"`
+
+	// When the due-diligence assessment last ran. Null until the counterparty has
+	// been assessed.
+	DdAssessedAt time.Time `json:"dd_assessed_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionTravelRuleCounterpartyVASP leniently.
+func (r *TransactionTravelRuleCounterpartyVASP) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionTravelRuleCounterpartyVASPDdScoreBreakdown is a response object.
+type TransactionTravelRuleCounterpartyVASPDdScoreBreakdown struct {
+	// Points awarded for this component.
+	Points float64 `json:"points"`
+
+	// Maximum points this component can award.
+	Max int64 `json:"max"`
+
+	// Machine-readable code of the component's verdict.
+	Reason string `json:"reason"`
+
+	// Human-readable reason for the awarded points.
+	Detail string `json:"detail"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionTravelRuleCounterpartyVASPDdScoreBreakdown leniently.
+func (r *TransactionTravelRuleCounterpartyVASPDdScoreBreakdown) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -1740,6 +2234,12 @@ type TransactionsListParams struct {
 	// Zero-based offset of the first record to return. Prefer following the `next`
 	// URL from the previous page.
 	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// Return only transactions whose Travel Rule transfer is in this exact status
+	// (for example `ON_HOLD` or `AWAITING_COUNTERPARTY`). `count` follows this
+	// filter; `total_transactions` still counts every transaction in the
+	// application.
+	TravelRuleStatus Opt[string] `json:"-" query:"travel_rule_status"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -1846,6 +2346,15 @@ type TransactionsListResponseResults struct {
 	// Display name of the Console reviewer assigned to this transaction.
 	AssignedToName string `json:"assigned_to_name"`
 
+	// Status of the transaction's Travel Rule transfer (for example `COMPLETED`),
+	// or `null` when it has none.
+	TravelRuleStatus string `json:"travel_rule_status"`
+
+	// The transaction's Travel Rule transfer, the same block as `travel_rule` on
+	// `GET /v3/transactions/{transaction_id}/`, or `null` when the transaction has
+	// none.
+	TravelRule TransactionTravelRule `json:"travel_rule"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -1933,32 +2442,417 @@ const (
 	TransactionsListResponseResultsTagsSourceCustom TransactionsListResponseResultsTagsSource = "custom"
 )
 
-// TransactionsListNetworksResponse is a response object.
-type TransactionsListNetworksResponse struct {
-	Results []EntityNetworkMembership `json:"results"`
+// TransactionsListRelatedParams holds the parameters of
+// Client.Transactions.ListRelated.
+type TransactionsListRelatedParams struct {
+	// Number of transactions per page. Defaults to 50. A value that is not a
+	// positive integer falls back to 50; a value above 1000000 returns `400`.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Zero-based position of the first transaction to return. Prefer following
+	// `next`. A value that is not a whole number falls back to 0; a value above
+	// 1000000 returns `400`.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TransactionsListRelatedParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TransactionSummary: Summary of a monitored transaction, the shape `GET
+// /v3/transactions/` lists. Call `GET /v3/transactions/{transaction_id}/` with
+// `uuid` for parties, alerts and rule runs.
+type TransactionSummary struct {
+	// Didit transaction UUID. Use it as `{transaction_id}` on the transaction
+	// endpoints.
+	UUID string `json:"uuid"`
+
+	// Application-scoped sequential number shown in the Console.
+	TransactionNumber int64 `json:"transaction_number"`
+
+	// Your own identifier from the create call. Unique per application.
+	TxnID string `json:"txn_id"`
+
+	// Category as stored: `finance`, `kyc`, `travelRule`, `userPlatformEvent`,
+	// `gamblingBet`, `gamblingLimitChange`, `gamblingBonusChange` or
+	// `auditTrailEvent`.
+	TransactionType string `json:"transaction_type"`
+
+	// Sub-type within the category, for example `withdrawal`.
+	ActionType string `json:"action_type"`
+
+	// Current monitoring verdict.
+	Status TransactionSummaryStatus `json:"status"`
+
+	// `LIVE` for transactions submitted for monitoring, `IMPORTED` for historical
+	// imports.
+	Source TransactionSummarySource `json:"source"`
+
+	// Direction relative to the subject.
+	Direction TransactionSummaryDirection `json:"direction"`
+
+	// Amount as a decimal string with trailing zeros removed (up to 18 decimal
+	// places).
+	Amount string `json:"amount"`
+
+	// Currency code or crypto asset symbol of `amount`.
+	Currency string `json:"currency"`
+
+	// `fiat` or `crypto` when known.
+	CurrencyType string `json:"currency_type"`
+
+	// `amount` converted to the application's preferred currency, when a rate was
+	// available.
+	PreferredCurrencyAmount string `json:"preferred_currency_amount"`
+
+	// Currency of `preferred_currency_amount`.
+	PreferredCurrencyCode string `json:"preferred_currency_code"`
+
+	// Free-text payment reference.
+	PaymentDetails string `json:"payment_details"`
+
+	// When the transaction occurred.
+	TxnDate time.Time `json:"txn_date"`
+
+	// When Didit recorded it.
+	CreatedAt time.Time `json:"created_at"`
+
+	// Risk score. Higher is riskier.
+	Score int64 `json:"score"`
+
+	// Risk severity, `null` until something sets it.
+	Severity TransactionSummarySeverity `json:"severity"`
+
+	// Machine-readable reason for the current `status`.
+	DecisionReasonCode string `json:"decision_reason_code"`
+
+	// Human-readable label for `decision_reason_code`.
+	DecisionReasonLabel string `json:"decision_reason_label"`
+
+	// Tags on the transaction.
+	Tags []TransactionSummaryTags `json:"tags"`
+
+	// Full name of the `APPLICANT` party.
+	SubjectName string `json:"subject_name"`
+
+	// Your `vendor_data` for the applicant.
+	SubjectVendorData string `json:"subject_vendor_data"`
+
+	// Whether the applicant is linked to a Didit user or business; `null` when it
+	// is linked to neither.
+	SubjectType TransactionSummarySubjectType `json:"subject_type"`
+
+	// UUID of the Didit user or business the applicant is linked to.
+	SubjectUUID string `json:"subject_uuid"`
+
+	// Country code of the applicant.
+	SubjectCountry string `json:"subject_country"`
+
+	// Full name of the `COUNTERPARTY` party, if any.
+	CounterpartyName string `json:"counterparty_name"`
+
+	// Your `vendor_data` for the counterparty.
+	CounterpartyVendorData string `json:"counterparty_vendor_data"`
+
+	// Country code of the counterparty.
+	CounterpartyCountry string `json:"counterparty_country"`
+
+	// Name of the Console reviewer assigned to the transaction.
+	AssignedToName string `json:"assigned_to_name"`
+
+	// Status of the transaction's Travel Rule transfer, or `null` when it has none.
+	TravelRuleStatus string `json:"travel_rule_status"`
+
+	// Application that owns the transaction.
+	ApplicationID string `json:"application_id"`
+
+	// Name of that application.
+	ApplicationName string `json:"application_name"`
+
+	// Organization that owns the application.
+	OrganizationID string `json:"organization_id"`
+
+	// Name of that organization.
+	OrganizationName string `json:"organization_name"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes TransactionsListNetworksResponse leniently.
-func (r *TransactionsListNetworksResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes TransactionSummary leniently.
+func (r *TransactionSummary) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// TransactionsListPartyNetworksResponse is a response object.
-type TransactionsListPartyNetworksResponse struct {
-	Results []EntityNetworkMembership `json:"results"`
+// TransactionSummaryStatus: Current monitoring verdict.
+//
+// TransactionSummaryStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionSummaryStatus string
+
+// Known values of TransactionSummaryStatus.
+const (
+	TransactionSummaryStatusApproved     TransactionSummaryStatus = "APPROVED"
+	TransactionSummaryStatusInReview     TransactionSummaryStatus = "IN_REVIEW"
+	TransactionSummaryStatusDeclined     TransactionSummaryStatus = "DECLINED"
+	TransactionSummaryStatusAwaitingUser TransactionSummaryStatus = "AWAITING_USER"
+)
+
+// TransactionSummarySource: `LIVE` for transactions submitted for monitoring,
+// `IMPORTED` for historical imports.
+//
+// TransactionSummarySource is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionSummarySource string
+
+// Known values of TransactionSummarySource.
+const (
+	TransactionSummarySourceLive     TransactionSummarySource = "LIVE"
+	TransactionSummarySourceImported TransactionSummarySource = "IMPORTED"
+)
+
+// TransactionSummaryDirection: Direction relative to the subject.
+//
+// TransactionSummaryDirection is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionSummaryDirection string
+
+// Known values of TransactionSummaryDirection.
+const (
+	TransactionSummaryDirectionInbound  TransactionSummaryDirection = "INBOUND"
+	TransactionSummaryDirectionOutbound TransactionSummaryDirection = "OUTBOUND"
+)
+
+// TransactionSummarySeverity: Risk severity, `null` until something sets it.
+//
+// TransactionSummarySeverity is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionSummarySeverity string
+
+// Known values of TransactionSummarySeverity.
+const (
+	TransactionSummarySeverityUnknown  TransactionSummarySeverity = "UNKNOWN"
+	TransactionSummarySeverityLow      TransactionSummarySeverity = "LOW"
+	TransactionSummarySeverityMedium   TransactionSummarySeverity = "MEDIUM"
+	TransactionSummarySeverityHigh     TransactionSummarySeverity = "HIGH"
+	TransactionSummarySeverityCritical TransactionSummarySeverity = "CRITICAL"
+)
+
+// TransactionSummaryTags is a response object.
+type TransactionSummaryTags struct {
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
+
+	// Hex color, for example `#F59E0B`.
+	Color       string `json:"color"`
+	Description string `json:"description"`
+
+	// Didit preset or custom tag.
+	Source TransactionSummaryTagsSource `json:"source"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes TransactionsListPartyNetworksResponse leniently.
-func (r *TransactionsListPartyNetworksResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes TransactionSummaryTags leniently.
+func (r *TransactionSummaryTags) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionSummaryTagsSource: Didit preset or custom tag.
+//
+// TransactionSummaryTagsSource is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionSummaryTagsSource string
+
+// Known values of TransactionSummaryTagsSource.
+const (
+	TransactionSummaryTagsSourceDidit  TransactionSummaryTagsSource = "didit"
+	TransactionSummaryTagsSourceCustom TransactionSummaryTagsSource = "custom"
+)
+
+// TransactionSummarySubjectType: Whether the applicant is linked to a Didit
+// user or business; `null` when it is linked to neither.
+//
+// TransactionSummarySubjectType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionSummarySubjectType string
+
+// Known values of TransactionSummarySubjectType.
+const (
+	TransactionSummarySubjectTypeUser     TransactionSummarySubjectType = "user"
+	TransactionSummarySubjectTypeBusiness TransactionSummarySubjectType = "business"
+)
+
+// TransactionsNotesCreateParams holds the parameters of
+// Client.Transactions.Notes.Create.
+type TransactionsNotesCreateParams struct {
+	// Plain-text note. Leading and trailing whitespace is trimmed and a blank note
+	// is rejected. No length limit. Required.
+	Note string `json:"note"`
+
+	// Emails of members of your organization to mention. Each must be a valid email
+	// of an organization member.
+	MentionedEmails Opt[[]string] `json:"mentioned_emails"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TransactionsNotesCreateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TransactionNote: One note on a monitored transaction's review timeline.
+type TransactionNote struct {
+	// Note identifier.
+	UUID string `json:"uuid"`
+
+	// Plain-text note body.
+	Note string `json:"note"`
+
+	// Email of the Console user who wrote the note or changed the status. `null`
+	// for notes created with an API key and for notes Didit adds automatically.
+	ActorEmail string `json:"actor_email"`
+
+	// Display name of the Console user (their email when they have no name). `Rule
+	// Engine` on notes Didit adds automatically. `null` for notes created with an
+	// API key.
+	ActorName string `json:"actor_name"`
+
+	// Tells the note types apart. Notes written through the API or the Console
+	// carry `mentioned_emails`. A status change made in the Console carries `type:
+	// status_change` with `previous_status`, `new_status`, `reason_code` and
+	// `reason_label`. Notes Didit adds carry `source`: `rule_action` (with
+	// `rule_uuid`) for a rule's `add_note` action, or `remediation_session` for a
+	// problem creating the user-action verification session.
+	Metadata TransactionNoteMetadata `json:"metadata"`
+
+	// When the note was stored.
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionNote leniently.
+func (r *TransactionNote) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionNoteMetadata: Tells the note types apart. Notes written through
+// the API or the Console carry `mentioned_emails`. A status change made in the
+// Console carries `type: status_change` with `previous_status`, `new_status`,
+// `reason_code` and `reason_label`. Notes Didit adds carry `source`:
+// `rule_action` (with `rule_uuid`) for a rule's `add_note` action, or
+// `remediation_session` for a problem creating the user-action verification
+// session.
+type TransactionNoteMetadata struct {
+	// Mentioned organization members, lower-cased and de-duplicated. Empty when
+	// nobody was mentioned.
+	MentionedEmails []string `json:"mentioned_emails"`
+
+	// Present on notes recording a status change made in the Console.
+	Type TransactionNoteMetadataType `json:"type"`
+
+	// Status before the change.
+	PreviousStatus TransactionNoteMetadataPreviousStatus `json:"previous_status"`
+
+	// Status after the change.
+	NewStatus TransactionNoteMetadataNewStatus `json:"new_status"`
+
+	// Reason code given with the change.
+	ReasonCode string `json:"reason_code"`
+
+	// Reason label given with the change.
+	ReasonLabel string `json:"reason_label"`
+
+	// Present on notes Didit adds automatically.
+	Source TransactionNoteMetadataSource `json:"source"`
+
+	// Rule whose `add_note` action wrote the note (with `source: rule_action`).
+	RuleUUID string `json:"rule_uuid"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionNoteMetadata leniently.
+func (r *TransactionNoteMetadata) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionNoteMetadataType: Present on notes recording a status change made
+// in the Console.
+//
+// TransactionNoteMetadataType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionNoteMetadataType string
+
+// Known values of TransactionNoteMetadataType.
+const (
+	TransactionNoteMetadataTypeStatusChange TransactionNoteMetadataType = "status_change"
+)
+
+// TransactionNoteMetadataPreviousStatus: Status before the change.
+//
+// TransactionNoteMetadataPreviousStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TransactionNoteMetadataPreviousStatus string
+
+// Known values of TransactionNoteMetadataPreviousStatus.
+const (
+	TransactionNoteMetadataPreviousStatusApproved     TransactionNoteMetadataPreviousStatus = "APPROVED"
+	TransactionNoteMetadataPreviousStatusInReview     TransactionNoteMetadataPreviousStatus = "IN_REVIEW"
+	TransactionNoteMetadataPreviousStatusDeclined     TransactionNoteMetadataPreviousStatus = "DECLINED"
+	TransactionNoteMetadataPreviousStatusAwaitingUser TransactionNoteMetadataPreviousStatus = "AWAITING_USER"
+)
+
+// TransactionNoteMetadataNewStatus: Status after the change.
+//
+// TransactionNoteMetadataNewStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TransactionNoteMetadataNewStatus string
+
+// Known values of TransactionNoteMetadataNewStatus.
+const (
+	TransactionNoteMetadataNewStatusApproved     TransactionNoteMetadataNewStatus = "APPROVED"
+	TransactionNoteMetadataNewStatusInReview     TransactionNoteMetadataNewStatus = "IN_REVIEW"
+	TransactionNoteMetadataNewStatusDeclined     TransactionNoteMetadataNewStatus = "DECLINED"
+	TransactionNoteMetadataNewStatusAwaitingUser TransactionNoteMetadataNewStatus = "AWAITING_USER"
+)
+
+// TransactionNoteMetadataSource: Present on notes Didit adds automatically.
+//
+// TransactionNoteMetadataSource is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionNoteMetadataSource string
+
+// Known values of TransactionNoteMetadataSource.
+const (
+	TransactionNoteMetadataSourceRuleAction         TransactionNoteMetadataSource = "rule_action"
+	TransactionNoteMetadataSourceRemediationSession TransactionNoteMetadataSource = "remediation_session"
+)
+
+// TransactionsNotesListParams holds the parameters of
+// Client.Transactions.Notes.List.
+type TransactionsNotesListParams struct {
+	// Number of notes per page. Defaults to 50. A value that is not a positive
+	// integer falls back to 50; a value above 1000000 returns `400`.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Zero-based position of the first note to return. Prefer following `next`. A
+	// value that is not a whole number falls back to 0; a value above 1000000
+	// returns `400`.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TransactionsNotesListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
 }
 
 // TransactionRuleBacktestRequest: Hypothetical rule configuration to evaluate
@@ -1997,10 +2891,15 @@ type TransactionRuleConditionParam struct {
 	// subject_payment_method_country, subject_payment_method_fingerprint,
 	// subject_payment_method_account_id (and the counterparty_payment_method_*
 	// equivalents), travel_rule_status, travel_rule_required,
-	// travel_rule_obligations_count, subject_days_since_previous_transaction, tags,
-	// and custom_values.<key> for any key submitted in custom_properties on
-	// transaction create. Country-code fields accept ISO-2 or ISO-3; both sides are
-	// normalized to ISO-3 before comparison. Required.
+	// travel_rule_obligations_count, counterparty_dd_status (your decision on the
+	// Travel Rule counterparty: APPROVED, RESTRICTED or BLOCKED, an entity
+	// following its brand's), counterparty_risk_level (LOW, MEDIUM or HIGH; HIGH
+	// while your own counterparty screening is flagged), counterparty_jurisdiction
+	// (the counterparty VASP's country), counterparty_responsiveness (RESPONSIVE,
+	// UNRESPONSIVE or UNKNOWN), subject_days_since_previous_transaction, tags, and
+	// custom_values.<key> for any key submitted in custom_properties on transaction
+	// create. Country-code fields accept ISO-2 or ISO-3; both sides are normalized
+	// to ISO-3 before comparison. Required.
 	Field string `json:"field"`
 
 	// Comparison operator. in/not_in test membership (value may be a list or a
@@ -2526,10 +3425,15 @@ type TransactionRuleCondition struct {
 	// subject_payment_method_country, subject_payment_method_fingerprint,
 	// subject_payment_method_account_id (and the counterparty_payment_method_*
 	// equivalents), travel_rule_status, travel_rule_required,
-	// travel_rule_obligations_count, subject_days_since_previous_transaction, tags,
-	// and custom_values.<key> for any key submitted in custom_properties on
-	// transaction create. Country-code fields accept ISO-2 or ISO-3; both sides are
-	// normalized to ISO-3 before comparison.
+	// travel_rule_obligations_count, counterparty_dd_status (your decision on the
+	// Travel Rule counterparty: APPROVED, RESTRICTED or BLOCKED, an entity
+	// following its brand's), counterparty_risk_level (LOW, MEDIUM or HIGH; HIGH
+	// while your own counterparty screening is flagged), counterparty_jurisdiction
+	// (the counterparty VASP's country), counterparty_responsiveness (RESPONSIVE,
+	// UNRESPONSIVE or UNKNOWN), subject_days_since_previous_transaction, tags, and
+	// custom_values.<key> for any key submitted in custom_properties on transaction
+	// create. Country-code fields accept ISO-2 or ISO-3; both sides are normalized
+	// to ISO-3 before comparison.
 	Field string `json:"field"`
 
 	// Comparison operator. in/not_in test membership (value may be a list or a
@@ -2921,8 +3825,16 @@ const (
 
 // TravelRuleOwnershipConfirmRequest is a request object.
 type TravelRuleOwnershipConfirmRequest struct {
-	// Required.
+	// true to confirm ownership, false to deny it. Required.
 	Confirmed bool `json:"confirmed"`
+
+	// Inbound TRP transfers: the payment address Didit returns to the originating
+	// VASP when you approve. Defaults to the matched address book entry's address,
+	// then beneficiary_data.wallet_address. On a declared self-hosted wallet
+	// transfer that names no counterparty wallet, the wallet whose ownership you
+	// verified; without it the request is rejected with 400. Ignored for other
+	// transfers.
+	WalletAddress Opt[string] `json:"wallet_address"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -2930,8 +3842,219 @@ func (r TravelRuleOwnershipConfirmRequest) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
+// TravelRuleMessageCreateRequest: Send as JSON, or as multipart/form-data with
+// the attachments in `files`.
+type TravelRuleMessageCreateRequest struct {
+	Kind Opt[TravelRuleMessageCreateRequestKind] `json:"kind"`
+
+	// Required for a MESSAGE unless a file is attached.
+	Body Opt[string] `json:"body"`
+
+	// Required (at least one) for a DOCUMENT_REQUEST, and only allowed there.
+	RequestedDocuments Opt[[]string] `json:"requested_documents"`
+
+	// A message of the same transfer. A reply that carries a document fulfils the
+	// document request it answers.
+	ReplyTo Opt[string] `json:"reply_to"`
+
+	// Multipart only. Up to 5 files of 10 MB each.
+	Files Opt[[]File] `json:"files"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleMessageCreateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleMessageCreateRequestKind is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleMessageCreateRequestKind string
+
+// Known values of TravelRuleMessageCreateRequestKind.
+const (
+	TravelRuleMessageCreateRequestKindMessage         TravelRuleMessageCreateRequestKind = "MESSAGE"
+	TravelRuleMessageCreateRequestKindDocumentRequest TravelRuleMessageCreateRequestKind = "DOCUMENT_REQUEST"
+)
+
+// TravelRuleMessage is a response object.
+type TravelRuleMessage struct {
+	ID   string                `json:"id"`
+	Kind TravelRuleMessageKind `json:"kind"`
+
+	// `OUTBOUND` is what the reader's own side sent. In the pickup portal the
+	// direction is from the counterparty's side.
+	Direction TravelRuleMessageDirection `json:"direction"`
+
+	// Who wrote it on its own side: a console user's email or an API key label, or
+	// the other VASP's name.
+	Author string `json:"author"`
+	Body   string `json:"body"`
+
+	// What a DOCUMENT_REQUEST asks for, in the requester's words.
+	RequestedDocuments []string `json:"requested_documents"`
+	ReplyTo            string   `json:"reply_to"`
+
+	// Set on a DOCUMENT_REQUEST once a reply to it carries a document.
+	FulfilledAt time.Time                   `json:"fulfilled_at"`
+	Attachment  TravelRuleMessageAttachment `json:"attachment"`
+	CreatedAt   time.Time                   `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleMessage leniently.
+func (r *TravelRuleMessage) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleMessageKind is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type TravelRuleMessageKind string
+
+// Known values of TravelRuleMessageKind.
+const (
+	TravelRuleMessageKindMessage         TravelRuleMessageKind = "MESSAGE"
+	TravelRuleMessageKindDocumentRequest TravelRuleMessageKind = "DOCUMENT_REQUEST"
+)
+
+// TravelRuleMessageDirection: `OUTBOUND` is what the reader's own side sent. In
+// the pickup portal the direction is from the counterparty's side.
+//
+// TravelRuleMessageDirection is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleMessageDirection string
+
+// Known values of TravelRuleMessageDirection.
+const (
+	TravelRuleMessageDirectionInbound  TravelRuleMessageDirection = "INBOUND"
+	TravelRuleMessageDirectionOutbound TravelRuleMessageDirection = "OUTBOUND"
+)
+
+// TravelRuleMessageAttachment: The document attached to a message, stored like
+// any other transaction document.
+type TravelRuleMessageAttachment struct {
+	UUID  string `json:"uuid"`
+	Label string `json:"label"`
+	Note  string `json:"note"`
+
+	// Who attached it. In the pickup portal, a file you sent shows your VASP name,
+	// never the person or API key behind it.
+	UploadedBy string                             `json:"uploaded_by"`
+	CreatedAt  time.Time                          `json:"created_at"`
+	Files      []TravelRuleMessageAttachmentFiles `json:"files"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleMessageAttachment leniently.
+func (r *TravelRuleMessageAttachment) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleMessageAttachmentFiles is a response object.
+type TravelRuleMessageAttachmentFiles struct {
+	UUID string `json:"uuid"`
+
+	// Time-limited download URL.
+	FileURL          string `json:"file_url"`
+	OriginalFilename string `json:"original_filename"`
+	FileSize         int64  `json:"file_size"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleMessageAttachmentFiles leniently.
+func (r *TravelRuleMessageAttachmentFiles) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleTestVASPInboundRequest is a request object.
+type TravelRuleTestVASPInboundRequest struct {
+	// The destination wallet address. The Didit Test VASP sends to it, matched
+	// against your wallet address book on the chain of the asset. A wallet with no
+	// matching entry is accepted and the inbound transaction is booked ON_HOLD.
+	// Required.
+	BeneficiaryWalletAddress string `json:"beneficiary_wallet_address"`
+
+	// What the Didit Test VASP declares the beneficiary to be. `accept` declares
+	// the holder's own name; `name_mismatch` declares a name no holder agrees with.
+	// The decision itself is always yours.
+	Scenario Opt[TravelRuleTestVASPInboundRequestScenario] `json:"scenario"`
+
+	// Chain of the asset.
+	Chain Opt[string] `json:"chain"`
+
+	// Amount as a decimal string.
+	Amount Opt[string] `json:"amount"`
+
+	// Asset code.
+	Currency Opt[string] `json:"currency"`
+
+	// Optional idempotency key. A repeat with the same value returns the transfer
+	// the first call booked.
+	Reference Opt[string] `json:"reference"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleTestVASPInboundRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleTestVASPInboundRequestScenario: What the Didit Test VASP declares
+// the beneficiary to be. `accept` declares the holder's own name;
+// `name_mismatch` declares a name no holder agrees with. The decision itself is
+// always yours.
+//
+// TravelRuleTestVASPInboundRequestScenario is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleTestVASPInboundRequestScenario string
+
+// Known values of TravelRuleTestVASPInboundRequestScenario.
+const (
+	TravelRuleTestVASPInboundRequestScenarioAccept       TravelRuleTestVASPInboundRequestScenario = "accept"
+	TravelRuleTestVASPInboundRequestScenarioNameMismatch TravelRuleTestVASPInboundRequestScenario = "name_mismatch"
+)
+
+// TravelRuleTestVASPInboundResponse is a response object.
+type TravelRuleTestVASPInboundResponse struct {
+	// Didit transaction UUID of the inbound transfer.
+	TransactionID string `json:"transaction_id"`
+
+	// Didit-generated txn_id.
+	TxnID string `json:"txn_id"`
+
+	// The scenario that ran.
+	Scenario string `json:"scenario"`
+
+	// The status your application's own decision resolved to.
+	TravelRuleStatus string `json:"travel_rule_status"`
+
+	// Why the transfer resolved to that status.
+	Detail string `json:"detail"`
+
+	// Always true: the sender was the Didit Test VASP.
+	TestVASP   bool                     `json:"test_vasp"`
+	TravelRule TravelRuleTransferDetail `json:"travel_rule"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleTestVASPInboundResponse leniently.
+func (r *TravelRuleTestVASPInboundResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // TravelRuleTransferPatchRequest: Provide exactly one of: payment_txn_id
-// (finish), action=cancel, or action=resend.
+// (finish), action=cancel, action=resend, action=update_compliance_email with
+// compliance_email, or action=update_originator_wallet with wallet_address.
 type TravelRuleTransferPatchRequest struct {
 	// The on-chain transaction hash. Requires the transfer to be an outbound
 	// transfer in COMPLETED status.
@@ -2940,7 +4063,24 @@ type TravelRuleTransferPatchRequest struct {
 	// "cancel" cancels a non-terminal transfer. "resend" re-runs routing for an
 	// outbound transfer stuck in COUNTERPARTY_VASP_NOT_FOUND,
 	// COUNTERPARTY_VASP_NOT_REACHABLE, or NOT_ENOUGH_COUNTERPARTY_DATA.
+	// "update_compliance_email" replaces the compliance email the request goes to,
+	// on an outbound transfer in one of those three statuses; send "resend"
+	// afterwards. "update_originator_wallet" records the wallet the funds actually
+	// left from (`wallet_address`, `memo`).
 	Action Opt[TravelRuleTransferPatchRequestAction] `json:"action"`
+
+	// Required with `action: update_compliance_email`. Kept as this transfer's
+	// `beneficiary_data.counterparty_vasp_email`: it belongs to this transfer only
+	// and joins no directory entry and no contact list.
+	ComplianceEmail Opt[string] `json:"compliance_email"`
+
+	// With `action: update_originator_wallet`: the wallet the funds left from. When
+	// the transfer's UTXO inputs are known it must be one of them.
+	WalletAddress Opt[string] `json:"wallet_address"`
+
+	// With `action: update_originator_wallet`: the wallet's memo or tag on a memo
+	// network. Optional.
+	Memo Opt[string] `json:"memo"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -2951,7 +4091,10 @@ func (r TravelRuleTransferPatchRequest) MarshalJSON() ([]byte, error) {
 // TravelRuleTransferPatchRequestAction: "cancel" cancels a non-terminal
 // transfer. "resend" re-runs routing for an outbound transfer stuck in
 // COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE, or
-// NOT_ENOUGH_COUNTERPARTY_DATA.
+// NOT_ENOUGH_COUNTERPARTY_DATA. "update_compliance_email" replaces the
+// compliance email the request goes to, on an outbound transfer in one of those
+// three statuses; send "resend" afterwards. "update_originator_wallet" records
+// the wallet the funds actually left from (`wallet_address`, `memo`).
 //
 // TravelRuleTransferPatchRequestAction is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -2959,6 +4102,8 @@ type TravelRuleTransferPatchRequestAction string
 
 // Known values of TravelRuleTransferPatchRequestAction.
 const (
-	TravelRuleTransferPatchRequestActionCancel TravelRuleTransferPatchRequestAction = "cancel"
-	TravelRuleTransferPatchRequestActionResend TravelRuleTransferPatchRequestAction = "resend"
+	TravelRuleTransferPatchRequestActionCancel                 TravelRuleTransferPatchRequestAction = "cancel"
+	TravelRuleTransferPatchRequestActionResend                 TravelRuleTransferPatchRequestAction = "resend"
+	TravelRuleTransferPatchRequestActionUpdateComplianceEmail  TravelRuleTransferPatchRequestAction = "update_compliance_email"
+	TravelRuleTransferPatchRequestActionUpdateOriginatorWallet TravelRuleTransferPatchRequestAction = "update_originator_wallet"
 )

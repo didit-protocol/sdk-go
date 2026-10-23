@@ -15,6 +15,34 @@ type AMLService struct {
 	client *Client
 }
 
+// RetrieveDatasetFreshness: Get AML dataset freshness.
+//
+// Report how current the datasets behind AML screening are, per source family
+// (`sanctions`, `pep`, `warnings`, `adverse_media`), as audit evidence for
+// [ongoing AML
+// monitoring](https://docs.didit.me/core-technology/aml-screening/continuous-monitoring-aml-screening#proving-that-monitoring-ran).
+// The answer is platform-wide: no session in the path, no customer data in the
+// body, the same answer for every application.
+//
+// Always `200` for an accepted key. Check `availability` first: when it is not
+// `available`, `dataset_freshness` is `null`. Dates are never estimated: a
+// family whose datasets reported no date is absent from `sources`, and a family
+// where only some datasets reported one has `oldest_updated_at: null`. Readings
+// are taken while ongoing monitoring runs, not on each call; `captured_at` says
+// when.
+//
+// A scoped API key needs `sessions: read`; a key limited to some workflows or
+// to approved sessions cannot call this endpoint. Nothing is billed.
+//
+//	GET /v3/aml/dataset-freshness/
+func (r *AMLService) RetrieveDatasetFreshness(ctx context.Context, opts ...option.RequestOption) (*AMLRetrieveDatasetFreshnessResponse, error) {
+	res := new(AMLRetrieveDatasetFreshnessResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/aml/dataset-freshness/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // Screen: AML screening (standalone).
 //
 // Screen a person or company against PEP, sanctions, warning/watchlist, and
@@ -77,6 +105,42 @@ func (r *AMLService) Screen(ctx context.Context, params AMLScreenParams, opts ..
 	}
 	return res, nil
 }
+
+// AMLRetrieveDatasetFreshnessResponse is a response object.
+type AMLRetrieveDatasetFreshnessResponse struct {
+	// The latest reading, or `null` when `availability` is not `available`.
+	DatasetFreshness AMLDatasetFreshness `json:"dataset_freshness"`
+
+	// `available` when a reading exists; `not_configured` when dataset dates are
+	// not collected in this environment; `not_yet_collected` when collection is set
+	// up but no reading exists yet.
+	Availability AMLRetrieveDatasetFreshnessResponseAvailability `json:"availability"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AMLRetrieveDatasetFreshnessResponse leniently.
+func (r *AMLRetrieveDatasetFreshnessResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AMLRetrieveDatasetFreshnessResponseAvailability: `available` when a reading
+// exists; `not_configured` when dataset dates are not collected in this
+// environment; `not_yet_collected` when collection is set up but no reading
+// exists yet.
+//
+// AMLRetrieveDatasetFreshnessResponseAvailability is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type AMLRetrieveDatasetFreshnessResponseAvailability string
+
+// Known values of AMLRetrieveDatasetFreshnessResponseAvailability.
+const (
+	AMLRetrieveDatasetFreshnessResponseAvailabilityAvailable       AMLRetrieveDatasetFreshnessResponseAvailability = "available"
+	AMLRetrieveDatasetFreshnessResponseAvailabilityNotConfigured   AMLRetrieveDatasetFreshnessResponseAvailability = "not_configured"
+	AMLRetrieveDatasetFreshnessResponseAvailabilityNotYetCollected AMLRetrieveDatasetFreshnessResponseAvailability = "not_yet_collected"
+)
 
 // AMLScreenParams holds the parameters of Client.AML.Screen.
 type AMLScreenParams struct {

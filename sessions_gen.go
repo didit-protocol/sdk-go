@@ -15,8 +15,34 @@ import (
 type SessionsService struct {
 	client *Client
 
-	Imports *SessionsImportsService
-	Reviews *SessionsReviewsService
+	Imports    *SessionsImportsService
+	Reviews    *SessionsReviewsService
+	Signatures *SessionsSignaturesService
+	Webhooks   *SessionsWebhooksService
+}
+
+// AddImages: Add an image to a session.
+//
+// Attach one extra image or PDF to the ID verification (`model_type=kyc`) or
+// Proof of Address (`model_type=poa`) result of a finished User Verification
+// (KYC) session, for example evidence collected outside the flow. The session
+// must be `Approved`, `Declined`, `In Review` or `Kyc Expired` and carry the
+// result named by `model_type`; Business Verification (KYB) sessions are not
+// supported. Each call appends one file (to the most recent result when the
+// step ran more than once), keeps the existing files and records a `FILE_ADDED`
+// entry in the session activity log; the upload sends no webhook and does not
+// change the session status. The file is compressed on upload and is returned
+// in `extra_files` of the session decision. This endpoint is limited to 10
+// requests per minute per API key. A scoped API key needs `sessions: write`,
+// and without `media: read` it receives the `extra_files` links as `null`.
+//
+//	PATCH /v3/session/{sessionId}/add-images/
+func (r *SessionsService) AddImages(ctx context.Context, sessionID string, params SessionsAddImagesParams, opts ...option.RequestOption) (*SessionsAddImagesResponse, error) {
+	res := new(SessionsAddImagesResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/session/{sessionId}/add-images/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyMultipart}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // BatchDelete: Bulk delete KYC sessions by session_number.
@@ -57,6 +83,18 @@ type SessionsService struct {
 // Deletion is permanent and irreversible.
 //
 // **Selection semantics:**
+//   - With `delete_all: true` you can narrow the selection with the filters of
+//     `GET /v3/sessions/`, each prefixed with `filter_` (for example
+//     `filter_status`, `filter_workflow_id`, `filter_date_from`). Filters that
+//     take several values in List Sessions (`status`, `workflow_id`,
+//     `country`, `region`, `document_type`, `document_name`, `session_type`,
+//     `warning`, `organization_name`) accept a comma-separated string or an
+//     array; the others take one value. An empty value is ignored. Filters
+//     apply only together with `delete_all`, and a deletion job applies the
+//     same filters.
+//   - An unknown `filter_*` key, or a filter value that cannot be read,
+//     rejects the whole request with `400` before anything is deleted, so a
+//     mistyped filter never widens the deletion to every session.
 //   - Entries in `session_numbers` that do not match a live KYC session in
 //     your application (unknown numbers, already-deleted sessions, or sessions
 //     owned by another application) are **silently skipped**: they do not
@@ -128,9 +166,35 @@ func (r *SessionsService) BatchDelete(ctx context.Context, params SessionsBatchD
 // either must carry the `write:sessions` privilege.
 //
 //	PATCH /v3/session/{sessionId}/bulk-update-aml-hit-status/
-func (r *SessionsService) BulkUpdateAMLHitStatus(ctx context.Context, sessionID string, params SessionsBulkUpdateAMLHitStatusParams, opts ...option.RequestOption) (map[string]any, error) {
-	var res map[string]any
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/session/{sessionId}/bulk-update-aml-hit-status/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, &res, opts); err != nil {
+func (r *SessionsService) BulkUpdateAMLHitStatus(ctx context.Context, sessionID string, params SessionsBulkUpdateAMLHitStatusParams, opts ...option.RequestOption) (*SessionsBulkUpdateAMLHitStatusResponse, error) {
+	res := new(SessionsBulkUpdateAMLHitStatusResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/session/{sessionId}/bulk-update-aml-hit-status/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// CancelFeatureOverride: Cancel a check override that waits for the flow to
+// finish.
+//
+// Cancel an override of a feature (step) status that is still
+// `pending_until_flow_finishes`, so it never applies. The check keeps its
+// status, the cancellation is recorded in the session's activity as
+// `FEATURE_OVERRIDE_CANCELLED`, and no webhook is sent. The response is the
+// override with `state: cancelled` and `cancel_reason: cancelled_by_reviewer`.
+//
+// An override that already applied or was cancelled returns `409` with the code
+// `feature_override_not_pending`. Find override IDs with `GET
+// /v3/session/{sessionId}/features/overrides/` or in the `override` returned by
+// the feature status update.
+//
+// Requires the `write:sessions` privilege; a scoped API key needs write access
+// to decisions.
+//
+//	POST /v3/session/{sessionId}/features/overrides/{overrideId}/cancel/
+func (r *SessionsService) CancelFeatureOverride(ctx context.Context, sessionID string, overrideID string, opts ...option.RequestOption) (*FeatureStatusOverride, error) {
+	res := new(FeatureStatusOverride)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/features/overrides/{overrideId}/cancel/", pathParams: []string{"sessionId", sessionID, "overrideId", overrideID}}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -195,7 +259,9 @@ func (r *SessionsService) Create(ctx context.Context, params SessionsCreateParam
 //     portrait crops, NFC chip portrait and signature images, face reference
 //     images, liveness videos, face-match source/target images, Proof of
 //     Address documents, and any extra uploaded files (KYC); uploaded company
-//     documents and extra files (KYB). Previously issued media URLs
+//     documents and extra files (KYB). Electronic Signature documents, signed
+//     PDFs, evidence PDFs and signature images (KYC and KYB): their download
+//     paths stop working. Previously issued media URLs
 //     (`https://<media-host>/...`) stop resolving.
 //   - The session's face data. Its face embedding is deleted too, unless you
 //     choose to keep an image-free template (see **Face biometric data**).
@@ -273,6 +339,27 @@ func (r *SessionsService) Delete(ctx context.Context, sessionID string, params S
 	return res, nil
 }
 
+// ExportAMLScreeningHistory: Export AML screening history as CSV.
+//
+// Download the same ongoing-monitoring history as `GET
+// /v3/session/{sessionId}/aml-screening-history/` as a CSV file, one line per
+// completed re-screen, newest first, ready to hand to an auditor. The file is
+// streamed whole (no pagination) and starts with a header line; an empty cell
+// means unknown, dataset dates are never estimated, and a value that would
+// start a spreadsheet formula is prefixed with an apostrophe. Works for KYC and
+// KYB session IDs; pass `node_id` when the session ran more than one AML step.
+// Errors are returned as JSON, not CSV. A scoped API key needs `decisions:
+// read` and `media: read`: the response is a file, so a key without `media:
+// read` gets `403`.
+//
+// The response is a file (text/csv). Read it from the returned response's body
+// and close it.
+//
+//	GET /v3/session/{sessionId}/aml-screening-history/export/
+func (r *SessionsService) ExportAMLScreeningHistory(ctx context.Context, sessionID string, params SessionsExportAMLScreeningHistoryParams, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/aml-screening-history/export/", pathParams: []string{"sessionId", sessionID}, params: params, binary: true, accept: "text/csv"}, nil, opts)
+}
+
 // GeneratePDF: Download a PDF report for a verification session.
 //
 // Render and download a compliance-ready PDF report for a finished verification
@@ -345,9 +432,9 @@ func (r *SessionsService) GeneratePDF(ctx context.Context, sessionID string, opt
 // per receiver.
 //
 //	POST /v3/session/import-shared/
-func (r *SessionsService) ImportShared(ctx context.Context, params SessionsImportSharedParams, opts ...option.RequestOption) (map[string]any, error) {
-	var res map[string]any
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/import-shared/", params: params, body: bodyJSON}, &res, opts); err != nil {
+func (r *SessionsService) ImportShared(ctx context.Context, params SessionsImportSharedParams, opts ...option.RequestOption) (*SessionDecision, error) {
+	res := new(SessionDecision)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/import-shared/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -430,6 +517,92 @@ func (r *SessionsService) ListAutoPaging(ctx context.Context, params SessionsLis
 	})
 }
 
+// ListAMLScreeningHistory: List AML screening history.
+//
+// List every completed ongoing-monitoring re-screen of a session's AML check,
+// newest first by `completed_at`, including the runs where nothing changed:
+// alerts, activity entries and webhooks fire only when a result moves, so this
+// history is the evidence that a clean subject was still being screened. Works
+// for KYC and KYB session IDs; pass `node_id` when the session ran more than
+// one AML step. Only ongoing-monitoring re-screens are listed (the first
+// screening is part of the session decision) and runs from before this history
+// existed are not reconstructed, so a session without ongoing monitoring
+// returns an empty list. `count` is exact up to 100 and capped at 100 above
+// that, so follow `next` until it is `null`. A scoped API key needs `decisions:
+// read`; see [Continuous AML
+// monitoring](https://docs.didit.me/core-technology/aml-screening/continuous-monitoring-aml-screening).
+//
+// It returns one page; ListAMLScreeningHistoryAutoPaging iterates over every
+// item of every page.
+//
+//	GET /v3/session/{sessionId}/aml-screening-history/
+func (r *SessionsService) ListAMLScreeningHistory(ctx context.Context, sessionID string, params SessionsListAMLScreeningHistoryParams, opts ...option.RequestOption) (*Page[AMLScreeningRun], error) {
+	return getPage[AMLScreeningRun](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/aml-screening-history/", pathParams: []string{"sessionId", sessionID}, params: params}, opts)
+}
+
+// ListAMLScreeningHistoryAutoPaging iterates over every item of every page of
+// ListAMLScreeningHistory, fetching pages as needed.
+func (r *SessionsService) ListAMLScreeningHistoryAutoPaging(ctx context.Context, sessionID string, params SessionsListAMLScreeningHistoryParams, opts ...option.RequestOption) *PageIterator[AMLScreeningRun] {
+	return newPageIterator(ctx, func() (*Page[AMLScreeningRun], error) {
+		return r.ListAMLScreeningHistory(ctx, sessionID, params, opts...)
+	})
+}
+
+// ListEvents: List session events.
+//
+// Read the event timeline of one verification session, newest first by
+// `sent_at`: the screens the user saw, buttons and uploads, failed attempts,
+// status and feature-step changes, and the workflow routing trace. Works for
+// User Verification (KYC) and Business Verification (KYB) session IDs. Events
+// are stored asynchronously, so a new event can take a few seconds to appear.
+// Results are paginated with `limit` and `offset`; follow `next` until it is
+// `null`. A scoped API key needs `sessions: read` and `decisions: read`, and
+// without `media: read` it receives `file_url` as `null`. The routing events
+// are described in [Retrieve
+// session](https://docs.didit.me/sessions-api/retrieve-session).
+//
+// It returns one page; ListEventsAutoPaging iterates over every item of every
+// page.
+//
+//	GET /v3/session/{sessionId}/events/
+func (r *SessionsService) ListEvents(ctx context.Context, sessionID string, params SessionsListEventsParams, opts ...option.RequestOption) (*Page[SessionEvent], error) {
+	return getPage[SessionEvent](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/events/", pathParams: []string{"sessionId", sessionID}, params: params}, opts)
+}
+
+// ListEventsAutoPaging iterates over every item of every page of ListEvents,
+// fetching pages as needed.
+func (r *SessionsService) ListEventsAutoPaging(ctx context.Context, sessionID string, params SessionsListEventsParams, opts ...option.RequestOption) *PageIterator[SessionEvent] {
+	return newPageIterator(ctx, func() (*Page[SessionEvent], error) {
+		return r.ListEvents(ctx, sessionID, params, opts...)
+	})
+}
+
+// ListFeatureOverrides: List a session's check overrides.
+//
+// Every override of an individual feature (step) status on a User Verification
+// (KYC) or Business Verification (KYB) session, newest first and not paginated:
+// applied ones, ones waiting for the person to finish the flow
+// (`pending_until_flow_finishes`) and cancelled ones, each with who asked,
+// their reason, and whether it applied while the person was still in the flow
+// (`forced`).
+//
+// `person_in_flow` tells you whether a new override with
+// `defer_until_flow_finishes: true` would wait. `flow_finished_at` is when the
+// person last finished the flow; it is `null` while they are still in it (a
+// resubmission included) and when the session closed before they finished.
+//
+// Requires the `read:sessions` privilege; a scoped API key needs read access to
+// decisions.
+//
+//	GET /v3/session/{sessionId}/features/overrides/
+func (r *SessionsService) ListFeatureOverrides(ctx context.Context, sessionID string, opts ...option.RequestOption) (*SessionsListFeatureOverridesResponse, error) {
+	res := new(SessionsListFeatureOverridesResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/features/overrides/", pathParams: []string{"sessionId", sessionID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // ListNetworks: List networks for a session.
 //
 // List the networks the session's vendor user belongs to. Resolves through the
@@ -438,9 +611,47 @@ func (r *SessionsService) ListAutoPaging(ctx context.Context, params SessionsLis
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/sessions/{session_id}/networks/
-func (r *SessionsService) ListNetworks(ctx context.Context, sessionID string, opts ...option.RequestOption) (*SessionsListNetworksResponse, error) {
-	res := new(SessionsListNetworksResponse)
+func (r *SessionsService) ListNetworks(ctx context.Context, sessionID string, opts ...option.RequestOption) (*EntityNetworkMembershipList, error) {
+	res := new(EntityNetworkMembershipList)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/sessions/{session_id}/networks/", pathParams: []string{"session_id", sessionID}, appScope: true}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PreviewDecisionEmail: Preview a session's decision email.
+//
+// Render the email the person receives when you set a session to `Approved` or
+// `Declined` with `send_email: true`, without changing the session or sending
+// anything. The response shows the subject and HTML exactly as they are sent,
+// the recipient, the sender, the language, and whether confirming the change
+// sends the email at all (`will_be_sent`, `not_sent_reason`).
+//
+// The recipient is the person's own address: the one they verified in an email
+// verification step of the flow, else the one given in `contact_details` when
+// the session was created. The sender is your application's verified sender
+// domain when white label applies (`sender_kind: customer`), else Didit's
+// sender (`sender_kind: didit`).
+//
+// To send exactly what you previewed, call [Update Session
+// Status](/sessions-api/update-status) with the same `new_status`, `send_email:
+// true`, `email_address` set to `recipient`, `email_language` set to `language`
+// and `email_preview_token` set to `preview_token`. The receipt expires after
+// 15 minutes. When the recipient, language, session status, sender or email
+// changed since the preview, the update returns `409` before anything changes;
+// preview again and confirm with the new receipt.
+//
+// Works for User Verification (KYC) and Business Verification (KYB) sessions in
+// `Approved`, `Declined`, `In Review`, `Kyc Expired`, `Abandoned` or
+// `Resubmitted` status. The status check runs before body validation. Requires
+// the `write:sessions` privilege; a scoped API key needs write access to
+// decisions. Responses use `Cache-Control: no-store`: treat them as sensitive
+// verification content.
+//
+//	POST /v3/session/{sessionId}/decision-email-preview/
+func (r *SessionsService) PreviewDecisionEmail(ctx context.Context, sessionID string, params SessionsPreviewDecisionEmailParams, opts ...option.RequestOption) (*SessionsPreviewDecisionEmailResponse, error) {
+	res := new(SessionsPreviewDecisionEmailResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/decision-email-preview/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -450,32 +661,71 @@ func (r *SessionsService) ListNetworks(ctx context.Context, sessionID string, op
 //
 // Render the email that would accompany a KYC or KYB resubmission without
 // changing the session, resetting checks, extending its expiry, running checks
-// or sending mail. Requires write:sessions and an application-scoped session in
-// Approved, Declined, In Review, Kyc Expired or Abandoned status. The server
-// validates the selected workflow steps and renders its fixed translated
-// template with the applicable verified white-label sender and branding. The
-// request cannot set a subject, message body or action URL.
+// or sending mail. Requires the `write:sessions` privilege (a scoped API key
+// needs write access to decisions) and a session in `Approved`, `Declined`, `In
+// Review`, `Kyc Expired` or `Abandoned` status. The server validates the
+// selected workflow steps and renders its fixed translated template with the
+// applicable verified white-label sender and branding. The request cannot set a
+// subject, message body or action URL.
 //
-// The response includes the recipient, sender, subject, HTML, resolved steps
-// and a signed preview_token. requires_user_action describes whether the
-// selected steps include an interactive check. Email delivery remains
-// conditional: if automatic checks finalize the verification during the
-// subsequent resubmission, no action-request email is sent.
+// `email_address` is optional. Without it, the email goes to the person's own
+// address: the one they verified in an email verification step of the flow,
+// else the one given in `contact_details` when the session was created. An
+// address you pass wins (`recipient_source: request`). When no address is known
+// and you pass none, `recipient` and `preview_token` are empty strings and no
+// email can be sent.
+//
+// The response includes the recipient and where it comes from, the sender,
+// subject, HTML, language, resolved steps, whether confirming sends the email
+// (`will_be_sent`, `not_sent_reason`) and a signed `preview_token`.
+// `requires_user_action` is `false` when every selected step runs without the
+// person: the resubmission then finishes on its own and no email goes out
+// (`not_sent_reason: no_user_action`).
 //
 // This preview does not reserve session state or authorize delivery. After
-// reviewing it, call Update Session Status with new_status=Resubmitted, the
-// same selection, recipient and language, and email_preview_token set to the
-// returned preview_token. The receipt expires after 15 minutes. When a receipt
-// is supplied, changed inputs, message content, sender or session state return
-// 409 before any mutation or send. Existing integrations may omit the receipt.
-// Regenerate the preview after a conflict. Treat the response as sensitive
-// verification content; responses use Cache-Control: no-store. Render HTML in a
-// sandboxed frame, never directly in your application DOM.
+// reviewing it, call [Update Session Status](/sessions-api/update-status) with
+// `new_status: Resubmitted`, the same `nodes_to_resubmit` and `email_language`
+// you previewed, `send_email: true`, `email_address` set to `recipient` and
+// `email_preview_token` set to `preview_token`. The receipt expires after 15
+// minutes. When a receipt is supplied, changed inputs, message content, sender
+// or session state return `409` before any mutation or send. Existing
+// integrations may omit the receipt. Regenerate the preview after a conflict.
+// Treat the response as sensitive verification content; responses use
+// `Cache-Control: no-store`. Render HTML in a sandboxed frame, never directly
+// in your application DOM.
 //
 //	POST /v3/session/{sessionId}/resubmission-preview/
 func (r *SessionsService) PreviewResubmission(ctx context.Context, sessionID string, params SessionsPreviewResubmissionParams, opts ...option.RequestOption) (*SessionsPreviewResubmissionResponse, error) {
 	res := new(SessionsPreviewResubmissionResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/resubmission-preview/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// RegenerateKYBParty: Regenerate a Key People party's KYC session.
+//
+// Give a Key People party of a Business Verification (KYB) session a new
+// individual KYC session after its previous one was deleted, so the Key People
+// check can finish again; send no request body. It works only when the party's
+// KYC session was deleted (`kyc_session_deleted: true`): a party whose KYC
+// session still exists (in any status), a party that never had one, or a
+// company party returns `409`. Didit creates a new hosted KYC session with the
+// workflow the deleted one ran (its latest published version) or, when that is
+// no longer known, the workflow your Key People settings assign to the party's
+// role, emails the link to the party when an email is on file, clears
+// `is_skipped`, and recomputes the Key People check and the business session
+// status. It then sends a `data.updated`
+// [webhook](https://docs.didit.me/integration/webhooks) for the business
+// session with trigger `console_key_people_regenerate`; to exempt the party
+// instead, use `PATCH /v3/session/{sessionId}/kyb/parties/{partyUuid}/`. A
+// scoped API key needs `decisions: write`, and without `sessions: write` it
+// receives `kyc_session_url` as `null`.
+//
+//	POST /v3/session/{sessionId}/kyb/parties/{partyUuid}/regenerate/
+func (r *SessionsService) RegenerateKYBParty(ctx context.Context, sessionID string, partyUUID string, opts ...option.RequestOption) (*KYBKeyPeopleParty, error) {
+	res := new(KYBKeyPeopleParty)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/kyb/parties/{partyUuid}/regenerate/", pathParams: []string{"sessionId", sessionID, "partyUuid", partyUUID}}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -499,7 +749,9 @@ func (r *SessionsService) PreviewResubmission(ctx context.Context, sessionID str
 // identifying the workflow graph node that produced them. Read NFC as
 // `response.nfc_verifications[0]` - never as a singular `nfc` field. A block is
 // `null` until the workflow has run that feature at least once; features the
-// workflow does not include never appear with data.
+// workflow does not include never appear with data. Electronic Signature
+// results are in `signatures`, which is present only when the workflow has an
+// Electronic Signature step.
 //
 // **When to call.** The recommended pattern is event-driven: wait for the
 // `status.updated` webhook that fires when the session reaches a decision
@@ -531,8 +783,8 @@ func (r *SessionsService) PreviewResubmission(ctx context.Context, sessionID str
 // headers.
 //
 //	GET /v3/session/{sessionId}/decision/
-func (r *SessionsService) RetrieveDecision(ctx context.Context, sessionID string, params SessionsRetrieveDecisionParams, opts ...option.RequestOption) (*SessionsRetrieveDecisionResponse, error) {
-	res := new(SessionsRetrieveDecisionResponse)
+func (r *SessionsService) RetrieveDecision(ctx context.Context, sessionID string, params SessionsRetrieveDecisionParams, opts ...option.RequestOption) (*SessionDecision, error) {
+	res := new(SessionDecision)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/decision/", pathParams: []string{"sessionId", sessionID}, params: params}, res, opts); err != nil {
 		return nil, err
 	}
@@ -556,8 +808,8 @@ func (r *SessionsService) RetrieveDecision(ctx context.Context, sessionID string
 // or invalid credentials return `403`; this API never returns `401`.
 //
 //	GET /v3/sessions/delete/{job_id}/
-func (r *SessionsService) RetrieveDeletionJob(ctx context.Context, jobID string, opts ...option.RequestOption) (*SessionsRetrieveDeletionJobResponse, error) {
-	res := new(SessionsRetrieveDeletionJobResponse)
+func (r *SessionsService) RetrieveDeletionJob(ctx context.Context, jobID string, opts ...option.RequestOption) (*SessionDeletionJob, error) {
+	res := new(SessionDeletionJob)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/sessions/delete/{job_id}/", pathParams: []string{"job_id", jobID}}, res, opts); err != nil {
 		return nil, err
 	}
@@ -573,6 +825,40 @@ func (r *SessionsService) RetrieveDeletionJob(ctx context.Context, jobID string,
 func (r *SessionsService) Share(ctx context.Context, sessionID string, params SessionsShareParams, opts ...option.RequestOption) (*SessionsShareResponse, error) {
 	res := new(SessionsShareResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/share/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Simulate: Simulate a sandbox session's status.
+//
+// Force a terminal status on a sandbox session after the fact, from your
+// backend, without running the flow. Sandbox applications only: a live session
+// returns `404`. Works for User Verification (KYC) and Business Verification
+// (KYB) sessions.
+//
+// Set `new_status`, or let `scenario` or `risk` supply it. `risk` (or the first
+// risk the scenario's magic values carry) adds that warning to the session. The
+// change is recorded in the session's activity.
+//
+// `send_webhooks` (default `true`) sends exactly the webhooks a real status
+// change sends. With `false` the status still changes and the console still
+// updates live, but no webhook is logged or sent, the missed-webhook recovery
+// never re-sends that decision, and the next status change sends webhooks as
+// usual. The response echoes the value applied.
+//
+// Requires the `write:sessions` privilege; a scoped API key needs write access
+// to sessions. An unknown `session_id` returns `404` and another application's
+// session returns `403`, both before the body is read; a live session returns
+// `404` only after the body is validated. To simulate from the hosted flow with
+// the session's own token, use `POST
+// /v3/session/{sessionId}/sandbox/simulate/`. See [Sandbox & Test
+// Data](/integration/sandbox-testing) for the scenario catalog.
+//
+//	POST /v3/session/{sessionId}/simulate/
+func (r *SessionsService) Simulate(ctx context.Context, sessionID string, params SandboxSimulateRequest, opts ...option.RequestOption) (*SandboxSimulateResponse, error) {
+	res := new(SandboxSimulateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/simulate/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -599,9 +885,33 @@ func (r *SessionsService) Share(ctx context.Context, sessionID string, params Se
 // either must carry the `write:sessions` privilege.
 //
 //	PATCH /v3/session/{sessionId}/update-aml-hit-status/
-func (r *SessionsService) UpdateAMLHitStatus(ctx context.Context, sessionID string, params SessionsUpdateAMLHitStatusParams, opts ...option.RequestOption) (map[string]any, error) {
-	var res map[string]any
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/session/{sessionId}/update-aml-hit-status/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, &res, opts); err != nil {
+func (r *SessionsService) UpdateAMLHitStatus(ctx context.Context, sessionID string, params SessionsUpdateAMLHitStatusParams, opts ...option.RequestOption) (*SessionsUpdateAMLHitStatusResponse, error) {
+	res := new(SessionsUpdateAMLHitStatusResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/session/{sessionId}/update-aml-hit-status/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// UpdateAMLStatus: Update an AML check status.
+//
+// Set the status of a session's AML screening check as a whole (the `status` of
+// an `aml_screenings[]` entry in the session decision), for example `Approved`
+// after your team cleared every hit. Works for KYC and KYB session IDs; pass
+// `node_id` (query parameter or body field) when the session ran more than one
+// AML step, otherwise the most recent AML check is updated. When the status
+// actually changes, an `AML_STATUS_UPDATED` activity entry is recorded and a
+// `data.updated` [webhook](https://docs.didit.me/integration/webhooks) is sent;
+// sending the current status returns `200` and changes nothing. The session
+// status is not recomputed: use `PATCH /v3/session/{sessionId}/update-status/`
+// for the session decision and `PATCH
+// /v3/session/{sessionId}/update-aml-hit-status/` for single hits. A scoped API
+// key needs `decisions: write`.
+//
+//	PATCH /v3/session/{sessionId}/update-aml-status/
+func (r *SessionsService) UpdateAMLStatus(ctx context.Context, sessionID string, params SessionsUpdateAMLStatusParams, opts ...option.RequestOption) (*SessionsUpdateAMLStatusResponse, error) {
+	res := new(SessionsUpdateAMLStatusResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/session/{sessionId}/update-aml-status/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -662,26 +972,75 @@ func (r *SessionsService) UpdateData(ctx context.Context, sessionID string, para
 	return res, nil
 }
 
+// UpdateDocumentAiData: Update a Document AI document.
+//
+// Correct the fields Document AI extracted from one uploaded document, set its
+// review status, or both, on a KYC or KYB session. `extracted_data` must be a
+// JSON object and is merged key by key: a key you send replaces the stored
+// value (a key sent as `null` is stored as `null`) and keys you leave out keep
+// their values. The document status feeds the Document AI result of its
+// workflow node in the session decision; the session status itself is not
+// recomputed. Every successful call, including one that changes nothing, sends
+// a `data.updated` [webhook](https://docs.didit.me/integration/webhooks) with
+// trigger `manual_review`. A scoped API key needs `decisions: write`; see
+// [Document AI](https://docs.didit.me/core-technology/document-ai/overview).
+//
+//	PATCH /v3/document-ai/{sessionId}/documents/{documentUuid}/
+func (r *SessionsService) UpdateDocumentAiData(ctx context.Context, sessionID string, documentUUID string, params SessionsUpdateDocumentAiDataParams, opts ...option.RequestOption) (*SessionsUpdateDocumentAiDataResponse, error) {
+	res := new(SessionsUpdateDocumentAiDataResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/document-ai/{sessionId}/documents/{documentUuid}/", pathParams: []string{"sessionId", sessionID, "documentUuid", documentUUID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // UpdateFeatureStatus: Update an individual feature (step) status.
 //
-// Set the status of a single verification feature (step) within a session
-// **without changing the overall session decision**. Target the feature by its
-// workflow graph `nodeId` (use `default` for non-graph workflows where the step
-// has no node).
+// Set the status of a single verification feature (step) within a session.
+// Target the feature by its workflow graph `nodeId`. On non-graph workflows,
+// whose steps have no node, use `default` and also pass `feature_type` to say
+// which step you mean.
 //
 // Works for both User Verification (KYC) and Business Verification (KYB)
-// sessions and every step type - ID/OCR, Liveness, Face Match, NFC, AML, Proof
+// sessions and every step type: ID/OCR, Liveness, Face Match, NFC, AML, Proof
 // of Address, Phone, Email, Database Validation, Questionnaire, and the KYB
-// registry / documents / key-people checks.
+// registry / documents / key-people checks. This endpoint is **not** available
+// for standalone API sessions (`session_type = API`).
 //
 // `new_status` must be one of `Approved`, `Declined`, or `In Review`, and must
-// differ from the feature's current status. A successful call fires a
-// `data.updated` webhook and appends an activity entry (with actor attribution)
-// to the session's review trail. This endpoint is **not** available for
-// standalone API sessions (`session_type = API`).
+// differ from the feature's current status.
 //
-// Authenticate with your API key (`x-api-key`) or a user authorization header -
-// either must carry the `write:sessions` privilege.
+// **When the override applies.** Without `defer_until_flow_finishes` (or with
+// `false`) the override applies at once, as it always did; when the person is
+// still in the flow it is recorded as `forced`. With
+// `defer_until_flow_finishes: true` while the person is still in the flow (the
+// session is `Not Started`, `In Progress` or `Resubmitted` and has not
+// finished), the override is stored as `pending_until_flow_finishes` and
+// applies when the flow finishes, after the flow reaches its own decision. On a
+// session whose flow already ended it applies at once either way. A waiting
+// override is cancelled instead when the person redoes its step before
+// finishing, when a newer override on the same check replaces it, when the
+// session leaves the flow unfinished (abandoned, expired, or decided mid-flow),
+// or when you cancel it with `POST
+// /v3/session/{sessionId}/features/overrides/{overrideId}/cancel/`. List a
+// session's overrides with `GET /v3/session/{sessionId}/features/overrides/`.
+//
+// **Effect on the session.** A session that already has a decision keeps it:
+// only the check changes. When the session has no decision yet and its workflow
+// is waiting on exactly this step, applying the override completes the step:
+// the workflow moves on, later steps run, and a status node can set the session
+// decision and fire `status.updated`.
+//
+// **Webhooks and activity.** A `data.updated` webhook fires when the override
+// applies (at once, or when the flow finishes), never while it waits or when it
+// is cancelled. Every override is recorded in the session's activity as
+// `FEATURE_OVERRIDE_PENDING`, `FEATURE_OVERRIDE_APPLIED` or
+// `FEATURE_OVERRIDE_CANCELLED`, with who made it; the request's entry carries
+// your `comment`.
+//
+// Authenticate with your API key (`x-api-key`) or a user authorization header
+// carrying the `write:sessions` privilege; a scoped API key needs write access
+// to decisions.
 //
 //	PATCH /v3/session/{sessionId}/features/{nodeId}/update-status/
 func (r *SessionsService) UpdateFeatureStatus(ctx context.Context, sessionID string, nodeID string, params SessionsUpdateFeatureStatusParams, opts ...option.RequestOption) (*SessionsUpdateFeatureStatusResponse, error) {
@@ -857,30 +1216,32 @@ func (r *SessionsService) UpdatePOAData(ctx context.Context, sessionID string, p
 // Call it once a session has reached a reviewable state: the current status
 // must be `Approved`, `Declined`, `In Review`, `Kyc Expired`, `Abandoned`, or
 // `Resubmitted`. Sessions that are still `Not Started`, `In Progress`, or
-// `Awaiting User`, or that ended as `Expired`, return `400`. The new status
-// must differ from the current one, and your API key's organization needs the
-// `write:sessions` permission. The eligible-state check runs before body
-// validation, so an ineligible session returns the `Wrong Current Status` error
-// even when the payload is also invalid.
+// `Awaiting User`, or that ended as `Expired`, return `400`. Your API key needs
+// the `write:sessions` permission (a scoped API key needs write access to
+// decisions). The eligible-state check runs before body validation, so an
+// ineligible session returns the `Wrong Current Status` error even when the
+// payload is also invalid.
 //
 // For `Resubmitted`, pass `nodes_to_resubmit` to choose which workflow steps
 // the user must redo, or omit it to auto-select existing feature attempts in a
 // resubmittable state (`Declined`, `In Review`, `Not Finished`, `Expired`).
-// Never-attempted features are not auto-selected - list them explicitly in
+// Never-attempted features are not auto-selected: list them explicitly in
 // `nodes_to_resubmit`, or the request returns `400` when no recorded attempt
-// needs resubmission. Captured data for the selected steps is deleted, the
-// steps are reordered to match the workflow graph, the session's expiration
-// window restarts, and the original verification URL becomes usable again.
-// Backend-only steps (`AML`, `DATABASE_VALIDATION`, `IP_ANALYSIS`) at the head
-// of the list run immediately without user interaction; if every resubmitted
-// step is backend-only, the session re-finalizes within the same request.
-// `KYB_REGISTRY` and `KYB_KEY_PEOPLE` cannot be resubmitted directly - resubmit
-// the relevant child KYC sessions instead and the parent business session
-// recomputes automatically.
+// needs resubmission. The selected steps' previous results move to the
+// resubmission's history (returned by Get Decision with
+// `include=resubmissions`), the steps are reordered to match the workflow
+// graph, the session's expiration window restarts, and the original
+// verification URL becomes usable again. Backend-only steps (`AML`,
+// `DATABASE_VALIDATION`, `IP_ANALYSIS`) at the head of the list run immediately
+// without user interaction; if every resubmitted step is backend-only, the
+// session re-finalizes within the same request. `KYB_REGISTRY` and
+// `KYB_KEY_PEOPLE` cannot be resubmitted directly: resubmit the relevant child
+// KYC sessions instead and the parent business session recomputes
+// automatically.
 //
-// Every successful call fires the `status.updated`
+// Every call that changes the status fires the `status.updated`
 // [webhook](/integration/webhooks) once the change commits and appends an
-// activity entry - with actor attribution and your `comment` - to the session's
+// activity entry (with actor attribution and your `comment`) to the session's
 // `reviews`, visible in [Get Decision](#get-/v3/session/-sessionId-/decision/)
 // and in the console activity timeline. The user-profile aggregates linked to
 // the session's `vendor_data` update as well. Declining disables ongoing AML
@@ -890,12 +1251,20 @@ func (r *SessionsService) UpdatePOAData(ctx context.Context, sessionID string, p
 // recomputes the parent business session's status. Set `send_email: true` (with
 // `email_address`) to notify the user: a status notice for
 // `Approved`/`Declined`, or a resubmission email containing the verification
-// link and per-step reasons for `Resubmitted`.
+// link and per-step reasons for `Resubmitted`. To check the email first,
+// preview it with [Preview Decision
+// Email](/sessions-api/preview-decision-email) (`Approved`, `Declined`) or
+// [Preview Resubmission Email](/sessions-api/preview-resubmission)
+// (`Resubmitted`) and pass its `preview_token` as `email_preview_token`: the
+// update then sends exactly the previewed email, or returns `409` before
+// changing anything when the email or the session changed since the preview or
+// the receipt is older than 15 minutes.
 //
-// The operation is intentionally not repeatable with the same value: re-sending
-// the current status returns `400` (`The new status is the same as the current
-// status.`), so accidental double-submissions are harmless. Authentication and
-// permission failures both return `403` - this API never responds `401`.
+// Repeating `Approved` or `Declined` on a session that already has that status
+// changes nothing and returns `200`: no webhook, no activity entry and no
+// email. Repeating `Resubmitted` returns `400` (`The new status is the same as
+// the current status.`). Missing or invalid credentials and missing permissions
+// return `403`; an expired scoped API key returns `401`.
 //
 //	PATCH /v3/session/{sessionId}/update-status/
 func (r *SessionsService) UpdateStatus(ctx context.Context, sessionID string, params SessionsUpdateStatusParams, opts ...option.RequestOption) (*SessionsUpdateStatusResponse, error) {
@@ -1049,6 +1418,211 @@ func (r *SessionsReviewsService) ListAutoPaging(ctx context.Context, sessionID s
 	})
 }
 
+// SessionsSignaturesService holds the sessions signatures operations. Use it
+// through Client.Sessions.Signatures.
+type SessionsSignaturesService struct {
+	client *Client
+}
+
+// DownloadDocument: Download a signed document.
+//
+// Download the signed PDF of one document of an Electronic Signature step. Use
+// the `signed_file` path of `signatures[].documents[]` in the decision. The PDF
+// holds the document the signer was shown with their field values stamped, the
+// evidence page (unless `signature_evidence_page` is off) and the PAdES
+// signature with its timestamp. Didit checks the file against `sha256_signed`
+// before returning it.
+//
+// Works for User Verification (KYC) and Business Verification (KYB) sessions.
+// Needs `read:sessions`; your API key works. See the [Electronic Signature
+// report](/core-technology/electronic-signature/report-electronic-signature#download-the-signed-documents).
+//
+// The response is a file (application/pdf). Read it from the returned
+// response's body and close it.
+//
+//	GET /v3/session/{sessionId}/signatures/{nodeId}/documents/{documentId}/file/
+func (r *SessionsSignaturesService) DownloadDocument(ctx context.Context, sessionID string, nodeID string, documentID string, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/signatures/{nodeId}/documents/{documentId}/file/", pathParams: []string{"sessionId", sessionID, "nodeId", nodeID, "documentId", documentID}, binary: true, accept: "application/pdf"}, nil, opts)
+}
+
+// DownloadEvidence: Download the signature evidence.
+//
+// Download a signer's evidence PDF: the level and format, the signer and their
+// verified identity session, the code confirmation, the IP address, each
+// document with its original SHA-256 and field values, the certificate, the
+// timestamp and the SHA-256 of every signed file. Use the `evidence_file` path
+// of the signer's item in `signatures[]`.
+//
+// Always pass `signature_id` when a Business Verification step has several
+// signers: without it, the route picks one of the step's signers. Needs
+// `read:sessions`; your API key works.
+//
+// The response is a file (application/pdf). Read it from the returned
+// response's body and close it.
+//
+//	GET /v3/session/{sessionId}/signatures/{nodeId}/evidence/
+func (r *SessionsSignaturesService) DownloadEvidence(ctx context.Context, sessionID string, nodeID string, params SessionsSignaturesDownloadEvidenceParams, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/signatures/{nodeId}/evidence/", pathParams: []string{"sessionId", sessionID, "nodeId", nodeID}, params: params, binary: true, accept: "application/pdf"}, nil, opts)
+}
+
+// DownloadFieldImage: Download a signature image.
+//
+// Download the signature or initials a signer applied to a field, as PNG. Use
+// the `image_url` of the field in `signatures[].documents[].fields[]`. Needs
+// `read:sessions`; your API key works.
+//
+// The response is a file (image/png). Read it from the returned response's body
+// and close it.
+//
+//	GET /v3/session/{sessionId}/signatures/{nodeId}/fields/{fieldId}/image/
+func (r *SessionsSignaturesService) DownloadFieldImage(ctx context.Context, sessionID string, nodeID string, fieldID string, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/signatures/{nodeId}/fields/{fieldId}/image/", pathParams: []string{"sessionId", sessionID, "nodeId", nodeID, "fieldId", fieldID}, binary: true, accept: "image/png"}, nil, opts)
+}
+
+// Validate: Validate signatures again.
+//
+// Re-check the signed documents of an Electronic Signature step. Didit re-reads
+// every signed PDF, checks its SHA-256 and validates the PAdES signature, the
+// certificate, the revocation data and the timestamp, then saves the result in
+// each signer's `validation` and returns the updated items. Nothing is signed
+// again. Send `signature_id` to check one signer; without it, every signer of
+// the step is checked, and the call fails if any of them hasn't signed.
+//
+// Needs `write:sessions`; your API key works. In the console it's the
+// **Validate again** button.
+//
+//	POST /v3/session/{sessionId}/signatures/{nodeId}/validate/
+func (r *SessionsSignaturesService) Validate(ctx context.Context, sessionID string, nodeID string, params SessionsSignaturesValidateParams, opts ...option.RequestOption) (*SessionsSignaturesValidateResponse, error) {
+	res := new(SessionsSignaturesValidateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/signatures/{nodeId}/validate/", pathParams: []string{"sessionId", sessionID, "nodeId", nodeID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// SessionsWebhooksService holds the sessions webhooks operations. Use it
+// through Client.Sessions.Webhooks.
+type SessionsWebhooksService struct {
+	client *Client
+}
+
+// List: List session webhook deliveries.
+//
+// List every webhook delivery Didit recorded for one verification session, user
+// (KYC) or business (KYB), newest first, as a plain JSON array (not paginated).
+// Each entry is one attempt to one destination: the first send, each automatic
+// [retry](https://docs.didit.me/integration/webhooks#retry-policy) and each
+// resend are separate entries with their own `uuid`, and retries and resends
+// keep the payload's `event_id`. `request_header` and `request_body` are JSON
+// text; parse them to read the signatures and the payload. Delivery records are
+// available for about 30 days, so an empty array means no webhook has been sent
+// for the session yet or every delivery is older than that. A scoped API key
+// needs `sessions: read` and `decisions: read`.
+//
+//	GET /v3/session/{sessionId}/webhooks/
+func (r *SessionsWebhooksService) List(ctx context.Context, sessionID string, opts ...option.RequestOption) ([]SessionWebhookDelivery, error) {
+	var res []SessionWebhookDelivery
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/webhooks/", pathParams: []string{"sessionId", sessionID}}, &res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Resend: Resend session webhook delivery.
+//
+// Send a recorded session webhook again to the URL it first went to, with the
+// same payload and `event_id` and a fresh `timestamp`, `X-Timestamp` header and
+// signatures. Didit signs it with the current secret of the destination the
+// delivery belongs to (or the application-level secret for a delivery to the
+// legacy webhook URL), waits up to 5 seconds for your endpoint, records the
+// attempt as a new delivery and returns it with `200` whatever your endpoint
+// answered: read `response_status`. A resend is not retried automatically, and
+// every call sends again, so make your endpoint idempotent on `event_id`. The
+// path has no trailing slash and the request has no body. A scoped API key
+// needs `webhooks: write` and `decisions: read`.
+//
+//	POST /v3/session/{sessionId}/webhook/{webhook_uuid}/resend
+func (r *SessionsWebhooksService) Resend(ctx context.Context, sessionID string, webhookUUID string, opts ...option.RequestOption) (*SessionWebhookDelivery, error) {
+	res := new(SessionWebhookDelivery)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/webhook/{webhook_uuid}/resend", pathParams: []string{"sessionId", sessionID, "webhook_uuid", webhookUUID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Retrieve: Get session webhook delivery.
+//
+// Retrieve one webhook delivery of a verification session: the URL it went to,
+// the HTTP status your endpoint returned, and the exact headers and JSON body
+// Didit sent. `request_header` and `request_body` are JSON text; to check your
+// [signature
+// verification](https://docs.didit.me/integration/webhooks#signature-verification),
+// recompute `X-Signature-V2` from the parsed body with the secret of the
+// destination it was sent to (or the application-level secret for a delivery to
+// the legacy webhook URL). The path has no trailing slash: with one it returns
+// `404`. A scoped API key needs `sessions: read` and `decisions: read`.
+//
+//	GET /v3/session/{sessionId}/webhook/{webhook_uuid}
+func (r *SessionsWebhooksService) Retrieve(ctx context.Context, sessionID string, webhookUUID string, opts ...option.RequestOption) (*SessionWebhookDelivery, error) {
+	res := new(SessionWebhookDelivery)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/webhook/{webhook_uuid}", pathParams: []string{"sessionId", sessionID, "webhook_uuid", webhookUUID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// SessionsAddImagesParams holds the parameters of Client.Sessions.AddImages.
+type SessionsAddImagesParams struct {
+	// The image or PDF. Allowed extensions: `jpg`, `jpeg`, `png`, `webp`, `tiff`,
+	// `pdf`. At most 15 MB as uploaded; the file is then compressed and rejected
+	// with `400` if it is still larger than 2 MB (2,097,152 bytes). Empty files are
+	// rejected. Required.
+	File File `json:"-" form:"file"`
+
+	// `kyc` adds the file to the ID verification result, `poa` to the Proof of
+	// Address result. Required.
+	ModelType SessionsAddImagesParamsModelType `json:"model_type"`
+
+	// Password of an encrypted PDF. Without it, or with a wrong one, an encrypted
+	// PDF returns `400`.
+	FilePassword Opt[string] `json:"file_password"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsAddImagesParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsAddImagesParamsModelType: `kyc` adds the file to the ID verification
+// result, `poa` to the Proof of Address result.
+//
+// SessionsAddImagesParamsModelType is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type SessionsAddImagesParamsModelType string
+
+// Known values of SessionsAddImagesParamsModelType.
+const (
+	SessionsAddImagesParamsModelTypeKYC SessionsAddImagesParamsModelType = "kyc"
+	SessionsAddImagesParamsModelTypePOA SessionsAddImagesParamsModelType = "poa"
+)
+
+// SessionsAddImagesResponse is a response object.
+type SessionsAddImagesResponse struct {
+	// Short-lived presigned links to all extra files of the result named by
+	// `model_type`, oldest first. Each link is `null` for a scoped API key without
+	// `media: read`. Read fresh links from the session decision later.
+	ExtraFiles []string `json:"extra_files"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsAddImagesResponse leniently.
+func (r *SessionsAddImagesResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // SessionsBatchDeleteParams holds the parameters of
 // Client.Sessions.BatchDelete.
 type SessionsBatchDeleteParams struct {
@@ -1061,9 +1635,10 @@ type SessionsBatchDeleteParams struct {
 	SessionNumbers Opt[[]string] `json:"session_numbers"`
 
 	// When `true`, every remaining KYC session in the calling application is
-	// deleted and `session_numbers` is ignored. More than 20 matching sessions run
-	// as a deletion job (`202`) that covers only the sessions created before the
-	// request. Defaults to `false`. Irreversible; there is no confirmation step.
+	// deleted and `session_numbers` is ignored, unless you narrow the selection
+	// with `filter_*` keys. More than 20 matching sessions run as a deletion job
+	// (`202`) that covers only the sessions created before the request. Defaults to
+	// `false`. Irreversible; there is no confirmation step.
 	DeleteAll Opt[bool] `json:"delete_all"`
 
 	// Override the application's `face_retention_policy` for this deletion. `true`
@@ -1095,6 +1670,130 @@ type SessionsBatchDeleteParams struct {
 	// erasure-ticket id). Recorded on the audit trail and on any retained template.
 	// Generated by Didit when omitted.
 	InstructionID Opt[string] `json:"instruction_id"`
+
+	// Narrows a `delete_all` to the sessions that match the `status` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same values. A
+	// comma-separated string or an array. Ignored without `delete_all`. An empty
+	// value is ignored and does not narrow the selection.
+	FilterStatus Opt[any] `json:"filter_status"`
+
+	// Narrows a `delete_all` to the sessions that match the `vendor_data` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same value. One value,
+	// not a list: an array is joined into one comma-separated text, so several
+	// values are not matched as alternatives. Ignored without `delete_all`. An
+	// empty value is ignored and does not narrow the selection.
+	FilterVendorData Opt[string] `json:"filter_vendor_data"`
+
+	// Narrows a `delete_all` to the sessions that match the `search` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same value. One value,
+	// not a list: an array is joined into one comma-separated text, so several
+	// values are not matched as alternatives. Ignored without `delete_all`. An
+	// empty value is ignored and does not narrow the selection.
+	FilterSearch Opt[string] `json:"filter_search"`
+
+	// Narrows a `delete_all` to the sessions that match the `workflow_id` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same values. A
+	// comma-separated string or an array. Ignored without `delete_all`. An empty
+	// value is ignored and does not narrow the selection.
+	FilterWorkflowID Opt[any] `json:"filter_workflow_id"`
+
+	// Narrows a `delete_all` to the sessions that match the `date_from` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same value. One value,
+	// not a list: an array is joined into one comma-separated value, so several
+	// values are refused with `400`. Ignored without `delete_all`. An empty value
+	// is ignored and does not narrow the selection.
+	FilterDateFrom Opt[string] `json:"filter_date_from"`
+
+	// Narrows a `delete_all` to the sessions that match the `date_to` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same value. One value,
+	// not a list: an array is joined into one comma-separated value, so several
+	// values are refused with `400`. Ignored without `delete_all`. An empty value
+	// is ignored and does not narrow the selection.
+	FilterDateTo Opt[string] `json:"filter_date_to"`
+
+	// Narrows a `delete_all` to the sessions that match the `country` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same values. A
+	// comma-separated string or an array. Ignored without `delete_all`. An empty
+	// value is ignored and does not narrow the selection.
+	FilterCountry Opt[any] `json:"filter_country"`
+
+	// Narrows a `delete_all` to the sessions that match the `document_type` filter
+	// of [List Sessions](/sessions-api/list-sessions), with the same values. A
+	// comma-separated string or an array. Ignored without `delete_all`. An empty
+	// value is ignored and does not narrow the selection.
+	FilterDocumentType Opt[any] `json:"filter_document_type"`
+
+	// Narrows a `delete_all` to the sessions that match the `document_name` filter
+	// of [List Sessions](/sessions-api/list-sessions), with the same values. A
+	// comma-separated string or an array. Ignored without `delete_all`. An empty
+	// value is ignored and does not narrow the selection.
+	FilterDocumentName Opt[any] `json:"filter_document_name"`
+
+	// Narrows a `delete_all` to the sessions that match the `region` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same values. A
+	// comma-separated string or an array. Ignored without `delete_all`. An empty
+	// value is ignored and does not narrow the selection.
+	FilterRegion Opt[any] `json:"filter_region"`
+
+	// Narrows a `delete_all` to the sessions that match the `didit_internal_id`
+	// filter of [List Sessions](/sessions-api/list-sessions), with the same value.
+	// One value, not a list: an array is joined into one comma-separated value, so
+	// several values are refused with `400`. Ignored without `delete_all`. An empty
+	// value is ignored and does not narrow the selection.
+	FilterDiditInternalID Opt[string] `json:"filter_didit_internal_id"`
+
+	// Narrows a `delete_all` to the sessions that match the `session_type` filter
+	// of [List Sessions](/sessions-api/list-sessions), with the same values. A
+	// comma-separated string or an array. Ignored without `delete_all`. An empty
+	// value is ignored and does not narrow the selection.
+	FilterSessionType Opt[any] `json:"filter_session_type"`
+
+	// Narrows a `delete_all` to the sessions that match the `api_service` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same value. One value,
+	// not a list: an array is joined into one comma-separated value, so several
+	// values are refused with `400`. Ignored without `delete_all`. An empty value
+	// is ignored and does not narrow the selection.
+	FilterAPIService Opt[string] `json:"filter_api_service"`
+
+	// Narrows a `delete_all` to the sessions that match the `screened_full_name`
+	// filter of [List Sessions](/sessions-api/list-sessions), with the same value.
+	// One value, not a list: an array is joined into one comma-separated text, so
+	// several values are not matched as alternatives. Ignored without `delete_all`.
+	// An empty value is ignored and does not narrow the selection.
+	FilterScreenedFullName Opt[string] `json:"filter_screened_full_name"`
+
+	// Narrows a `delete_all` to the sessions that match the `warning` filter of
+	// [List Sessions](/sessions-api/list-sessions), with the same values. A
+	// comma-separated string or an array. Ignored without `delete_all`. An empty
+	// value is ignored and does not narrow the selection.
+	FilterWarning Opt[any] `json:"filter_warning"`
+
+	// Narrows a `delete_all` to the sessions that match the
+	// `status_initialized_as_in_review` filter of [List
+	// Sessions](/sessions-api/list-sessions), with the same values. Ignored without
+	// `delete_all`. An empty value is ignored and does not narrow the selection.
+	FilterStatusInitializedAsInReview Opt[bool] `json:"filter_status_initialized_as_in_review"`
+
+	// Narrows a `delete_all` to the sessions that match the `is_kyc_to_be_reviewed`
+	// filter of [List Sessions](/sessions-api/list-sessions), with the same values.
+	// Ignored without `delete_all`. An empty value is ignored and does not narrow
+	// the selection.
+	FilterIsKYCToBeReviewed Opt[bool] `json:"filter_is_kyc_to_be_reviewed"`
+
+	// Narrows a `delete_all` to the sessions that match the `euuid` filter of [List
+	// Sessions](/sessions-api/list-sessions), with the same value. One value, not a
+	// list: an array is joined into one comma-separated value, so several values
+	// are refused with `400`. Ignored without `delete_all`. An empty value is
+	// ignored and does not narrow the selection.
+	FilterEuuid Opt[string] `json:"filter_euuid"`
+
+	// Narrows a `delete_all` to the sessions that match the `organization_name`
+	// filter of [List Sessions](/sessions-api/list-sessions), with the same values.
+	// A comma-separated string or an array. With an API key it can only match your
+	// own organization's name, so it selects all of your sessions or none. Ignored
+	// without `delete_all`. An empty value is ignored and does not narrow the
+	// selection.
+	FilterOrganizationName Opt[any] `json:"filter_organization_name"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -1341,6 +2040,193 @@ const (
 	SessionsBulkUpdateAMLHitStatusParamsHitUpdatesReviewStatusInconclusive   SessionsBulkUpdateAMLHitStatusParamsHitUpdatesReviewStatus = "Inconclusive"
 )
 
+// SessionsBulkUpdateAMLHitStatusResponse is a response object.
+type SessionsBulkUpdateAMLHitStatusResponse struct {
+	// `Updated {n} hit(s) successfully`, where `n` is the number of entries in
+	// `hit_updates`.
+	Message string `json:"message"`
+
+	// The `hit_id` of every entry in `hit_updates`, in request order, including
+	// hits whose status did not change.
+	UpdatedHits []string `json:"updated_hits"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsBulkUpdateAMLHitStatusResponse leniently.
+func (r *SessionsBulkUpdateAMLHitStatusResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// FeatureStatusOverride: One override of a check (feature) status made with
+// `PATCH /v3/session/{sessionId}/features/{nodeId}/update-status/`: what it
+// changes, whether it applied or still waits for the person to finish the flow,
+// who asked and why.
+type FeatureStatusOverride struct {
+	// Identifier of the override. Pass it to the cancel endpoint.
+	ID string `json:"id"`
+
+	// The workflow node the request named (`default` for a step without a node).
+	NodeID string `json:"node_id"`
+
+	// The `feature_type` the request passed, or an empty string when it passed
+	// none.
+	FeatureType string `json:"feature_type"`
+
+	// The kind of check that was overridden, for example `KYC`, `Face`, `AML` or
+	// `GeolocationCheck`.
+	FeatureModel string `json:"feature_model"`
+
+	// The check's status when the override was requested.
+	PreviousStatus FeatureStatusOverridePreviousStatus `json:"previous_status"`
+
+	// The status the override sets.
+	NewStatus FeatureStatusOverrideNewStatus `json:"new_status"`
+
+	// `applied`: the check has the new status. `pending_until_flow_finishes`: the
+	// override waits and applies when the person finishes the flow. `cancelled`: it
+	// waited and never applied (see `cancel_reason`).
+	State FeatureStatusOverrideState `json:"state"`
+
+	// `true` when the override applied at once while the person was still in the
+	// flow.
+	Forced bool `json:"forced"`
+
+	// The `comment` sent with the request, or `null`.
+	Reason string `json:"reason"`
+
+	// Who requested the override, or `null` when that is not known.
+	RequestedBy FeatureStatusOverrideRequestedBy `json:"requested_by"`
+
+	// When the override was requested.
+	RequestedAt time.Time `json:"requested_at"`
+
+	// When the check took the new status, or `null` while it waits or once it is
+	// cancelled.
+	AppliedAt time.Time `json:"applied_at"`
+
+	// When a waiting override was cancelled, or `null`.
+	CancelledAt time.Time `json:"cancelled_at"`
+
+	// Why a waiting override never applied, or `null`. `cancelled_by_reviewer`:
+	// cancelled with the cancel endpoint. `replaced`: a newer override on the same
+	// check replaced it. `check_changed`: the person redid the check before
+	// finishing the flow. `session_closed`: the session left the flow before the
+	// person finished it (abandoned, expired, or decided mid-flow).
+	CancelReason FeatureStatusOverrideCancelReason `json:"cancel_reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes FeatureStatusOverride leniently.
+func (r *FeatureStatusOverride) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// FeatureStatusOverridePreviousStatus: The check's status when the override was
+// requested.
+//
+// FeatureStatusOverridePreviousStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type FeatureStatusOverridePreviousStatus string
+
+// Known values of FeatureStatusOverridePreviousStatus.
+const (
+	FeatureStatusOverridePreviousStatusNotFinished    FeatureStatusOverridePreviousStatus = "Not Finished"
+	FeatureStatusOverridePreviousStatusApproved       FeatureStatusOverridePreviousStatus = "Approved"
+	FeatureStatusOverridePreviousStatusDeclined       FeatureStatusOverridePreviousStatus = "Declined"
+	FeatureStatusOverridePreviousStatusInReview       FeatureStatusOverridePreviousStatus = "In Review"
+	FeatureStatusOverridePreviousStatusResubRequested FeatureStatusOverridePreviousStatus = "Resub Requested"
+)
+
+// FeatureStatusOverrideNewStatus: The status the override sets.
+//
+// FeatureStatusOverrideNewStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type FeatureStatusOverrideNewStatus string
+
+// Known values of FeatureStatusOverrideNewStatus.
+const (
+	FeatureStatusOverrideNewStatusApproved FeatureStatusOverrideNewStatus = "Approved"
+	FeatureStatusOverrideNewStatusDeclined FeatureStatusOverrideNewStatus = "Declined"
+	FeatureStatusOverrideNewStatusInReview FeatureStatusOverrideNewStatus = "In Review"
+)
+
+// FeatureStatusOverrideState: `applied`: the check has the new status.
+// `pending_until_flow_finishes`: the override waits and applies when the person
+// finishes the flow. `cancelled`: it waited and never applied (see
+// `cancel_reason`).
+//
+// FeatureStatusOverrideState is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type FeatureStatusOverrideState string
+
+// Known values of FeatureStatusOverrideState.
+const (
+	FeatureStatusOverrideStateApplied                  FeatureStatusOverrideState = "applied"
+	FeatureStatusOverrideStatePendingUntilFlowFinishes FeatureStatusOverrideState = "pending_until_flow_finishes"
+	FeatureStatusOverrideStateCancelled                FeatureStatusOverrideState = "cancelled"
+)
+
+// FeatureStatusOverrideRequestedBy: Who requested the override, or `null` when
+// that is not known.
+type FeatureStatusOverrideRequestedBy struct {
+	// Email of the console user, or `null` for API keys and the system.
+	Email string `json:"email"`
+
+	// Display name of the requester, or `null`.
+	Name string `json:"name"`
+
+	// Who made the request: a console user, an API key, or Didit itself.
+	Type FeatureStatusOverrideRequestedByType `json:"type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes FeatureStatusOverrideRequestedBy leniently.
+func (r *FeatureStatusOverrideRequestedBy) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// FeatureStatusOverrideRequestedByType: Who made the request: a console user,
+// an API key, or Didit itself.
+//
+// FeatureStatusOverrideRequestedByType is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type FeatureStatusOverrideRequestedByType string
+
+// Known values of FeatureStatusOverrideRequestedByType.
+const (
+	FeatureStatusOverrideRequestedByTypeConsoleUser FeatureStatusOverrideRequestedByType = "CONSOLE_USER"
+	FeatureStatusOverrideRequestedByTypeAPIKey      FeatureStatusOverrideRequestedByType = "API_KEY"
+	FeatureStatusOverrideRequestedByTypeSystem      FeatureStatusOverrideRequestedByType = "SYSTEM"
+)
+
+// FeatureStatusOverrideCancelReason: Why a waiting override never applied, or
+// `null`. `cancelled_by_reviewer`: cancelled with the cancel endpoint.
+// `replaced`: a newer override on the same check replaced it. `check_changed`:
+// the person redid the check before finishing the flow. `session_closed`: the
+// session left the flow before the person finished it (abandoned, expired, or
+// decided mid-flow).
+//
+// FeatureStatusOverrideCancelReason is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type FeatureStatusOverrideCancelReason string
+
+// Known values of FeatureStatusOverrideCancelReason.
+const (
+	FeatureStatusOverrideCancelReasonCancelledByReviewer FeatureStatusOverrideCancelReason = "cancelled_by_reviewer"
+	FeatureStatusOverrideCancelReasonReplaced            FeatureStatusOverrideCancelReason = "replaced"
+	FeatureStatusOverrideCancelReasonCheckChanged        FeatureStatusOverrideCancelReason = "check_changed"
+	FeatureStatusOverrideCancelReasonSessionClosed       FeatureStatusOverrideCancelReason = "session_closed"
+)
+
 // SessionsCreateParams holds the parameters of Client.Sessions.Create.
 type SessionsCreateParams struct {
 	// Stable identifier of the workflow that defines which verification steps the
@@ -1364,6 +2250,11 @@ type SessionsCreateParams struct {
 	// appends `verificationSessionId` and `status` (Approved, Declined, In Review)
 	// as query parameters. Custom URL schemes (e.g. `myapp://`) are supported for
 	// mobile callbacks. If omitted, the workflow's default `callback_url` is used.
+	// When the application has allowed domains (`allowed_domains` on `PATCH
+	// /v3/webhook/`), an `http` or `https` callback must be on one of those origins
+	// (same scheme, host and port), otherwise the request fails with 400 on
+	// `callback`: `callback must be on one of the application's allowed domains:
+	// https://app.example.com`. Custom URL schemes are always accepted.
 	Callback Opt[string] `json:"callback"`
 
 	// Determines which device should handle the redirect to the provided callback
@@ -1430,6 +2321,18 @@ type SessionsCreateParams struct {
 	// including schemes unavailable on live applications. Simulated attempts are
 	// not charged.
 	SandboxScenario Opt[string] `json:"sandbox_scenario"`
+
+	// Electronic Signature input for this session. `documents` are the documents to
+	// sign, for a workflow whose Electronic Signature step takes documents from the
+	// session (`signature_documents_source` `session` or `both`): up to 20
+	// documents and 50 MB in total. `field_values` fills the fields whose `prefill`
+	// is `api.<key>`, on workflow and session documents alike. Creating a session
+	// again for the same `workflow_id` and `vendor_data` returns the pending
+	// session; if that call sends `sign`, its documents, fields and values must be
+	// identical to the first ones, and anything different returns `400` with
+	// `{"sign": "signature_document_changed"}`. See [Electronic signature
+	// documents](/sessions-api/create-session#electronic-signature-documents).
+	Sign Opt[SessionsCreateParamsSign] `json:"sign"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -1766,6 +2669,285 @@ const (
 	SessionsCreateParamsExpectedDetailsExpectedDocumentTypesSsc SessionsCreateParamsExpectedDetailsExpectedDocumentTypes = "SSC"
 )
 
+// SessionsCreateParamsSign: Electronic Signature input for this session.
+// `documents` are the documents to sign, for a workflow whose Electronic
+// Signature step takes documents from the session (`signature_documents_source`
+// `session` or `both`): up to 20 documents and 50 MB in total. `field_values`
+// fills the fields whose `prefill` is `api.<key>`, on workflow and session
+// documents alike. Creating a session again for the same `workflow_id` and
+// `vendor_data` returns the pending session; if that call sends `sign`, its
+// documents, fields and values must be identical to the first ones, and
+// anything different returns `400` with `{"sign":
+// "signature_document_changed"}`. See [Electronic signature
+// documents](/sessions-api/create-session#electronic-signature-documents).
+type SessionsCreateParamsSign struct {
+	Documents Opt[[]SessionSignDocument] `json:"documents"`
+
+	// Values keyed by the `<key>` of each `api.<key>` pre-fill source: strings of 1
+	// to 500 characters for `text` and `data` fields, booleans for a `checkbox`.
+	// `400` with `field_value_unknown` for a key no field uses,
+	// `field_value_missing` for a required field without its value, and
+	// `field_value_invalid` for a value that fails its field's validation.
+	FieldValues Opt[map[string]any] `json:"field_values"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsCreateParamsSign) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionSignDocument is a request object.
+type SessionSignDocument struct {
+	// Title shown to the signer. Defaults to `file_name`.
+	Title Opt[string] `json:"title"`
+
+	// File name, ending in `.pdf` or `.docx`. Required.
+	FileName string `json:"file_name"`
+
+	// The file, base64-encoded. A PDF can have up to 20 MB and 100 pages, without a
+	// password, scripts or attached files. A Word file (`.docx`) can have up to 20
+	// MB and is converted to PDF while the request runs, in at most 25 seconds; the
+	// PDF then has the same limits. Up to 5 Word files per session. A Word file
+	// with macros, tracked changes, links to external content or embedded objects
+	// is refused with `signature_document_not_supported`, and one that can't be
+	// converted returns `signature_document_conversion_failed`, each with a
+	// `reason`. Required.
+	ContentBase64 string `json:"content_base64"`
+
+	// Optional fields to place on this document, up to 200. Pages and positions
+	// refer to the PDF, or to the converted PDF for a Word file. Without fields,
+	// the signer reads the document and agrees to it.
+	Fields Opt[[]SignatureField] `json:"fields"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionSignDocument) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SignatureField: A field to place on a session document: which signer fills
+// it, how, and where. Give either a position (`page`, `x`, `y`, `width` and
+// `height`) or an `anchor`. Positions are fractions of the page as it's
+// displayed, from its top-left corner, rounded to 4 decimals, and the field
+// must fit inside the page. A document takes up to 200 fields and one signer up
+// to 500, and every role with fields on a document needs a `signature` or
+// `initials` field there. See [Fields on the
+// document](/core-technology/electronic-signature/overview#fields-on-the-document).
+type SignatureField struct {
+	// Names the field in the results and in `sign.field_values`. Unique within the
+	// document. Required.
+	Key string `json:"key"`
+
+	// What the field holds. The signer applies their adopted `signature` and
+	// `initials`, types `text`, ticks a `checkbox`, and types an `email` when the
+	// session has no verified email. Didit fills `full_name` (the verified name),
+	// `date_signed` (the date of signing, in the signer's time zone), `data` (from
+	// `prefill`) and a verified `email`, and shows them read-only. There is no date
+	// picker type: use `text`. Required.
+	Type SignatureFieldType `json:"type"`
+
+	// Who fills the field, with the `signature_signer` values. A step fills and
+	// stamps only the fields of its own signer. Defaults to the step's signer.
+	Role Opt[SignatureFieldRole] `json:"role"`
+
+	// Page number, from 1 to the document's page count. For a Word document, a page
+	// of the converted PDF.
+	Page Opt[int64] `json:"page"`
+
+	// Left edge, as a fraction of the page width.
+	X Opt[float64] `json:"x"`
+
+	// Top edge, as a fraction of the page height.
+	Y Opt[float64] `json:"y"`
+
+	// Width, as a fraction of the page width. A signature is at least `0.12` wide.
+	Width Opt[float64] `json:"width"`
+
+	// Height, as a fraction of the page height. A signature is at least `0.035`
+	// high.
+	Height Opt[float64]              `json:"height"`
+	Anchor Opt[SignatureFieldAnchor] `json:"anchor"`
+
+	// `signature` and `initials` are required unless you set `false`. `full_name`,
+	// `date_signed` and `data` are always required. The signer can't finish a
+	// document until its required fields have a value, and a required checkbox must
+	// be ticked.
+	Required Opt[bool] `json:"required"`
+
+	// Shown to the signer and in the results. Defaults from the type.
+	Label Opt[string] `json:"label"`
+
+	// `text` and `email` only.
+	Placeholder Opt[string]                   `json:"placeholder"`
+	Validation  Opt[SignatureFieldValidation] `json:"validation"`
+
+	// Where the value comes from: `identity.full_name`, `identity.first_name`,
+	// `identity.last_name`, `identity.date_of_birth` (`DD/MM/YYYY`),
+	// `identity.nationality`, `identity.document_number`, `identity.document_type`,
+	// `identity.issuing_country`, `identity.address`, `contact.email`,
+	// `contact.phone`, `company.name`, `company.registration_number`,
+	// `company.address`, `company.country` (KYB), `session.vendor_data`,
+	// `metadata.<key>` (a key of the session's `metadata`) or `api.<key>` (a key of
+	// `sign.field_values`). Required for `data`. `full_name` always uses
+	// `identity.full_name` and `email` uses `contact.email`. The values of `data`,
+	// `full_name` and verified `email` fields are fixed when the signer starts
+	// signing.
+	Prefill Opt[string] `json:"prefill"`
+
+	// `text` and `email` only: the signer can change a pre-filled value.
+	EditableWhenPrefilled Opt[bool] `json:"editable_when_prefilled"`
+
+	// `checkbox` only: the box starts ticked.
+	CheckedByDefault Opt[bool] `json:"checked_by_default"`
+
+	// `date_signed` only.
+	DateFormat Opt[SignatureFieldDateFormat] `json:"date_format"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SignatureField) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SignatureFieldType: What the field holds. The signer applies their adopted
+// `signature` and `initials`, types `text`, ticks a `checkbox`, and types an
+// `email` when the session has no verified email. Didit fills `full_name` (the
+// verified name), `date_signed` (the date of signing, in the signer's time
+// zone), `data` (from `prefill`) and a verified `email`, and shows them
+// read-only. There is no date picker type: use `text`.
+//
+// SignatureFieldType is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SignatureFieldType string
+
+// Known values of SignatureFieldType.
+const (
+	SignatureFieldTypeSignature  SignatureFieldType = "signature"
+	SignatureFieldTypeInitials   SignatureFieldType = "initials"
+	SignatureFieldTypeFullName   SignatureFieldType = "full_name"
+	SignatureFieldTypeDateSigned SignatureFieldType = "date_signed"
+	SignatureFieldTypeText       SignatureFieldType = "text"
+	SignatureFieldTypeCheckbox   SignatureFieldType = "checkbox"
+	SignatureFieldTypeEmail      SignatureFieldType = "email"
+	SignatureFieldTypeData       SignatureFieldType = "data"
+)
+
+// SignatureFieldRole: Who fills the field, with the `signature_signer` values.
+// A step fills and stamps only the fields of its own signer. Defaults to the
+// step's signer.
+//
+// SignatureFieldRole is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SignatureFieldRole string
+
+// Known values of SignatureFieldRole.
+const (
+	SignatureFieldRoleVerifiedPerson      SignatureFieldRole = "verified_person"
+	SignatureFieldRoleLegalRepresentative SignatureFieldRole = "legal_representative"
+	SignatureFieldRoleKeyPeople           SignatureFieldRole = "key_people"
+)
+
+// SignatureFieldAnchor: Places a field by a piece of text in the document
+// instead of a position. Didit doesn't remove the text from the PDF, so write
+// it in the same color as the page background. When the text isn't found, the
+// call returns `400` with `field_anchor_not_found`. See [Place fields by anchor
+// text](/sessions-api/create-session#place-fields-by-anchor-text).
+type SignatureFieldAnchor struct {
+	// Text searched in the document. For a Word file, in the converted PDF.
+	// Required.
+	Text string `json:"text"`
+
+	// `all` places one field per match; the keys after the first get `_2`, `_3` and
+	// so on.
+	Occurrence Opt[SignatureFieldAnchorOccurrence] `json:"occurrence"`
+
+	// Added to the left edge of the text, as a fraction of the page width.
+	OffsetX Opt[float64] `json:"offset_x"`
+
+	// Added to the top edge of the text, as a fraction of the page height.
+	OffsetY Opt[float64] `json:"offset_y"`
+
+	// Width of the field, as a fraction of the page width.
+	Width Opt[float64] `json:"width"`
+
+	// Height of the field, as a fraction of the page height.
+	Height Opt[float64] `json:"height"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SignatureFieldAnchor) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SignatureFieldAnchorOccurrence: `all` places one field per match; the keys
+// after the first get `_2`, `_3` and so on.
+//
+// SignatureFieldAnchorOccurrence is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type SignatureFieldAnchorOccurrence string
+
+// Known values of SignatureFieldAnchorOccurrence.
+const (
+	SignatureFieldAnchorOccurrenceFirst SignatureFieldAnchorOccurrence = "first"
+	SignatureFieldAnchorOccurrenceAll   SignatureFieldAnchorOccurrence = "all"
+)
+
+// SignatureFieldValidation: Rules for a `text` field's value. The console
+// preview, the signing flow and the API apply the same rules.
+type SignatureFieldValidation struct {
+	// `letters`: letters in any script, spaces, hyphens and apostrophes. `number`:
+	// digits with an optional decimal separator. `pattern`: the value must match
+	// `pattern`.
+	Kind Opt[SignatureFieldValidationKind] `json:"kind"`
+
+	// From `0` up to `max_length`.
+	MinLength Opt[int64] `json:"min_length"`
+	MaxLength Opt[int64] `json:"max_length"`
+
+	// Required with `kind: "pattern"`. A regular expression the whole value must
+	// match. Lookarounds and backreferences aren't supported.
+	Pattern Opt[string] `json:"pattern"`
+
+	// Shown to the signer instead of the default error.
+	Message Opt[string] `json:"message"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SignatureFieldValidation) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SignatureFieldValidationKind: `letters`: letters in any script, spaces,
+// hyphens and apostrophes. `number`: digits with an optional decimal separator.
+// `pattern`: the value must match `pattern`.
+//
+// SignatureFieldValidationKind is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SignatureFieldValidationKind string
+
+// Known values of SignatureFieldValidationKind.
+const (
+	SignatureFieldValidationKindAny     SignatureFieldValidationKind = "any"
+	SignatureFieldValidationKindLetters SignatureFieldValidationKind = "letters"
+	SignatureFieldValidationKindNumber  SignatureFieldValidationKind = "number"
+	SignatureFieldValidationKindEmail   SignatureFieldValidationKind = "email"
+	SignatureFieldValidationKindPattern SignatureFieldValidationKind = "pattern"
+)
+
+// SignatureFieldDateFormat: `date_signed` only.
+//
+// SignatureFieldDateFormat is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SignatureFieldDateFormat string
+
+// Known values of SignatureFieldDateFormat.
+const (
+	SignatureFieldDateFormatDdMmYyyy  SignatureFieldDateFormat = "DD/MM/YYYY"
+	SignatureFieldDateFormatMmDdYyyy  SignatureFieldDateFormat = "MM/DD/YYYY"
+	SignatureFieldDateFormatYyyyMmDd  SignatureFieldDateFormat = "YYYY-MM-DD"
+	SignatureFieldDateFormatDMmmmYyyy SignatureFieldDateFormat = "D MMMM YYYY"
+)
+
 // SessionsCreateResponse is a response object.
 type SessionsCreateResponse struct {
 	// Unique identifier of the verification session. Use this id when calling `GET
@@ -1807,7 +2989,9 @@ type SessionsCreateResponse struct {
 	// Final redirect URL the user is sent to after completing the flow. Didit
 	// appends `?verificationSessionId={session_id}&status={status}` to this URL.
 	// Falls back to the workflow's configured callback URL when not provided in the
-	// request; `null` when neither is set.
+	// request; `null` when neither is set. When the application has allowed domains
+	// and this URL is a web URL outside them (for example a workflow default set
+	// before the list changed), the hosted flow does not redirect the user to it.
 	Callback string `json:"callback"`
 
 	// Stable identifier of the workflow this session runs on. Always the workflow's
@@ -1979,6 +3163,20 @@ const (
 	SessionsDeleteResponseFaceRetentionOutcomeIneligibleNoVendorUser SessionsDeleteResponseFaceRetentionOutcome = "ineligible_no_vendor_user"
 )
 
+// SessionsExportAMLScreeningHistoryParams holds the parameters of
+// Client.Sessions.ExportAMLScreeningHistory.
+type SessionsExportAMLScreeningHistoryParams struct {
+	// Workflow graph node ID of the AML check. Needed only when the session ran
+	// more than one AML step; without it the most recent AML check is used. An
+	// unknown node returns `404`.
+	NodeID Opt[string] `json:"-" query:"node_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsExportAMLScreeningHistoryParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
 // SessionsImportSharedParams holds the parameters of
 // Client.Sessions.ImportShared.
 type SessionsImportSharedParams struct {
@@ -2001,6 +3199,6939 @@ type SessionsImportSharedParams struct {
 // MarshalJSON encodes the fields that are set.
 func (r SessionsImportSharedParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
+}
+
+// SessionDecision is a response object.
+type SessionDecision struct {
+	// The unique identifier of the session.
+	SessionID string `json:"session_id"`
+
+	// Discriminator indicating whether this is a User Verification (KYC) or
+	// Business Verification (KYB) session. When `user`, the KYC feature arrays
+	// (`id_verifications`, `nfc_verifications`, `liveness_checks`, `face_matches`,
+	// `poa_verifications`, `document_ai_documents`, `database_validations`, ...)
+	// apply and the business arrays are absent. When `business`, the payload
+	// instead carries `registry_checks`, `document_verifications`,
+	// `key_people_checks` plus the shared arrays (`aml_screenings`,
+	// `phone_verifications`, `email_verifications`, `ip_analyses`,
+	// `questionnaire_responses`). **Omitted when `include=events` is passed** - the
+	// events shape only exists for user sessions, so the discriminator is dropped
+	// from that variant.
+	SessionKind SessionDecisionSessionKind `json:"session_kind"`
+
+	// For a session cloned with `POST /v3/session/import-shared/`: the `session_id`
+	// of the original session in the source application. `null` for every other
+	// session. Omitted when `include=events` is passed.
+	SharedFromSession string `json:"shared_from_session"`
+
+	// The number of the session.
+	SessionNumber int64 `json:"session_number"`
+
+	// The URL of the session.
+	SessionURL string `json:"session_url"`
+
+	// Overall lifecycle status of the session - the rolled-up workflow result.
+	// Terminal values are `Approved`, `Declined`, `In Review`, `Expired`, `Kyc
+	// Expired`, and `Abandoned`; `Not Started`, `In Progress`, `Awaiting User`, and
+	// `Resubmitted` indicate the session is still moving through the workflow.
+	Status SessionDecisionStatus `json:"status"`
+
+	// Stable identifier of the workflow group that produced this session. Workflows
+	// are versioned - this value identifies the workflow itself, not the specific
+	// version.
+	WorkflowID string `json:"workflow_id"`
+
+	// List of verification features configured for this session, as display names:
+	// `ID_VERIFICATION`, `NFC`, `LIVENESS`, `FACE_MATCH`, `POA`, `PHONE`,
+	// `EMAIL_VERIFICATION`, `AML`, `IP_ANALYSIS`, `DATABASE_VALIDATION`,
+	// `QUESTIONNAIRE`, `AGE_ESTIMATION`, `FACE_SEARCH` (Business Verification
+	// sessions use the KYB feature set: `KYB_REGISTRY`, `KYB_DOCUMENTS`,
+	// `KYB_KEY_PEOPLE`, `AML`, `PHONE`, `EMAIL_VERIFICATION`, `IP_ANALYSIS`,
+	// `QUESTIONNAIRE`). With `include=events` each entry becomes an object
+	// `{feature, node_id}` instead of a plain string, and the email feature is
+	// renamed: it appears as `EMAIL` in events mode instead of the
+	// `EMAIL_VERIFICATION` used here.
+	Features []string `json:"features"`
+
+	// The vendor data of the session.
+	VendorData string `json:"vendor_data"`
+
+	// The metadata of the session.
+	Metadata map[string]any `json:"metadata"`
+
+	// Expected details supplied at session creation - used for cross-validation
+	// against extracted data (KYC) or to pre-fill the company registry search
+	// (KYB). Echoes back exactly the keys that were provided; `null` when none were
+	// supplied. KYC sessions carry the person fields; Business (KYB) sessions carry
+	// `company_name`, `registry_country` and `registration_number`.
+	ExpectedDetails SessionDecisionExpectedDetails `json:"expected_details"`
+
+	// Contact details supplied when the session was created (used for notification
+	// emails, prefilled phone/email verification, and communication language).
+	// `null` when neither an email nor a phone number was provided.
+	ContactDetails SessionDecisionContactDetails `json:"contact_details"`
+
+	// The callback URL of the session.
+	Callback string `json:"callback"`
+
+	// **Array of ID verification (OCR) reports** produced by ID-document steps in
+	// the workflow graph. Always a JSON array - read `id_verifications[0]` and
+	// iterate if your workflow can run more than one ID check (for example a
+	// primary check plus a step-up). `null` until at least one ID step has produced
+	// data. Each item is the full report, including `node_id`, feature-level
+	// `status`, extracted document fields, image URLs, quality scores, MRZ, address
+	// parsing, cross-session matches, and `warnings[]`.
+	IDVerifications []SessionDecisionIDVerifications `json:"id_verifications"`
+
+	// Why NFC chip verification did not run, populated whenever the workflow
+	// includes an NFC step. `null` while NFC is pending or when the chip was
+	// actually read. Values: `USER_SKIPPED` - the user chose to skip on an
+	// NFC-capable device (allowed by `allow_nfc_skip`); `DOCUMENT_WITHOUT_CHIP` -
+	// the document has no readable NFC chip (not an ICAO 9303 electronic document);
+	// `CHIP_CERTIFICATE_UNAVAILABLE` - the issuing country's signing certificate
+	// (CSCA) covering the document's issue period is unavailable, so the chip
+	// signature cannot be verified; `DEVICE_WITHOUT_NFC` - the device reported no
+	// NFC reader; `INTEGRATION_WITHOUT_NFC_ACCESS` - the verification ran without a
+	// native SDK (e.g. in a web browser), which has no access to the phone's NFC
+	// reader; `MRZ_KEY_UNAVAILABLE` - the chip access key could not be derived from
+	// the document's MRZ; `JPKI_UNAVAILABLE` - the document is a Japan My Number
+	// Card, whose chip is read through JPKI, and JPKI was not available for this
+	// verification: it is not enabled, or the app's native SDK cannot read My
+	// Number Cards.
+	NFCSkipReason SessionDecisionNFCSkipReason `json:"nfc_skip_reason"`
+
+	// **Array of NFC / ePassport reports** produced by NFC steps in the workflow
+	// graph. **This is always a JSON array, never a singular `nfc` object** - read
+	// `nfc_verifications[0]` and iterate if your workflow can run NFC more than
+	// once. `null` until at least one NFC step has produced data. Each item is the
+	// full report, including `node_id`, feature-level `status`, `chip_protocol`,
+	// `chip_data`, `authenticity` (SOD + DG integrity), `certificate_summary`, and
+	// `warnings[]`. A Japan My Number Card is read through JPKI instead of ICAO
+	// 9303: its item has `chip_protocol: "jpki"`, carries its evidence under
+	// `jpki`, and leaves the ICAO fields `null`. When the NFC step was bypassed
+	// before it could ever be offered (chipless document, missing certificate, no
+	// NFC capability reported, unreadable MRZ key, JPKI unavailable for a My Number
+	// Card), this stays `null` and `nfc_skip_reason` explains why; a skip at the
+	// step itself (user tapped skip, or the reader turned out unavailable at scan
+	// time) still produces a report with `is_nfc_skipped: true`.
+	NFCVerifications []SessionDecisionNFCVerifications `json:"nfc_verifications"`
+
+	// **Array of liveness reports** produced by liveness steps in the workflow
+	// graph. Always a JSON array - never a singular `liveness` object. `null` until
+	// at least one liveness step has produced data. Each item is the full report,
+	// including `node_id`, feature-level `status`, `method`, `score`,
+	// `reference_image`, `video_url`, optional `age_estimation`, cross-session
+	// `matches[]`, and `warnings[]`.
+	LivenessChecks []SessionDecisionLivenessChecks `json:"liveness_checks"`
+
+	// **Array of face-match reports** produced by face-match steps in the workflow
+	// graph. Always a JSON array - never a singular `face_match` object. `null`
+	// until at least one face-match step has produced data. Each item is the full
+	// report, including `node_id`, feature-level `status`, similarity `score`,
+	// `source_image`, `target_image`, and `warnings[]`.
+	FaceMatches []SessionDecisionFaceMatches `json:"face_matches"`
+
+	// **Array of phone verification reports** - always a JSON array, never a
+	// singular `phone` object. `null` until at least one phone step has produced
+	// data. Each item is the full report, including `node_id`, feature-level
+	// `status`, the phone number and country metadata, `lifecycle[]`, `matches[]`,
+	// and `warnings[]`.
+	PhoneVerifications []SessionDecisionPhoneVerifications `json:"phone_verifications"`
+
+	// **Array of email verification reports** - always a JSON array, never a
+	// singular `email` object. `null` until at least one email step has produced
+	// data. Each item is the full report, including `node_id`, feature-level
+	// `status`, the email address, breach data, `lifecycle[]`, `matches[]`, and
+	// `warnings[]`.
+	EmailVerifications []SessionDecisionEmailVerifications `json:"email_verifications"`
+
+	// **Array of Proof of Address (POA) reports** - always a JSON array, never a
+	// singular `poa` object. `null` until at least one POA step has produced data.
+	// Each item is the full report, including `node_id`, feature-level `status`,
+	// the document file URL, issuer, dates, parsed address, and `warnings[]`.
+	POAVerifications []SessionDecisionPOAVerifications `json:"poa_verifications"`
+
+	// **Document AI reports grouped by workflow node** - always a JSON array, never
+	// a singular object. `null` until at least one Document AI step has produced
+	// data. Present only when `session_kind = user`. Each item is a node group with
+	// an aggregate `status`, the `node_id`, an `items[]` array of the per-document
+	// results (extracted data keyed by the configured field key), and `warnings`.
+	DocumentAiDocuments []SessionDecisionDocumentAiDocuments `json:"document_ai_documents"`
+
+	// **Array of questionnaire response reports** - always a JSON array, never a
+	// singular `questionnaire` object. `null` until at least one questionnaire step
+	// has produced data. Each item is the full report, including `node_id`, the
+	// questionnaire metadata, sections with form elements, and the user's answers.
+	QuestionnaireResponses []SessionDecisionQuestionnaireResponses `json:"questionnaire_responses"`
+
+	// Electronic Signature results, one item per signer and signature step, for
+	// User and Business Verification. Present only when the workflow has an
+	// Electronic Signature step; an empty array until a signer reaches it. See the
+	// [Electronic Signature
+	// report](/core-technology/electronic-signature/report-electronic-signature).
+	Signatures []SignatureResult `json:"signatures"`
+
+	// **Array of AML screening reports** - always a JSON array, never a singular
+	// `aml` object. `null` until at least one AML step has produced data. Each item
+	// is the full report, including `node_id`, feature-level `status`,
+	// `total_hits`, `entity_type`, `hits[]`, `score`, `screened_data`,
+	// `is_ongoing_monitoring_enabled`, and `warnings[]`.
+	AMLScreenings []AMLScreening `json:"aml_screenings"`
+
+	// **Array of Device & IP Analysis reports** - always a JSON array, never a
+	// singular `ip_analysis` object. `null` until at least one IP-analysis step has
+	// produced data. Each item is the full report, including `node_id`,
+	// feature-level `status`, IP and geolocation data, device fingerprint, and
+	// `warnings[]`. Entries with duplicate `(node_id, ip_address,
+	// device_fingerprint)` are deduplicated server-side.
+	IPAnalyses []SessionDecisionIPAnalyses `json:"ip_analyses"`
+
+	// **Array of Database Validation reports** - always a JSON array, never a
+	// singular `database_validation` object. `null` until at least one DB
+	// validation step has produced data. Each item is the full report, including
+	// `node_id`, feature-level `status`, `screened_data`, the per-service
+	// `validations[]` (each with its registry `source_data`), and `warnings[]`. The
+	// `screened_data` and `source_data` fields vary by country:
+	//
+	// **ARG (Argentina)**: screened_data: {document_number, selfie, gender,
+	// first_name, last_name}. source_data: {identification_number, first_name,
+	// last_name, full_name, date_of_birth, date_of_death, tax_id, tax_id_type,
+	// face_match_score, sit_1_since, banks, last_position, highest_position,
+	// rejected_checks}. Uses RENAPER biometric face-match validation. Gender is
+	// auto-inferred from face analysis or given name when not present in the
+	// document (e.g., driver licenses)
+	//
+	// **BOL (Bolivia)**: screened_data: {document_number, date_of_birth,
+	// first_name, last_name}. source_data: {identification_number, first_name,
+	// last_name, full_name, date_of_birth, gender}
+	//
+	// **BRA (Brazil)**: screened_data: {tax_number, first_name, last_name,
+	// date_of_birth}. source_data always includes {identification_number,
+	// first_name, last_name, date_of_birth, lgpd_minor, minor_under_18,
+	// minor_under_16} for successful CPF matches. Successful adult lookups set
+	// those flags to false. The Receita Federal Consulta CPF service may return
+	// HTTP 422 (minor under 18) or 451 (under 16) with LGPD-withheld data; in those
+	// cases source_data sets the minor flags to true as appropriate, includes the
+	// upstream HTTP status, and field-level validation is no_match. See the Brazil
+	// section of the Database Validation Outcome Codes reference for the full code
+	// list.
+	//
+	// **CHL (Chile)**: screened_data: {personal_number, first_name, last_name,
+	// date_of_birth}. source_data: {identification_number, first_name, last_name,
+	// date_of_birth, gender}
+	//
+	// **COL (Colombia)**: screened_data: {document_number, document_type,
+	// first_name, last_name}. source_data: {identification_number, first_name,
+	// last_name, full_name, date_of_birth, document_type}
+	//
+	// **CRI (Costa Rica)**: screened_data: {personal_number, first_name,
+	// last_name}. source_data: {identification_number, first_name, last_name,
+	// full_name}
+	//
+	// **DOM (Dominican Republic)**: screened_data: {personal_number}. source_data:
+	// {identification_number} (returns valid/invalid only)
+	//
+	// **ECU (Ecuador)**: screened_data: {personal_number, first_name, last_name}.
+	// source_data: {identification_number, first_name, last_name, street,
+	// formatted_address, gender, nationality, education, marital_status, spouse,
+	// mother_name, father_name, profession}
+	//
+	// **ESP (Spain)**: screened_data: {personal_number, document_type,
+	// expiration_date, first_name, last_name}. source_data: {identification_number,
+	// first_name, last_name, full_name, document_type, expiration_date}
+	//
+	// **GTM (Guatemala)**: screened_data: {document_number, first_name, last_name}.
+	// source_data: {identification_number, first_name, last_name, full_name}
+	//
+	// **HND (Honduras)**: screened_data: {document_number, first_name, last_name}.
+	// source_data: {identification_number, first_name, last_name, full_name}
+	//
+	// **MEX (Mexico)**: screened_data: {personal_number (CURP), first_name,
+	// last_name}. source_data: {identification_number, first_name, last_name,
+	// full_name, date_of_birth, gender, nationality, curp_status, state_of_birth,
+	// doc_probatorio, registration_year, registration_state,
+	// registration_municipality, num_acta, crip, issuing_state_code,
+	// foreign_registry_number, folio_carta, folio_certificado}. Uses the RENAPO
+	// civil registry. A separate INE validity-check service is also available for
+	// MEX as an additional one-by-one validation.
+	//
+	// **PAN (Panama)**: screened_data: {personal_number, selfie}. source_data:
+	// {identification_number}. Uses SIB biometric validation
+	//
+	// **PER (Peru)**: screened_data: {personal_number (DNI), first_name,
+	// last_name}. source_data: {identification_number, first_name, last_name,
+	// paternal_name, maternal_name, verification_number, verification_letter}
+	//
+	// **PRY (Paraguay)**: screened_data: {document_number, first_name, last_name}.
+	// source_data: {identification_number, first_name, last_name, full_name}
+	//
+	// **SLV (El Salvador)**: screened_data: {document_number, date_of_birth,
+	// first_name, last_name}. source_data: {identification_number, first_name,
+	// last_name, full_name}
+	//
+	// **URY (Uruguay)**: screened_data: {personal_number, date_of_birth,
+	// first_name, last_name}. source_data: {identification_number, first_name,
+	// last_name, full_name}
+	//
+	// **VEN (Venezuela)**: screened_data: {document_number, first_name, last_name}.
+	// source_data: {identification_number, first_name, last_name, full_name,
+	// gender, date_of_birth, document_type}
+	DatabaseValidations []SessionDecisionDatabaseValidations `json:"database_validations"`
+	Reviews             []SessionDecisionReviews             `json:"reviews"`
+
+	// Timestamp at which the session was created (ISO 8601, UTC).
+	CreatedAt time.Time `json:"created_at"`
+
+	// Timestamp at which this session is scheduled to expire. Set on User
+	// Verification (KYC) sessions when an expiration was configured at creation
+	// time (or once `Approved` status triggers KYC expiry computation). `null` for
+	// sessions without a configured expiration, and for kinds that do not use
+	// expiry (e.g. Business Verification (KYB) sessions that never received an
+	// `expires_at`).
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Company registry checks. Present only when `session_kind = business`. Each
+	// item wraps the full company-registry payload.
+	RegistryChecks []SessionDecisionRegistryChecks `json:"registry_checks"`
+
+	// Aggregate key-people checks. Present only when `session_kind = business`.
+	// Each item uses the two-bucket shape (`registry`, `submitted`,
+	// `ubo_kyc_summary`).
+	KeyPeopleChecks []SessionDecisionKeyPeopleChecks `json:"key_people_checks"`
+
+	// Document verification checks grouped by workflow node. Present only when
+	// `session_kind = business`.
+	DocumentVerifications []SessionDecisionDocumentVerifications `json:"document_verifications"`
+
+	// Whether the session was created by a live application (`live`) or a sandbox
+	// application (`sandbox`). Sandbox sessions are free, fully simulated, and
+	// never bill credits.
+	Environment SessionDecisionEnvironment `json:"environment"`
+
+	// Returned only with `include=resubmissions`, for user and business sessions.
+	// One entry per resubmission request, oldest first. Each entry carries the
+	// results the resubmitted steps returned before the request, so earlier
+	// submissions stay readable. Deleting the session deletes every submission.
+	Resubmissions []SessionDecisionResubmissions `json:"resubmissions"`
+	Investigator  InvestigatorBlock              `json:"investigator"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecision leniently.
+func (r *SessionDecision) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionSessionKind: Discriminator indicating whether this is a User
+// Verification (KYC) or Business Verification (KYB) session. When `user`, the
+// KYC feature arrays (`id_verifications`, `nfc_verifications`,
+// `liveness_checks`, `face_matches`, `poa_verifications`,
+// `document_ai_documents`, `database_validations`, ...) apply and the business
+// arrays are absent. When `business`, the payload instead carries
+// `registry_checks`, `document_verifications`, `key_people_checks` plus the
+// shared arrays (`aml_screenings`, `phone_verifications`,
+// `email_verifications`, `ip_analyses`, `questionnaire_responses`). **Omitted
+// when `include=events` is passed** - the events shape only exists for user
+// sessions, so the discriminator is dropped from that variant.
+//
+// SessionDecisionSessionKind is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SessionDecisionSessionKind string
+
+// Known values of SessionDecisionSessionKind.
+const (
+	SessionDecisionSessionKindUser     SessionDecisionSessionKind = "user"
+	SessionDecisionSessionKindBusiness SessionDecisionSessionKind = "business"
+)
+
+// SessionDecisionStatus: Overall lifecycle status of the session - the
+// rolled-up workflow result. Terminal values are `Approved`, `Declined`, `In
+// Review`, `Expired`, `Kyc Expired`, and `Abandoned`; `Not Started`, `In
+// Progress`, `Awaiting User`, and `Resubmitted` indicate the session is still
+// moving through the workflow.
+//
+// SessionDecisionStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SessionDecisionStatus string
+
+// Known values of SessionDecisionStatus.
+const (
+	SessionDecisionStatusNotStarted   SessionDecisionStatus = "Not Started"
+	SessionDecisionStatusInProgress   SessionDecisionStatus = "In Progress"
+	SessionDecisionStatusAwaitingUser SessionDecisionStatus = "Awaiting User"
+	SessionDecisionStatusInReview     SessionDecisionStatus = "In Review"
+	SessionDecisionStatusApproved     SessionDecisionStatus = "Approved"
+	SessionDecisionStatusDeclined     SessionDecisionStatus = "Declined"
+	SessionDecisionStatusResubmitted  SessionDecisionStatus = "Resubmitted"
+	SessionDecisionStatusExpired      SessionDecisionStatus = "Expired"
+	SessionDecisionStatusKYCExpired   SessionDecisionStatus = "Kyc Expired"
+	SessionDecisionStatusAbandoned    SessionDecisionStatus = "Abandoned"
+)
+
+// SessionDecisionExpectedDetails: Expected details supplied at session creation
+// - used for cross-validation against extracted data (KYC) or to pre-fill the
+// company registry search (KYB). Echoes back exactly the keys that were
+// provided; `null` when none were supplied. KYC sessions carry the person
+// fields; Business (KYB) sessions carry `company_name`, `registry_country` and
+// `registration_number`.
+type SessionDecisionExpectedDetails struct {
+	// User's first name. For example, `John`.
+	FirstName string `json:"first_name"`
+
+	// User's last name. For example, `Doe`.
+	LastName string `json:"last_name"`
+
+	// User's date of birth with format: YYYY-MM-DD. For example, `1990-05-15`.
+	DateOfBirth string `json:"date_of_birth"`
+
+	// User's gender. Must be either 'M', 'F', or null.
+	Gender SessionDecisionExpectedDetailsGender `json:"gender"`
+
+	// ISO 3166-1 alpha-3 country code representing the applicant's country of
+	// origin. For example, `USA`.
+	Nationality string `json:"nationality"`
+
+	// ISO 3166-1 alpha-3 country code representing the country of the Proof of
+	// Address document, or the country of the applicant's ID document, which may
+	// differ from nationality. For example, `GBR`.
+	Country string `json:"country"`
+
+	// The address in a human readable format, including as much information as
+	// possible. For example, `123 Main St, San Francisco, CA 94105, USA`.
+	Address string `json:"address"`
+
+	// The user's document number, personal number, or tax number. For example,
+	// `123456789`.
+	IdentificationNumber string `json:"identification_number"`
+
+	// Expected IP address for the session. If the actual IP address differs from
+	// this value, a warning will be logged. For example, `192.168.1.100`.
+	IPAddress string `json:"ip_address"`
+
+	// Document types the ID verification step was restricted to at session
+	// creation. Empty/unset means no restriction. Codes: `P` (passport), `ID`
+	// (national ID), `DL` (driver's license), `RP` (residence permit), `HIC`
+	// (health insurance card), `TC` (tax card), `SSC` (social security card).
+	ExpectedDocumentTypes []SessionDecisionExpectedDetailsExpectedDocumentTypes `json:"expected_document_types"`
+
+	// Expected ID-document issuing country (ISO 3166-1 alpha-3), when restricted at
+	// creation time.
+	IDCountry string `json:"id_country"`
+
+	// Expected Proof of Address document country (ISO 3166-1 alpha-3), when
+	// restricted at creation time.
+	POACountry string `json:"poa_country"`
+
+	// Expected legal name of the business. Business (KYB) sessions only.
+	CompanyName string `json:"company_name"`
+
+	// Expected registry country as `XX` or `XX-YY` (ISO 3166-1 alpha-2, optionally
+	// with an ISO 3166-2 subdivision for state-level registries, e.g. `US-CA`).
+	// Business (KYB) sessions only.
+	RegistryCountry string `json:"registry_country"`
+
+	// Expected company registration number. Business (KYB) sessions only.
+	RegistrationNumber string `json:"registration_number"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionExpectedDetails leniently.
+func (r *SessionDecisionExpectedDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionExpectedDetailsGender: User's gender. Must be either 'M', 'F',
+// or null.
+//
+// SessionDecisionExpectedDetailsGender is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SessionDecisionExpectedDetailsGender string
+
+// Known values of SessionDecisionExpectedDetailsGender.
+const (
+	SessionDecisionExpectedDetailsGenderM SessionDecisionExpectedDetailsGender = "M"
+	SessionDecisionExpectedDetailsGenderF SessionDecisionExpectedDetailsGender = "F"
+)
+
+// SessionDecisionExpectedDetailsExpectedDocumentTypes is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionExpectedDetailsExpectedDocumentTypes string
+
+// Known values of SessionDecisionExpectedDetailsExpectedDocumentTypes.
+const (
+	SessionDecisionExpectedDetailsExpectedDocumentTypesP   SessionDecisionExpectedDetailsExpectedDocumentTypes = "P"
+	SessionDecisionExpectedDetailsExpectedDocumentTypesID  SessionDecisionExpectedDetailsExpectedDocumentTypes = "ID"
+	SessionDecisionExpectedDetailsExpectedDocumentTypesDl  SessionDecisionExpectedDetailsExpectedDocumentTypes = "DL"
+	SessionDecisionExpectedDetailsExpectedDocumentTypesRp  SessionDecisionExpectedDetailsExpectedDocumentTypes = "RP"
+	SessionDecisionExpectedDetailsExpectedDocumentTypesHic SessionDecisionExpectedDetailsExpectedDocumentTypes = "HIC"
+	SessionDecisionExpectedDetailsExpectedDocumentTypesTc  SessionDecisionExpectedDetailsExpectedDocumentTypes = "TC"
+	SessionDecisionExpectedDetailsExpectedDocumentTypesSsc SessionDecisionExpectedDetailsExpectedDocumentTypes = "SSC"
+)
+
+// SessionDecisionContactDetails: Contact details supplied when the session was
+// created (used for notification emails, prefilled phone/email verification,
+// and communication language). `null` when neither an email nor a phone number
+// was provided.
+type SessionDecisionContactDetails struct {
+	// Email address of the user (e.g., "john.doe@example.com") that will be used
+	// during the Email Verification step. If not provided, the user must provide it
+	// during the verification flow.
+	Email string `json:"email"`
+
+	// Language code (ISO 639-1) for email notifications. Controls the language of
+	// all email communications (e.g., "en", "es", "fr").
+	EmailLang string `json:"email_lang"`
+
+	// If true and an email is provided, Didit sends the initial "Verify your
+	// identity" email asynchronously when the User Verification (KYC) or Business
+	// Verification (KYB) session is created. Didit also sends verification status
+	// notifications for sessions requiring manual review to the provided email
+	// address.
+	SendNotificationEmails bool `json:"send_notification_emails"`
+
+	// Phone number of the user in E.164 format if available (e.g., +14155552671).
+	// `null` when only an email was supplied at session creation. Note: This field
+	// returns the original phone number provided during session creation. If the
+	// number was invalid, it may not be in E.164 format.
+	Phone string `json:"phone"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionContactDetails leniently.
+func (r *SessionDecisionContactDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerifications: One ID verification report - the full report
+// for a single ID Verification step. `verification_method` says which of the
+// three methods produced it (document capture, non-doc lookup or wallet
+// sign-in) and the method-specific evidence block is populated accordingly.
+type SessionDecisionIDVerifications struct {
+	// Workflow graph node id of the OCR step that produced this report.
+	NodeID string `json:"node_id"`
+
+	// Which ID Verification method produced this report. `document` - the user
+	// photographed a physical ID (the default, and the value on every session
+	// created before the other methods existed). `id_lookup` - the user typed their
+	// national ID number and it was checked against a government register or
+	// another authoritative source for that country (`id_lookup.source` names
+	// which). `wallet` - the user signed in with a government or bank digital
+	// identity.
+	VerificationMethod SessionDecisionIDVerificationsVerificationMethod `json:"verification_method"`
+
+	// Assurance tier derived from `verification_method`: `documentary` for a
+	// document that was captured and checked, `data_match` for details that matched
+	// a record held by the source queried, `cryptographic` for attributes an
+	// identity provider authenticated and signed.
+	Assurance SessionDecisionIDVerificationsAssurance `json:"assurance"`
+
+	// Catalog wallet id when `verification_method` is `wallet` (`mitid`,
+	// `bankid_se`, `itsme`, ...). `null` otherwise.
+	WalletProvider string `json:"wallet_provider"`
+
+	// Why a non-document method ended the ID step. Set on the declined report when
+	// a lookup or a wallet sign-in failed and the country's fallback switch was
+	// `decline`. `null` otherwise.
+	FallbackFrom SessionDecisionIDVerificationsFallbackFrom `json:"fallback_from"`
+
+	// Registry evidence. Present only when `verification_method` is `id_lookup`;
+	// `null` otherwise.
+	IDLookup SessionDecisionIDVerificationsIDLookup `json:"id_lookup"`
+
+	// Credential evidence. Present only when `verification_method` is `wallet`;
+	// `null` otherwise.
+	WalletVerification SessionDecisionIDVerificationsWalletVerification `json:"wallet_verification"`
+
+	// Feature-level status of this ID verification step. Independent of the
+	// top-level session `status` - a session can reach its overall decision while
+	// an individual feature stays `In Review`.
+	Status SessionDecisionIDVerificationsStatus `json:"status"`
+
+	// Type of identity document
+	DocumentType string `json:"document_type"`
+
+	// Accepted document subtype code from the workflow document settings, including
+	// the document region when applicable. Examples: `ID_CARD_GENERIC`,
+	// `QUEENSLAND_DRIVER_LICENSE_GENERIC`.
+	DocumentSubtype string `json:"document_subtype"`
+
+	// Document identification number
+	DocumentNumber string `json:"document_number"`
+
+	// Personal identification number
+	PersonalNumber string `json:"personal_number"`
+
+	// URL of the portrait image
+	PortraitImage string `json:"portrait_image"`
+
+	// URL of the front document image
+	FrontImage string `json:"front_image"`
+
+	// URL of the front document video
+	FrontVideo string `json:"front_video"`
+
+	// URL of the back document image
+	BackImage string `json:"back_image"`
+
+	// URL of the back document video
+	BackVideo string `json:"back_video"`
+
+	// URL of the full front document image
+	FullFrontImage string `json:"full_front_image"`
+
+	// URL of the full back document image
+	FullBackImage string `json:"full_back_image"`
+
+	// URL of the front document image captured from the front-facing camera
+	FrontImageCameraFront string `json:"front_image_camera_front"`
+
+	// URL of the back document image captured from the front-facing camera
+	BackImageCameraFront string `json:"back_image_camera_front"`
+
+	// Date of birth from document
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Calculated age from date of birth
+	Age int64 `json:"age"`
+
+	// Document expiration date
+	ExpirationDate string `json:"expiration_date"`
+
+	// Document issue date
+	DateOfIssue string `json:"date_of_issue"`
+
+	// ISO code of issuing state
+	IssuingState string `json:"issuing_state"`
+
+	// Full name of issuing state
+	IssuingStateName string `json:"issuing_state_name"`
+
+	// First name from document
+	FirstName string `json:"first_name"`
+
+	// Last name from document
+	LastName string `json:"last_name"`
+
+	// Full name from document
+	FullName string `json:"full_name"`
+
+	// Gender from document
+	Gender string `json:"gender"`
+
+	// Raw address from document
+	Address string `json:"address"`
+
+	// Formatted full address
+	FormattedAddress string `json:"formatted_address"`
+
+	// Place of birth from document
+	PlaceOfBirth string `json:"place_of_birth"`
+
+	// Marital status from document
+	MaritalStatus string `json:"marital_status"`
+
+	// ISO nationality code
+	Nationality string `json:"nationality"`
+
+	// Additional document fields. Includes document-specific attributes (e.g.
+	// `dl_categories`, `blood_group`, `sponsor`, `employer`,
+	// `dl_class_code_b_from`, `dl_class_code_b_to`). Driver license class validity
+	// dates are returned as `dl_class_code_<class>_from` and
+	// `dl_class_code_<class>_to`, and per-class restriction/information codes (e.g.
+	// column 12 of UK licences) as `dl_class_code_<class>_notes`. When the document
+	// carries names, address, or place of birth in multiple scripts, this object
+	// also includes alternate-script versions of those fields. The workflow setting
+	// `preferred_characters` (`latin` or `non_latin`) controls which script
+	// populates the top-level fields (`first_name`, `last_name`, `full_name`,
+	// `address`, `place_of_birth`); the opposite script lands here as
+	// `first_name_non_latin` / `last_name_non_latin` / `full_name_non_latin` /
+	// `middle_name_non_latin` / `address_non_latin` / `place_of_birth_non_latin`
+	// (when `preferred_characters` is `latin`) or with a `_latin` suffix (when
+	// `preferred_characters` is `non_latin`). Keys appear only when the OCR
+	// actually extracts a real alternate-script value - a field whose alternate
+	// value is in the same script as the preferred set (for example, a
+	// Cyrillic-labelled field whose OCR value came back in Latin homoglyphs) is
+	// skipped. When `preferred_characters` is `latin` but the document only carries
+	// non-Latin text, Didit transliterates the extracted values and exposes
+	// `first_name_latin` / `last_name_latin` / etc. as a fallback.
+	ExtraFields SessionDecisionIDVerificationsExtraFields `json:"extra_fields"`
+
+	// Parsed Machine-Readable Zone (MRZ) fields extracted from the document. `null`
+	// if no MRZ was detected.
+	MRZ SessionDecisionIDVerificationsMRZ `json:"mrz"`
+
+	// Structured address details
+	ParsedAddress SessionDecisionIDVerificationsParsedAddress `json:"parsed_address"`
+
+	// Additional document verification files
+	ExtraFiles []string `json:"extra_files"`
+
+	// Face match score between the portrait extracted from the front document image
+	// and the front camera image
+	FrontImageCameraFrontFaceMatchScore float64 `json:"front_image_camera_front_face_match_score"`
+
+	// Face match score between the portrait extracted from the back document image
+	// and the front camera image
+	BackImageCameraFrontFaceMatchScore float64 `json:"back_image_camera_front_face_match_score"`
+
+	// Previous sessions or face blocklist entries whose face matched the selfie the
+	// front camera took during document capture (Silent Capture Face Search). Same
+	// entry format as `liveness_checks[].matches`. `null` for sessions created
+	// before this field existed or when the search did not run; an empty array when
+	// it ran and found nothing. `match_image_url` is a presigned URL that expires.
+	DocumentSelfieFaceMatches []SessionDecisionIDVerificationsDocumentSelfieFaceMatches `json:"document_selfie_face_matches"`
+
+	// Quality metrics for the front document image. Each sub-score ranges from 0 to
+	// 100.
+	FrontImageQualityScore SessionDecisionIDVerificationsFrontImageQualityScore `json:"front_image_quality_score"`
+
+	// Quality metrics for the back document image. Same structure as
+	// front_image_quality_score.
+	BackImageQualityScore SessionDecisionIDVerificationsBackImageQualityScore `json:"back_image_quality_score"`
+
+	// Document verification warnings
+	Warnings []SessionDecisionIDVerificationsWarnings `json:"warnings"`
+
+	// Matching documents found during duplicate/blocklist detection (up to 5
+	// matches)
+	Matches []SessionDecisionIDVerificationsMatches `json:"matches"`
+
+	// Document-liveness scores per fraud type, reported whether or not a warning
+	// fired, so an approved document can still be audited. `null` when the check
+	// did not run.
+	DocumentLiveness SessionDecisionIDVerificationsDocumentLiveness `json:"document_liveness"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerifications leniently.
+func (r *SessionDecisionIDVerifications) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsVerificationMethod: Which ID Verification
+// method produced this report. `document` - the user photographed a physical ID
+// (the default, and the value on every session created before the other methods
+// existed). `id_lookup` - the user typed their national ID number and it was
+// checked against a government register or another authoritative source for
+// that country (`id_lookup.source` names which). `wallet` - the user signed in
+// with a government or bank digital identity.
+//
+// SessionDecisionIDVerificationsVerificationMethod is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionIDVerificationsVerificationMethod string
+
+// Known values of SessionDecisionIDVerificationsVerificationMethod.
+const (
+	SessionDecisionIDVerificationsVerificationMethodDocument SessionDecisionIDVerificationsVerificationMethod = "document"
+	SessionDecisionIDVerificationsVerificationMethodIDLookup SessionDecisionIDVerificationsVerificationMethod = "id_lookup"
+	SessionDecisionIDVerificationsVerificationMethodWallet   SessionDecisionIDVerificationsVerificationMethod = "wallet"
+)
+
+// SessionDecisionIDVerificationsAssurance: Assurance tier derived from
+// `verification_method`: `documentary` for a document that was captured and
+// checked, `data_match` for details that matched a record held by the source
+// queried, `cryptographic` for attributes an identity provider authenticated
+// and signed.
+//
+// SessionDecisionIDVerificationsAssurance is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionIDVerificationsAssurance string
+
+// Known values of SessionDecisionIDVerificationsAssurance.
+const (
+	SessionDecisionIDVerificationsAssuranceDocumentary   SessionDecisionIDVerificationsAssurance = "documentary"
+	SessionDecisionIDVerificationsAssuranceDataMatch     SessionDecisionIDVerificationsAssurance = "data_match"
+	SessionDecisionIDVerificationsAssuranceCryptographic SessionDecisionIDVerificationsAssurance = "cryptographic"
+)
+
+// SessionDecisionIDVerificationsFallbackFrom: Why a non-document method ended
+// the ID step. Set on the declined report when a lookup or a wallet sign-in
+// failed and the country's fallback switch was `decline`. `null` otherwise.
+type SessionDecisionIDVerificationsFallbackFrom struct {
+	// The method that failed.
+	Method SessionDecisionIDVerificationsFallbackFromMethod `json:"method"`
+
+	// The outcome that ended it, e.g. `no_match`, `provider_error`, `cancelled`,
+	// `timeout`.
+	Reason string `json:"reason"`
+
+	// The configured action that was taken, e.g. `decline`.
+	Action string `json:"action"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsFallbackFrom leniently.
+func (r *SessionDecisionIDVerificationsFallbackFrom) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsFallbackFromMethod: The method that failed.
+//
+// SessionDecisionIDVerificationsFallbackFromMethod is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionIDVerificationsFallbackFromMethod string
+
+// Known values of SessionDecisionIDVerificationsFallbackFromMethod.
+const (
+	SessionDecisionIDVerificationsFallbackFromMethodIDLookup SessionDecisionIDVerificationsFallbackFromMethod = "id_lookup"
+	SessionDecisionIDVerificationsFallbackFromMethodWallet   SessionDecisionIDVerificationsFallbackFromMethod = "wallet"
+)
+
+// SessionDecisionIDVerificationsIDLookup: Registry evidence. Present only when
+// `verification_method` is `id_lookup`; `null` otherwise.
+type SessionDecisionIDVerificationsIDLookup struct {
+	// Customer-facing name of the source queried, e.g. `Department of Home Affairs`
+	// (a government register) or `UK credit bureau and financial services records`
+	// (not a government register). This is the only statement of provenance for the
+	// lookup; do not assume a government source.
+	Source string `json:"source"`
+
+	// When the register answered.
+	CheckedAt time.Time `json:"checked_at"`
+
+	// 1-based attempt number this report came from.
+	Attempts int64 `json:"attempts"`
+
+	// Attempt budget configured for the country (1 to 5, default 1).
+	MaxAttempts int64 `json:"max_attempts"`
+
+	// What the register answered. Only `match`, `partial_match` and `no_match`
+	// count against the attempt budget and bill.
+	Outcome SessionDecisionIDVerificationsIDLookupOutcome `json:"outcome"`
+
+	// One row per comparable field the source answered on, plus one row per source
+	// error. Comparison rows use the normalised field names below rather than the
+	// country's request field keys, because several request fields (first and last
+	// name, or any of the identifier aliases) collapse into a single comparison. A
+	// source that failed appends a row with `field: "provider"` and `result:
+	// "error"`, so read `result` before treating a row as a field verdict.
+	Comparison []SessionDecisionIDVerificationsIDLookupComparison `json:"comparison"`
+
+	// Short-lived presigned URL to the portrait the source returned. Only the four
+	// government registers that return one (South Africa, Nigeria, Argentina,
+	// Panama).
+	RegistryPortrait string `json:"registry_portrait"`
+
+	// Selfie against the registry portrait, 0-100. Only where the register returns
+	// a portrait.
+	FaceMatchScore float64 `json:"face_match_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsIDLookup leniently.
+func (r *SessionDecisionIDVerificationsIDLookup) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsIDLookupOutcome: What the register answered.
+// Only `match`, `partial_match` and `no_match` count against the attempt budget
+// and bill.
+//
+// SessionDecisionIDVerificationsIDLookupOutcome is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionIDVerificationsIDLookupOutcome string
+
+// Known values of SessionDecisionIDVerificationsIDLookupOutcome.
+const (
+	SessionDecisionIDVerificationsIDLookupOutcomeMatch          SessionDecisionIDVerificationsIDLookupOutcome = "match"
+	SessionDecisionIDVerificationsIDLookupOutcomePartialMatch   SessionDecisionIDVerificationsIDLookupOutcome = "partial_match"
+	SessionDecisionIDVerificationsIDLookupOutcomeNoMatch        SessionDecisionIDVerificationsIDLookupOutcome = "no_match"
+	SessionDecisionIDVerificationsIDLookupOutcomeProviderError  SessionDecisionIDVerificationsIDLookupOutcome = "provider_error"
+	SessionDecisionIDVerificationsIDLookupOutcomeFormatRejected SessionDecisionIDVerificationsIDLookupOutcome = "format_rejected"
+)
+
+// SessionDecisionIDVerificationsIDLookupComparison is a response object.
+type SessionDecisionIDVerificationsIDLookupComparison struct {
+	// Normalised comparison field. `provider` is not a user field: it marks a
+	// source error row.
+	Field SessionDecisionIDVerificationsIDLookupComparisonField `json:"field"`
+
+	// Display label for the row, e.g. `ID number`, `Full name`, `Provider`.
+	Label string `json:"label"`
+
+	// What the user typed. `null` on a `provider` error row.
+	Provided string `json:"provided"`
+
+	// What the source held. On a `provider` error row this carries the error
+	// message instead.
+	Record string `json:"record"`
+
+	// Per-field comparison result. `error` appears only on a `provider` row and
+	// means that source did not answer; treat it as evidence about the query, never
+	// as a field mismatch.
+	Result SessionDecisionIDVerificationsIDLookupComparisonResult `json:"result"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsIDLookupComparison leniently.
+func (r *SessionDecisionIDVerificationsIDLookupComparison) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsIDLookupComparisonField: Normalised comparison
+// field. `provider` is not a user field: it marks a source error row.
+//
+// SessionDecisionIDVerificationsIDLookupComparisonField is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionIDVerificationsIDLookupComparisonField string
+
+// Known values of SessionDecisionIDVerificationsIDLookupComparisonField.
+const (
+	SessionDecisionIDVerificationsIDLookupComparisonFieldIdentificationNumber SessionDecisionIDVerificationsIDLookupComparisonField = "identification_number"
+	SessionDecisionIDVerificationsIDLookupComparisonFieldFullName             SessionDecisionIDVerificationsIDLookupComparisonField = "full_name"
+	SessionDecisionIDVerificationsIDLookupComparisonFieldDateOfBirth          SessionDecisionIDVerificationsIDLookupComparisonField = "date_of_birth"
+	SessionDecisionIDVerificationsIDLookupComparisonFieldAddress              SessionDecisionIDVerificationsIDLookupComparisonField = "address"
+	SessionDecisionIDVerificationsIDLookupComparisonFieldProvider             SessionDecisionIDVerificationsIDLookupComparisonField = "provider"
+)
+
+// SessionDecisionIDVerificationsIDLookupComparisonResult: Per-field comparison
+// result. `error` appears only on a `provider` row and means that source did
+// not answer; treat it as evidence about the query, never as a field mismatch.
+//
+// SessionDecisionIDVerificationsIDLookupComparisonResult is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionIDVerificationsIDLookupComparisonResult string
+
+// Known values of SessionDecisionIDVerificationsIDLookupComparisonResult.
+const (
+	SessionDecisionIDVerificationsIDLookupComparisonResultMatch   SessionDecisionIDVerificationsIDLookupComparisonResult = "match"
+	SessionDecisionIDVerificationsIDLookupComparisonResultPartial SessionDecisionIDVerificationsIDLookupComparisonResult = "partial"
+	SessionDecisionIDVerificationsIDLookupComparisonResultNoMatch SessionDecisionIDVerificationsIDLookupComparisonResult = "no_match"
+	SessionDecisionIDVerificationsIDLookupComparisonResultError   SessionDecisionIDVerificationsIDLookupComparisonResult = "error"
+)
+
+// SessionDecisionIDVerificationsWalletVerification: Credential evidence.
+// Present only when `verification_method` is `wallet`; `null` otherwise.
+type SessionDecisionIDVerificationsWalletVerification struct {
+	// Catalog wallet id, e.g. `mitid`.
+	Provider string `json:"provider"`
+
+	// Wallet name as the end user knows it, e.g. `MitID`.
+	ProviderName string `json:"provider_name"`
+
+	// The authority behind the wallet, e.g. `Danish Agency for Digital Government`.
+	IssuingAuthority string `json:"issuing_authority"`
+
+	// ISO 3166-1 alpha-3 country the wallet was offered in.
+	IssuingCountry string `json:"issuing_country"`
+
+	// Credential the wallet presented, e.g. `person_identification`.
+	CredentialType string `json:"credential_type"`
+
+	// The level of assurance the wallet asserted. A sign-in that asserts less than
+	// the level requested fails instead of downgrading.
+	LevelOfAssurance SessionDecisionIDVerificationsWalletVerificationLevelOfAssurance `json:"level_of_assurance"`
+
+	// The wallet's authentication instant.
+	VerifiedAt time.Time `json:"verified_at"`
+
+	// Whether the signed assertion the wallet returned validated.
+	SignatureValid bool `json:"signature_valid"`
+
+	// The attributes the wallet shared, keyed as the wallet's catalog entry lists
+	// them.
+	Attributes map[string]any `json:"attributes"`
+
+	// Short-lived presigned URL to the portrait the wallet shared, where it shares
+	// one.
+	Portrait string `json:"portrait"`
+
+	// Selfie against the wallet portrait, 0-100, where the wallet shares one.
+	FaceMatchScore float64 `json:"face_match_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsWalletVerification leniently.
+func (r *SessionDecisionIDVerificationsWalletVerification) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsWalletVerificationLevelOfAssurance: The level
+// of assurance the wallet asserted. A sign-in that asserts less than the level
+// requested fails instead of downgrading.
+//
+// SessionDecisionIDVerificationsWalletVerificationLevelOfAssurance is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionIDVerificationsWalletVerificationLevelOfAssurance string
+
+// Known values of SessionDecisionIDVerificationsWalletVerificationLevelOfAssurance.
+const (
+	SessionDecisionIDVerificationsWalletVerificationLevelOfAssuranceLow         SessionDecisionIDVerificationsWalletVerificationLevelOfAssurance = "low"
+	SessionDecisionIDVerificationsWalletVerificationLevelOfAssuranceSubstantial SessionDecisionIDVerificationsWalletVerificationLevelOfAssurance = "substantial"
+	SessionDecisionIDVerificationsWalletVerificationLevelOfAssuranceHigh        SessionDecisionIDVerificationsWalletVerificationLevelOfAssurance = "high"
+)
+
+// SessionDecisionIDVerificationsStatus: Feature-level status of this ID
+// verification step. Independent of the top-level session `status` - a session
+// can reach its overall decision while an individual feature stays `In Review`.
+//
+// SessionDecisionIDVerificationsStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SessionDecisionIDVerificationsStatus string
+
+// Known values of SessionDecisionIDVerificationsStatus.
+const (
+	SessionDecisionIDVerificationsStatusNotFinished SessionDecisionIDVerificationsStatus = "Not Finished"
+	SessionDecisionIDVerificationsStatusApproved    SessionDecisionIDVerificationsStatus = "Approved"
+	SessionDecisionIDVerificationsStatusDeclined    SessionDecisionIDVerificationsStatus = "Declined"
+	SessionDecisionIDVerificationsStatusInReview    SessionDecisionIDVerificationsStatus = "In Review"
+	SessionDecisionIDVerificationsStatusExpired     SessionDecisionIDVerificationsStatus = "Expired"
+)
+
+// SessionDecisionIDVerificationsExtraFields: Additional document fields.
+// Includes document-specific attributes (e.g. `dl_categories`, `blood_group`,
+// `sponsor`, `employer`, `dl_class_code_b_from`, `dl_class_code_b_to`). Driver
+// license class validity dates are returned as `dl_class_code_<class>_from` and
+// `dl_class_code_<class>_to`, and per-class restriction/information codes (e.g.
+// column 12 of UK licences) as `dl_class_code_<class>_notes`. When the document
+// carries names, address, or place of birth in multiple scripts, this object
+// also includes alternate-script versions of those fields. The workflow setting
+// `preferred_characters` (`latin` or `non_latin`) controls which script
+// populates the top-level fields (`first_name`, `last_name`, `full_name`,
+// `address`, `place_of_birth`); the opposite script lands here as
+// `first_name_non_latin` / `last_name_non_latin` / `full_name_non_latin` /
+// `middle_name_non_latin` / `address_non_latin` / `place_of_birth_non_latin`
+// (when `preferred_characters` is `latin`) or with a `_latin` suffix (when
+// `preferred_characters` is `non_latin`). Keys appear only when the OCR
+// actually extracts a real alternate-script value - a field whose alternate
+// value is in the same script as the preferred set (for example, a
+// Cyrillic-labelled field whose OCR value came back in Latin homoglyphs) is
+// skipped. When `preferred_characters` is `latin` but the document only carries
+// non-Latin text, Didit transliterates the extracted values and exposes
+// `first_name_latin` / `last_name_latin` / etc. as a fallback.
+type SessionDecisionIDVerificationsExtraFields struct {
+	DlCategories []string `json:"dl_categories"`
+	BloodGroup   string   `json:"blood_group"`
+
+	// First name in the non-Latin script when `preferred_characters=latin` and a
+	// non-Latin version is present on the document (e.g. `Айна` for a Kyrgyz ID).
+	FirstNameNonLatin string `json:"first_name_non_latin"`
+
+	// Surname in the non-Latin script when `preferred_characters=latin` and a
+	// non-Latin version is present on the document.
+	LastNameNonLatin string `json:"last_name_non_latin"`
+
+	// Middle name / patronymic in the non-Latin script when
+	// `preferred_characters=latin` and a non-Latin version is present on the
+	// document.
+	MiddleNameNonLatin string `json:"middle_name_non_latin"`
+
+	// Composed full name in the non-Latin script. Reconstructed from the individual
+	// components when both first and last names are available.
+	FullNameNonLatin string `json:"full_name_non_latin"`
+
+	// Address in the non-Latin script when `preferred_characters=latin` and a
+	// non-Latin version is present on the document.
+	AddressNonLatin string `json:"address_non_latin"`
+
+	// Place of birth in the non-Latin script when `preferred_characters=latin` and
+	// a non-Latin version is present on the document.
+	PlaceOfBirthNonLatin string `json:"place_of_birth_non_latin"`
+
+	// First name in Latin script. Populated when `preferred_characters=non_latin`
+	// and a Latin version is present on the document, or - as a transliteration
+	// fallback - when `preferred_characters=latin` but the document only carries
+	// non-Latin text.
+	FirstNameLatin string `json:"first_name_latin"`
+
+	// Surname in Latin script. Same rules as `first_name_latin`.
+	LastNameLatin string `json:"last_name_latin"`
+
+	// Middle name / patronymic in Latin script. Same rules as `first_name_latin`.
+	MiddleNameLatin string `json:"middle_name_latin"`
+
+	// Composed full name in Latin script. Always reconstructed from the individual
+	// components when both first and last names are available.
+	FullNameLatin string `json:"full_name_latin"`
+
+	// Address in Latin script. Same rules as `first_name_latin`.
+	AddressLatin string `json:"address_latin"`
+
+	// Place of birth in Latin script. Same rules as `first_name_latin`.
+	PlaceOfBirthLatin string `json:"place_of_birth_latin"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsExtraFields leniently.
+func (r *SessionDecisionIDVerificationsExtraFields) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsMRZ: Parsed Machine-Readable Zone (MRZ) fields
+// extracted from the document. `null` if no MRZ was detected.
+type SessionDecisionIDVerificationsMRZ struct {
+	Surname            string   `json:"surname"`
+	Name               string   `json:"name"`
+	Country            string   `json:"country"`
+	Nationality        string   `json:"nationality"`
+	BirthDate          string   `json:"birth_date"`
+	ExpiryDate         string   `json:"expiry_date"`
+	Sex                string   `json:"sex"`
+	DocumentType       string   `json:"document_type"`
+	DocumentNumber     string   `json:"document_number"`
+	OptionalData       string   `json:"optional_data"`
+	OptionalData2      string   `json:"optional_data_2"`
+	BirthDateHash      string   `json:"birth_date_hash"`
+	ExpiryDateHash     string   `json:"expiry_date_hash"`
+	DocumentNumberHash string   `json:"document_number_hash"`
+	FinalHash          string   `json:"final_hash"`
+	PersonalNumber     string   `json:"personal_number"`
+	Warnings           []string `json:"warnings"`
+	Errors             []string `json:"errors"`
+	MRZType            string   `json:"mrz_type"`
+	MRZString          string   `json:"mrz_string"`
+	MRZKey             string   `json:"mrz_key"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsMRZ leniently.
+func (r *SessionDecisionIDVerificationsMRZ) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddress: Structured address details
+type SessionDecisionIDVerificationsParsedAddress struct {
+	City   string `json:"city"`
+	Label  string `json:"label"`
+	Region string `json:"region"`
+
+	// Two-letter country code
+	Country string `json:"country"`
+
+	// Address category (e.g., Residential, Commercial)
+	Category string `json:"category"`
+	Street1  string `json:"street_1"`
+	Street2  string `json:"street_2"`
+
+	// Whether the address has been verified
+	IsVerified       bool                                                        `json:"is_verified"`
+	PostalCode       string                                                      `json:"postal_code"`
+	RawResults       SessionDecisionIDVerificationsParsedAddressRawResults       `json:"raw_results"`
+	AddressType      string                                                      `json:"address_type"`
+	DocumentLocation SessionDecisionIDVerificationsParsedAddressDocumentLocation `json:"document_location"`
+	FormattedAddress string                                                      `json:"formatted_address"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddress leniently.
+func (r *SessionDecisionIDVerificationsParsedAddress) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressRawResults is a response object.
+type SessionDecisionIDVerificationsParsedAddressRawResults struct {
+	Types             []string                                                                 `json:"types"`
+	Geometry          SessionDecisionIDVerificationsParsedAddressRawResultsGeometry            `json:"geometry"`
+	PlaceID           string                                                                   `json:"place_id"`
+	FormattedAddress  string                                                                   `json:"formatted_address"`
+	NavigationPoints  []SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPoints  `json:"navigation_points"`
+	AddressComponents []SessionDecisionIDVerificationsParsedAddressRawResultsAddressComponents `json:"address_components"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressRawResults leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressRawResults) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressRawResultsGeometry is a response
+// object.
+type SessionDecisionIDVerificationsParsedAddressRawResultsGeometry struct {
+	Location     SessionDecisionIDVerificationsParsedAddressRawResultsGeometryLocation `json:"location"`
+	Viewport     SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewport `json:"viewport"`
+	LocationType string                                                                `json:"location_type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressRawResultsGeometry leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressRawResultsGeometry) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressRawResultsGeometryLocation is a
+// response object.
+type SessionDecisionIDVerificationsParsedAddressRawResultsGeometryLocation struct {
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressRawResultsGeometryLocation leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressRawResultsGeometryLocation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewport is a
+// response object.
+type SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewport struct {
+	Northeast SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportNortheast `json:"northeast"`
+	Southwest SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest `json:"southwest"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewport leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewport) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportNortheast
+// is a response object.
+type SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportNortheast struct {
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportNortheast leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportNortheast) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest
+// is a response object.
+type SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest struct {
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPoints is a
+// response object.
+type SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPoints struct {
+	Location SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPointsLocation `json:"location"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPoints leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPoints) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPointsLocation
+// is a response object.
+type SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPointsLocation struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPointsLocation leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressRawResultsNavigationPointsLocation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressRawResultsAddressComponents is a
+// response object.
+type SessionDecisionIDVerificationsParsedAddressRawResultsAddressComponents struct {
+	Types     []string `json:"types"`
+	LongName  string   `json:"long_name"`
+	ShortName string   `json:"short_name"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressRawResultsAddressComponents leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressRawResultsAddressComponents) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsParsedAddressDocumentLocation is a response
+// object.
+type SessionDecisionIDVerificationsParsedAddressDocumentLocation struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsParsedAddressDocumentLocation leniently.
+func (r *SessionDecisionIDVerificationsParsedAddressDocumentLocation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsDocumentSelfieFaceMatches is a response object.
+type SessionDecisionIDVerificationsDocumentSelfieFaceMatches struct {
+	// Session ID of the matching face. `null` when `source` is `imported`,
+	// `list_entry`, or `retained_template`.
+	SessionID     string `json:"session_id"`
+	SessionNumber int64  `json:"session_number"`
+
+	// Face similarity between the two images, clamped to 0-100.
+	SimilarityPercentage float64 `json:"similarity_percentage"`
+
+	// `vendor_data` of the matching session or linked User for imported and
+	// retained-template faces.
+	VendorData string `json:"vendor_data"`
+
+	// Linked User id for `imported` and `retained_template` matches and for session
+	// matches linked to a User. `null` for list entries and sessions without a
+	// User.
+	VendorUserID string `json:"vendor_user_id"`
+
+	// Id of the retained biometric template. Set only when `source` is
+	// `retained_template`; `null` otherwise.
+	BiometricTemplateID string `json:"biometric_template_id"`
+
+	// When the matching face was captured, or when a retained template was created.
+	// `null` for list entries.
+	VerificationDate time.Time `json:"verification_date"`
+
+	// Identity data from the matching session or imported User profile. Always
+	// `null` for `retained_template` and `list_entry` matches.
+	UserDetails SessionDecisionIDVerificationsDocumentSelfieFaceMatchesUserDetails `json:"user_details"`
+
+	// Reference image for image-backed matches. Always `null` for
+	// `retained_template` matches because retained templates contain no image.
+	MatchImageURL string `json:"match_image_url"`
+
+	// Lifecycle status of the matching session. `null` for non-session sources.
+	Status string `json:"status"`
+
+	// Whether the matching face is on a blocklist.
+	IsBlocklisted bool `json:"is_blocklisted"`
+
+	// Whether the matching face is on an allowlist.
+	IsAllowlisted bool `json:"is_allowlisted"`
+
+	// Standalone API service of the matching session (e.g. `PASSIVE_LIVENESS`,
+	// `FACE_MATCH`); `null` for workflow sessions and non-session sources.
+	APIService string `json:"api_service"`
+
+	// Origin of the matching face: `session`, `imported` (User face upload),
+	// `list_entry` (allow/block list), or `retained_template` (an image-free
+	// biometric template stored on a User, listed under
+	// `/v3/biometric-templates/`).
+	Source SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSource `json:"source"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsDocumentSelfieFaceMatches leniently.
+func (r *SessionDecisionIDVerificationsDocumentSelfieFaceMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsDocumentSelfieFaceMatchesUserDetails: Identity
+// data from the matching session or imported User profile. Always `null` for
+// `retained_template` and `list_entry` matches.
+type SessionDecisionIDVerificationsDocumentSelfieFaceMatchesUserDetails struct {
+	FullName       string `json:"full_name"`
+	DocumentType   string `json:"document_type"`
+	DocumentNumber string `json:"document_number"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsDocumentSelfieFaceMatchesUserDetails leniently.
+func (r *SessionDecisionIDVerificationsDocumentSelfieFaceMatchesUserDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSource: Origin of the
+// matching face: `session`, `imported` (User face upload), `list_entry`
+// (allow/block list), or `retained_template` (an image-free biometric template
+// stored on a User, listed under `/v3/biometric-templates/`).
+//
+// SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSource is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSource string
+
+// Known values of SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSource.
+const (
+	SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSourceSession          SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSource = "session"
+	SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSourceImported         SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSource = "imported"
+	SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSourceListEntry        SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSource = "list_entry"
+	SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSourceRetainedTemplate SessionDecisionIDVerificationsDocumentSelfieFaceMatchesSource = "retained_template"
+)
+
+// SessionDecisionIDVerificationsFrontImageQualityScore: Quality metrics for the
+// front document image. Each sub-score ranges from 0 to 100.
+type SessionDecisionIDVerificationsFrontImageQualityScore struct {
+	// Sharpness of the image measured via top-10% local Laplacian variance. Robust
+	// to documents with large uniform backgrounds. Higher values indicate a
+	// sharper, less blurry image.
+	FocusScore float64 `json:"focus_score"`
+
+	// How well-lit the image is. Penalizes images that are too dark or overexposed,
+	// with ideal brightness around mid-range.
+	BrightnessScore float64 `json:"brightness_score"`
+
+	// Indicates the direction of the brightness problem when the brightness_score
+	// is low. 'ok' means brightness is acceptable, 'too_dark' means the image is
+	// underexposed, 'too_bright' means the image is overexposed.
+	BrightnessIssue SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssue `json:"brightness_issue"`
+
+	// true if all four corners of the document are fully visible inside the image
+	// frame, false if any corner is cut off. Null when corner coordinates are
+	// unavailable.
+	IsDocumentFullyVisible bool `json:"is_document_fully_visible"`
+
+	// Effective resolution of the image based on total pixel count.
+	ResolutionScore float64 `json:"resolution_score"`
+
+	// Weighted composite of sub-scores (focus 45%, brightness 30%, resolution 25%).
+	OverallScore float64 `json:"overall_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsFrontImageQualityScore leniently.
+func (r *SessionDecisionIDVerificationsFrontImageQualityScore) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssue:
+// Indicates the direction of the brightness problem when the brightness_score
+// is low. 'ok' means brightness is acceptable, 'too_dark' means the image is
+// underexposed, 'too_bright' means the image is overexposed.
+//
+// SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssue is a
+// string with known values below. The set is open: other values may appear and
+// never cause an error.
+type SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssue string
+
+// Known values of SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssue.
+const (
+	SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssueOk        SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssue = "ok"
+	SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssueTooDark   SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssue = "too_dark"
+	SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssueTooBright SessionDecisionIDVerificationsFrontImageQualityScoreBrightnessIssue = "too_bright"
+)
+
+// SessionDecisionIDVerificationsBackImageQualityScore: Quality metrics for the
+// back document image. Same structure as front_image_quality_score.
+type SessionDecisionIDVerificationsBackImageQualityScore struct {
+	// Sharpness of the image measured via top-10% local Laplacian variance. Robust
+	// to documents with large uniform backgrounds. Higher values indicate a
+	// sharper, less blurry image.
+	FocusScore float64 `json:"focus_score"`
+
+	// How well-lit the image is. Penalizes images that are too dark or overexposed,
+	// with ideal brightness around mid-range.
+	BrightnessScore float64 `json:"brightness_score"`
+
+	// Indicates the direction of the brightness problem when the brightness_score
+	// is low. 'ok' means brightness is acceptable, 'too_dark' means the image is
+	// underexposed, 'too_bright' means the image is overexposed.
+	BrightnessIssue SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssue `json:"brightness_issue"`
+
+	// true if all four corners of the document are fully visible inside the image
+	// frame, false if any corner is cut off. Null when corner coordinates are
+	// unavailable.
+	IsDocumentFullyVisible bool `json:"is_document_fully_visible"`
+
+	// Effective resolution of the image based on total pixel count.
+	ResolutionScore float64 `json:"resolution_score"`
+
+	// Weighted composite of sub-scores (focus 45%, brightness 30%, resolution 25%).
+	OverallScore float64 `json:"overall_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsBackImageQualityScore leniently.
+func (r *SessionDecisionIDVerificationsBackImageQualityScore) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssue: Indicates
+// the direction of the brightness problem when the brightness_score is low.
+// 'ok' means brightness is acceptable, 'too_dark' means the image is
+// underexposed, 'too_bright' means the image is overexposed.
+//
+// SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssue is a
+// string with known values below. The set is open: other values may appear and
+// never cause an error.
+type SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssue string
+
+// Known values of SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssue.
+const (
+	SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssueOk        SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssue = "ok"
+	SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssueTooDark   SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssue = "too_dark"
+	SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssueTooBright SessionDecisionIDVerificationsBackImageQualityScoreBrightnessIssue = "too_bright"
+)
+
+// SessionDecisionIDVerificationsWarnings is a response object.
+type SessionDecisionIDVerificationsWarnings struct {
+	// The feature that generated this warning (e.g., `ID_VERIFICATION`, `NFC`,
+	// `LIVENESS`). The value identifies the feature block the warning belongs to.
+	// Each module's warnings array typically uses the value matching its module,
+	// but the enum above is authoritative across all feature warnings on the
+	// decision payload.
+	Feature SessionDecisionIDVerificationsWarningsFeature `json:"feature"`
+	Risk    string                                        `json:"risk"`
+
+	// Additional contextual data about the warning
+	AdditionalData map[string]any `json:"additional_data"`
+
+	// Type of log: information, warning, or error
+	LogType          string `json:"log_type"`
+	ShortDescription string `json:"short_description"`
+	LongDescription  string `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning (for graph-based
+	// workflows)
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsWarnings leniently.
+func (r *SessionDecisionIDVerificationsWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsWarningsFeature: The feature that generated
+// this warning (e.g., `ID_VERIFICATION`, `NFC`, `LIVENESS`). The value
+// identifies the feature block the warning belongs to. Each module's warnings
+// array typically uses the value matching its module, but the enum above is
+// authoritative across all feature warnings on the decision payload.
+//
+// SessionDecisionIDVerificationsWarningsFeature is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionIDVerificationsWarningsFeature string
+
+// Known values of SessionDecisionIDVerificationsWarningsFeature.
+const (
+	SessionDecisionIDVerificationsWarningsFeatureIDVerification     SessionDecisionIDVerificationsWarningsFeature = "ID_VERIFICATION"
+	SessionDecisionIDVerificationsWarningsFeatureNFC                SessionDecisionIDVerificationsWarningsFeature = "NFC"
+	SessionDecisionIDVerificationsWarningsFeatureLiveness           SessionDecisionIDVerificationsWarningsFeature = "LIVENESS"
+	SessionDecisionIDVerificationsWarningsFeatureFacematch          SessionDecisionIDVerificationsWarningsFeature = "FACEMATCH"
+	SessionDecisionIDVerificationsWarningsFeatureProofOfAddress     SessionDecisionIDVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
+	SessionDecisionIDVerificationsWarningsFeaturePhone              SessionDecisionIDVerificationsWarningsFeature = "PHONE"
+	SessionDecisionIDVerificationsWarningsFeatureEmail              SessionDecisionIDVerificationsWarningsFeature = "EMAIL"
+	SessionDecisionIDVerificationsWarningsFeatureAML                SessionDecisionIDVerificationsWarningsFeature = "AML"
+	SessionDecisionIDVerificationsWarningsFeatureLocation           SessionDecisionIDVerificationsWarningsFeature = "LOCATION"
+	SessionDecisionIDVerificationsWarningsFeatureDatabaseValidation SessionDecisionIDVerificationsWarningsFeature = "DATABASE_VALIDATION"
+	SessionDecisionIDVerificationsWarningsFeatureQuestionnaire      SessionDecisionIDVerificationsWarningsFeature = "QUESTIONNAIRE"
+	SessionDecisionIDVerificationsWarningsFeatureDocumentAi         SessionDecisionIDVerificationsWarningsFeature = "DOCUMENT_AI"
+	SessionDecisionIDVerificationsWarningsFeatureKYBRegistry        SessionDecisionIDVerificationsWarningsFeature = "KYB_REGISTRY"
+	SessionDecisionIDVerificationsWarningsFeatureKYBDocuments       SessionDecisionIDVerificationsWarningsFeature = "KYB_DOCUMENTS"
+	SessionDecisionIDVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionIDVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+)
+
+// SessionDecisionIDVerificationsMatches is a response object.
+type SessionDecisionIDVerificationsMatches struct {
+	// Session ID of the matching document
+	SessionID string `json:"session_id"`
+
+	// Session number of the matching document
+	SessionNumber int64 `json:"session_number"`
+
+	// Vendor data associated with the matching session
+	VendorData string `json:"vendor_data"`
+
+	// Date when the matching session was verified
+	VerificationDate time.Time                                        `json:"verification_date"`
+	UserDetails      SessionDecisionIDVerificationsMatchesUserDetails `json:"user_details"`
+
+	// Status of the matching session
+	Status string `json:"status"`
+
+	// Whether the matching document is blocklisted
+	IsBlocklisted bool `json:"is_blocklisted"`
+
+	// API service type of the matching session
+	APIService string `json:"api_service"`
+
+	// URL of the front document image from the matching document
+	FrontImageURL string `json:"front_image_url"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsMatches leniently.
+func (r *SessionDecisionIDVerificationsMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsMatchesUserDetails is a response object.
+type SessionDecisionIDVerificationsMatchesUserDetails struct {
+	// Full name from the matching document
+	Name string `json:"name"`
+
+	// Type of the matching document
+	DocumentType string `json:"document_type"`
+
+	// Document number of the matching document
+	DocumentNumber string `json:"document_number"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsMatchesUserDetails leniently.
+func (r *SessionDecisionIDVerificationsMatchesUserDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsDocumentLiveness: Document-liveness scores per
+// fraud type, reported whether or not a warning fired, so an approved document
+// can still be audited. `null` when the check did not run.
+type SessionDecisionIDVerificationsDocumentLiveness struct {
+	PortraitReplace SessionDecisionIDVerificationsDocumentLivenessPortraitReplace `json:"portrait_replace"`
+	PrintedCopy     SessionDecisionIDVerificationsDocumentLivenessPrintedCopy     `json:"printed_copy"`
+	ScreenReplay    SessionDecisionIDVerificationsDocumentLivenessScreenReplay    `json:"screen_replay"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsDocumentLiveness leniently.
+func (r *SessionDecisionIDVerificationsDocumentLiveness) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsDocumentLivenessPortraitReplace is a response
+// object.
+type SessionDecisionIDVerificationsDocumentLivenessPortraitReplace struct {
+	// Likelihood that the document is genuine for this fraud type, 0-100 (higher =
+	// more likely genuine). The lowest of the two sides - the value the decision
+	// used. `null` when neither side produced a usable score.
+	Score float64 `json:"score"`
+
+	// Score for the front side; `null` when not captured or when the score was
+	// dropped.
+	Front float64 `json:"front"`
+
+	// Score for the back side; `null` when not captured or when the score was
+	// dropped.
+	Back float64 `json:"back"`
+
+	// The decline threshold saved when this document was evaluated. Later workflow
+	// edits do not change it. Null when historical evaluation evidence is
+	// unavailable.
+	DeclineThreshold float64 `json:"decline_threshold"`
+
+	// The review threshold saved when this document was evaluated. Later workflow
+	// edits do not change it. Null when historical evaluation evidence is
+	// unavailable.
+	ReviewThreshold float64 `json:"review_threshold"`
+
+	// The fraud-type bucket saved at evaluation time. Null when there is no usable
+	// score, the check was not applied, or historical evaluation evidence is
+	// unavailable. Later workflow edits do not change it.
+	Bucket SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucket `json:"bucket"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsDocumentLivenessPortraitReplace leniently.
+func (r *SessionDecisionIDVerificationsDocumentLivenessPortraitReplace) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucket: The
+// fraud-type bucket saved at evaluation time. Null when there is no usable
+// score, the check was not applied, or historical evaluation evidence is
+// unavailable. Later workflow edits do not change it.
+//
+// SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucket is a
+// string with known values below. The set is open: other values may appear and
+// never cause an error.
+type SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucket string
+
+// Known values of SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucket.
+const (
+	SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucketApprove SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucket = "approve"
+	SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucketReview  SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucket = "review"
+	SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucketDecline SessionDecisionIDVerificationsDocumentLivenessPortraitReplaceBucket = "decline"
+)
+
+// SessionDecisionIDVerificationsDocumentLivenessPrintedCopy is a response
+// object.
+type SessionDecisionIDVerificationsDocumentLivenessPrintedCopy struct {
+	// Likelihood that the document is genuine for this fraud type, 0-100 (higher =
+	// more likely genuine). The lowest of the two sides - the value the decision
+	// used. `null` when neither side produced a usable score.
+	Score float64 `json:"score"`
+
+	// Score for the front side; `null` when not captured or when the score was
+	// dropped.
+	Front float64 `json:"front"`
+
+	// Score for the back side; `null` when not captured or when the score was
+	// dropped.
+	Back float64 `json:"back"`
+
+	// The decline threshold saved when this document was evaluated. Later workflow
+	// edits do not change it. Null when historical evaluation evidence is
+	// unavailable.
+	DeclineThreshold float64 `json:"decline_threshold"`
+
+	// The review threshold saved when this document was evaluated. Later workflow
+	// edits do not change it. Null when historical evaluation evidence is
+	// unavailable.
+	ReviewThreshold float64 `json:"review_threshold"`
+
+	// The fraud-type bucket saved at evaluation time. Null when there is no usable
+	// score, the check was not applied, or historical evaluation evidence is
+	// unavailable. Later workflow edits do not change it.
+	Bucket SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucket `json:"bucket"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsDocumentLivenessPrintedCopy leniently.
+func (r *SessionDecisionIDVerificationsDocumentLivenessPrintedCopy) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucket: The
+// fraud-type bucket saved at evaluation time. Null when there is no usable
+// score, the check was not applied, or historical evaluation evidence is
+// unavailable. Later workflow edits do not change it.
+//
+// SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucket is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucket string
+
+// Known values of SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucket.
+const (
+	SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucketApprove SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucket = "approve"
+	SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucketReview  SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucket = "review"
+	SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucketDecline SessionDecisionIDVerificationsDocumentLivenessPrintedCopyBucket = "decline"
+)
+
+// SessionDecisionIDVerificationsDocumentLivenessScreenReplay is a response
+// object.
+type SessionDecisionIDVerificationsDocumentLivenessScreenReplay struct {
+	// Likelihood that the document is genuine for this fraud type, 0-100 (higher =
+	// more likely genuine). The lowest of the two sides - the value the decision
+	// used. `null` when neither side produced a usable score.
+	Score float64 `json:"score"`
+
+	// Score for the front side; `null` when not captured or when the score was
+	// dropped.
+	Front float64 `json:"front"`
+
+	// Score for the back side; `null` when not captured or when the score was
+	// dropped.
+	Back float64 `json:"back"`
+
+	// The decline threshold saved when this document was evaluated. Later workflow
+	// edits do not change it. Null when historical evaluation evidence is
+	// unavailable.
+	DeclineThreshold float64 `json:"decline_threshold"`
+
+	// The review threshold saved when this document was evaluated. Later workflow
+	// edits do not change it. Null when historical evaluation evidence is
+	// unavailable.
+	ReviewThreshold float64 `json:"review_threshold"`
+
+	// The fraud-type bucket saved at evaluation time. Null when there is no usable
+	// score, the check was not applied, or historical evaluation evidence is
+	// unavailable. Later workflow edits do not change it.
+	Bucket SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucket `json:"bucket"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIDVerificationsDocumentLivenessScreenReplay leniently.
+func (r *SessionDecisionIDVerificationsDocumentLivenessScreenReplay) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucket: The
+// fraud-type bucket saved at evaluation time. Null when there is no usable
+// score, the check was not applied, or historical evaluation evidence is
+// unavailable. Later workflow edits do not change it.
+//
+// SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucket is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucket string
+
+// Known values of SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucket.
+const (
+	SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucketApprove SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucket = "approve"
+	SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucketReview  SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucket = "review"
+	SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucketDecline SessionDecisionIDVerificationsDocumentLivenessScreenReplayBucket = "decline"
+)
+
+// SessionDecisionNFCSkipReason: Why NFC chip verification did not run,
+// populated whenever the workflow includes an NFC step. `null` while NFC is
+// pending or when the chip was actually read. Values: `USER_SKIPPED` - the user
+// chose to skip on an NFC-capable device (allowed by `allow_nfc_skip`);
+// `DOCUMENT_WITHOUT_CHIP` - the document has no readable NFC chip (not an ICAO
+// 9303 electronic document); `CHIP_CERTIFICATE_UNAVAILABLE` - the issuing
+// country's signing certificate (CSCA) covering the document's issue period is
+// unavailable, so the chip signature cannot be verified; `DEVICE_WITHOUT_NFC` -
+// the device reported no NFC reader; `INTEGRATION_WITHOUT_NFC_ACCESS` - the
+// verification ran without a native SDK (e.g. in a web browser), which has no
+// access to the phone's NFC reader; `MRZ_KEY_UNAVAILABLE` - the chip access key
+// could not be derived from the document's MRZ; `JPKI_UNAVAILABLE` - the
+// document is a Japan My Number Card, whose chip is read through JPKI, and JPKI
+// was not available for this verification: it is not enabled, or the app's
+// native SDK cannot read My Number Cards.
+//
+// SessionDecisionNFCSkipReason is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SessionDecisionNFCSkipReason string
+
+// Known values of SessionDecisionNFCSkipReason.
+const (
+	SessionDecisionNFCSkipReasonUserSkipped                 SessionDecisionNFCSkipReason = "USER_SKIPPED"
+	SessionDecisionNFCSkipReasonDocumentWithoutChip         SessionDecisionNFCSkipReason = "DOCUMENT_WITHOUT_CHIP"
+	SessionDecisionNFCSkipReasonChipCertificateUnavailable  SessionDecisionNFCSkipReason = "CHIP_CERTIFICATE_UNAVAILABLE"
+	SessionDecisionNFCSkipReasonDeviceWithoutNFC            SessionDecisionNFCSkipReason = "DEVICE_WITHOUT_NFC"
+	SessionDecisionNFCSkipReasonIntegrationWithoutNFCAccess SessionDecisionNFCSkipReason = "INTEGRATION_WITHOUT_NFC_ACCESS"
+	SessionDecisionNFCSkipReasonMRZKeyUnavailable           SessionDecisionNFCSkipReason = "MRZ_KEY_UNAVAILABLE"
+	SessionDecisionNFCSkipReasonJpkiUnavailable             SessionDecisionNFCSkipReason = "JPKI_UNAVAILABLE"
+)
+
+// SessionDecisionNFCVerifications: One NFC report: the full report for a single
+// chip read (an ICAO 9303 ePassport or eID chip, or a Japan My Number Card read
+// through JPKI).
+type SessionDecisionNFCVerifications struct {
+	// Workflow graph node id of the NFC step that produced this report. Use it to
+	// correlate the report with the workflow definition.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this NFC step. Independent of the top-level session
+	// `status` - a session can reach its overall decision while an individual
+	// feature stays `In Review`.
+	Status SessionDecisionNFCVerificationsStatus `json:"status"`
+
+	// `true` when this NFC step was explicitly skipped instead of read;
+	// `skip_reason` says why.
+	IsNFCSkipped bool `json:"is_nfc_skipped"`
+
+	// Why this NFC step was skipped. Only set when `is_nfc_skipped` is `true`. Same
+	// taxonomy as the session-level `nfc_skip_reason`, which additionally covers
+	// the cases where NFC never produced a report at all.
+	SkipReason SessionDecisionNFCVerificationsSkipReason `json:"skip_reason"`
+
+	// How the NFC step reads the chip. `icao`: ICAO 9303 ePassport or eID chip,
+	// opened with the access key from the MRZ. `jpki`: Japan My Number Card, where
+	// the card signs a one-time challenge after the holder enters the card PIN in a
+	// native SDK; the result is under `jpki`. Also set on skipped steps, so you can
+	// tell a skipped My Number Card read apart.
+	ChipProtocol SessionDecisionNFCVerificationsChipProtocol `json:"chip_protocol"`
+
+	// What a Japan My Number Card read through JPKI proved. Present when
+	// `chip_protocol` is `jpki` and the card was read. `null` for ICAO chips, for
+	// skipped steps, and when the NFC step closed without any card read (that case
+	// raises `JPKI_SIGNATURE_INVALID`). Never carries the certificates, their
+	// serial numbers, the signatures or the 12-digit My Number.
+	Jpki SessionDecisionNFCVerificationsJpki `json:"jpki"`
+
+	// Presigned URL to the portrait read from the chip (ICAO DG2). `null` for a
+	// JPKI read (`chip_protocol: "jpki"`) and for skipped steps.
+	PortraitImage string `json:"portrait_image"`
+
+	// Presigned URL to the holder's signature image read from the chip (ICAO DG7),
+	// when the chip stores one. `null` for a JPKI read (`chip_protocol: "jpki"`)
+	// and for skipped steps.
+	SignatureImage string `json:"signature_image"`
+
+	// Personal data parsed from the ICAO chip's Data Groups. `null` for a JPKI read
+	// (`chip_protocol: "jpki"`) and for skipped steps.
+	ChipData SessionDecisionNFCVerificationsChipData `json:"chip_data"`
+
+	// ICAO passive authentication: SOD signature (`sod_integrity`) and Data Group
+	// hashes (`dg_integrity`). `null` for a JPKI read, which reports its proof
+	// under `jpki`.
+	Authenticity SessionDecisionNFCVerificationsAuthenticity `json:"authenticity"`
+
+	// Summary of the ICAO Document Signer Certificate. `null` for a JPKI read
+	// (`chip_protocol: "jpki"`) and for skipped steps.
+	CertificateSummary SessionDecisionNFCVerificationsCertificateSummary `json:"certificate_summary"`
+	Warnings           []SessionDecisionNFCVerificationsWarnings         `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionNFCVerifications leniently.
+func (r *SessionDecisionNFCVerifications) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionNFCVerificationsStatus: Feature-level status of this NFC step.
+// Independent of the top-level session `status` - a session can reach its
+// overall decision while an individual feature stays `In Review`.
+//
+// SessionDecisionNFCVerificationsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionNFCVerificationsStatus string
+
+// Known values of SessionDecisionNFCVerificationsStatus.
+const (
+	SessionDecisionNFCVerificationsStatusNotFinished    SessionDecisionNFCVerificationsStatus = "Not Finished"
+	SessionDecisionNFCVerificationsStatusApproved       SessionDecisionNFCVerificationsStatus = "Approved"
+	SessionDecisionNFCVerificationsStatusDeclined       SessionDecisionNFCVerificationsStatus = "Declined"
+	SessionDecisionNFCVerificationsStatusInReview       SessionDecisionNFCVerificationsStatus = "In Review"
+	SessionDecisionNFCVerificationsStatusResubRequested SessionDecisionNFCVerificationsStatus = "Resub Requested"
+)
+
+// SessionDecisionNFCVerificationsSkipReason: Why this NFC step was skipped.
+// Only set when `is_nfc_skipped` is `true`. Same taxonomy as the session-level
+// `nfc_skip_reason`, which additionally covers the cases where NFC never
+// produced a report at all.
+//
+// SessionDecisionNFCVerificationsSkipReason is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionNFCVerificationsSkipReason string
+
+// Known values of SessionDecisionNFCVerificationsSkipReason.
+const (
+	SessionDecisionNFCVerificationsSkipReasonUserSkipped                 SessionDecisionNFCVerificationsSkipReason = "USER_SKIPPED"
+	SessionDecisionNFCVerificationsSkipReasonDocumentWithoutChip         SessionDecisionNFCVerificationsSkipReason = "DOCUMENT_WITHOUT_CHIP"
+	SessionDecisionNFCVerificationsSkipReasonChipCertificateUnavailable  SessionDecisionNFCVerificationsSkipReason = "CHIP_CERTIFICATE_UNAVAILABLE"
+	SessionDecisionNFCVerificationsSkipReasonDeviceWithoutNFC            SessionDecisionNFCVerificationsSkipReason = "DEVICE_WITHOUT_NFC"
+	SessionDecisionNFCVerificationsSkipReasonIntegrationWithoutNFCAccess SessionDecisionNFCVerificationsSkipReason = "INTEGRATION_WITHOUT_NFC_ACCESS"
+	SessionDecisionNFCVerificationsSkipReasonMRZKeyUnavailable           SessionDecisionNFCVerificationsSkipReason = "MRZ_KEY_UNAVAILABLE"
+	SessionDecisionNFCVerificationsSkipReasonJpkiUnavailable             SessionDecisionNFCVerificationsSkipReason = "JPKI_UNAVAILABLE"
+)
+
+// SessionDecisionNFCVerificationsChipProtocol: How the NFC step reads the chip.
+// `icao`: ICAO 9303 ePassport or eID chip, opened with the access key from the
+// MRZ. `jpki`: Japan My Number Card, where the card signs a one-time challenge
+// after the holder enters the card PIN in a native SDK; the result is under
+// `jpki`. Also set on skipped steps, so you can tell a skipped My Number Card
+// read apart.
+//
+// SessionDecisionNFCVerificationsChipProtocol is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionNFCVerificationsChipProtocol string
+
+// Known values of SessionDecisionNFCVerificationsChipProtocol.
+const (
+	SessionDecisionNFCVerificationsChipProtocolIcao SessionDecisionNFCVerificationsChipProtocol = "icao"
+	SessionDecisionNFCVerificationsChipProtocolJpki SessionDecisionNFCVerificationsChipProtocol = "jpki"
+)
+
+// SessionDecisionNFCVerificationsJpki: What a Japan My Number Card read through
+// JPKI proved. Present when `chip_protocol` is `jpki` and the card was read.
+// `null` for ICAO chips, for skipped steps, and when the NFC step closed
+// without any card read (that case raises `JPKI_SIGNATURE_INVALID`). Never
+// carries the certificates, their serial numbers, the signatures or the
+// 12-digit My Number.
+type SessionDecisionNFCVerificationsJpki struct {
+	// The card certificates read. `user_authentication` (4-digit PIN) is always
+	// read; `signature` (signature PIN) is read when the NFC node's
+	// `jpki_request_attributes` setting is on.
+	CertificateTypes []SessionDecisionNFCVerificationsJpkiCertificateTypes `json:"certificate_types"`
+
+	// `true` when every certificate read chains to the JPKI certification
+	// authority, is inside its validity period and is a My Number Card certificate
+	// of its type.
+	ChainValid bool `json:"chain_valid"`
+
+	// `true` when every signature the card made over the one-time challenge
+	// verifies. The card only signs after its PIN is entered, so this proves
+	// possession of the card and knowledge of the PIN.
+	SignatureValid bool `json:"signature_valid"`
+
+	// `good` when the revocation check confirmed every certificate is valid,
+	// `revoked` when any certificate is revoked (for example a card reported lost),
+	// `unchecked` when no revocation answer was available. `unchecked` is never
+	// treated as `good`: the NFC node's `jpki_revocation_unchecked_action` decides
+	// the outcome (default `REVIEW`).
+	RevocationStatus SessionDecisionNFCVerificationsJpkiRevocationStatus `json:"revocation_status"`
+
+	// Generation of the JPKI certification authority that issued the certificates,
+	// for example `2023`. `null` when no certificate chains to one.
+	CaGeneration string `json:"ca_generation"`
+
+	// The earliest expiry among the certificates read.
+	CertificateExpiresAt time.Time `json:"certificate_expires_at"`
+
+	// Per-certificate results, one entry per certificate read.
+	Certificates []SessionDecisionNFCVerificationsJpkiCertificates `json:"certificates"`
+
+	// The holder's data from the signature certificate, once its chain is valid.
+	// `null` when the signature certificate was not requested or did not chain to
+	// the JPKI certification authority.
+	Attributes SessionDecisionNFCVerificationsJpkiAttributes `json:"attributes"`
+
+	// `true` when the attributes match the data read from the photo of the same
+	// card, `false` when any attribute differs (`JPKI_AND_OCR_DATA_NOT_SAME`),
+	// `null` when nothing could be compared, including whenever `attributes` is
+	// `null`.
+	AttributesMatchOCR bool `json:"attributes_match_ocr"`
+
+	// Names of the attributes that differ from the photo data, never their values.
+	// Empty when everything compared matches.
+	MismatchedAttributes []SessionDecisionNFCVerificationsJpkiMismatchedAttributes `json:"mismatched_attributes"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionNFCVerificationsJpki leniently.
+func (r *SessionDecisionNFCVerificationsJpki) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionNFCVerificationsJpkiCertificateTypes is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionNFCVerificationsJpkiCertificateTypes string
+
+// Known values of SessionDecisionNFCVerificationsJpkiCertificateTypes.
+const (
+	SessionDecisionNFCVerificationsJpkiCertificateTypesUserAuthentication SessionDecisionNFCVerificationsJpkiCertificateTypes = "user_authentication"
+	SessionDecisionNFCVerificationsJpkiCertificateTypesSignature          SessionDecisionNFCVerificationsJpkiCertificateTypes = "signature"
+)
+
+// SessionDecisionNFCVerificationsJpkiRevocationStatus: `good` when the
+// revocation check confirmed every certificate is valid, `revoked` when any
+// certificate is revoked (for example a card reported lost), `unchecked` when
+// no revocation answer was available. `unchecked` is never treated as `good`:
+// the NFC node's `jpki_revocation_unchecked_action` decides the outcome
+// (default `REVIEW`).
+//
+// SessionDecisionNFCVerificationsJpkiRevocationStatus is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionNFCVerificationsJpkiRevocationStatus string
+
+// Known values of SessionDecisionNFCVerificationsJpkiRevocationStatus.
+const (
+	SessionDecisionNFCVerificationsJpkiRevocationStatusGood      SessionDecisionNFCVerificationsJpkiRevocationStatus = "good"
+	SessionDecisionNFCVerificationsJpkiRevocationStatusRevoked   SessionDecisionNFCVerificationsJpkiRevocationStatus = "revoked"
+	SessionDecisionNFCVerificationsJpkiRevocationStatusUnchecked SessionDecisionNFCVerificationsJpkiRevocationStatus = "unchecked"
+)
+
+// SessionDecisionNFCVerificationsJpkiCertificates: What one certificate read
+// from the card proved. Never the certificate itself or its serial number.
+type SessionDecisionNFCVerificationsJpkiCertificates struct {
+	// Which card certificate this entry describes.
+	Type SessionDecisionNFCVerificationsJpkiCertificatesType `json:"type"`
+
+	// `true` when the certificate chains to the JPKI certification authority of its
+	// type, is inside its validity period and is a My Number Card certificate of
+	// that type.
+	ChainValid bool `json:"chain_valid"`
+
+	// `true` when the card's signature over the one-time challenge verifies against
+	// this certificate.
+	SignatureValid bool `json:"signature_valid"`
+
+	// Generation of the JPKI certification authority that issued the certificate,
+	// for example `2023`. `null` when no trusted issuer was found.
+	CaGeneration string `json:"ca_generation"`
+
+	// Start of the certificate's validity period. `null` when the certificate could
+	// not be read.
+	NotValidBefore time.Time `json:"not_valid_before"`
+
+	// End of the certificate's validity period. `null` when the certificate could
+	// not be read.
+	NotValidAfter time.Time `json:"not_valid_after"`
+
+	// Why `chain_valid` is `false`: `unreadable_certificate`, `untrusted_issuer`
+	// (not issued by the JPKI certification authority of its type), `expired`,
+	// `not_yet_valid`, `wrong_policy` (not a My Number Card certificate of that
+	// type) or `key_usage` (the key may not sign). `null` when the chain is valid.
+	Failure SessionDecisionNFCVerificationsJpkiCertificatesFailure `json:"failure"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionNFCVerificationsJpkiCertificates leniently.
+func (r *SessionDecisionNFCVerificationsJpkiCertificates) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionNFCVerificationsJpkiCertificatesType: Which card certificate
+// this entry describes.
+//
+// SessionDecisionNFCVerificationsJpkiCertificatesType is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionNFCVerificationsJpkiCertificatesType string
+
+// Known values of SessionDecisionNFCVerificationsJpkiCertificatesType.
+const (
+	SessionDecisionNFCVerificationsJpkiCertificatesTypeUserAuthentication SessionDecisionNFCVerificationsJpkiCertificatesType = "user_authentication"
+	SessionDecisionNFCVerificationsJpkiCertificatesTypeSignature          SessionDecisionNFCVerificationsJpkiCertificatesType = "signature"
+)
+
+// SessionDecisionNFCVerificationsJpkiCertificatesFailure: Why `chain_valid` is
+// `false`: `unreadable_certificate`, `untrusted_issuer` (not issued by the JPKI
+// certification authority of its type), `expired`, `not_yet_valid`,
+// `wrong_policy` (not a My Number Card certificate of that type) or `key_usage`
+// (the key may not sign). `null` when the chain is valid.
+//
+// SessionDecisionNFCVerificationsJpkiCertificatesFailure is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionNFCVerificationsJpkiCertificatesFailure string
+
+// Known values of SessionDecisionNFCVerificationsJpkiCertificatesFailure.
+const (
+	SessionDecisionNFCVerificationsJpkiCertificatesFailureUnreadableCertificate SessionDecisionNFCVerificationsJpkiCertificatesFailure = "unreadable_certificate"
+	SessionDecisionNFCVerificationsJpkiCertificatesFailureUntrustedIssuer       SessionDecisionNFCVerificationsJpkiCertificatesFailure = "untrusted_issuer"
+	SessionDecisionNFCVerificationsJpkiCertificatesFailureExpired               SessionDecisionNFCVerificationsJpkiCertificatesFailure = "expired"
+	SessionDecisionNFCVerificationsJpkiCertificatesFailureNotYetValid           SessionDecisionNFCVerificationsJpkiCertificatesFailure = "not_yet_valid"
+	SessionDecisionNFCVerificationsJpkiCertificatesFailureWrongPolicy           SessionDecisionNFCVerificationsJpkiCertificatesFailure = "wrong_policy"
+	SessionDecisionNFCVerificationsJpkiCertificatesFailureKeyUsage              SessionDecisionNFCVerificationsJpkiCertificatesFailure = "key_usage"
+)
+
+// SessionDecisionNFCVerificationsJpkiAttributes: The holder's data from the
+// signature certificate, once its chain is valid. `null` when the signature
+// certificate was not requested or did not chain to the JPKI certification
+// authority.
+type SessionDecisionNFCVerificationsJpkiAttributes struct {
+	// Name as registered, usually in Japanese script.
+	FullName string `json:"full_name"`
+
+	// Date of birth, `YYYY-MM-DD`. `null` when the registered date is incomplete.
+	DateOfBirth string `json:"date_of_birth"`
+
+	// `M`, `F`, or `null` when not registered.
+	Gender SessionDecisionNFCVerificationsJpkiAttributesGender `json:"gender"`
+
+	// Registered address.
+	Address string `json:"address"`
+
+	// Position string marking the characters of `full_name` that were replaced by a
+	// substitute because the original character is outside the standard character
+	// set. `null` when none were replaced.
+	NameSubstituteCharacters string `json:"name_substitute_characters"`
+
+	// Position string marking substitute characters in `address`, as for
+	// `name_substitute_characters`.
+	AddressSubstituteCharacters string `json:"address_substitute_characters"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionNFCVerificationsJpkiAttributes leniently.
+func (r *SessionDecisionNFCVerificationsJpkiAttributes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionNFCVerificationsJpkiAttributesGender: `M`, `F`, or `null` when
+// not registered.
+//
+// SessionDecisionNFCVerificationsJpkiAttributesGender is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionNFCVerificationsJpkiAttributesGender string
+
+// Known values of SessionDecisionNFCVerificationsJpkiAttributesGender.
+const (
+	SessionDecisionNFCVerificationsJpkiAttributesGenderM SessionDecisionNFCVerificationsJpkiAttributesGender = "M"
+	SessionDecisionNFCVerificationsJpkiAttributesGenderF SessionDecisionNFCVerificationsJpkiAttributesGender = "F"
+)
+
+// SessionDecisionNFCVerificationsJpkiMismatchedAttributes is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionDecisionNFCVerificationsJpkiMismatchedAttributes string
+
+// Known values of SessionDecisionNFCVerificationsJpkiMismatchedAttributes.
+const (
+	SessionDecisionNFCVerificationsJpkiMismatchedAttributesFullName    SessionDecisionNFCVerificationsJpkiMismatchedAttributes = "full_name"
+	SessionDecisionNFCVerificationsJpkiMismatchedAttributesDateOfBirth SessionDecisionNFCVerificationsJpkiMismatchedAttributes = "date_of_birth"
+	SessionDecisionNFCVerificationsJpkiMismatchedAttributesGender      SessionDecisionNFCVerificationsJpkiMismatchedAttributes = "gender"
+	SessionDecisionNFCVerificationsJpkiMismatchedAttributesAddress     SessionDecisionNFCVerificationsJpkiMismatchedAttributes = "address"
+)
+
+// SessionDecisionNFCVerificationsChipData: Personal data parsed from the ICAO
+// chip's Data Groups. `null` for a JPKI read (`chip_protocol: "jpki"`) and for
+// skipped steps.
+type SessionDecisionNFCVerificationsChipData struct {
+	DocumentType   string `json:"document_type"`
+	IssuingCountry string `json:"issuing_country"`
+	DocumentNumber string `json:"document_number"`
+	ExpirationDate string `json:"expiration_date"`
+	FirstName      string `json:"first_name"`
+	LastName       string `json:"last_name"`
+	BirthDate      string `json:"birth_date"`
+	Gender         string `json:"gender"`
+	Nationality    string `json:"nationality"`
+	Address        string `json:"address"`
+	PlaceOfBirth   string `json:"place_of_birth"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionNFCVerificationsChipData leniently.
+func (r *SessionDecisionNFCVerificationsChipData) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionNFCVerificationsAuthenticity: ICAO passive authentication: SOD
+// signature (`sod_integrity`) and Data Group hashes (`dg_integrity`). `null`
+// for a JPKI read, which reports its proof under `jpki`.
+type SessionDecisionNFCVerificationsAuthenticity struct {
+	SodIntegrity bool `json:"sod_integrity"`
+	DgIntegrity  bool `json:"dg_integrity"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionNFCVerificationsAuthenticity leniently.
+func (r *SessionDecisionNFCVerificationsAuthenticity) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionNFCVerificationsCertificateSummary: Summary of the ICAO
+// Document Signer Certificate. `null` for a JPKI read (`chip_protocol: "jpki"`)
+// and for skipped steps.
+type SessionDecisionNFCVerificationsCertificateSummary struct {
+	Issuer         string    `json:"issuer"`
+	Subject        string    `json:"subject"`
+	SerialNumber   string    `json:"serial_number"`
+	NotValidAfter  time.Time `json:"not_valid_after"`
+	NotValidBefore time.Time `json:"not_valid_before"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionNFCVerificationsCertificateSummary leniently.
+func (r *SessionDecisionNFCVerificationsCertificateSummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionNFCVerificationsWarnings is a response object.
+type SessionDecisionNFCVerificationsWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Each module's warnings array typically uses the
+	// value matching its module (e.g. `PHONE` inside
+	// `phone_verifications[].warnings`), but the enum above is authoritative across
+	// all feature warnings on the decision payload.
+	Feature          SessionDecisionNFCVerificationsWarningsFeature `json:"feature"`
+	Risk             string                                         `json:"risk"`
+	AdditionalData   map[string]any                                 `json:"additional_data"`
+	LogType          string                                         `json:"log_type"`
+	ShortDescription string                                         `json:"short_description"`
+	LongDescription  string                                         `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionNFCVerificationsWarnings leniently.
+func (r *SessionDecisionNFCVerificationsWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionNFCVerificationsWarningsFeature: The feature that generated
+// this warning. The value identifies the feature block the warning belongs to.
+// Each module's warnings array typically uses the value matching its module
+// (e.g. `PHONE` inside `phone_verifications[].warnings`), but the enum above is
+// authoritative across all feature warnings on the decision payload.
+//
+// SessionDecisionNFCVerificationsWarningsFeature is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionNFCVerificationsWarningsFeature string
+
+// Known values of SessionDecisionNFCVerificationsWarningsFeature.
+const (
+	SessionDecisionNFCVerificationsWarningsFeatureIDVerification     SessionDecisionNFCVerificationsWarningsFeature = "ID_VERIFICATION"
+	SessionDecisionNFCVerificationsWarningsFeatureNFC                SessionDecisionNFCVerificationsWarningsFeature = "NFC"
+	SessionDecisionNFCVerificationsWarningsFeatureLiveness           SessionDecisionNFCVerificationsWarningsFeature = "LIVENESS"
+	SessionDecisionNFCVerificationsWarningsFeatureFacematch          SessionDecisionNFCVerificationsWarningsFeature = "FACEMATCH"
+	SessionDecisionNFCVerificationsWarningsFeatureProofOfAddress     SessionDecisionNFCVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
+	SessionDecisionNFCVerificationsWarningsFeaturePhone              SessionDecisionNFCVerificationsWarningsFeature = "PHONE"
+	SessionDecisionNFCVerificationsWarningsFeatureEmail              SessionDecisionNFCVerificationsWarningsFeature = "EMAIL"
+	SessionDecisionNFCVerificationsWarningsFeatureAML                SessionDecisionNFCVerificationsWarningsFeature = "AML"
+	SessionDecisionNFCVerificationsWarningsFeatureLocation           SessionDecisionNFCVerificationsWarningsFeature = "LOCATION"
+	SessionDecisionNFCVerificationsWarningsFeatureDatabaseValidation SessionDecisionNFCVerificationsWarningsFeature = "DATABASE_VALIDATION"
+	SessionDecisionNFCVerificationsWarningsFeatureQuestionnaire      SessionDecisionNFCVerificationsWarningsFeature = "QUESTIONNAIRE"
+	SessionDecisionNFCVerificationsWarningsFeatureDocumentAi         SessionDecisionNFCVerificationsWarningsFeature = "DOCUMENT_AI"
+	SessionDecisionNFCVerificationsWarningsFeatureKYBRegistry        SessionDecisionNFCVerificationsWarningsFeature = "KYB_REGISTRY"
+	SessionDecisionNFCVerificationsWarningsFeatureKYBDocuments       SessionDecisionNFCVerificationsWarningsFeature = "KYB_DOCUMENTS"
+	SessionDecisionNFCVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionNFCVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+)
+
+// SessionDecisionLivenessChecks: One liveness report - the full report for a
+// single liveness pass.
+type SessionDecisionLivenessChecks struct {
+	// Workflow graph node id of the liveness step that produced this report.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this liveness step. Independent of the top-level
+	// session `status` - a session can reach its overall decision while an
+	// individual feature stays `In Review`.
+	Status SessionDecisionLivenessChecksStatus `json:"status"`
+
+	// Method used for liveness detection
+	Method string `json:"method"`
+
+	// Confidence score of the liveness check
+	Score float64 `json:"score"`
+
+	// URL of the reference image used
+	ReferenceImage string `json:"reference_image"`
+
+	// URL of the liveness check video
+	VideoURL string `json:"video_url"`
+
+	// Estimated age of the person
+	AgeEstimation float64 `json:"age_estimation"`
+
+	// Similar faces found by the duplicate-face search (top matches,
+	// blocklisted/allowlisted entries first). Each entry's `source` tells you where
+	// the matching face came from: `session` (another verification session),
+	// `imported` (a face uploaded against a vendor user), `list_entry` (an
+	// org-managed allow/block list face), or `retained_template` (an image-free
+	// biometric template stored on a User, listed under
+	// `/v3/biometric-templates/`). `session_id`, `session_number`, `status` and
+	// `api_service` are `null` for non-session sources. `imported` matches still
+	// populate `vendor_data`, `verification_date` and - when the vendor user has a
+	// name on file - `user_details` (with `full_name` only) from the vendor-user
+	// record; `retained_template` matches populate `vendor_user_id`, `vendor_data`,
+	// `biometric_template_id` and `verification_date`, while their image and
+	// identity fields are `null`; `list_entry` matches return all of these as
+	// `null`.
+	Matches  []SessionDecisionLivenessChecksMatches  `json:"matches"`
+	Warnings []SessionDecisionLivenessChecksWarnings `json:"warnings"`
+
+	// Face image quality score (0-100%). Only available for passive liveness.
+	FaceQuality float64 `json:"face_quality"`
+
+	// Face luminance/brightness score (0-100%). Only available for passive
+	// liveness.
+	FaceLuminance float64 `json:"face_luminance"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLivenessChecks leniently.
+func (r *SessionDecisionLivenessChecks) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLivenessChecksStatus: Feature-level status of this liveness
+// step. Independent of the top-level session `status` - a session can reach its
+// overall decision while an individual feature stays `In Review`.
+//
+// SessionDecisionLivenessChecksStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SessionDecisionLivenessChecksStatus string
+
+// Known values of SessionDecisionLivenessChecksStatus.
+const (
+	SessionDecisionLivenessChecksStatusNotFinished    SessionDecisionLivenessChecksStatus = "Not Finished"
+	SessionDecisionLivenessChecksStatusApproved       SessionDecisionLivenessChecksStatus = "Approved"
+	SessionDecisionLivenessChecksStatusDeclined       SessionDecisionLivenessChecksStatus = "Declined"
+	SessionDecisionLivenessChecksStatusInReview       SessionDecisionLivenessChecksStatus = "In Review"
+	SessionDecisionLivenessChecksStatusResubRequested SessionDecisionLivenessChecksStatus = "Resub Requested"
+)
+
+// SessionDecisionLivenessChecksMatches is a response object.
+type SessionDecisionLivenessChecksMatches struct {
+	// Session ID of the matching face. `null` when `source` is `imported`,
+	// `list_entry`, or `retained_template`.
+	SessionID     string `json:"session_id"`
+	SessionNumber int64  `json:"session_number"`
+
+	// Face similarity between the two images, clamped to 0-100.
+	SimilarityPercentage float64 `json:"similarity_percentage"`
+
+	// `vendor_data` of the matching session or linked User for imported and
+	// retained-template faces.
+	VendorData string `json:"vendor_data"`
+
+	// Linked User id for `imported` and `retained_template` matches and for session
+	// matches linked to a User. `null` for list entries and sessions without a
+	// User.
+	VendorUserID string `json:"vendor_user_id"`
+
+	// Id of the retained biometric template. Set only when `source` is
+	// `retained_template`; `null` otherwise.
+	BiometricTemplateID string `json:"biometric_template_id"`
+
+	// When the matching face was captured, or when a retained template was created.
+	// `null` for list entries.
+	VerificationDate time.Time `json:"verification_date"`
+
+	// Identity data from the matching session or imported User profile. Always
+	// `null` for `retained_template` and `list_entry` matches.
+	UserDetails SessionDecisionLivenessChecksMatchesUserDetails `json:"user_details"`
+
+	// Reference image for image-backed matches. Always `null` for
+	// `retained_template` matches because retained templates contain no image.
+	MatchImageURL string `json:"match_image_url"`
+
+	// Lifecycle status of the matching session. `null` for non-session sources.
+	Status string `json:"status"`
+
+	// Whether the matching face is on a blocklist.
+	IsBlocklisted bool `json:"is_blocklisted"`
+
+	// Whether the matching face is on an allowlist.
+	IsAllowlisted bool `json:"is_allowlisted"`
+
+	// Standalone API service of the matching session (e.g. `PASSIVE_LIVENESS`,
+	// `FACE_MATCH`); `null` for workflow sessions and non-session sources.
+	APIService string `json:"api_service"`
+
+	// Origin of the matching face: `session`, `imported` (User face upload),
+	// `list_entry` (allow/block list), or `retained_template` (an image-free
+	// biometric template stored on a User, listed under
+	// `/v3/biometric-templates/`).
+	Source SessionDecisionLivenessChecksMatchesSource `json:"source"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLivenessChecksMatches leniently.
+func (r *SessionDecisionLivenessChecksMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLivenessChecksMatchesUserDetails: Identity data from the
+// matching session or imported User profile. Always `null` for
+// `retained_template` and `list_entry` matches.
+type SessionDecisionLivenessChecksMatchesUserDetails struct {
+	FullName       string `json:"full_name"`
+	DocumentType   string `json:"document_type"`
+	DocumentNumber string `json:"document_number"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLivenessChecksMatchesUserDetails leniently.
+func (r *SessionDecisionLivenessChecksMatchesUserDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLivenessChecksMatchesSource: Origin of the matching face:
+// `session`, `imported` (User face upload), `list_entry` (allow/block list), or
+// `retained_template` (an image-free biometric template stored on a User,
+// listed under `/v3/biometric-templates/`).
+//
+// SessionDecisionLivenessChecksMatchesSource is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionLivenessChecksMatchesSource string
+
+// Known values of SessionDecisionLivenessChecksMatchesSource.
+const (
+	SessionDecisionLivenessChecksMatchesSourceSession          SessionDecisionLivenessChecksMatchesSource = "session"
+	SessionDecisionLivenessChecksMatchesSourceImported         SessionDecisionLivenessChecksMatchesSource = "imported"
+	SessionDecisionLivenessChecksMatchesSourceListEntry        SessionDecisionLivenessChecksMatchesSource = "list_entry"
+	SessionDecisionLivenessChecksMatchesSourceRetainedTemplate SessionDecisionLivenessChecksMatchesSource = "retained_template"
+)
+
+// SessionDecisionLivenessChecksWarnings is a response object.
+type SessionDecisionLivenessChecksWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Each module's warnings array typically uses the
+	// value matching its module (e.g. `PHONE` inside
+	// `phone_verifications[].warnings`), but the enum above is authoritative across
+	// all feature warnings on the decision payload.
+	Feature          SessionDecisionLivenessChecksWarningsFeature `json:"feature"`
+	Risk             string                                       `json:"risk"`
+	AdditionalData   map[string]any                               `json:"additional_data"`
+	LogType          string                                       `json:"log_type"`
+	ShortDescription string                                       `json:"short_description"`
+	LongDescription  string                                       `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLivenessChecksWarnings leniently.
+func (r *SessionDecisionLivenessChecksWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLivenessChecksWarningsFeature: The feature that generated this
+// warning. The value identifies the feature block the warning belongs to. Each
+// module's warnings array typically uses the value matching its module (e.g.
+// `PHONE` inside `phone_verifications[].warnings`), but the enum above is
+// authoritative across all feature warnings on the decision payload.
+//
+// SessionDecisionLivenessChecksWarningsFeature is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionLivenessChecksWarningsFeature string
+
+// Known values of SessionDecisionLivenessChecksWarningsFeature.
+const (
+	SessionDecisionLivenessChecksWarningsFeatureIDVerification     SessionDecisionLivenessChecksWarningsFeature = "ID_VERIFICATION"
+	SessionDecisionLivenessChecksWarningsFeatureNFC                SessionDecisionLivenessChecksWarningsFeature = "NFC"
+	SessionDecisionLivenessChecksWarningsFeatureLiveness           SessionDecisionLivenessChecksWarningsFeature = "LIVENESS"
+	SessionDecisionLivenessChecksWarningsFeatureFacematch          SessionDecisionLivenessChecksWarningsFeature = "FACEMATCH"
+	SessionDecisionLivenessChecksWarningsFeatureProofOfAddress     SessionDecisionLivenessChecksWarningsFeature = "PROOF_OF_ADDRESS"
+	SessionDecisionLivenessChecksWarningsFeaturePhone              SessionDecisionLivenessChecksWarningsFeature = "PHONE"
+	SessionDecisionLivenessChecksWarningsFeatureEmail              SessionDecisionLivenessChecksWarningsFeature = "EMAIL"
+	SessionDecisionLivenessChecksWarningsFeatureAML                SessionDecisionLivenessChecksWarningsFeature = "AML"
+	SessionDecisionLivenessChecksWarningsFeatureLocation           SessionDecisionLivenessChecksWarningsFeature = "LOCATION"
+	SessionDecisionLivenessChecksWarningsFeatureDatabaseValidation SessionDecisionLivenessChecksWarningsFeature = "DATABASE_VALIDATION"
+	SessionDecisionLivenessChecksWarningsFeatureQuestionnaire      SessionDecisionLivenessChecksWarningsFeature = "QUESTIONNAIRE"
+	SessionDecisionLivenessChecksWarningsFeatureDocumentAi         SessionDecisionLivenessChecksWarningsFeature = "DOCUMENT_AI"
+	SessionDecisionLivenessChecksWarningsFeatureKYBRegistry        SessionDecisionLivenessChecksWarningsFeature = "KYB_REGISTRY"
+	SessionDecisionLivenessChecksWarningsFeatureKYBDocuments       SessionDecisionLivenessChecksWarningsFeature = "KYB_DOCUMENTS"
+	SessionDecisionLivenessChecksWarningsFeatureKYBKeyPeople       SessionDecisionLivenessChecksWarningsFeature = "KYB_KEY_PEOPLE"
+)
+
+// SessionDecisionFaceMatches: One face-match report - the full report.
+type SessionDecisionFaceMatches struct {
+	// Workflow graph node id of the face-match step that produced this report.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this face-match step. Independent of the top-level
+	// session `status` - a session can reach its overall decision while an
+	// individual feature stays `In Review`.
+	Status SessionDecisionFaceMatchesStatus `json:"status"`
+
+	// Confidence score of the face match
+	Score float64 `json:"score"`
+
+	// Session id under which the source (reference) portrait is stored. In
+	// biometric-authentication flows this is the session's own id (the submitted
+	// portrait is stored under the new session). `null` when the source image is
+	// the same session's document portrait.
+	SourceImageSessionID string `json:"source_image_session_id"`
+
+	// URL of the source image used for comparison
+	SourceImage string `json:"source_image"`
+
+	// URL of the target image used for comparison
+	TargetImage string `json:"target_image"`
+
+	// Face match verification warnings
+	Warnings []SessionDecisionFaceMatchesWarnings `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionFaceMatches leniently.
+func (r *SessionDecisionFaceMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionFaceMatchesStatus: Feature-level status of this face-match
+// step. Independent of the top-level session `status` - a session can reach its
+// overall decision while an individual feature stays `In Review`.
+//
+// SessionDecisionFaceMatchesStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type SessionDecisionFaceMatchesStatus string
+
+// Known values of SessionDecisionFaceMatchesStatus.
+const (
+	SessionDecisionFaceMatchesStatusNotFinished    SessionDecisionFaceMatchesStatus = "Not Finished"
+	SessionDecisionFaceMatchesStatusApproved       SessionDecisionFaceMatchesStatus = "Approved"
+	SessionDecisionFaceMatchesStatusDeclined       SessionDecisionFaceMatchesStatus = "Declined"
+	SessionDecisionFaceMatchesStatusInReview       SessionDecisionFaceMatchesStatus = "In Review"
+	SessionDecisionFaceMatchesStatusResubRequested SessionDecisionFaceMatchesStatus = "Resub Requested"
+)
+
+// SessionDecisionFaceMatchesWarnings is a response object.
+type SessionDecisionFaceMatchesWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Each module's warnings array typically uses the
+	// value matching its module (e.g. `PHONE` inside
+	// `phone_verifications[].warnings`), but the enum above is authoritative across
+	// all feature warnings on the decision payload.
+	Feature          SessionDecisionFaceMatchesWarningsFeature `json:"feature"`
+	Risk             string                                    `json:"risk"`
+	AdditionalData   map[string]any                            `json:"additional_data"`
+	LogType          string                                    `json:"log_type"`
+	ShortDescription string                                    `json:"short_description"`
+	LongDescription  string                                    `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionFaceMatchesWarnings leniently.
+func (r *SessionDecisionFaceMatchesWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionFaceMatchesWarningsFeature: The feature that generated this
+// warning. The value identifies the feature block the warning belongs to. Each
+// module's warnings array typically uses the value matching its module (e.g.
+// `PHONE` inside `phone_verifications[].warnings`), but the enum above is
+// authoritative across all feature warnings on the decision payload.
+//
+// SessionDecisionFaceMatchesWarningsFeature is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionFaceMatchesWarningsFeature string
+
+// Known values of SessionDecisionFaceMatchesWarningsFeature.
+const (
+	SessionDecisionFaceMatchesWarningsFeatureIDVerification     SessionDecisionFaceMatchesWarningsFeature = "ID_VERIFICATION"
+	SessionDecisionFaceMatchesWarningsFeatureNFC                SessionDecisionFaceMatchesWarningsFeature = "NFC"
+	SessionDecisionFaceMatchesWarningsFeatureLiveness           SessionDecisionFaceMatchesWarningsFeature = "LIVENESS"
+	SessionDecisionFaceMatchesWarningsFeatureFacematch          SessionDecisionFaceMatchesWarningsFeature = "FACEMATCH"
+	SessionDecisionFaceMatchesWarningsFeatureProofOfAddress     SessionDecisionFaceMatchesWarningsFeature = "PROOF_OF_ADDRESS"
+	SessionDecisionFaceMatchesWarningsFeaturePhone              SessionDecisionFaceMatchesWarningsFeature = "PHONE"
+	SessionDecisionFaceMatchesWarningsFeatureEmail              SessionDecisionFaceMatchesWarningsFeature = "EMAIL"
+	SessionDecisionFaceMatchesWarningsFeatureAML                SessionDecisionFaceMatchesWarningsFeature = "AML"
+	SessionDecisionFaceMatchesWarningsFeatureLocation           SessionDecisionFaceMatchesWarningsFeature = "LOCATION"
+	SessionDecisionFaceMatchesWarningsFeatureDatabaseValidation SessionDecisionFaceMatchesWarningsFeature = "DATABASE_VALIDATION"
+	SessionDecisionFaceMatchesWarningsFeatureQuestionnaire      SessionDecisionFaceMatchesWarningsFeature = "QUESTIONNAIRE"
+	SessionDecisionFaceMatchesWarningsFeatureDocumentAi         SessionDecisionFaceMatchesWarningsFeature = "DOCUMENT_AI"
+	SessionDecisionFaceMatchesWarningsFeatureKYBRegistry        SessionDecisionFaceMatchesWarningsFeature = "KYB_REGISTRY"
+	SessionDecisionFaceMatchesWarningsFeatureKYBDocuments       SessionDecisionFaceMatchesWarningsFeature = "KYB_DOCUMENTS"
+	SessionDecisionFaceMatchesWarningsFeatureKYBKeyPeople       SessionDecisionFaceMatchesWarningsFeature = "KYB_KEY_PEOPLE"
+)
+
+// SessionDecisionPhoneVerifications is a response object.
+type SessionDecisionPhoneVerifications struct {
+	// Unique identifier for this phone step in the workflow graph.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this phone verification step. Independent of the
+	// top-level session `status` - a session can reach its overall decision while
+	// an individual feature stays `In Review`.
+	Status SessionDecisionPhoneVerificationsStatus `json:"status"`
+
+	// Country calling code prefix
+	PhoneNumberPrefix string `json:"phone_number_prefix"`
+
+	// Phone number without country prefix
+	PhoneNumber string `json:"phone_number"`
+
+	// Complete phone number with country prefix
+	FullNumber string `json:"full_number"`
+
+	// Two-letter country code (ISO 3166-1 alpha-2)
+	CountryCode string `json:"country_code"`
+
+	// Full country name
+	CountryName string                                   `json:"country_name"`
+	Carrier     SessionDecisionPhoneVerificationsCarrier `json:"carrier"`
+
+	// Whether the phone number is from a disposable service
+	IsDisposable bool `json:"is_disposable"`
+
+	// Whether the phone number is virtual
+	IsVirtual bool `json:"is_virtual"`
+
+	// Method used to verify the phone number
+	VerificationMethod string `json:"verification_method"`
+
+	// Number of verification attempts made
+	VerificationAttempts int64 `json:"verification_attempts"`
+
+	// Timestamp when the phone was verified
+	VerifiedAt time.Time `json:"verified_at"`
+
+	// Chronological list of events in the phone verification lifecycle.
+	Lifecycle []SessionDecisionPhoneVerificationsLifecycle `json:"lifecycle"`
+
+	// List of warnings related to phone verification
+	Warnings []SessionDecisionPhoneVerificationsWarnings `json:"warnings"`
+
+	// Matches found for this phone number. Each match has a `source`: `session`
+	// (another verification session in your application matched on the same number,
+	// returned with
+	// `session_id`/`session_number`/`vendor_data`/`verification_date`) or
+	// `list_entry` (the number is on an org-managed allow/block list - see
+	// `/management-api/lists/overview`). Cross-session matches use different
+	// `vendor_data` and are capped at 5.
+	Matches []SessionDecisionPhoneVerificationsMatches `json:"matches"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPhoneVerifications leniently.
+func (r *SessionDecisionPhoneVerifications) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPhoneVerificationsStatus: Feature-level status of this phone
+// verification step. Independent of the top-level session `status` - a session
+// can reach its overall decision while an individual feature stays `In Review`.
+//
+// SessionDecisionPhoneVerificationsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionPhoneVerificationsStatus string
+
+// Known values of SessionDecisionPhoneVerificationsStatus.
+const (
+	SessionDecisionPhoneVerificationsStatusNotFinished SessionDecisionPhoneVerificationsStatus = "Not Finished"
+	SessionDecisionPhoneVerificationsStatusApproved    SessionDecisionPhoneVerificationsStatus = "Approved"
+	SessionDecisionPhoneVerificationsStatusDeclined    SessionDecisionPhoneVerificationsStatus = "Declined"
+	SessionDecisionPhoneVerificationsStatusInReview    SessionDecisionPhoneVerificationsStatus = "In Review"
+	SessionDecisionPhoneVerificationsStatusExpired     SessionDecisionPhoneVerificationsStatus = "Expired"
+)
+
+// SessionDecisionPhoneVerificationsCarrier is a response object.
+type SessionDecisionPhoneVerificationsCarrier struct {
+	// Name of the phone carrier
+	Name string `json:"name"`
+
+	// Type of phone line (mobile, landline, etc)
+	Type string `json:"type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPhoneVerificationsCarrier leniently.
+func (r *SessionDecisionPhoneVerificationsCarrier) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPhoneVerificationsLifecycle is a response object.
+type SessionDecisionPhoneVerificationsLifecycle struct {
+	Type      string    `json:"type"`
+	Timestamp time.Time `json:"timestamp"`
+
+	// Event-specific payload. Send events carry `status`, `reason`, `channel`,
+	// `actual_channel`; delivery events carry `channel`, `status`; code-check
+	// events carry `code_tried`, `status`; final status events carry `reason` - or
+	// `null` when there is no reason to report (e.g.
+	// `PHONE_VERIFICATION_APPROVED`).
+	Details SessionDecisionPhoneVerificationsLifecycleDetails `json:"details"`
+	Fee     float64                                           `json:"fee"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPhoneVerificationsLifecycle leniently.
+func (r *SessionDecisionPhoneVerificationsLifecycle) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPhoneVerificationsLifecycleDetails: Event-specific payload.
+// Send events carry `status`, `reason`, `channel`, `actual_channel`; delivery
+// events carry `channel`, `status`; code-check events carry `code_tried`,
+// `status`; final status events carry `reason` - or `null` when there is no
+// reason to report (e.g. `PHONE_VERIFICATION_APPROVED`).
+type SessionDecisionPhoneVerificationsLifecycleDetails struct {
+	Status        string `json:"status"`
+	Reason        string `json:"reason"`
+	Channel       string `json:"channel"`
+	ActualChannel string `json:"actual_channel"`
+	CodeTried     string `json:"code_tried"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPhoneVerificationsLifecycleDetails leniently.
+func (r *SessionDecisionPhoneVerificationsLifecycleDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPhoneVerificationsWarnings is a response object.
+type SessionDecisionPhoneVerificationsWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Each module's warnings array typically uses the
+	// value matching its module (e.g. `PHONE` inside
+	// `phone_verifications[].warnings`), but the enum above is authoritative across
+	// all feature warnings on the decision payload.
+	Feature          SessionDecisionPhoneVerificationsWarningsFeature `json:"feature"`
+	Risk             string                                           `json:"risk"`
+	AdditionalData   map[string]any                                   `json:"additional_data"`
+	LogType          string                                           `json:"log_type"`
+	ShortDescription string                                           `json:"short_description"`
+	LongDescription  string                                           `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPhoneVerificationsWarnings leniently.
+func (r *SessionDecisionPhoneVerificationsWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPhoneVerificationsWarningsFeature: The feature that generated
+// this warning. The value identifies the feature block the warning belongs to.
+// Each module's warnings array typically uses the value matching its module
+// (e.g. `PHONE` inside `phone_verifications[].warnings`), but the enum above is
+// authoritative across all feature warnings on the decision payload.
+//
+// SessionDecisionPhoneVerificationsWarningsFeature is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionPhoneVerificationsWarningsFeature string
+
+// Known values of SessionDecisionPhoneVerificationsWarningsFeature.
+const (
+	SessionDecisionPhoneVerificationsWarningsFeatureIDVerification     SessionDecisionPhoneVerificationsWarningsFeature = "ID_VERIFICATION"
+	SessionDecisionPhoneVerificationsWarningsFeatureNFC                SessionDecisionPhoneVerificationsWarningsFeature = "NFC"
+	SessionDecisionPhoneVerificationsWarningsFeatureLiveness           SessionDecisionPhoneVerificationsWarningsFeature = "LIVENESS"
+	SessionDecisionPhoneVerificationsWarningsFeatureFacematch          SessionDecisionPhoneVerificationsWarningsFeature = "FACEMATCH"
+	SessionDecisionPhoneVerificationsWarningsFeatureProofOfAddress     SessionDecisionPhoneVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
+	SessionDecisionPhoneVerificationsWarningsFeaturePhone              SessionDecisionPhoneVerificationsWarningsFeature = "PHONE"
+	SessionDecisionPhoneVerificationsWarningsFeatureEmail              SessionDecisionPhoneVerificationsWarningsFeature = "EMAIL"
+	SessionDecisionPhoneVerificationsWarningsFeatureAML                SessionDecisionPhoneVerificationsWarningsFeature = "AML"
+	SessionDecisionPhoneVerificationsWarningsFeatureLocation           SessionDecisionPhoneVerificationsWarningsFeature = "LOCATION"
+	SessionDecisionPhoneVerificationsWarningsFeatureDatabaseValidation SessionDecisionPhoneVerificationsWarningsFeature = "DATABASE_VALIDATION"
+	SessionDecisionPhoneVerificationsWarningsFeatureQuestionnaire      SessionDecisionPhoneVerificationsWarningsFeature = "QUESTIONNAIRE"
+	SessionDecisionPhoneVerificationsWarningsFeatureDocumentAi         SessionDecisionPhoneVerificationsWarningsFeature = "DOCUMENT_AI"
+	SessionDecisionPhoneVerificationsWarningsFeatureKYBRegistry        SessionDecisionPhoneVerificationsWarningsFeature = "KYB_REGISTRY"
+	SessionDecisionPhoneVerificationsWarningsFeatureKYBDocuments       SessionDecisionPhoneVerificationsWarningsFeature = "KYB_DOCUMENTS"
+	SessionDecisionPhoneVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionPhoneVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+)
+
+// SessionDecisionPhoneVerificationsMatches is a response object.
+type SessionDecisionPhoneVerificationsMatches struct {
+	SessionID        string    `json:"session_id"`
+	SessionNumber    int64     `json:"session_number"`
+	VendorData       string    `json:"vendor_data"`
+	VerificationDate time.Time `json:"verification_date"`
+	PhoneNumber      string    `json:"phone_number"`
+	Status           string    `json:"status"`
+	IsBlocklisted    bool      `json:"is_blocklisted"`
+	APIService       string    `json:"api_service"`
+
+	// Where this match came from. `session` means another verification session in
+	// your application matched on this value. `list_entry` means the value was hit
+	// against an org-managed list (allowlist/blocklist) - see the management API
+	// lists overview at `/management-api/lists/overview` for how to manage those
+	// lists.
+	Source SessionDecisionPhoneVerificationsMatchesSource `json:"source"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPhoneVerificationsMatches leniently.
+func (r *SessionDecisionPhoneVerificationsMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPhoneVerificationsMatchesSource: Where this match came from.
+// `session` means another verification session in your application matched on
+// this value. `list_entry` means the value was hit against an org-managed list
+// (allowlist/blocklist) - see the management API lists overview at
+// `/management-api/lists/overview` for how to manage those lists.
+//
+// SessionDecisionPhoneVerificationsMatchesSource is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionPhoneVerificationsMatchesSource string
+
+// Known values of SessionDecisionPhoneVerificationsMatchesSource.
+const (
+	SessionDecisionPhoneVerificationsMatchesSourceSession   SessionDecisionPhoneVerificationsMatchesSource = "session"
+	SessionDecisionPhoneVerificationsMatchesSourceListEntry SessionDecisionPhoneVerificationsMatchesSource = "list_entry"
+)
+
+// SessionDecisionEmailVerifications is a response object.
+type SessionDecisionEmailVerifications struct {
+	// Unique identifier for this email step in the workflow graph.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this email verification step. Independent of the
+	// top-level session `status` - a session can reach its overall decision while
+	// an individual feature stays `In Review`.
+	Status SessionDecisionEmailVerificationsStatus `json:"status"`
+
+	// The email address being verified
+	Email string `json:"email"`
+
+	// Indicates if the email was found in known data breaches
+	IsBreached bool `json:"is_breached"`
+
+	// List of known breaches this email was found in
+	Breaches []SessionDecisionEmailVerificationsBreaches `json:"breaches"`
+
+	// Indicates if the email is from a disposable provider
+	IsDisposable bool `json:"is_disposable"`
+
+	// Indicates if the email address is undeliverable
+	IsUndeliverable bool `json:"is_undeliverable"`
+
+	// Number of verification attempts for this email
+	VerificationAttempts int64 `json:"verification_attempts"`
+
+	// Timestamp when the email was verified
+	VerifiedAt time.Time `json:"verified_at"`
+
+	// List of warnings related to email verification
+	Warnings []SessionDecisionEmailVerificationsWarnings `json:"warnings"`
+
+	// Chronological list of events in the email verification lifecycle.
+	Lifecycle []SessionDecisionEmailVerificationsLifecycle `json:"lifecycle"`
+
+	// Matches found for this email address. Each match has a `source`: `session`
+	// (another verification session in your application matched on the same email,
+	// returned with
+	// `session_id`/`session_number`/`vendor_data`/`verification_date`) or
+	// `list_entry` (the email is on an org-managed allow/block list - see
+	// `/management-api/lists/overview`). Cross-session matches use different
+	// `vendor_data` and are capped at 5.
+	Matches []SessionDecisionEmailVerificationsMatches `json:"matches"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionEmailVerifications leniently.
+func (r *SessionDecisionEmailVerifications) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionEmailVerificationsStatus: Feature-level status of this email
+// verification step. Independent of the top-level session `status` - a session
+// can reach its overall decision while an individual feature stays `In Review`.
+//
+// SessionDecisionEmailVerificationsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionEmailVerificationsStatus string
+
+// Known values of SessionDecisionEmailVerificationsStatus.
+const (
+	SessionDecisionEmailVerificationsStatusNotFinished SessionDecisionEmailVerificationsStatus = "Not Finished"
+	SessionDecisionEmailVerificationsStatusApproved    SessionDecisionEmailVerificationsStatus = "Approved"
+	SessionDecisionEmailVerificationsStatusDeclined    SessionDecisionEmailVerificationsStatus = "Declined"
+	SessionDecisionEmailVerificationsStatusInReview    SessionDecisionEmailVerificationsStatus = "In Review"
+	SessionDecisionEmailVerificationsStatusExpired     SessionDecisionEmailVerificationsStatus = "Expired"
+)
+
+// SessionDecisionEmailVerificationsBreaches is a response object.
+type SessionDecisionEmailVerificationsBreaches struct {
+	// Name of the breach
+	Name string `json:"name"`
+
+	// Domain affected by the breach
+	Domain string `json:"domain"`
+
+	// URL to the logo of the breached service
+	LogoPath string `json:"logo_path"`
+
+	// Date when the breach occurred
+	BreachDate string `json:"breach_date"`
+
+	// Description of the breach
+	Description string `json:"description"`
+
+	// Whether the breach is verified
+	IsVerified bool `json:"is_verified"`
+
+	// Types of data exposed in the breach
+	DataClasses []string `json:"data_classes"`
+
+	// Number of email addresses affected in the breach
+	BreachEmailsCount int64 `json:"breach_emails_count"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionEmailVerificationsBreaches leniently.
+func (r *SessionDecisionEmailVerificationsBreaches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionEmailVerificationsWarnings is a response object.
+type SessionDecisionEmailVerificationsWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Each module's warnings array typically uses the
+	// value matching its module (e.g. `PHONE` inside
+	// `phone_verifications[].warnings`), but the enum above is authoritative across
+	// all feature warnings on the decision payload.
+	Feature          SessionDecisionEmailVerificationsWarningsFeature `json:"feature"`
+	Risk             string                                           `json:"risk"`
+	AdditionalData   map[string]any                                   `json:"additional_data"`
+	LogType          string                                           `json:"log_type"`
+	ShortDescription string                                           `json:"short_description"`
+	LongDescription  string                                           `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionEmailVerificationsWarnings leniently.
+func (r *SessionDecisionEmailVerificationsWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionEmailVerificationsWarningsFeature: The feature that generated
+// this warning. The value identifies the feature block the warning belongs to.
+// Each module's warnings array typically uses the value matching its module
+// (e.g. `PHONE` inside `phone_verifications[].warnings`), but the enum above is
+// authoritative across all feature warnings on the decision payload.
+//
+// SessionDecisionEmailVerificationsWarningsFeature is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionEmailVerificationsWarningsFeature string
+
+// Known values of SessionDecisionEmailVerificationsWarningsFeature.
+const (
+	SessionDecisionEmailVerificationsWarningsFeatureIDVerification     SessionDecisionEmailVerificationsWarningsFeature = "ID_VERIFICATION"
+	SessionDecisionEmailVerificationsWarningsFeatureNFC                SessionDecisionEmailVerificationsWarningsFeature = "NFC"
+	SessionDecisionEmailVerificationsWarningsFeatureLiveness           SessionDecisionEmailVerificationsWarningsFeature = "LIVENESS"
+	SessionDecisionEmailVerificationsWarningsFeatureFacematch          SessionDecisionEmailVerificationsWarningsFeature = "FACEMATCH"
+	SessionDecisionEmailVerificationsWarningsFeatureProofOfAddress     SessionDecisionEmailVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
+	SessionDecisionEmailVerificationsWarningsFeaturePhone              SessionDecisionEmailVerificationsWarningsFeature = "PHONE"
+	SessionDecisionEmailVerificationsWarningsFeatureEmail              SessionDecisionEmailVerificationsWarningsFeature = "EMAIL"
+	SessionDecisionEmailVerificationsWarningsFeatureAML                SessionDecisionEmailVerificationsWarningsFeature = "AML"
+	SessionDecisionEmailVerificationsWarningsFeatureLocation           SessionDecisionEmailVerificationsWarningsFeature = "LOCATION"
+	SessionDecisionEmailVerificationsWarningsFeatureDatabaseValidation SessionDecisionEmailVerificationsWarningsFeature = "DATABASE_VALIDATION"
+	SessionDecisionEmailVerificationsWarningsFeatureQuestionnaire      SessionDecisionEmailVerificationsWarningsFeature = "QUESTIONNAIRE"
+	SessionDecisionEmailVerificationsWarningsFeatureDocumentAi         SessionDecisionEmailVerificationsWarningsFeature = "DOCUMENT_AI"
+	SessionDecisionEmailVerificationsWarningsFeatureKYBRegistry        SessionDecisionEmailVerificationsWarningsFeature = "KYB_REGISTRY"
+	SessionDecisionEmailVerificationsWarningsFeatureKYBDocuments       SessionDecisionEmailVerificationsWarningsFeature = "KYB_DOCUMENTS"
+	SessionDecisionEmailVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionEmailVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+)
+
+// SessionDecisionEmailVerificationsLifecycle is a response object.
+type SessionDecisionEmailVerificationsLifecycle struct {
+	Type      string    `json:"type"`
+	Timestamp time.Time `json:"timestamp"`
+
+	// Event-specific payload. Send events carry `status`, `reason`; code-check
+	// events carry `code_tried`, `status`; final status events carry `reason` - or
+	// `null` when there is no reason to report (e.g.
+	// `EMAIL_VERIFICATION_APPROVED`).
+	Details SessionDecisionEmailVerificationsLifecycleDetails `json:"details"`
+	Fee     float64                                           `json:"fee"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionEmailVerificationsLifecycle leniently.
+func (r *SessionDecisionEmailVerificationsLifecycle) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionEmailVerificationsLifecycleDetails: Event-specific payload.
+// Send events carry `status`, `reason`; code-check events carry `code_tried`,
+// `status`; final status events carry `reason` - or `null` when there is no
+// reason to report (e.g. `EMAIL_VERIFICATION_APPROVED`).
+type SessionDecisionEmailVerificationsLifecycleDetails struct {
+	Status    string `json:"status"`
+	Reason    string `json:"reason"`
+	CodeTried string `json:"code_tried"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionEmailVerificationsLifecycleDetails leniently.
+func (r *SessionDecisionEmailVerificationsLifecycleDetails) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionEmailVerificationsMatches is a response object.
+type SessionDecisionEmailVerificationsMatches struct {
+	SessionID        string    `json:"session_id"`
+	SessionNumber    int64     `json:"session_number"`
+	VendorData       string    `json:"vendor_data"`
+	VerificationDate time.Time `json:"verification_date"`
+	Email            string    `json:"email"`
+	Status           string    `json:"status"`
+	IsBlocklisted    bool      `json:"is_blocklisted"`
+	APIService       string    `json:"api_service"`
+
+	// Where this match came from. `session` means another verification session in
+	// your application matched on this value. `list_entry` means the value was hit
+	// against an org-managed list (allowlist/blocklist) - see the management API
+	// lists overview at `/management-api/lists/overview` for how to manage those
+	// lists.
+	Source SessionDecisionEmailVerificationsMatchesSource `json:"source"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionEmailVerificationsMatches leniently.
+func (r *SessionDecisionEmailVerificationsMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionEmailVerificationsMatchesSource: Where this match came from.
+// `session` means another verification session in your application matched on
+// this value. `list_entry` means the value was hit against an org-managed list
+// (allowlist/blocklist) - see the management API lists overview at
+// `/management-api/lists/overview` for how to manage those lists.
+//
+// SessionDecisionEmailVerificationsMatchesSource is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionEmailVerificationsMatchesSource string
+
+// Known values of SessionDecisionEmailVerificationsMatchesSource.
+const (
+	SessionDecisionEmailVerificationsMatchesSourceSession   SessionDecisionEmailVerificationsMatchesSource = "session"
+	SessionDecisionEmailVerificationsMatchesSourceListEntry SessionDecisionEmailVerificationsMatchesSource = "list_entry"
+)
+
+// SessionDecisionPOAVerifications is a response object.
+type SessionDecisionPOAVerifications struct {
+	// Unique identifier for this POA step in the workflow graph.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this Proof of Address step. Independent of the
+	// top-level session `status` - a session can reach its overall decision while
+	// an individual feature stays `In Review`.
+	Status SessionDecisionPOAVerificationsStatus `json:"status"`
+
+	// URL of the proof of address document
+	DocumentFile string `json:"document_file"`
+
+	// Two-letter country code of the issuing state
+	IssuingState string `json:"issuing_state"`
+
+	// Type of proof of address document
+	DocumentType string `json:"document_type"`
+
+	// More specific classification of the POA document within its `document_type`,
+	// when one was detected. `null` otherwise.
+	DocumentSubtype string `json:"document_subtype"`
+
+	// Language code of the document
+	DocumentLanguage string `json:"document_language"`
+
+	// File-forensics metadata extracted from the uploaded POA document. Always
+	// contains the keys below (values are `null` when not applicable, e.g. EXIF
+	// dates for PDFs). `null` when no metadata could be extracted.
+	DocumentMetadata SessionDecisionPOAVerificationsDocumentMetadata `json:"document_metadata"`
+
+	// Name of the document issuer
+	Issuer string `json:"issuer"`
+
+	// Date when the document was issued
+	IssueDate string `json:"issue_date"`
+
+	// Expiration date of the document, if available
+	ExpirationDate string `json:"expiration_date"`
+
+	// Raw address from the proof of address document
+	POAAddress string `json:"poa_address"`
+
+	// Formatted address from the proof of address document
+	POAFormattedAddress string                                          `json:"poa_formatted_address"`
+	POAParsedAddress    SessionDecisionPOAVerificationsPOAParsedAddress `json:"poa_parsed_address"`
+
+	// Account-holder / addressee name extracted from the POA document, used for
+	// name matching. `null` when no name could be extracted.
+	NameOnDocument string `json:"name_on_document"`
+
+	// Similarity score (0-100) between `name_on_document` and the expected name
+	// supplied at session creation. `null` when either side is missing.
+	NameMatchScoreExpectedDetails float64 `json:"name_match_score_expected_details"`
+
+	// Similarity score (0-100) between `name_on_document` and the name extracted by
+	// the ID verification step. `null` when either side is missing.
+	NameMatchScoreIDVerification float64 `json:"name_match_score_id_verification"`
+
+	// Expected raw address for verification
+	ExpectedDetailsAddress string `json:"expected_details_address"`
+
+	// Expected formatted address for verification
+	ExpectedDetailsFormattedAddress string `json:"expected_details_formatted_address"`
+
+	// Expected parsed address details for verification
+	ExpectedDetailsParsedAddress map[string]any `json:"expected_details_parsed_address"`
+
+	// Additional banking and contact details extracted from the document.
+	ExtraFields SessionDecisionPOAVerificationsExtraFields `json:"extra_fields"`
+
+	// Additional proof of address files
+	ExtraFiles []string                                  `json:"extra_files"`
+	Warnings   []SessionDecisionPOAVerificationsWarnings `json:"warnings"`
+
+	// QR codes and barcodes detected across every processed page of the document.
+	// Empty when none are found. A located but undecodable QR code has
+	// `parsed_payload: null`.
+	DetectedCodes []DocumentAiDetectedCode `json:"detected_codes"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPOAVerifications leniently.
+func (r *SessionDecisionPOAVerifications) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPOAVerificationsStatus: Feature-level status of this Proof of
+// Address step. Independent of the top-level session `status` - a session can
+// reach its overall decision while an individual feature stays `In Review`.
+//
+// SessionDecisionPOAVerificationsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionPOAVerificationsStatus string
+
+// Known values of SessionDecisionPOAVerificationsStatus.
+const (
+	SessionDecisionPOAVerificationsStatusNotFinished    SessionDecisionPOAVerificationsStatus = "Not Finished"
+	SessionDecisionPOAVerificationsStatusApproved       SessionDecisionPOAVerificationsStatus = "Approved"
+	SessionDecisionPOAVerificationsStatusDeclined       SessionDecisionPOAVerificationsStatus = "Declined"
+	SessionDecisionPOAVerificationsStatusInReview       SessionDecisionPOAVerificationsStatus = "In Review"
+	SessionDecisionPOAVerificationsStatusResubRequested SessionDecisionPOAVerificationsStatus = "Resub Requested"
+)
+
+// SessionDecisionPOAVerificationsDocumentMetadata: File-forensics metadata
+// extracted from the uploaded POA document. Always contains the keys below
+// (values are `null` when not applicable, e.g. EXIF dates for PDFs). `null`
+// when no metadata could be extracted.
+type SessionDecisionPOAVerificationsDocumentMetadata struct {
+	// Size of the document
+	FileSize int64 `json:"file_size"`
+
+	// Content type of the document
+	ContentType string `json:"content_type"`
+
+	// Date when the document was created
+	CreationDate string `json:"creation_date"`
+
+	// Date when the document was modified
+	ModifiedDate string `json:"modified_date"`
+
+	// PDF forensic analysis for suspected overlay-text manipulation. Null when no
+	// overlay manipulation evidence was found or the document was not a PDF.
+	OverlayManipulation SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulation `json:"overlay_manipulation"`
+
+	// Creator application recorded in the document metadata.
+	Creator string `json:"creator"`
+
+	// Producer software recorded in the PDF metadata.
+	Producer string `json:"producer"`
+
+	// Editing/processing software recorded in the file metadata.
+	Software string `json:"software"`
+
+	// Encryption scheme of the document, when encrypted.
+	Encryption string `json:"encryption"`
+
+	// Whether the PDF carries a digital signature.
+	IsSigned bool `json:"is_signed"`
+
+	// Whether signature validation indicates the file was modified after signing.
+	IsTampered bool `json:"is_tampered"`
+
+	// Details of the digital signature(s), when present.
+	SignatureInfo map[string]any `json:"signature_info"`
+
+	// EXIF original capture date, for image uploads.
+	ExifOriginalDate string `json:"exif_original_date"`
+
+	// EXIF digitization date, for image uploads.
+	ExifDigitizedDate string `json:"exif_digitized_date"`
+
+	// Whether the file metadata indicates processing by a known document editor.
+	ProcessedByKnownEditor bool `json:"processed_by_known_editor"`
+
+	// Whether the creation and modification dates differ - a common manipulation
+	// signal.
+	HasDifferentCreationModDate bool `json:"has_different_creation_mod_date"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPOAVerificationsDocumentMetadata leniently.
+func (r *SessionDecisionPOAVerificationsDocumentMetadata) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulation: PDF
+// forensic analysis for suspected overlay-text manipulation. Null when no
+// overlay manipulation evidence was found or the document was not a PDF.
+type SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulation struct {
+	// Whether overlay-text manipulation evidence was detected.
+	Detected bool `json:"detected"`
+
+	// Whether the PDF could be analyzed.
+	Analyzed bool `json:"analyzed"`
+
+	// Forensic signals that fired, such as duplicate_font_subset or
+	// glyph_fragmentation.
+	Signals []string `json:"signals"`
+
+	// Suspected manipulated areas in PDF page coordinates.
+	ManipulatedRegions []SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions `json:"manipulated_regions"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulation leniently.
+func (r *SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions
+// is a response object.
+type SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions struct {
+	Page       int64   `json:"page"`
+	X          float64 `json:"x"`
+	Y          float64 `json:"y"`
+	Width      float64 `json:"width"`
+	Height     float64 `json:"height"`
+	PageWidth  float64 `json:"page_width"`
+	PageHeight float64 `json:"page_height"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions leniently.
+func (r *SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPOAVerificationsPOAParsedAddress is a response object.
+type SessionDecisionPOAVerificationsPOAParsedAddress struct {
+	// Type of address (Street, Avenue, etc)
+	AddressType string `json:"address_type"`
+
+	// Primary street address
+	Street1 string `json:"street_1"`
+
+	// Secondary street address
+	Street2 string `json:"street_2"`
+
+	// City name
+	City string `json:"city"`
+
+	// Region or state name
+	Region string `json:"region"`
+
+	// Two-letter country code
+	Country string `json:"country"`
+
+	// Postal code
+	PostalCode       string                                                          `json:"postal_code"`
+	DocumentLocation SessionDecisionPOAVerificationsPOAParsedAddressDocumentLocation `json:"document_location"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPOAVerificationsPOAParsedAddress leniently.
+func (r *SessionDecisionPOAVerificationsPOAParsedAddress) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPOAVerificationsPOAParsedAddressDocumentLocation is a response
+// object.
+type SessionDecisionPOAVerificationsPOAParsedAddressDocumentLocation struct {
+	// Latitude coordinate
+	Latitude float64 `json:"latitude"`
+
+	// Longitude coordinate
+	Longitude float64 `json:"longitude"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPOAVerificationsPOAParsedAddressDocumentLocation leniently.
+func (r *SessionDecisionPOAVerificationsPOAParsedAddressDocumentLocation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPOAVerificationsExtraFields: Additional banking and contact
+// details extracted from the document.
+type SessionDecisionPOAVerificationsExtraFields struct {
+	BankAccountNumber   string   `json:"bank_account_number"`
+	BankIBAN            string   `json:"bank_iban"`
+	BankSortCode        string   `json:"bank_sort_code"`
+	BankRoutingNumber   string   `json:"bank_routing_number"`
+	BankSwiftBIC        string   `json:"bank_swift_bic"`
+	BankBranchName      string   `json:"bank_branch_name"`
+	BankBranchAddress   string   `json:"bank_branch_address"`
+	DocumentPhoneNumber string   `json:"document_phone_number"`
+	AdditionalNames     []string `json:"additional_names"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPOAVerificationsExtraFields leniently.
+func (r *SessionDecisionPOAVerificationsExtraFields) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPOAVerificationsWarnings is a response object.
+type SessionDecisionPOAVerificationsWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Each module's warnings array typically uses the
+	// value matching its module (e.g. `PHONE` inside
+	// `phone_verifications[].warnings`), but the enum above is authoritative across
+	// all feature warnings on the decision payload.
+	Feature          SessionDecisionPOAVerificationsWarningsFeature `json:"feature"`
+	Risk             string                                         `json:"risk"`
+	AdditionalData   map[string]any                                 `json:"additional_data"`
+	LogType          string                                         `json:"log_type"`
+	ShortDescription string                                         `json:"short_description"`
+	LongDescription  string                                         `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionPOAVerificationsWarnings leniently.
+func (r *SessionDecisionPOAVerificationsWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionPOAVerificationsWarningsFeature: The feature that generated
+// this warning. The value identifies the feature block the warning belongs to.
+// Each module's warnings array typically uses the value matching its module
+// (e.g. `PHONE` inside `phone_verifications[].warnings`), but the enum above is
+// authoritative across all feature warnings on the decision payload.
+//
+// SessionDecisionPOAVerificationsWarningsFeature is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionPOAVerificationsWarningsFeature string
+
+// Known values of SessionDecisionPOAVerificationsWarningsFeature.
+const (
+	SessionDecisionPOAVerificationsWarningsFeatureIDVerification     SessionDecisionPOAVerificationsWarningsFeature = "ID_VERIFICATION"
+	SessionDecisionPOAVerificationsWarningsFeatureNFC                SessionDecisionPOAVerificationsWarningsFeature = "NFC"
+	SessionDecisionPOAVerificationsWarningsFeatureLiveness           SessionDecisionPOAVerificationsWarningsFeature = "LIVENESS"
+	SessionDecisionPOAVerificationsWarningsFeatureFacematch          SessionDecisionPOAVerificationsWarningsFeature = "FACEMATCH"
+	SessionDecisionPOAVerificationsWarningsFeatureProofOfAddress     SessionDecisionPOAVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
+	SessionDecisionPOAVerificationsWarningsFeaturePhone              SessionDecisionPOAVerificationsWarningsFeature = "PHONE"
+	SessionDecisionPOAVerificationsWarningsFeatureEmail              SessionDecisionPOAVerificationsWarningsFeature = "EMAIL"
+	SessionDecisionPOAVerificationsWarningsFeatureAML                SessionDecisionPOAVerificationsWarningsFeature = "AML"
+	SessionDecisionPOAVerificationsWarningsFeatureLocation           SessionDecisionPOAVerificationsWarningsFeature = "LOCATION"
+	SessionDecisionPOAVerificationsWarningsFeatureDatabaseValidation SessionDecisionPOAVerificationsWarningsFeature = "DATABASE_VALIDATION"
+	SessionDecisionPOAVerificationsWarningsFeatureQuestionnaire      SessionDecisionPOAVerificationsWarningsFeature = "QUESTIONNAIRE"
+	SessionDecisionPOAVerificationsWarningsFeatureDocumentAi         SessionDecisionPOAVerificationsWarningsFeature = "DOCUMENT_AI"
+	SessionDecisionPOAVerificationsWarningsFeatureKYBRegistry        SessionDecisionPOAVerificationsWarningsFeature = "KYB_REGISTRY"
+	SessionDecisionPOAVerificationsWarningsFeatureKYBDocuments       SessionDecisionPOAVerificationsWarningsFeature = "KYB_DOCUMENTS"
+	SessionDecisionPOAVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionPOAVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+)
+
+// SessionDecisionDocumentAiDocuments: Document AI results grouped by workflow
+// node.
+type SessionDecisionDocumentAiDocuments struct {
+	// Aggregate Document AI status for this node, rolled up from its `items[]`.
+	Status SessionDecisionDocumentAiDocumentsStatus `json:"status"`
+
+	// Unique identifier for this Document AI step in the workflow graph.
+	NodeID string                                    `json:"node_id"`
+	Items  []SessionDecisionDocumentAiDocumentsItems `json:"items"`
+
+	// Warning logs raised for this Document AI node.
+	Warnings []map[string]any `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDocumentAiDocuments leniently.
+func (r *SessionDecisionDocumentAiDocuments) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDocumentAiDocumentsStatus: Aggregate Document AI status for
+// this node, rolled up from its `items[]`.
+//
+// SessionDecisionDocumentAiDocumentsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionDocumentAiDocumentsStatus string
+
+// Known values of SessionDecisionDocumentAiDocumentsStatus.
+const (
+	SessionDecisionDocumentAiDocumentsStatusApproved    SessionDecisionDocumentAiDocumentsStatus = "Approved"
+	SessionDecisionDocumentAiDocumentsStatusDeclined    SessionDecisionDocumentAiDocumentsStatus = "Declined"
+	SessionDecisionDocumentAiDocumentsStatusInReview    SessionDecisionDocumentAiDocumentsStatus = "In Review"
+	SessionDecisionDocumentAiDocumentsStatusNotFinished SessionDecisionDocumentAiDocumentsStatus = "Not Finished"
+)
+
+// SessionDecisionDocumentAiDocumentsItems is a response object.
+type SessionDecisionDocumentAiDocumentsItems struct {
+	UUID string `json:"uuid"`
+
+	// Workflow graph node that produced this document.
+	NodeID string `json:"node_id"`
+
+	// Key of the configured Document AI document this file corresponds to.
+	DocumentKey string `json:"document_key"`
+
+	// Filename as uploaded by the user.
+	OriginalFilename string `json:"original_filename"`
+
+	// File size in bytes.
+	FileSize int64 `json:"file_size"`
+
+	// Short-lived presigned link to the uploaded file.
+	FileURL string `json:"file_url"`
+
+	// Per-document Document AI status.
+	Status SessionDecisionDocumentAiDocumentsItemsStatus `json:"status"`
+
+	// Values extracted by Document AI, keyed by the configured field `key`. Each
+	// value is a string, number, or `null`.
+	ExtractedData map[string]any `json:"extracted_data"`
+
+	// QR codes and barcodes detected across every processed page. Empty when none
+	// are found. A located but undecodable QR code has `parsed_payload: null`.
+	DetectedCodes []DocumentAiDetectedCode `json:"detected_codes"`
+
+	// The configured extraction fields for this document.
+	Fields []SessionDecisionDocumentAiDocumentsItemsFields `json:"fields"`
+
+	// File-forensics metadata extracted from the uploaded document (e.g.
+	// `is_tampered`). `null` when nothing could be extracted.
+	DocumentMetadata map[string]any `json:"document_metadata"`
+
+	// Cross-reference of the extracted document fields against other session data.
+	// `null` when no cross-check was performed.
+	CrossCheckResult map[string]any `json:"cross_check_result"`
+	CreatedAt        time.Time      `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDocumentAiDocumentsItems leniently.
+func (r *SessionDecisionDocumentAiDocumentsItems) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDocumentAiDocumentsItemsStatus: Per-document Document AI
+// status.
+//
+// SessionDecisionDocumentAiDocumentsItemsStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionDocumentAiDocumentsItemsStatus string
+
+// Known values of SessionDecisionDocumentAiDocumentsItemsStatus.
+const (
+	SessionDecisionDocumentAiDocumentsItemsStatusApproved    SessionDecisionDocumentAiDocumentsItemsStatus = "Approved"
+	SessionDecisionDocumentAiDocumentsItemsStatusDeclined    SessionDecisionDocumentAiDocumentsItemsStatus = "Declined"
+	SessionDecisionDocumentAiDocumentsItemsStatusInReview    SessionDecisionDocumentAiDocumentsItemsStatus = "In Review"
+	SessionDecisionDocumentAiDocumentsItemsStatusNotFinished SessionDecisionDocumentAiDocumentsItemsStatus = "Not Finished"
+)
+
+// SessionDecisionDocumentAiDocumentsItemsFields is a response object.
+type SessionDecisionDocumentAiDocumentsItemsFields struct {
+	// Stable field key used as the key in `extracted_data`.
+	Key string `json:"key"`
+
+	// Human-readable field name.
+	Name string `json:"name"`
+
+	// Extraction instruction shown to the model.
+	Instruction string `json:"instruction"`
+
+	// Expected value type of the extracted field.
+	Type SessionDecisionDocumentAiDocumentsItemsFieldsType `json:"type"`
+
+	// Whether this field is required.
+	Required bool `json:"required"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDocumentAiDocumentsItemsFields leniently.
+func (r *SessionDecisionDocumentAiDocumentsItemsFields) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDocumentAiDocumentsItemsFieldsType: Expected value type of the
+// extracted field.
+//
+// SessionDecisionDocumentAiDocumentsItemsFieldsType is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionDocumentAiDocumentsItemsFieldsType string
+
+// Known values of SessionDecisionDocumentAiDocumentsItemsFieldsType.
+const (
+	SessionDecisionDocumentAiDocumentsItemsFieldsTypeText   SessionDecisionDocumentAiDocumentsItemsFieldsType = "text"
+	SessionDecisionDocumentAiDocumentsItemsFieldsTypeNumber SessionDecisionDocumentAiDocumentsItemsFieldsType = "number"
+	SessionDecisionDocumentAiDocumentsItemsFieldsTypeDate   SessionDecisionDocumentAiDocumentsItemsFieldsType = "date"
+)
+
+// SessionDecisionQuestionnaireResponses is a response object.
+type SessionDecisionQuestionnaireResponses struct {
+	// Unique identifier for this questionnaire step in the workflow graph.
+	NodeID string `json:"node_id"`
+
+	// Unique identifier for the questionnaire
+	QuestionnaireID string `json:"questionnaire_id"`
+
+	// Title of the questionnaire
+	Title string `json:"title"`
+
+	// Description of the questionnaire
+	Description string `json:"description"`
+
+	// Supported languages
+	Languages []string `json:"languages"`
+
+	// Default language
+	DefaultLanguage string `json:"default_language"`
+
+	// Whether the questionnaire is active
+	IsActive bool `json:"is_active"`
+
+	// Whether the questionnaire is a simple linear form (no branching graph).
+	IsSimpleQuestionnaire bool `json:"is_simple_questionnaire"`
+
+	// Stable identifier of the questionnaire group across versions.
+	QuestionnaireGroupID string `json:"questionnaire_group_id"`
+
+	// Version number of the questionnaire that was answered.
+	Version int64 `json:"version"`
+
+	// Timestamp at which this questionnaire version was published.
+	PublishedAt time.Time                                       `json:"published_at"`
+	Sections    []SessionDecisionQuestionnaireResponsesSections `json:"sections"`
+
+	// Status of the questionnaire
+	Status string `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionQuestionnaireResponses leniently.
+func (r *SessionDecisionQuestionnaireResponses) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionQuestionnaireResponsesSections is a response object.
+type SessionDecisionQuestionnaireResponsesSections struct {
+	// Section title
+	Title string `json:"title"`
+
+	// Section description
+	Description string                                               `json:"description"`
+	Items       []SessionDecisionQuestionnaireResponsesSectionsItems `json:"items"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionQuestionnaireResponsesSections leniently.
+func (r *SessionDecisionQuestionnaireResponsesSections) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionQuestionnaireResponsesSectionsItems is a response object.
+type SessionDecisionQuestionnaireResponsesSectionsItems struct {
+	// Unique identifier for the item
+	UUID string `json:"uuid"`
+
+	// Stable node identifier of this form element within the questionnaire graph.
+	Value string `json:"value"`
+
+	// Type of the questionnaire element
+	ElementType string `json:"element_type"`
+
+	// Whether the item is required
+	IsRequired bool `json:"is_required"`
+
+	// Title of the item
+	Title string `json:"title"`
+
+	// Description of the item
+	Description string `json:"description"`
+
+	// Placeholder text
+	Placeholder string `json:"placeholder"`
+
+	// Choices for dropdown or single choice elements
+	Choices []SessionDecisionQuestionnaireResponsesSectionsItemsChoices `json:"choices"`
+
+	// Maximum number of files allowed
+	MaxFiles int64 `json:"max_files"`
+
+	// Answer provided for the item
+	Answer SessionDecisionQuestionnaireResponsesSectionsItemsAnswer `json:"answer"`
+
+	// Conditional-requirement rule, when the element is only required for certain
+	// answers.
+	RequiredIf map[string]any `json:"required_if"`
+
+	// Configuration for repeatable element groups, when applicable.
+	RepeatableConfig map[string]any `json:"repeatable_config"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionQuestionnaireResponsesSectionsItems leniently.
+func (r *SessionDecisionQuestionnaireResponsesSectionsItems) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionQuestionnaireResponsesSectionsItemsChoices is a response
+// object.
+type SessionDecisionQuestionnaireResponsesSectionsItemsChoices struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+
+	// Whether this choice requires additional text input
+	RequiresTextInput bool `json:"requires_text_input"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionQuestionnaireResponsesSectionsItemsChoices leniently.
+func (r *SessionDecisionQuestionnaireResponsesSectionsItemsChoices) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionQuestionnaireResponsesSectionsItemsAnswer: Answer provided for
+// the item
+type SessionDecisionQuestionnaireResponsesSectionsItemsAnswer struct {
+	Value string   `json:"value"`
+	Text  string   `json:"text"`
+	Files []string `json:"files"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionQuestionnaireResponsesSectionsItemsAnswer leniently.
+func (r *SessionDecisionQuestionnaireResponsesSectionsItemsAnswer) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResult: One signer's result for one Electronic Signature step. See
+// the [Electronic Signature
+// report](/core-technology/electronic-signature/report-electronic-signature).
+type SignatureResult struct {
+	// Pass it as `signature_id` to download this signer's evidence or validate
+	// their signature.
+	ID string `json:"id"`
+
+	// The workflow step that produced it.
+	NodeID string `json:"node_id"`
+
+	// Where the signer is in the step. Only `signed` means the documents are
+	// signed.
+	Status SignatureResultStatus `json:"status"`
+
+	// The step's outcome. A warning sets it through its rule; custom status rules
+	// apply after.
+	Verdict SignatureResultVerdict `json:"verdict"`
+
+	// `aes`. `qes` (Qualified Electronic Signature, QES) is coming soon.
+	Level  SignatureResultLevel  `json:"level"`
+	Format SignatureResultFormat `json:"format"`
+
+	// `PAdES-B-LT` once signed.
+	Profile      string                      `json:"profile"`
+	Signer       SignatureResultSigner       `json:"signer"`
+	IdentityUsed SignatureResultIdentityUsed `json:"identity_used"`
+
+	// The certificate the documents were signed with. `null` until signed.
+	Certificate  SignatureResultCertificate  `json:"certificate"`
+	Confirmation SignatureResultConfirmation `json:"confirmation"`
+
+	// The trusted timestamp in the signature. `null` until signed.
+	Timestamp SignatureResultTimestamp   `json:"timestamp"`
+	Documents []SignatureResultDocuments `json:"documents"`
+
+	// The signature and initials the signer adopted for signature and initials
+	// fields. `null` until the signer adopts one.
+	AdoptedSignature SignatureResultAdoptedSignature `json:"adopted_signature"`
+
+	// When the signer agreed, on the review screen, to sign the documents
+	// electronically. Set when any document has fields.
+	ElectronicSignatureConsentAt time.Time `json:"electronic_signature_consent_at"`
+
+	// Path of the evidence PDF, once signed. See [Download the signature
+	// evidence](/sessions-api/electronic-signature/download-evidence).
+	EvidenceFile string `json:"evidence_file"`
+
+	// Warnings raised for this signer. See [Electronic Signature
+	// warnings](/core-technology/electronic-signature/warnings-electronic-signature).
+	Warnings []SignatureResultWarnings `json:"warnings"`
+
+	// The last cryptographic check of the signed documents. `null` until the
+	// documents are signed. If Didit can't confirm the outcome of signing, it's
+	// `{"valid": null, "reason": "signature_provider_outcome_unknown",
+	// "checked_at": ...}` and `status` stays `signing`: treat it as not signed.
+	Validation     SignatureResultValidation     `json:"validation"`
+	DeclinedAt     time.Time                     `json:"declined_at"`
+	DeclinedAction SignatureResultDeclinedAction `json:"declined_action"`
+	SignedAt       time.Time                     `json:"signed_at"`
+
+	// When the signing link stops working.
+	ExpiresAt              time.Time `json:"expires_at"`
+	EmailSentAt            time.Time `json:"email_sent_at"`
+	EmailUnavailableReason string    `json:"email_unavailable_reason"`
+
+	// The signer's IP address when they asked for their code.
+	IPAddress string `json:"ip_address"`
+
+	// Not collected: always `null`.
+	Place                  string                                `json:"place"`
+	PlaceUnavailableReason SignatureResultPlaceUnavailableReason `json:"place_unavailable_reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResult leniently.
+func (r *SignatureResult) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultStatus: Where the signer is in the step. Only `signed` means
+// the documents are signed.
+//
+// SignatureResultStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SignatureResultStatus string
+
+// Known values of SignatureResultStatus.
+const (
+	SignatureResultStatusIntro    SignatureResultStatus = "intro"
+	SignatureResultStatusReview   SignatureResultStatus = "review"
+	SignatureResultStatusCode     SignatureResultStatus = "code"
+	SignatureResultStatusSigning  SignatureResultStatus = "signing"
+	SignatureResultStatusSigned   SignatureResultStatus = "signed"
+	SignatureResultStatusDeclined SignatureResultStatus = "declined"
+)
+
+// SignatureResultVerdict: The step's outcome. A warning sets it through its
+// rule; custom status rules apply after.
+//
+// SignatureResultVerdict is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SignatureResultVerdict string
+
+// Known values of SignatureResultVerdict.
+const (
+	SignatureResultVerdictNotFinished SignatureResultVerdict = "Not Finished"
+	SignatureResultVerdictApproved    SignatureResultVerdict = "Approved"
+	SignatureResultVerdictInReview    SignatureResultVerdict = "In Review"
+	SignatureResultVerdictDeclined    SignatureResultVerdict = "Declined"
+)
+
+// SignatureResultLevel: `aes`. `qes` (Qualified Electronic Signature, QES) is
+// coming soon.
+//
+// SignatureResultLevel is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SignatureResultLevel string
+
+// Known values of SignatureResultLevel.
+const (
+	SignatureResultLevelAes SignatureResultLevel = "aes"
+	SignatureResultLevelQes SignatureResultLevel = "qes"
+)
+
+// SignatureResultFormat is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SignatureResultFormat string
+
+// Known values of SignatureResultFormat.
+const (
+	SignatureResultFormatPades SignatureResultFormat = "pades"
+)
+
+// SignatureResultSigner is a response object.
+type SignatureResultSigner struct {
+	// Verified name.
+	Name     string                        `json:"name"`
+	Capacity SignatureResultSignerCapacity `json:"capacity"`
+	Company  string                        `json:"company"`
+
+	// The key person's designation, as declared.
+	Role string `json:"role"`
+
+	// The key person's structured roles, as declared for the company.
+	Roles []string `json:"roles"`
+
+	// The KYC session that verified the signer.
+	IdentitySessionID string `json:"identity_session_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultSigner leniently.
+func (r *SignatureResultSigner) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultSignerCapacity is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SignatureResultSignerCapacity string
+
+// Known values of SignatureResultSignerCapacity.
+const (
+	SignatureResultSignerCapacitySelf    SignatureResultSignerCapacity = "self"
+	SignatureResultSignerCapacityCompany SignatureResultSignerCapacity = "company"
+)
+
+// SignatureResultIdentityUsed is a response object.
+type SignatureResultIdentityUsed struct {
+	SessionID string `json:"session_id"`
+	KYCID     string `json:"kyc_id"`
+	Verified  bool   `json:"verified"`
+
+	// The name the signer had to match.
+	ExpectedName string `json:"expected_name"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultIdentityUsed leniently.
+func (r *SignatureResultIdentityUsed) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultCertificate: The certificate the documents were signed with.
+// `null` until signed.
+type SignatureResultCertificate struct {
+	Issuer   string `json:"issuer"`
+	IssuedTo string `json:"issued_to"`
+
+	// Serial number, hexadecimal.
+	Serial     string    `json:"serial"`
+	ValidFrom  time.Time `json:"valid_from"`
+	ValidUntil time.Time `json:"valid_until"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultCertificate leniently.
+func (r *SignatureResultCertificate) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultConfirmation is a response object.
+type SignatureResultConfirmation struct {
+	Channel SignatureResultConfirmationChannel `json:"channel"`
+
+	// The masked contact the code went to.
+	Destination string    `json:"destination"`
+	ConfirmedAt time.Time `json:"confirmed_at"`
+
+	// Codes entered, the right one included.
+	Attempts int64 `json:"attempts"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultConfirmation leniently.
+func (r *SignatureResultConfirmation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultConfirmationChannel is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SignatureResultConfirmationChannel string
+
+// Known values of SignatureResultConfirmationChannel.
+const (
+	SignatureResultConfirmationChannelEmail SignatureResultConfirmationChannel = "email"
+	SignatureResultConfirmationChannelSMS   SignatureResultConfirmationChannel = "sms"
+)
+
+// SignatureResultTimestamp: The trusted timestamp in the signature. `null`
+// until signed.
+type SignatureResultTimestamp struct {
+	Time time.Time `json:"time"`
+
+	// Always `false` for AES.
+	Qualified bool `json:"qualified"`
+	Valid     bool `json:"valid"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultTimestamp leniently.
+func (r *SignatureResultTimestamp) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultDocuments is a response object.
+type SignatureResultDocuments struct {
+	// The document on this signer's copy. Use it to download the signed file.
+	ID string `json:"id"`
+
+	// Same as `id`.
+	UUID     string `json:"uuid"`
+	Title    string `json:"title"`
+	FileName string `json:"file_name"`
+
+	// Pages of the document signed. For Word, of the converted PDF.
+	Pages     int64 `json:"pages"`
+	SizeBytes int64 `json:"size_bytes"`
+
+	// SHA-256 of the document as the signer was shown it.
+	Sha256Original string `json:"sha256_original"`
+
+	// SHA-256 of the signed PDF, once signed.
+	Sha256Signed string `json:"sha256_signed"`
+
+	// `not_signed`: opened but not signed. `not_reached`: never opened.
+	Status   SignatureResultDocumentsStatus `json:"status"`
+	OpenedAt time.Time                      `json:"opened_at"`
+
+	// When the signer reached the end of a document without fields, when the step
+	// requires it.
+	ReadAt    time.Time `json:"read_at"`
+	ReadToEnd bool      `json:"read_to_end"`
+
+	// When the signer agreed to a document without fields, or finished the fields
+	// of a document with fields.
+	ConsentedAt time.Time `json:"consented_at"`
+	Consent     bool      `json:"consent"`
+
+	// Path of the signed PDF, once signed. See [Download a signed
+	// document](/sessions-api/electronic-signature/download-signed-document).
+	SignedFile string `json:"signed_file"`
+
+	// `fields` for a document with fields, `read_and_agree` for a document without.
+	Mode SignatureResultDocumentsMode `json:"mode"`
+
+	// `pdf`, or `docx` for a Word document Didit converted to PDF.
+	SourceFormat SignatureResultDocumentsSourceFormat `json:"source_format"`
+
+	// `null` for a PDF. For a Word document, the original file and the conversion.
+	Conversion SignatureResultDocumentsConversion `json:"conversion"`
+
+	// Fields on the document, with their values. Empty for a document without
+	// fields.
+	Fields []SignatureFieldResult `json:"fields"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultDocuments leniently.
+func (r *SignatureResultDocuments) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultDocumentsStatus: `not_signed`: opened but not signed.
+// `not_reached`: never opened.
+//
+// SignatureResultDocumentsStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type SignatureResultDocumentsStatus string
+
+// Known values of SignatureResultDocumentsStatus.
+const (
+	SignatureResultDocumentsStatusSigned     SignatureResultDocumentsStatus = "signed"
+	SignatureResultDocumentsStatusDeclined   SignatureResultDocumentsStatus = "declined"
+	SignatureResultDocumentsStatusNotSigned  SignatureResultDocumentsStatus = "not_signed"
+	SignatureResultDocumentsStatusNotReached SignatureResultDocumentsStatus = "not_reached"
+)
+
+// SignatureResultDocumentsMode: `fields` for a document with fields,
+// `read_and_agree` for a document without.
+//
+// SignatureResultDocumentsMode is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SignatureResultDocumentsMode string
+
+// Known values of SignatureResultDocumentsMode.
+const (
+	SignatureResultDocumentsModeFields       SignatureResultDocumentsMode = "fields"
+	SignatureResultDocumentsModeReadAndAgree SignatureResultDocumentsMode = "read_and_agree"
+)
+
+// SignatureResultDocumentsSourceFormat: `pdf`, or `docx` for a Word document
+// Didit converted to PDF.
+//
+// SignatureResultDocumentsSourceFormat is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SignatureResultDocumentsSourceFormat string
+
+// Known values of SignatureResultDocumentsSourceFormat.
+const (
+	SignatureResultDocumentsSourceFormatPDF  SignatureResultDocumentsSourceFormat = "pdf"
+	SignatureResultDocumentsSourceFormatDocx SignatureResultDocumentsSourceFormat = "docx"
+)
+
+// SignatureResultDocumentsConversion: `null` for a PDF. For a Word document,
+// the original file and the conversion.
+type SignatureResultDocumentsConversion struct {
+	From SignatureResultDocumentsConversionFrom `json:"from"`
+
+	// Your original Word file name.
+	FileName string `json:"file_name"`
+
+	// SHA-256 of your original Word file.
+	Sha256 string `json:"sha256"`
+
+	// Size of your original Word file.
+	SizeBytes int64 `json:"size_bytes"`
+
+	// Version of the converter that produced the PDF.
+	Converter string `json:"converter"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultDocumentsConversion leniently.
+func (r *SignatureResultDocumentsConversion) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultDocumentsConversionFrom is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SignatureResultDocumentsConversionFrom string
+
+// Known values of SignatureResultDocumentsConversionFrom.
+const (
+	SignatureResultDocumentsConversionFromDocx SignatureResultDocumentsConversionFrom = "docx"
+)
+
+// SignatureFieldResult: A field of a signed document, with its value on this
+// signer's copy. See
+// [Fields](/core-technology/electronic-signature/report-electronic-signature#fields).
+type SignatureFieldResult struct {
+	// The field's key, as used in `sign.field_values`.
+	Key   string                   `json:"key"`
+	Type  SignatureFieldResultType `json:"type"`
+	Role  SignatureFieldResultRole `json:"role"`
+	Label string                   `json:"label"`
+
+	// Page number, from 1. For a Word document, a page of the converted PDF.
+	Page int64 `json:"page"`
+
+	// Left edge, as a fraction of the page width.
+	X float64 `json:"x"`
+
+	// Top edge, as a fraction of the page height.
+	Y float64 `json:"y"`
+
+	// Width, as a fraction of the page width.
+	Width float64 `json:"width"`
+
+	// Height, as a fraction of the page height.
+	Height   float64 `json:"height"`
+	Required bool    `json:"required"`
+
+	// A string for `text`, `email`, `full_name`, `date_signed` and `data`, a
+	// boolean for a `checkbox`, and `true` for an applied signature or initials.
+	// `null` when empty.
+	Value any `json:"value"`
+
+	// The value as stamped on the page: dates in the field's `date_format`, `Yes`
+	// or `No` for a checkbox, `Signed` for a signature or initials.
+	DisplayValue string `json:"display_value"`
+
+	// Where the value came from: `signer` (typed, ticked or applied by the signer),
+	// `identity` (the verified ID), `contact` (the verified email or phone),
+	// `company` (the verified company), `session` (`vendor_data`), `metadata`,
+	// `api` (`sign.field_values`) or `signing_time` (the date signed).
+	ValueSource SignatureFieldResultValueSource `json:"value_source"`
+	FilledAt    time.Time                       `json:"filled_at"`
+
+	// Signature and initials only: the path of the applied image. See [Download a
+	// signature image](/sessions-api/electronic-signature/download-field-image).
+	ImageURL string `json:"image_url"`
+
+	// `source_empty` when a pre-filled field had no value in the session and
+	// `signature_field_data_missing_action` let the signer sign anyway.
+	ValueUnavailableReason SignatureFieldResultValueUnavailableReason `json:"value_unavailable_reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureFieldResult leniently.
+func (r *SignatureFieldResult) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureFieldResultType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SignatureFieldResultType string
+
+// Known values of SignatureFieldResultType.
+const (
+	SignatureFieldResultTypeSignature  SignatureFieldResultType = "signature"
+	SignatureFieldResultTypeInitials   SignatureFieldResultType = "initials"
+	SignatureFieldResultTypeFullName   SignatureFieldResultType = "full_name"
+	SignatureFieldResultTypeDateSigned SignatureFieldResultType = "date_signed"
+	SignatureFieldResultTypeText       SignatureFieldResultType = "text"
+	SignatureFieldResultTypeCheckbox   SignatureFieldResultType = "checkbox"
+	SignatureFieldResultTypeEmail      SignatureFieldResultType = "email"
+	SignatureFieldResultTypeData       SignatureFieldResultType = "data"
+)
+
+// SignatureFieldResultRole is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SignatureFieldResultRole string
+
+// Known values of SignatureFieldResultRole.
+const (
+	SignatureFieldResultRoleVerifiedPerson      SignatureFieldResultRole = "verified_person"
+	SignatureFieldResultRoleLegalRepresentative SignatureFieldResultRole = "legal_representative"
+	SignatureFieldResultRoleKeyPeople           SignatureFieldResultRole = "key_people"
+)
+
+// SignatureFieldResultValueSource: Where the value came from: `signer` (typed,
+// ticked or applied by the signer), `identity` (the verified ID), `contact`
+// (the verified email or phone), `company` (the verified company), `session`
+// (`vendor_data`), `metadata`, `api` (`sign.field_values`) or `signing_time`
+// (the date signed).
+//
+// SignatureFieldResultValueSource is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type SignatureFieldResultValueSource string
+
+// Known values of SignatureFieldResultValueSource.
+const (
+	SignatureFieldResultValueSourceSigner      SignatureFieldResultValueSource = "signer"
+	SignatureFieldResultValueSourceIdentity    SignatureFieldResultValueSource = "identity"
+	SignatureFieldResultValueSourceContact     SignatureFieldResultValueSource = "contact"
+	SignatureFieldResultValueSourceCompany     SignatureFieldResultValueSource = "company"
+	SignatureFieldResultValueSourceSession     SignatureFieldResultValueSource = "session"
+	SignatureFieldResultValueSourceMetadata    SignatureFieldResultValueSource = "metadata"
+	SignatureFieldResultValueSourceAPI         SignatureFieldResultValueSource = "api"
+	SignatureFieldResultValueSourceSigningTime SignatureFieldResultValueSource = "signing_time"
+)
+
+// SignatureFieldResultValueUnavailableReason: `source_empty` when a pre-filled
+// field had no value in the session and `signature_field_data_missing_action`
+// let the signer sign anyway.
+//
+// SignatureFieldResultValueUnavailableReason is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SignatureFieldResultValueUnavailableReason string
+
+// Known values of SignatureFieldResultValueUnavailableReason.
+const (
+	SignatureFieldResultValueUnavailableReasonSourceEmpty SignatureFieldResultValueUnavailableReason = "source_empty"
+)
+
+// SignatureResultAdoptedSignature: The signature and initials the signer
+// adopted for signature and initials fields. `null` until the signer adopts
+// one.
+type SignatureResultAdoptedSignature struct {
+	// `typed`: the verified name in a handwriting style. `drawn`: drawn with a
+	// finger or a mouse.
+	Method SignatureResultAdoptedSignatureMethod `json:"method"`
+
+	// The handwriting style of a typed signature. `null` when drawn.
+	Font      string    `json:"font"`
+	AdoptedAt time.Time `json:"adopted_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultAdoptedSignature leniently.
+func (r *SignatureResultAdoptedSignature) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultAdoptedSignatureMethod: `typed`: the verified name in a
+// handwriting style. `drawn`: drawn with a finger or a mouse.
+//
+// SignatureResultAdoptedSignatureMethod is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SignatureResultAdoptedSignatureMethod string
+
+// Known values of SignatureResultAdoptedSignatureMethod.
+const (
+	SignatureResultAdoptedSignatureMethodTyped SignatureResultAdoptedSignatureMethod = "typed"
+	SignatureResultAdoptedSignatureMethodDrawn SignatureResultAdoptedSignatureMethod = "drawn"
+)
+
+// SignatureResultWarnings is a response object.
+type SignatureResultWarnings struct {
+	Code   SignatureResultWarningsCode `json:"code"`
+	NodeID string                      `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultWarnings leniently.
+func (r *SignatureResultWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultWarningsCode is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SignatureResultWarningsCode string
+
+// Known values of SignatureResultWarningsCode.
+const (
+	SignatureResultWarningsCodeSignatureDeclined            SignatureResultWarningsCode = "SIGNATURE_DECLINED"
+	SignatureResultWarningsCodeSignatureOTPFailed           SignatureResultWarningsCode = "SIGNATURE_OTP_FAILED"
+	SignatureResultWarningsCodeSignatureNameMismatch        SignatureResultWarningsCode = "SIGNATURE_NAME_MISMATCH"
+	SignatureResultWarningsCodeSignatureIdentityNotVerified SignatureResultWarningsCode = "SIGNATURE_IDENTITY_NOT_VERIFIED"
+	SignatureResultWarningsCodeSignatureDocumentChanged     SignatureResultWarningsCode = "SIGNATURE_DOCUMENT_CHANGED"
+	SignatureResultWarningsCodeSignatureFieldDataMissing    SignatureResultWarningsCode = "SIGNATURE_FIELD_DATA_MISSING"
+)
+
+// SignatureResultValidation: The last cryptographic check of the signed
+// documents. `null` until the documents are signed. If Didit can't confirm the
+// outcome of signing, it's `{"valid": null, "reason":
+// "signature_provider_outcome_unknown", "checked_at": ...}` and `status` stays
+// `signing`: treat it as not signed.
+type SignatureResultValidation struct {
+	// `true` when every document is valid. `null` when the outcome of signing
+	// couldn't be confirmed.
+	Valid bool `json:"valid"`
+
+	// Set when `valid` is `null`: `signature_provider_outcome_unknown`.
+	Reason    string                               `json:"reason"`
+	CheckedAt time.Time                            `json:"checked_at"`
+	Documents []SignatureResultValidationDocuments `json:"documents"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultValidation leniently.
+func (r *SignatureResultValidation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultValidationDocuments is a response object.
+type SignatureResultValidationDocuments struct {
+	ID        string    `json:"id"`
+	CheckedAt time.Time `json:"checked_at"`
+
+	// `true` when the signature and the timestamp are both valid and trusted.
+	Valid bool `json:"valid"`
+
+	// `true` when the document is unchanged since signing.
+	Integrity bool `json:"integrity"`
+
+	// `true` when the signing certificate chains to a trusted root.
+	Trusted bool `json:"trusted"`
+	Revoked bool `json:"revoked"`
+
+	// EU Trusted List check. For AES: `{"status": "not_applicable", "reason":
+	// "aes_not_qualified"}`.
+	TrustedList SignatureResultValidationDocumentsTrustedList `json:"trusted_list"`
+
+	// The certificate the documents were signed with. `null` until signed.
+	Certificate SignatureResultValidationDocumentsCertificate `json:"certificate"`
+
+	// The trusted timestamp in the signature. `null` until signed.
+	Timestamp SignatureResultValidationDocumentsTimestamp `json:"timestamp"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultValidationDocuments leniently.
+func (r *SignatureResultValidationDocuments) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultValidationDocumentsTrustedList: EU Trusted List check. For
+// AES: `{"status": "not_applicable", "reason": "aes_not_qualified"}`.
+type SignatureResultValidationDocumentsTrustedList struct {
+	Status string `json:"status"`
+	Reason string `json:"reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultValidationDocumentsTrustedList leniently.
+func (r *SignatureResultValidationDocumentsTrustedList) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultValidationDocumentsCertificate: The certificate the documents
+// were signed with. `null` until signed.
+type SignatureResultValidationDocumentsCertificate struct {
+	Issuer   string `json:"issuer"`
+	IssuedTo string `json:"issued_to"`
+
+	// Serial number, hexadecimal.
+	Serial     string    `json:"serial"`
+	ValidFrom  time.Time `json:"valid_from"`
+	ValidUntil time.Time `json:"valid_until"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultValidationDocumentsCertificate leniently.
+func (r *SignatureResultValidationDocumentsCertificate) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultValidationDocumentsTimestamp: The trusted timestamp in the
+// signature. `null` until signed.
+type SignatureResultValidationDocumentsTimestamp struct {
+	Time time.Time `json:"time"`
+
+	// Always `false` for AES.
+	Qualified bool `json:"qualified"`
+	Valid     bool `json:"valid"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultValidationDocumentsTimestamp leniently.
+func (r *SignatureResultValidationDocumentsTimestamp) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SignatureResultDeclinedAction is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SignatureResultDeclinedAction string
+
+// Known values of SignatureResultDeclinedAction.
+const (
+	SignatureResultDeclinedActionDecline  SignatureResultDeclinedAction = "DECLINE"
+	SignatureResultDeclinedActionReview   SignatureResultDeclinedAction = "REVIEW"
+	SignatureResultDeclinedActionNoAction SignatureResultDeclinedAction = "NO_ACTION"
+)
+
+// SignatureResultPlaceUnavailableReason is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SignatureResultPlaceUnavailableReason string
+
+// Known values of SignatureResultPlaceUnavailableReason.
+const (
+	SignatureResultPlaceUnavailableReasonNotCollected SignatureResultPlaceUnavailableReason = "not_collected"
+)
+
+// SessionDecisionIPAnalyses is a response object.
+type SessionDecisionIPAnalyses struct {
+	// Unique identifier for this Device & IP Analysis step in the workflow graph.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this Device & IP Analysis entry. Independent of the
+	// top-level session `status` - a session can reach its overall decision while
+	// an individual feature stays `In Review`.
+	Status SessionDecisionIPAnalysesStatus `json:"status"`
+
+	// Brand of the device used
+	DeviceBrand string `json:"device_brand"`
+
+	// Model of the device used
+	DeviceModel string `json:"device_model"`
+
+	// Browser family used
+	BrowserFamily string `json:"browser_family"`
+
+	// Operating system family
+	OsFamily string `json:"os_family"`
+
+	// Platform type (mobile, desktop, etc)
+	Platform string `json:"platform"`
+
+	// Unique device fingerprint identifier
+	DeviceFingerprint string `json:"device_fingerprint"`
+
+	// Country detected from IP
+	IPCountry string `json:"ip_country"`
+
+	// Two-letter country code from IP
+	IPCountryCode string `json:"ip_country_code"`
+
+	// State/region detected from IP
+	IPState string `json:"ip_state"`
+
+	// City detected from IP
+	IPCity string `json:"ip_city"`
+
+	// Latitude coordinate of IP location
+	Latitude float64 `json:"latitude"`
+
+	// Longitude coordinate of IP location
+	Longitude float64 `json:"longitude"`
+
+	// IP address
+	IPAddress string `json:"ip_address"`
+
+	// Internet Service Provider
+	Isp string `json:"isp"`
+
+	// Organization associated with IP
+	Organization string `json:"organization"`
+
+	// Whether IP is from VPN or Tor network
+	IsVpnOrTor bool `json:"is_vpn_or_tor"`
+
+	// Whether IP is from a data center
+	IsDataCenter bool `json:"is_data_center"`
+
+	// Time zone detected from IP
+	TimeZone string `json:"time_zone"`
+
+	// Time zone offset
+	TimeZoneOffset string `json:"time_zone_offset"`
+
+	// IP geolocation of this entry plus great-circle distances (km) to the ID
+	// document address and the POA document address. Distances are `null` when
+	// either side has no resolvable location.
+	IP SessionDecisionIPAnalysesIP `json:"ip"`
+
+	// Location extracted from the ID document address plus distances (km) to the IP
+	// geolocation and the POA document address. `location` is `null` when no
+	// document address could be geocoded.
+	IDDocument SessionDecisionIPAnalysesIDDocument `json:"id_document"`
+
+	// Location extracted from the Proof of Address document plus distances (km) to
+	// the IP geolocation and the ID document address. `location` is `null` when the
+	// session has no POA step or the address could not be geocoded.
+	POADocument SessionDecisionIPAnalysesPOADocument `json:"poa_document"`
+	Warnings    []SessionDecisionIPAnalysesWarnings  `json:"warnings"`
+
+	// Cross-session matches found for this entry's IP address or device identity.
+	// Every match is another verification session in your application (`source` is
+	// always `session`) that shares the same value, always belonging to a different
+	// vendor user / `vendor_data` than the current session, capped at 5 per
+	// collector (`device_fingerprint` sums two independently capped collectors, so
+	// up to 10 entries are possible). Every item carries `match_source`,
+	// `confidence`, `match_mode`, `device_info` and `location_info`; the keys
+	// `recovery_similarity`, `tls_ja4_corroborated` and `recovery_gate_reason` are
+	// present only when `match_source` is `recovered_high`.
+	Matches []SessionDecisionIPAnalysesMatches `json:"matches"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalyses leniently.
+func (r *SessionDecisionIPAnalyses) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesStatus: Feature-level status of this Device & IP
+// Analysis entry. Independent of the top-level session `status` - a session can
+// reach its overall decision while an individual feature stays `In Review`.
+//
+// SessionDecisionIPAnalysesStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type SessionDecisionIPAnalysesStatus string
+
+// Known values of SessionDecisionIPAnalysesStatus.
+const (
+	SessionDecisionIPAnalysesStatusNotFinished    SessionDecisionIPAnalysesStatus = "Not Finished"
+	SessionDecisionIPAnalysesStatusApproved       SessionDecisionIPAnalysesStatus = "Approved"
+	SessionDecisionIPAnalysesStatusDeclined       SessionDecisionIPAnalysesStatus = "Declined"
+	SessionDecisionIPAnalysesStatusInReview       SessionDecisionIPAnalysesStatus = "In Review"
+	SessionDecisionIPAnalysesStatusResubRequested SessionDecisionIPAnalysesStatus = "Resub Requested"
+)
+
+// SessionDecisionIPAnalysesIP: IP geolocation of this entry plus great-circle
+// distances (km) to the ID document address and the POA document address.
+// Distances are `null` when either side has no resolvable location.
+type SessionDecisionIPAnalysesIP struct {
+	// Coordinates, or `null` when unavailable.
+	Location                SessionDecisionIPAnalysesIPLocation `json:"location"`
+	DistanceFromIDDocument  float64                             `json:"distance_from_id_document"`
+	DistanceFromPOADocument float64                             `json:"distance_from_poa_document"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesIP leniently.
+func (r *SessionDecisionIPAnalysesIP) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesIPLocation: Coordinates, or `null` when unavailable.
+type SessionDecisionIPAnalysesIPLocation struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesIPLocation leniently.
+func (r *SessionDecisionIPAnalysesIPLocation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesIDDocument: Location extracted from the ID document
+// address plus distances (km) to the IP geolocation and the POA document
+// address. `location` is `null` when no document address could be geocoded.
+type SessionDecisionIPAnalysesIDDocument struct {
+	// Coordinates, or `null` when unavailable.
+	Location                SessionDecisionIPAnalysesIDDocumentLocation `json:"location"`
+	DistanceFromIP          float64                                     `json:"distance_from_ip"`
+	DistanceFromPOADocument float64                                     `json:"distance_from_poa_document"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesIDDocument leniently.
+func (r *SessionDecisionIPAnalysesIDDocument) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesIDDocumentLocation: Coordinates, or `null` when
+// unavailable.
+type SessionDecisionIPAnalysesIDDocumentLocation struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesIDDocumentLocation leniently.
+func (r *SessionDecisionIPAnalysesIDDocumentLocation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesPOADocument: Location extracted from the Proof of
+// Address document plus distances (km) to the IP geolocation and the ID
+// document address. `location` is `null` when the session has no POA step or
+// the address could not be geocoded.
+type SessionDecisionIPAnalysesPOADocument struct {
+	// Coordinates, or `null` when unavailable.
+	Location               SessionDecisionIPAnalysesPOADocumentLocation `json:"location"`
+	DistanceFromIP         float64                                      `json:"distance_from_ip"`
+	DistanceFromIDDocument float64                                      `json:"distance_from_id_document"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesPOADocument leniently.
+func (r *SessionDecisionIPAnalysesPOADocument) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesPOADocumentLocation: Coordinates, or `null` when
+// unavailable.
+type SessionDecisionIPAnalysesPOADocumentLocation struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesPOADocumentLocation leniently.
+func (r *SessionDecisionIPAnalysesPOADocumentLocation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesWarnings is a response object.
+type SessionDecisionIPAnalysesWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Each module's warnings array typically uses the
+	// value matching its module (e.g. `PHONE` inside
+	// `phone_verifications[].warnings`), but the enum above is authoritative across
+	// all feature warnings on the decision payload.
+	Feature          SessionDecisionIPAnalysesWarningsFeature `json:"feature"`
+	Risk             string                                   `json:"risk"`
+	AdditionalData   map[string]any                           `json:"additional_data"`
+	LogType          string                                   `json:"log_type"`
+	ShortDescription string                                   `json:"short_description"`
+	LongDescription  string                                   `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesWarnings leniently.
+func (r *SessionDecisionIPAnalysesWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesWarningsFeature: The feature that generated this
+// warning. The value identifies the feature block the warning belongs to. Each
+// module's warnings array typically uses the value matching its module (e.g.
+// `PHONE` inside `phone_verifications[].warnings`), but the enum above is
+// authoritative across all feature warnings on the decision payload.
+//
+// SessionDecisionIPAnalysesWarningsFeature is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionIPAnalysesWarningsFeature string
+
+// Known values of SessionDecisionIPAnalysesWarningsFeature.
+const (
+	SessionDecisionIPAnalysesWarningsFeatureIDVerification     SessionDecisionIPAnalysesWarningsFeature = "ID_VERIFICATION"
+	SessionDecisionIPAnalysesWarningsFeatureNFC                SessionDecisionIPAnalysesWarningsFeature = "NFC"
+	SessionDecisionIPAnalysesWarningsFeatureLiveness           SessionDecisionIPAnalysesWarningsFeature = "LIVENESS"
+	SessionDecisionIPAnalysesWarningsFeatureFacematch          SessionDecisionIPAnalysesWarningsFeature = "FACEMATCH"
+	SessionDecisionIPAnalysesWarningsFeatureProofOfAddress     SessionDecisionIPAnalysesWarningsFeature = "PROOF_OF_ADDRESS"
+	SessionDecisionIPAnalysesWarningsFeaturePhone              SessionDecisionIPAnalysesWarningsFeature = "PHONE"
+	SessionDecisionIPAnalysesWarningsFeatureEmail              SessionDecisionIPAnalysesWarningsFeature = "EMAIL"
+	SessionDecisionIPAnalysesWarningsFeatureAML                SessionDecisionIPAnalysesWarningsFeature = "AML"
+	SessionDecisionIPAnalysesWarningsFeatureLocation           SessionDecisionIPAnalysesWarningsFeature = "LOCATION"
+	SessionDecisionIPAnalysesWarningsFeatureDatabaseValidation SessionDecisionIPAnalysesWarningsFeature = "DATABASE_VALIDATION"
+	SessionDecisionIPAnalysesWarningsFeatureQuestionnaire      SessionDecisionIPAnalysesWarningsFeature = "QUESTIONNAIRE"
+	SessionDecisionIPAnalysesWarningsFeatureDocumentAi         SessionDecisionIPAnalysesWarningsFeature = "DOCUMENT_AI"
+	SessionDecisionIPAnalysesWarningsFeatureKYBRegistry        SessionDecisionIPAnalysesWarningsFeature = "KYB_REGISTRY"
+	SessionDecisionIPAnalysesWarningsFeatureKYBDocuments       SessionDecisionIPAnalysesWarningsFeature = "KYB_DOCUMENTS"
+	SessionDecisionIPAnalysesWarningsFeatureKYBKeyPeople       SessionDecisionIPAnalysesWarningsFeature = "KYB_KEY_PEOPLE"
+)
+
+// SessionDecisionIPAnalysesMatches is a response object.
+type SessionDecisionIPAnalysesMatches struct {
+	// Session ID of the matching session.
+	SessionID string `json:"session_id"`
+
+	// Sequential number of the matching session.
+	SessionNumber int64 `json:"session_number"`
+
+	// `vendor_data` of the matching session - always different from the current
+	// session's vendor user.
+	VendorData string `json:"vendor_data"`
+
+	// Creation date of the matching session (`YYYY-MM-DDTHH:MM:SSZ`).
+	VerificationDate time.Time `json:"verification_date"`
+
+	// Whether the match was on IP address or device fingerprint
+	MatchType SessionDecisionIPAnalysesMatchesMatchType `json:"match_type"`
+
+	// How this match was reached: `ip_address` (shared IP address - network
+	// co-location, not a device-identity claim), `persistent_id` (exact stored
+	// persistent device identifier), `legacy_fp` (legacy `didit-fp-*`
+	// device-fingerprint hash), or `recovered_high` (high-confidence fuzzy
+	// fingerprint-recovery hit). Lower-confidence recovery candidates surface as
+	// risk warnings only, never in this array.
+	MatchSource SessionDecisionIPAnalysesMatchesMatchSource `json:"match_source"`
+
+	// The value that matched: the shared IP address, the persistent device
+	// identifier or legacy fingerprint hash, or - for `recovered_high` - the UUID
+	// of the recovered device.
+	MatchedValue string `json:"matched_value"`
+
+	// Lifecycle status of the matching session.
+	Status string `json:"status"`
+
+	// Whether the matched value is on a blocklist. Currently always `false` for
+	// device/IP matches.
+	IsBlocklisted bool `json:"is_blocklisted"`
+
+	// Standalone API service of the matching session; `null` for workflow sessions.
+	APIService string `json:"api_service"`
+
+	// Always `session` for device/IP matches - every match is another verification
+	// session in your application.
+	Source SessionDecisionIPAnalysesMatchesSource `json:"source"`
+
+	// Device details observed on the matching session.
+	DeviceInfo SessionDecisionIPAnalysesMatchesDeviceInfo `json:"device_info"`
+
+	// Network and geolocation details observed on the matching session.
+	LocationInfo SessionDecisionIPAnalysesMatchesLocationInfo `json:"location_info"`
+
+	// Server-side identification confidence, computed as `1 - P(false positive)`:
+	// `1.0` for deterministic matches (`persistent_id`, or hardware-rooted
+	// `recovered_high`), `0.5` for `legacy_fp`, `0.0` for `ip_address` (co-location
+	// only), and a corroboration-adjusted value below `1.0` for probabilistic
+	// recovered matches (higher when the TLS JA4 fingerprint and IP country
+	// independently agree).
+	Confidence float64 `json:"confidence"`
+
+	// Evidence class of the match: `deterministic` (exact stored or hardware-rooted
+	// identifier that cannot collide between physical devices), `probabilistic`
+	// (fuzzy fingerprint evidence), or `co_occurrence` (shared network only, no
+	// device-identity claim).
+	MatchMode SessionDecisionIPAnalysesMatchesMatchMode `json:"match_mode"`
+
+	// Cosine similarity of the fingerprint-recovery match, rounded to 4 decimals.
+	// Present only when `match_source` is `recovered_high`.
+	RecoverySimilarity float64 `json:"recovery_similarity"`
+
+	// Whether the TLS JA4 fingerprints of the two observations agree - a
+	// server-observed signal the browser cannot spoof. Present only when
+	// `match_source` is `recovered_high`.
+	TLSJa4Corroborated bool `json:"tls_ja4_corroborated"`
+
+	// Why the recovery match passed the false-positive hard gate:
+	// `hardware_root_match` (a hardware-rooted device identifier matched exactly)
+	// or, on configurations that admit probe-only evidence,
+	// `exact_composite_plus_<n>_families` /
+	// `very_high_similarity_plus_<n>_families`. Present only when `match_source` is
+	// `recovered_high`.
+	RecoveryGateReason string `json:"recovery_gate_reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesMatches leniently.
+func (r *SessionDecisionIPAnalysesMatches) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesMatchesMatchType: Whether the match was on IP
+// address or device fingerprint
+//
+// SessionDecisionIPAnalysesMatchesMatchType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionIPAnalysesMatchesMatchType string
+
+// Known values of SessionDecisionIPAnalysesMatchesMatchType.
+const (
+	SessionDecisionIPAnalysesMatchesMatchTypeIPAddress         SessionDecisionIPAnalysesMatchesMatchType = "ip_address"
+	SessionDecisionIPAnalysesMatchesMatchTypeDeviceFingerprint SessionDecisionIPAnalysesMatchesMatchType = "device_fingerprint"
+)
+
+// SessionDecisionIPAnalysesMatchesMatchSource: How this match was reached:
+// `ip_address` (shared IP address - network co-location, not a device-identity
+// claim), `persistent_id` (exact stored persistent device identifier),
+// `legacy_fp` (legacy `didit-fp-*` device-fingerprint hash), or
+// `recovered_high` (high-confidence fuzzy fingerprint-recovery hit).
+// Lower-confidence recovery candidates surface as risk warnings only, never in
+// this array.
+//
+// SessionDecisionIPAnalysesMatchesMatchSource is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionIPAnalysesMatchesMatchSource string
+
+// Known values of SessionDecisionIPAnalysesMatchesMatchSource.
+const (
+	SessionDecisionIPAnalysesMatchesMatchSourceIPAddress     SessionDecisionIPAnalysesMatchesMatchSource = "ip_address"
+	SessionDecisionIPAnalysesMatchesMatchSourcePersistentID  SessionDecisionIPAnalysesMatchesMatchSource = "persistent_id"
+	SessionDecisionIPAnalysesMatchesMatchSourceLegacyFp      SessionDecisionIPAnalysesMatchesMatchSource = "legacy_fp"
+	SessionDecisionIPAnalysesMatchesMatchSourceRecoveredHigh SessionDecisionIPAnalysesMatchesMatchSource = "recovered_high"
+)
+
+// SessionDecisionIPAnalysesMatchesSource: Always `session` for device/IP
+// matches - every match is another verification session in your application.
+//
+// SessionDecisionIPAnalysesMatchesSource is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionIPAnalysesMatchesSource string
+
+// Known values of SessionDecisionIPAnalysesMatchesSource.
+const (
+	SessionDecisionIPAnalysesMatchesSourceSession SessionDecisionIPAnalysesMatchesSource = "session"
+)
+
+// SessionDecisionIPAnalysesMatchesDeviceInfo: Device details observed on the
+// matching session.
+type SessionDecisionIPAnalysesMatchesDeviceInfo struct {
+	DeviceBrand       string `json:"device_brand"`
+	DeviceModel       string `json:"device_model"`
+	BrowserFamily     string `json:"browser_family"`
+	OsFamily          string `json:"os_family"`
+	Platform          string `json:"platform"`
+	DeviceFingerprint string `json:"device_fingerprint"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesMatchesDeviceInfo leniently.
+func (r *SessionDecisionIPAnalysesMatchesDeviceInfo) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesMatchesLocationInfo: Network and geolocation details
+// observed on the matching session.
+type SessionDecisionIPAnalysesMatchesLocationInfo struct {
+	IPAddress     string `json:"ip_address"`
+	IPCountry     string `json:"ip_country"`
+	IPCountryCode string `json:"ip_country_code"`
+	IPState       string `json:"ip_state"`
+	IPCity        string `json:"ip_city"`
+	IsVpnOrTor    bool   `json:"is_vpn_or_tor"`
+	IsDataCenter  bool   `json:"is_data_center"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionIPAnalysesMatchesLocationInfo leniently.
+func (r *SessionDecisionIPAnalysesMatchesLocationInfo) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionIPAnalysesMatchesMatchMode: Evidence class of the match:
+// `deterministic` (exact stored or hardware-rooted identifier that cannot
+// collide between physical devices), `probabilistic` (fuzzy fingerprint
+// evidence), or `co_occurrence` (shared network only, no device-identity
+// claim).
+//
+// SessionDecisionIPAnalysesMatchesMatchMode is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionIPAnalysesMatchesMatchMode string
+
+// Known values of SessionDecisionIPAnalysesMatchesMatchMode.
+const (
+	SessionDecisionIPAnalysesMatchesMatchModeDeterministic SessionDecisionIPAnalysesMatchesMatchMode = "deterministic"
+	SessionDecisionIPAnalysesMatchesMatchModeProbabilistic SessionDecisionIPAnalysesMatchesMatchMode = "probabilistic"
+	SessionDecisionIPAnalysesMatchesMatchModeCoOccurrence  SessionDecisionIPAnalysesMatchesMatchMode = "co_occurrence"
+)
+
+// SessionDecisionDatabaseValidations is a response object.
+type SessionDecisionDatabaseValidations struct {
+	// Unique identifier for this database validation step in the workflow graph.
+	NodeID string `json:"node_id"`
+
+	// ISO 3166-1 alpha-3 code of the country whose government/registry sources were
+	// queried (e.g. `BRA`, `MEX`, `ESP`, `NGA`, `IDN`). Database Validation covers
+	// 60+ countries across the Americas, Europe, Africa, the Middle East and
+	// Asia-Pacific, plus global multi-country sources - coverage expands regularly,
+	// so treat the value as an open set rather than a fixed enum.
+	IssuingState string `json:"issuing_state"`
+
+	// How the result was corroborated: `one_by_one` (single-service outcome),
+	// `two_by_two` (two or more distinct services independently full-matched the
+	// identification number), or `not_enabled` (persisted when no service produced
+	// a usable match). The value is never `null`. Dedicated biometric 2x2
+	// validation modes are currently available for `ECU` and `PER`.
+	ValidationType SessionDecisionDatabaseValidationsValidationType `json:"validation_type"`
+
+	// The input data used for validation. Fields vary by country - see the Database
+	// Validation docs (`/core-technology/database-validation/overview`) for
+	// country-specific formats.
+	ScreenedData SessionDecisionDatabaseValidationsScreenedData `json:"screened_data"`
+
+	// One entry per registry service that returned a validation payload. Each entry
+	// identifies the service (`service_id`, `service_name`) and carries the
+	// per-field `validation` comparison, the service `outcome_code` /
+	// `outcome_detail` when reported, and the normalised registry record in
+	// `source_data`.
+	Validations []SessionDecisionDatabaseValidationsValidations `json:"validations"`
+
+	// Errors returned by registry services while validating, each tagged with the
+	// `service_id` that produced it. **This key is omitted entirely when there are
+	// no errors.**
+	Errors []SessionDecisionDatabaseValidationsErrors `json:"errors"`
+
+	// The aggregate match outcome across the queried services. `null` until the
+	// validation has been evaluated.
+	MatchType SessionDecisionDatabaseValidationsMatchType `json:"match_type"`
+
+	// Feature-level status of this database validation. Independent of the
+	// top-level session `status` - a session can reach its overall decision while
+	// an individual feature stays `In Review`.
+	Status SessionDecisionDatabaseValidationsStatus `json:"status"`
+
+	// Warnings related to the database validation.
+	Warnings []SessionDecisionDatabaseValidationsWarnings `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDatabaseValidations leniently.
+func (r *SessionDecisionDatabaseValidations) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDatabaseValidationsValidationType: How the result was
+// corroborated: `one_by_one` (single-service outcome), `two_by_two` (two or
+// more distinct services independently full-matched the identification number),
+// or `not_enabled` (persisted when no service produced a usable match). The
+// value is never `null`. Dedicated biometric 2x2 validation modes are currently
+// available for `ECU` and `PER`.
+//
+// SessionDecisionDatabaseValidationsValidationType is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionDatabaseValidationsValidationType string
+
+// Known values of SessionDecisionDatabaseValidationsValidationType.
+const (
+	SessionDecisionDatabaseValidationsValidationTypeOneByOne   SessionDecisionDatabaseValidationsValidationType = "one_by_one"
+	SessionDecisionDatabaseValidationsValidationTypeTwoByTwo   SessionDecisionDatabaseValidationsValidationType = "two_by_two"
+	SessionDecisionDatabaseValidationsValidationTypeNotEnabled SessionDecisionDatabaseValidationsValidationType = "not_enabled"
+)
+
+// SessionDecisionDatabaseValidationsScreenedData: The input data used for
+// validation. Fields vary by country - see the Database Validation docs
+// (`/core-technology/database-validation/overview`) for country-specific
+// formats.
+type SessionDecisionDatabaseValidationsScreenedData struct {
+	LastName  string `json:"last_name"`
+	FirstName string `json:"first_name"`
+
+	// Brazil: CPF (11 digits)
+	TaxNumber string `json:"tax_number"`
+
+	// Chile: RUT, DOM: Cédula (11 digits), ECU: Cédula (10 digits), ESP: DNI/NIE,
+	// MEX: CURP (18 chars), PER: DNI (8 digits), URY: CI
+	PersonalNumber string `json:"personal_number"`
+
+	// ARG: DNI, BOL: CI, COL: Cédula, GTM: DPI, HND: DNI, PAN: Cédula, PRY: CI,
+	// SLV: DUI, VEN: Cédula
+	DocumentNumber string `json:"document_number"`
+	DateOfBirth    string `json:"date_of_birth"`
+
+	// COL: CC/CE/TI/NIT, ESP: ID/PASSPORT
+	DocumentType string `json:"document_type"`
+
+	// Required for ESP
+	ExpirationDate string `json:"expiration_date"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDatabaseValidationsScreenedData leniently.
+func (r *SessionDecisionDatabaseValidationsScreenedData) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDatabaseValidationsValidations is a response object.
+type SessionDecisionDatabaseValidationsValidations struct {
+	// Identifier of the registry service that produced this validation result.
+	ServiceID string `json:"service_id"`
+
+	// Human-readable name of the registry service.
+	ServiceName string `json:"service_name"`
+
+	// The results of the field validations.
+	Validation SessionDecisionDatabaseValidationsValidationsValidation `json:"validation"`
+
+	// Machine-readable outcome of the registry lookup (e.g. `MATCH`, `NO_MATCH`,
+	// `PARTIAL_MATCH`, `INCONCLUSIVE`, source-specific codes). Present when the
+	// service reports one.
+	OutcomeCode string `json:"outcome_code"`
+
+	// Human-readable explanation of `outcome_code`, when provided by the service.
+	OutcomeDetail string `json:"outcome_detail"`
+
+	// The data returned from the government database. Common fields:
+	// identification_number, first_name, last_name, full_name, date_of_birth,
+	// gender. Additional fields by country: BRA always includes lgpd_minor,
+	// minor_under_18, and minor_under_16 on successful CPF matches; it also
+	// includes the upstream HTTP status when CPF data is withheld under LGPD (HTTP
+	// 422/451). ECU adds street, formatted_address, nationality, education,
+	// marital_status, spouse, mother_name, father_name, profession. PER adds
+	// paternal_name, maternal_name, verification_number, verification_letter. ESP
+	// adds document_type, expiration_date. VEN/COL add document_type.
+	SourceData map[string]any `json:"source_data"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDatabaseValidationsValidations leniently.
+func (r *SessionDecisionDatabaseValidationsValidations) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDatabaseValidationsValidationsValidation: The results of the
+// field validations.
+type SessionDecisionDatabaseValidationsValidationsValidation struct {
+	// Match result for full name (e.g., 'full_match', 'partial_match', 'no_match').
+	FullName string `json:"full_name"`
+
+	// Match result for date of birth.
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Match result for identification number.
+	IdentificationNumber string `json:"identification_number"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDatabaseValidationsValidationsValidation leniently.
+func (r *SessionDecisionDatabaseValidationsValidationsValidation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDatabaseValidationsErrors: The upstream service's error object
+// spread as-is - its keys vary by service (commonly a message/code and any
+// provider-specific details) - plus `service_id` identifying the service that
+// errored.
+type SessionDecisionDatabaseValidationsErrors struct {
+	// Identifier of the registry service that errored.
+	ServiceID string `json:"service_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDatabaseValidationsErrors leniently.
+func (r *SessionDecisionDatabaseValidationsErrors) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDatabaseValidationsMatchType: The aggregate match outcome
+// across the queried services. `null` until the validation has been evaluated.
+//
+// SessionDecisionDatabaseValidationsMatchType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionDatabaseValidationsMatchType string
+
+// Known values of SessionDecisionDatabaseValidationsMatchType.
+const (
+	SessionDecisionDatabaseValidationsMatchTypeNoMatch      SessionDecisionDatabaseValidationsMatchType = "no_match"
+	SessionDecisionDatabaseValidationsMatchTypePartialMatch SessionDecisionDatabaseValidationsMatchType = "partial_match"
+	SessionDecisionDatabaseValidationsMatchTypeFullMatch    SessionDecisionDatabaseValidationsMatchType = "full_match"
+)
+
+// SessionDecisionDatabaseValidationsStatus: Feature-level status of this
+// database validation. Independent of the top-level session `status` - a
+// session can reach its overall decision while an individual feature stays `In
+// Review`.
+//
+// SessionDecisionDatabaseValidationsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionDatabaseValidationsStatus string
+
+// Known values of SessionDecisionDatabaseValidationsStatus.
+const (
+	SessionDecisionDatabaseValidationsStatusNotFinished    SessionDecisionDatabaseValidationsStatus = "Not Finished"
+	SessionDecisionDatabaseValidationsStatusApproved       SessionDecisionDatabaseValidationsStatus = "Approved"
+	SessionDecisionDatabaseValidationsStatusDeclined       SessionDecisionDatabaseValidationsStatus = "Declined"
+	SessionDecisionDatabaseValidationsStatusInReview       SessionDecisionDatabaseValidationsStatus = "In Review"
+	SessionDecisionDatabaseValidationsStatusResubRequested SessionDecisionDatabaseValidationsStatus = "Resub Requested"
+)
+
+// SessionDecisionDatabaseValidationsWarnings is a response object.
+type SessionDecisionDatabaseValidationsWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Each module's warnings array typically uses the
+	// value matching its module (e.g. `PHONE` inside
+	// `phone_verifications[].warnings`), but the enum above is authoritative across
+	// all feature warnings on the decision payload.
+	Feature          SessionDecisionDatabaseValidationsWarningsFeature `json:"feature"`
+	Risk             string                                            `json:"risk"`
+	AdditionalData   map[string]any                                    `json:"additional_data"`
+	LogType          string                                            `json:"log_type"`
+	ShortDescription string                                            `json:"short_description"`
+	LongDescription  string                                            `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDatabaseValidationsWarnings leniently.
+func (r *SessionDecisionDatabaseValidationsWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDatabaseValidationsWarningsFeature: The feature that generated
+// this warning. The value identifies the feature block the warning belongs to.
+// Each module's warnings array typically uses the value matching its module
+// (e.g. `PHONE` inside `phone_verifications[].warnings`), but the enum above is
+// authoritative across all feature warnings on the decision payload.
+//
+// SessionDecisionDatabaseValidationsWarningsFeature is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionDatabaseValidationsWarningsFeature string
+
+// Known values of SessionDecisionDatabaseValidationsWarningsFeature.
+const (
+	SessionDecisionDatabaseValidationsWarningsFeatureIDVerification     SessionDecisionDatabaseValidationsWarningsFeature = "ID_VERIFICATION"
+	SessionDecisionDatabaseValidationsWarningsFeatureNFC                SessionDecisionDatabaseValidationsWarningsFeature = "NFC"
+	SessionDecisionDatabaseValidationsWarningsFeatureLiveness           SessionDecisionDatabaseValidationsWarningsFeature = "LIVENESS"
+	SessionDecisionDatabaseValidationsWarningsFeatureFacematch          SessionDecisionDatabaseValidationsWarningsFeature = "FACEMATCH"
+	SessionDecisionDatabaseValidationsWarningsFeatureProofOfAddress     SessionDecisionDatabaseValidationsWarningsFeature = "PROOF_OF_ADDRESS"
+	SessionDecisionDatabaseValidationsWarningsFeaturePhone              SessionDecisionDatabaseValidationsWarningsFeature = "PHONE"
+	SessionDecisionDatabaseValidationsWarningsFeatureEmail              SessionDecisionDatabaseValidationsWarningsFeature = "EMAIL"
+	SessionDecisionDatabaseValidationsWarningsFeatureAML                SessionDecisionDatabaseValidationsWarningsFeature = "AML"
+	SessionDecisionDatabaseValidationsWarningsFeatureLocation           SessionDecisionDatabaseValidationsWarningsFeature = "LOCATION"
+	SessionDecisionDatabaseValidationsWarningsFeatureDatabaseValidation SessionDecisionDatabaseValidationsWarningsFeature = "DATABASE_VALIDATION"
+	SessionDecisionDatabaseValidationsWarningsFeatureQuestionnaire      SessionDecisionDatabaseValidationsWarningsFeature = "QUESTIONNAIRE"
+	SessionDecisionDatabaseValidationsWarningsFeatureDocumentAi         SessionDecisionDatabaseValidationsWarningsFeature = "DOCUMENT_AI"
+	SessionDecisionDatabaseValidationsWarningsFeatureKYBRegistry        SessionDecisionDatabaseValidationsWarningsFeature = "KYB_REGISTRY"
+	SessionDecisionDatabaseValidationsWarningsFeatureKYBDocuments       SessionDecisionDatabaseValidationsWarningsFeature = "KYB_DOCUMENTS"
+	SessionDecisionDatabaseValidationsWarningsFeatureKYBKeyPeople       SessionDecisionDatabaseValidationsWarningsFeature = "KYB_KEY_PEOPLE"
+)
+
+// SessionDecisionReviews is a response object.
+type SessionDecisionReviews struct {
+	// Who performed the review. Usually the console reviewer's identifier (their
+	// email), but the value is `"API Client"` for status updates made with an API
+	// key and `"Unknown"` when no actor could be resolved - so do not parse this
+	// field as an email address.
+	User      string    `json:"user"`
+	NewStatus string    `json:"new_status"`
+	Comment   string    `json:"comment"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionReviews leniently.
+func (r *SessionDecisionReviews) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionRegistryChecks: One company registry check - the full
+// company-registry payload enriched with ownership structure and warnings.
+// Present only when `session_kind = business`.
+type SessionDecisionRegistryChecks struct {
+	// Feature lifecycle status.
+	Status       string `json:"status"`
+	NodeID       string `json:"node_id"`
+	DataResolved bool   `json:"data_resolved"`
+
+	// Full registry payload for the company (registry record merged with any
+	// user-provided or console-edited data).
+	Company SessionDecisionRegistryChecksCompany `json:"company"`
+
+	// Raw ownership snapshot kept for reviewers; its shape differs by registry
+	// source and is not a stable contract. Read `company.beneficial_owners` and
+	// `company.ownership` instead.
+	OwnershipStructure map[string]any   `json:"ownership_structure"`
+	Warnings           []map[string]any `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionRegistryChecks leniently.
+func (r *SessionDecisionRegistryChecks) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionRegistryChecksCompany: Full registry payload for the company
+// (registry record merged with any user-provided or console-edited data).
+type SessionDecisionRegistryChecksCompany struct {
+	UUID               string `json:"uuid"`
+	NodeID             string `json:"node_id"`
+	Status             string `json:"status"`
+	RegistryStatus     string `json:"registry_status"`
+	DataResolved       bool   `json:"data_resolved"`
+	CompanyName        string `json:"company_name"`
+	RegistrationNumber string `json:"registration_number"`
+
+	// Country of incorporation (ISO 3166-1 alpha-2, e.g. `GB`, `DE`, `US`).
+	CountryCode string `json:"country_code"`
+
+	// ISO 3166-2 subdivision code when applicable (e.g. `CA`, `NY` for US states).
+	Region             string                                        `json:"region"`
+	CompanyType        string                                        `json:"company_type"`
+	IncorporationDate  string                                        `json:"incorporation_date"`
+	RegisteredAddress  string                                        `json:"registered_address"`
+	TaxNumber          string                                        `json:"tax_number"`
+	RiskLevel          SessionDecisionRegistryChecksCompanyRiskLevel `json:"risk_level"`
+	VerificationStatus string                                        `json:"verification_status"`
+	IsFromRegistry     bool                                          `json:"is_from_registry"`
+	FetchStatus        string                                        `json:"fetch_status"`
+
+	// Alternative, trading, former or original-language company names as text, when
+	// reported.
+	AlternativeNames  string `json:"alternative_names"`
+	NatureOfBusiness  string `json:"nature_of_business"`
+	RegisteredCapital string `json:"registered_capital"`
+
+	// Registered/share capital amount as a decimal string (e.g. `"100.00"`), parsed
+	// from the registry filing. `null` when not available.
+	RegisteredCapitalAmount string `json:"registered_capital_amount"`
+
+	// ISO 4217 currency code of `registered_capital_amount` (e.g. `"GBP"`). `null`
+	// when not available.
+	RegisteredCapitalCurrency string `json:"registered_capital_currency"`
+	Website                   string `json:"website"`
+	Email                     string `json:"email"`
+	Phone                     string `json:"phone"`
+	LegalEntityIdentifier     string `json:"legal_entity_identifier"`
+	LocationOfRegistration    string `json:"location_of_registration"`
+
+	// EU VAT number, when collected during the hosted registry step or edited
+	// afterwards.
+	VATNumber string `json:"vat_number"`
+
+	// Result of validating the VAT number or, when there is none, the `tax_number`,
+	// at registry submit. `valid` / `invalid`: decided by the official registry of
+	// the country (EU VIES, Norway, Switzerland, Brazil, Colombia, Costa Rica,
+	// Ecuador, Paraguay; Poland also by its domestic VAT register). `format_valid`
+	// / `invalid_format`: decided by the country's format and check-digit rules
+	// where no registry can be queried. `could_not_validate`: the registry was
+	// unavailable. `not_applicable`: no number, a country without registry or
+	// rules, or a sandbox session.
+	VATValidationStatus SessionDecisionRegistryChecksCompanyVATValidationStatus `json:"vat_validation_status"`
+
+	// The number that was checked, as the source knows it (for example the VAT
+	// number derived from a French SIREN or a Dutch RSIN). `null` when no check
+	// ran.
+	VATValidatedNumber string `json:"vat_validated_number"`
+
+	// The source that decided `vat_validation_status`: an official registry, or
+	// `format_rules`. `null` when no check ran.
+	VATValidationSource SessionDecisionRegistryChecksCompanyVATValidationSource `json:"vat_validation_source"`
+
+	// Name registered with the source that validated the number, when it discloses
+	// one. Only set when the status is `valid`.
+	VATValidatedName string `json:"vat_validated_name"`
+
+	// Address registered with the source that validated the number, when it
+	// discloses one. Only set when the status is `valid`.
+	VATValidatedAddress string `json:"vat_validated_address"`
+
+	// Timestamp of the check. `null` when no check ran.
+	VATCheckedAt     time.Time                                              `json:"vat_checked_at"`
+	FinancialSummary map[string]any                                         `json:"financial_summary"`
+	Officers         []SessionDecisionRegistryChecksCompanyOfficers         `json:"officers"`
+	BeneficialOwners []SessionDecisionRegistryChecksCompanyBeneficialOwners `json:"beneficial_owners"`
+
+	// Every address the registry states, one canonical shape. Null when it states
+	// none.
+	Addresses []KYBRegistryAddress `json:"addresses"`
+
+	// The activities the registry classifies the company under, one canonical
+	// shape. Null when it states none.
+	Industries []KYBRegistryIndustry `json:"industries"`
+
+	// Registry filing dates, when available. Annual returns and general meetings
+	// use last_annual_return_date and last_agm_date; they are distinct from
+	// financial accounts.
+	Accounts map[string]any `json:"accounts"`
+
+	// Raw record returned by the registry source, kept for reviewers. Its shape
+	// differs by country and source and is not a stable contract: read the
+	// canonical fields (`addresses`, `industries`, `ownership`,
+	// `beneficial_owners[].shareholding`) instead.
+	RegistryData map[string]any `json:"registry_data"`
+
+	// Data confirmed or edited by the end user.
+	UserProvidedData  map[string]any       `json:"user_provided_data"`
+	ConfirmedByUserAt time.Time            `json:"confirmed_by_user_at"`
+	LastConsoleEditAt time.Time            `json:"last_console_edit_at"`
+	IsEditable        bool                 `json:"is_editable"`
+	Ownership         KYBRegistryOwnership `json:"ownership"`
+
+	// The registry tier the workflow ordered: `basic`, `shareholders` or `ubo`.
+	// Also in `ownership.tier_requested`.
+	RegistryTier string `json:"registry_tier"`
+
+	// The tier the registry delivered and that is billed. Also in
+	// `ownership.tier_delivered`.
+	RegistryTierDelivered string `json:"registry_tier_delivered"`
+
+	// `not_requested`, `pending`, `delivered` or `unavailable`. Also in
+	// `ownership.status`.
+	RegistryOwnershipStatus string `json:"registry_ownership_status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionRegistryChecksCompany leniently.
+func (r *SessionDecisionRegistryChecksCompany) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionRegistryChecksCompanyRiskLevel is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionRegistryChecksCompanyRiskLevel string
+
+// Known values of SessionDecisionRegistryChecksCompanyRiskLevel.
+const (
+	SessionDecisionRegistryChecksCompanyRiskLevelLow    SessionDecisionRegistryChecksCompanyRiskLevel = "LOW"
+	SessionDecisionRegistryChecksCompanyRiskLevelMedium SessionDecisionRegistryChecksCompanyRiskLevel = "MEDIUM"
+	SessionDecisionRegistryChecksCompanyRiskLevelHigh   SessionDecisionRegistryChecksCompanyRiskLevel = "HIGH"
+)
+
+// SessionDecisionRegistryChecksCompanyVATValidationStatus: Result of validating
+// the VAT number or, when there is none, the `tax_number`, at registry submit.
+// `valid` / `invalid`: decided by the official registry of the country (EU
+// VIES, Norway, Switzerland, Brazil, Colombia, Costa Rica, Ecuador, Paraguay;
+// Poland also by its domestic VAT register). `format_valid` / `invalid_format`:
+// decided by the country's format and check-digit rules where no registry can
+// be queried. `could_not_validate`: the registry was unavailable.
+// `not_applicable`: no number, a country without registry or rules, or a
+// sandbox session.
+//
+// SessionDecisionRegistryChecksCompanyVATValidationStatus is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionDecisionRegistryChecksCompanyVATValidationStatus string
+
+// Known values of SessionDecisionRegistryChecksCompanyVATValidationStatus.
+const (
+	SessionDecisionRegistryChecksCompanyVATValidationStatusValid            SessionDecisionRegistryChecksCompanyVATValidationStatus = "valid"
+	SessionDecisionRegistryChecksCompanyVATValidationStatusInvalid          SessionDecisionRegistryChecksCompanyVATValidationStatus = "invalid"
+	SessionDecisionRegistryChecksCompanyVATValidationStatusFormatValid      SessionDecisionRegistryChecksCompanyVATValidationStatus = "format_valid"
+	SessionDecisionRegistryChecksCompanyVATValidationStatusInvalidFormat    SessionDecisionRegistryChecksCompanyVATValidationStatus = "invalid_format"
+	SessionDecisionRegistryChecksCompanyVATValidationStatusCouldNotValidate SessionDecisionRegistryChecksCompanyVATValidationStatus = "could_not_validate"
+	SessionDecisionRegistryChecksCompanyVATValidationStatusNotApplicable    SessionDecisionRegistryChecksCompanyVATValidationStatus = "not_applicable"
+)
+
+// SessionDecisionRegistryChecksCompanyVATValidationSource: The source that
+// decided `vat_validation_status`: an official registry, or `format_rules`.
+// `null` when no check ran.
+//
+// SessionDecisionRegistryChecksCompanyVATValidationSource is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionDecisionRegistryChecksCompanyVATValidationSource string
+
+// Known values of SessionDecisionRegistryChecksCompanyVATValidationSource.
+const (
+	SessionDecisionRegistryChecksCompanyVATValidationSourceEuVies           SessionDecisionRegistryChecksCompanyVATValidationSource = "eu_vies"
+	SessionDecisionRegistryChecksCompanyVATValidationSourcePlVATWhiteList   SessionDecisionRegistryChecksCompanyVATValidationSource = "pl_vat_white_list"
+	SessionDecisionRegistryChecksCompanyVATValidationSourceNoBrreg          SessionDecisionRegistryChecksCompanyVATValidationSource = "no_brreg"
+	SessionDecisionRegistryChecksCompanyVATValidationSourceChUIDRegister    SessionDecisionRegistryChecksCompanyVATValidationSource = "ch_uid_register"
+	SessionDecisionRegistryChecksCompanyVATValidationSourceBrReceitaFederal SessionDecisionRegistryChecksCompanyVATValidationSource = "br_receita_federal"
+	SessionDecisionRegistryChecksCompanyVATValidationSourceCoRues           SessionDecisionRegistryChecksCompanyVATValidationSource = "co_rues"
+	SessionDecisionRegistryChecksCompanyVATValidationSourceCrHacienda       SessionDecisionRegistryChecksCompanyVATValidationSource = "cr_hacienda"
+	SessionDecisionRegistryChecksCompanyVATValidationSourceEcSri            SessionDecisionRegistryChecksCompanyVATValidationSource = "ec_sri"
+	SessionDecisionRegistryChecksCompanyVATValidationSourcePyDnit           SessionDecisionRegistryChecksCompanyVATValidationSource = "py_dnit"
+	SessionDecisionRegistryChecksCompanyVATValidationSourceFormatRules      SessionDecisionRegistryChecksCompanyVATValidationSource = "format_rules"
+)
+
+// SessionDecisionRegistryChecksCompanyOfficers is a response object.
+type SessionDecisionRegistryChecksCompanyOfficers struct {
+	UUID          string                                                `json:"uuid"`
+	Name          string                                                `json:"name"`
+	Designation   string                                                `json:"designation"`
+	Role          string                                                `json:"role"`
+	Nationality   string                                                `json:"nationality"`
+	IsActive      bool                                                  `json:"is_active"`
+	KYCStatus     SessionDecisionRegistryChecksCompanyOfficersKYCStatus `json:"kyc_status"`
+	KYCSessionURL string                                                `json:"kyc_session_url"`
+
+	// Given name when explicitly reported by the registry; not inferred from the
+	// full name.
+	FirstName string `json:"first_name"`
+
+	// Family name when explicitly reported by the registry.
+	LastName string `json:"last_name"`
+
+	// Officer address reported by the registry.
+	Address string `json:"address"`
+
+	// Date the officer was appointed.
+	AppointmentDate string `json:"appointment_date"`
+
+	// Date the appointment ended, when reported.
+	TerminationDate string `json:"termination_date"`
+
+	// Complete registry-reported birth date. Null when only a birth year or month
+	// is known.
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Registry-reported birth year, including when the full date is unavailable.
+	DateOfBirthYear int64 `json:"date_of_birth_year"`
+
+	// Registry-reported birth month. Null when only the year is known.
+	DateOfBirthMonth int64 `json:"date_of_birth_month"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionRegistryChecksCompanyOfficers leniently.
+func (r *SessionDecisionRegistryChecksCompanyOfficers) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionRegistryChecksCompanyOfficersKYCStatus is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionRegistryChecksCompanyOfficersKYCStatus string
+
+// Known values of SessionDecisionRegistryChecksCompanyOfficersKYCStatus.
+const (
+	SessionDecisionRegistryChecksCompanyOfficersKYCStatusApproved SessionDecisionRegistryChecksCompanyOfficersKYCStatus = "Approved"
+	SessionDecisionRegistryChecksCompanyOfficersKYCStatusDeclined SessionDecisionRegistryChecksCompanyOfficersKYCStatus = "Declined"
+	SessionDecisionRegistryChecksCompanyOfficersKYCStatusPending  SessionDecisionRegistryChecksCompanyOfficersKYCStatus = "Pending"
+)
+
+// SessionDecisionRegistryChecksCompanyBeneficialOwners is a response object.
+type SessionDecisionRegistryChecksCompanyBeneficialOwners struct {
+	UUID       string                                                         `json:"uuid"`
+	Name       string                                                         `json:"name"`
+	FirstName  string                                                         `json:"first_name"`
+	LastName   string                                                         `json:"last_name"`
+	EntityType SessionDecisionRegistryChecksCompanyBeneficialOwnersEntityType `json:"entity_type"`
+	Roles      []string                                                       `json:"roles"`
+
+	// Lower bound of the ownership percentage as reported by the registry.
+	// Free-form string (e.g. `"25.00"`, `"50"`); use `effective_ownership_percent`
+	// for a parsed numeric value.
+	OwnershipMinShares string `json:"ownership_min_shares"`
+
+	// Upper bound of the ownership percentage as reported by the registry.
+	// Free-form string; use `effective_ownership_percent` for a parsed numeric
+	// value.
+	OwnershipMaxShares        string                                                        `json:"ownership_max_shares"`
+	IsActive                  bool                                                          `json:"is_active"`
+	KYCStatus                 SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus `json:"kyc_status"`
+	KYCSessionURL             string                                                        `json:"kyc_session_url"`
+	EffectiveOwnershipPercent float64                                                       `json:"effective_ownership_percent"`
+	CompanyName               string                                                        `json:"company_name"`
+	RegistrationNumber        string                                                        `json:"registration_number"`
+	CountryOfBirth            string                                                        `json:"country_of_birth"`
+	Email                     string                                                        `json:"email"`
+	Nationality               string                                                        `json:"nationality"`
+	Designation               string                                                        `json:"designation"`
+	VotingMinShares           string                                                        `json:"voting_min_shares"`
+	VotingMaxShares           string                                                        `json:"voting_max_shares"`
+
+	// Complete birth date when reported.
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Appointment date when reported.
+	AppointmentDate string                  `json:"appointment_date"`
+	Shareholding    KYBRegistryShareholding `json:"shareholding"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionRegistryChecksCompanyBeneficialOwners leniently.
+func (r *SessionDecisionRegistryChecksCompanyBeneficialOwners) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionRegistryChecksCompanyBeneficialOwnersEntityType is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionRegistryChecksCompanyBeneficialOwnersEntityType string
+
+// Known values of SessionDecisionRegistryChecksCompanyBeneficialOwnersEntityType.
+const (
+	SessionDecisionRegistryChecksCompanyBeneficialOwnersEntityTypePerson  SessionDecisionRegistryChecksCompanyBeneficialOwnersEntityType = "person"
+	SessionDecisionRegistryChecksCompanyBeneficialOwnersEntityTypeCompany SessionDecisionRegistryChecksCompanyBeneficialOwnersEntityType = "company"
+)
+
+// SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus string
+
+// Known values of SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus.
+const (
+	SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatusApproved SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus = "Approved"
+	SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatusDeclined SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus = "Declined"
+	SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatusPending  SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus = "Pending"
+)
+
+// SessionDecisionKeyPeopleChecks: Aggregate check over the company's officers +
+// UBOs. Uses the `registry` / `submitted` shape. Present only when session_kind
+// = business.
+type SessionDecisionKeyPeopleChecks struct {
+	Status string `json:"status"`
+	NodeID string `json:"node_id"`
+
+	// Parties discovered via the registry check.
+	Registry SessionDecisionKeyPeopleChecksRegistry `json:"registry"`
+
+	// Parties submitted by the business admin during the Key People flow
+	// (BusinessParty rows where source=USER).
+	Submitted SessionDecisionKeyPeopleChecksSubmitted `json:"submitted"`
+
+	// Aggregate UBO KYC progress, or null when no UBOs have linked KYC sessions.
+	UBOKYCSummary SessionDecisionKeyPeopleChecksUBOKYCSummary `json:"ubo_kyc_summary"`
+	Warnings      []map[string]any                            `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecks leniently.
+func (r *SessionDecisionKeyPeopleChecks) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksRegistry: Parties discovered via the registry
+// check.
+type SessionDecisionKeyPeopleChecksRegistry struct {
+	// Officers discovered via the registry check, each enriched with the status of
+	// any child KYC session and AML screening spawned for them.
+	Officers []SessionDecisionKeyPeopleChecksRegistryOfficers `json:"officers"`
+
+	// Beneficial owners discovered via the registry check, each enriched with the
+	// status of any child KYC session and AML screening spawned for them.
+	BeneficialOwners []SessionDecisionKeyPeopleChecksRegistryBeneficialOwners `json:"beneficial_owners"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksRegistry leniently.
+func (r *SessionDecisionKeyPeopleChecksRegistry) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksRegistryOfficers is a response object.
+type SessionDecisionKeyPeopleChecksRegistryOfficers struct {
+	UUID string `json:"uuid"`
+
+	// Officer's full name as recorded in the registry.
+	Name string `json:"name"`
+
+	// Free-text designation from the registry (e.g. `Director`, `Company
+	// Secretary`).
+	Designation string `json:"designation"`
+
+	// Normalized officer role.
+	Role        SessionDecisionKeyPeopleChecksRegistryOfficersRole `json:"role"`
+	Nationality string                                             `json:"nationality"`
+
+	// Date the officer was appointed.
+	AppointmentDate string `json:"appointment_date"`
+
+	// Date the appointment ended, when reported.
+	TerminationDate string `json:"termination_date"`
+	IsActive        bool   `json:"is_active"`
+
+	// Officer address reported by the registry.
+	Address string `json:"address"`
+
+	// Status of the AML screening run for this officer. `null` when no AML
+	// screening was run.
+	AMLStatus SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus `json:"aml_status"`
+
+	// Raw lifecycle status of the child KYC session spawned for this officer. This
+	// is the full session status enum (not a reduced Approved/Declined/Pending
+	// set). `null` when no child KYC session exists.
+	KYCStatus SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus `json:"kyc_status"`
+
+	// Shareable URL of the child KYC session. `null` when no child session exists.
+	KYCSessionURL string `json:"kyc_session_url"`
+
+	// Session id of the child KYC session. Pass it to this same decision endpoint
+	// to fetch the person's full KYC report. `null` when no child session exists.
+	KYCSessionID string `json:"kyc_session_id"`
+
+	// Base workflow type of the child session's workflow (e.g. `kyc`). `null` for
+	// graph-based workflows or when no child session exists.
+	VerificationWorkflowType string `json:"verification_workflow_type"`
+
+	// Workflow id used by the child session. `null` when no child session exists.
+	VerificationWorkflowID string `json:"verification_workflow_id"`
+
+	// Human-readable label of the child session's workflow. `null` when unset.
+	VerificationWorkflowLabel string `json:"verification_workflow_label"`
+
+	// Per-feature progress of the child verification session, e.g. `[{"feature":
+	// "ID_VERIFICATION", "status": "Approved"}]`. `null` when the child session has
+	// no resolvable feature list.
+	VerificationWorkflowFeatures []SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures `json:"verification_workflow_features"`
+
+	// Stable internal identifier of the verified individual behind the child
+	// session - useful for cross-session linking. `null` when no child session
+	// exists or the user has not been resolved yet.
+	DiditInternalID string `json:"didit_internal_id"`
+
+	// Document type presented in the child KYC session (e.g. `P`, `ID`, `DL`).
+	// `null` until the child session has an ID verification result.
+	KYCDocumentType string `json:"kyc_document_type"`
+
+	// Nationality extracted from the document in the child KYC session. `null`
+	// until available.
+	KYCNationality string `json:"kyc_nationality"`
+
+	// Whether the child KYC session's liveness check passed. `null` when no
+	// liveness check has run.
+	KYCLivenessPassed bool `json:"kyc_liveness_passed"`
+
+	// When the child KYC session reached `Approved`. `null` while the child session
+	// has any other status.
+	KYCVerifiedAt time.Time `json:"kyc_verified_at"`
+
+	// Per-category summary derived from the person's AML hits. `null` when there
+	// are no hits.
+	KYCAMLCategories SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategories `json:"kyc_aml_categories"`
+
+	// ISO 8601 timestamp of the last verification-invite notification sent for this
+	// person's child session. `null` when none was sent.
+	KYCNotificationSentAt string `json:"kyc_notification_sent_at"`
+
+	// Given name when explicitly reported by the registry; not inferred from the
+	// full name.
+	FirstName string `json:"first_name"`
+
+	// Family name when explicitly reported by the registry.
+	LastName string `json:"last_name"`
+
+	// Complete registry-reported birth date. Null when only a birth year or month
+	// is known.
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Registry-reported birth year, including when the full date is unavailable.
+	DateOfBirthYear int64 `json:"date_of_birth_year"`
+
+	// Registry-reported birth month. Null when only the year is known.
+	DateOfBirthMonth int64 `json:"date_of_birth_month"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksRegistryOfficers leniently.
+func (r *SessionDecisionKeyPeopleChecksRegistryOfficers) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersRole: Normalized officer role.
+//
+// SessionDecisionKeyPeopleChecksRegistryOfficersRole is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionKeyPeopleChecksRegistryOfficersRole string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryOfficersRole.
+const (
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleDirector             SessionDecisionKeyPeopleChecksRegistryOfficersRole = "director"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleNonExecutiveDirector SessionDecisionKeyPeopleChecksRegistryOfficersRole = "non_executive_director"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleSecretary            SessionDecisionKeyPeopleChecksRegistryOfficersRole = "secretary"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleChairman             SessionDecisionKeyPeopleChecksRegistryOfficersRole = "chairman"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleUBO                  SessionDecisionKeyPeopleChecksRegistryOfficersRole = "ubo"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleShareholder          SessionDecisionKeyPeopleChecksRegistryOfficersRole = "shareholder"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleRepresentative       SessionDecisionKeyPeopleChecksRegistryOfficersRole = "representative"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleFounder              SessionDecisionKeyPeopleChecksRegistryOfficersRole = "founder"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleLegalAdvisor         SessionDecisionKeyPeopleChecksRegistryOfficersRole = "legal_advisor"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleAuthorizedSignatory  SessionDecisionKeyPeopleChecksRegistryOfficersRole = "authorized_signatory"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleTrustee              SessionDecisionKeyPeopleChecksRegistryOfficersRole = "trustee"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleBeneficiary          SessionDecisionKeyPeopleChecksRegistryOfficersRole = "beneficiary"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleSettlor              SessionDecisionKeyPeopleChecksRegistryOfficersRole = "settlor"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleProtector            SessionDecisionKeyPeopleChecksRegistryOfficersRole = "protector"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleCompanyOfficer       SessionDecisionKeyPeopleChecksRegistryOfficersRole = "company_officer"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleInvestor             SessionDecisionKeyPeopleChecksRegistryOfficersRole = "investor"
+	SessionDecisionKeyPeopleChecksRegistryOfficersRoleOther                SessionDecisionKeyPeopleChecksRegistryOfficersRole = "other"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus: Status of the AML
+// screening run for this officer. `null` when no AML screening was run.
+//
+// SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus.
+const (
+	SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatusNotFinished    SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus = "Not Finished"
+	SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatusApproved       SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus = "Approved"
+	SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatusDeclined       SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus = "Declined"
+	SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatusInReview       SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus = "In Review"
+	SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatusResubRequested SessionDecisionKeyPeopleChecksRegistryOfficersAMLStatus = "Resub Requested"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus: Raw lifecycle status
+// of the child KYC session spawned for this officer. This is the full session
+// status enum (not a reduced Approved/Declined/Pending set). `null` when no
+// child KYC session exists.
+//
+// SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus.
+const (
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusNotStarted   SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "Not Started"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusInProgress   SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "In Progress"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusApproved     SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "Approved"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusDeclined     SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "Declined"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusInReview     SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "In Review"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusExpired      SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "Expired"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusAbandoned    SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "Abandoned"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusKYCExpired   SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "Kyc Expired"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusResubmitted  SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "Resubmitted"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatusAwaitingUser SessionDecisionKeyPeopleChecksRegistryOfficersKYCStatus = "Awaiting User"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures is
+// a response object.
+type SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures struct {
+	// Feature display name (e.g. `ID_VERIFICATION`, `LIVENESS`, `AML`).
+	Feature string `json:"feature"`
+
+	// Feature-level status inside the child session.
+	Status SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures leniently.
+func (r *SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus:
+// Feature-level status inside the child session.
+//
+// SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus
+// is a string with known values below. The set is open: other values may appear
+// and never cause an error.
+type SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus.
+const (
+	SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusNotFinished    SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "Not Finished"
+	SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusApproved       SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "Approved"
+	SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusDeclined       SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "Declined"
+	SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusInReview       SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "In Review"
+	SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusResubRequested SessionDecisionKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "Resub Requested"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategories: Per-category
+// summary derived from the person's AML hits. `null` when there are no hits.
+type SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategories struct {
+	Sanctions    SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions    `json:"sanctions"`
+	PEP          SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP          `json:"pep"`
+	AdverseMedia SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia `json:"adverse_media"`
+	Warnings     SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings     `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategories leniently.
+func (r *SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategories) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions is a
+// string with known values below. The set is open: other values may appear and
+// never cause an error.
+type SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions.
+const (
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctionsMatch SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions = "match"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctionsClear SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions = "clear"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP.
+const (
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEPMatch SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP = "match"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEPClear SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP = "clear"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia is
+// a string with known values below. The set is open: other values may appear
+// and never cause an error.
+type SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia.
+const (
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMediaMatch SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia = "match"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMediaClear SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia = "clear"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings is a
+// string with known values below. The set is open: other values may appear and
+// never cause an error.
+type SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings.
+const (
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarningsMatch SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings = "match"
+	SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarningsClear SessionDecisionKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings = "clear"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwners is a response object.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwners struct {
+	UUID string `json:"uuid"`
+
+	// Beneficial owner's full name (or company name for corporate UBOs).
+	Name      string `json:"name"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+
+	// Complete birth date when reported.
+	DateOfBirth        string                                                           `json:"date_of_birth"`
+	CountryOfBirth     string                                                           `json:"country_of_birth"`
+	Email              string                                                           `json:"email"`
+	CompanyName        string                                                           `json:"company_name"`
+	RegistrationNumber string                                                           `json:"registration_number"`
+	EntityType         SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersEntityType `json:"entity_type"`
+	Nationality        string                                                           `json:"nationality"`
+	Designation        string                                                           `json:"designation"`
+
+	// Role names held by this owner, e.g. `["ubo", "shareholder"]`.
+	Roles []string `json:"roles"`
+
+	// Lower bound of the ownership percentage as reported by the registry.
+	// Free-form string (e.g. `"25"`, `"25-50%"`); use `effective_ownership_percent`
+	// for a parsed numeric value.
+	OwnershipMinShares string `json:"ownership_min_shares"`
+
+	// Upper bound of the ownership percentage as reported by the registry.
+	// Free-form string; use `effective_ownership_percent` for a parsed numeric
+	// value.
+	OwnershipMaxShares string `json:"ownership_max_shares"`
+	IsActive           bool   `json:"is_active"`
+
+	// Status of the AML screening run for this beneficial owner. `null` when no AML
+	// screening was run.
+	AMLStatus SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus `json:"aml_status"`
+
+	// Raw lifecycle status of the child KYC session spawned for this beneficial
+	// owner. This is the full session status enum (not a reduced
+	// Approved/Declined/Pending set). `null` when no child KYC session exists.
+	KYCStatus SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus `json:"kyc_status"`
+
+	// Shareable URL of the child KYC session. `null` when no child session exists.
+	KYCSessionURL string `json:"kyc_session_url"`
+
+	// Session id of the child KYC session. Pass it to this same decision endpoint
+	// to fetch the person's full KYC report. `null` when no child session exists.
+	KYCSessionID string `json:"kyc_session_id"`
+
+	// Base workflow type of the child session's workflow (e.g. `kyc`). `null` for
+	// graph-based workflows or when no child session exists.
+	VerificationWorkflowType string `json:"verification_workflow_type"`
+
+	// Workflow id used by the child session. `null` when no child session exists.
+	VerificationWorkflowID string `json:"verification_workflow_id"`
+
+	// Human-readable label of the child session's workflow. `null` when unset.
+	VerificationWorkflowLabel string `json:"verification_workflow_label"`
+
+	// Per-feature progress of the child verification session, e.g. `[{"feature":
+	// "ID_VERIFICATION", "status": "Approved"}]`. `null` when the child session has
+	// no resolvable feature list.
+	VerificationWorkflowFeatures []SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures `json:"verification_workflow_features"`
+
+	// Stable internal identifier of the verified individual behind the child
+	// session - useful for cross-session linking. `null` when no child session
+	// exists or the user has not been resolved yet.
+	DiditInternalID string `json:"didit_internal_id"`
+
+	// Document type presented in the child KYC session (e.g. `P`, `ID`, `DL`).
+	// `null` until the child session has an ID verification result.
+	KYCDocumentType string `json:"kyc_document_type"`
+
+	// Nationality extracted from the document in the child KYC session. `null`
+	// until available.
+	KYCNationality string `json:"kyc_nationality"`
+
+	// Whether the child KYC session's liveness check passed. `null` when no
+	// liveness check has run.
+	KYCLivenessPassed bool `json:"kyc_liveness_passed"`
+
+	// When the child KYC session reached `Approved`. `null` while the child session
+	// has any other status.
+	KYCVerifiedAt time.Time `json:"kyc_verified_at"`
+
+	// Per-category summary derived from the person's AML hits. `null` when there
+	// are no hits.
+	KYCAMLCategories SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories `json:"kyc_aml_categories"`
+
+	// ISO 8601 timestamp of the last verification-invite notification sent for this
+	// person's child session. `null` when none was sent.
+	KYCNotificationSentAt string `json:"kyc_notification_sent_at"`
+
+	// For corporate UBOs: the owning entity's own beneficial owners, as raw objects
+	// extracted from the registry. Empty array when not applicable.
+	ChildBeneficialOwners []map[string]any `json:"child_beneficial_owners"`
+
+	// Parsed numeric ownership percentage - the max bound when available, otherwise
+	// the min bound. `null` when neither bound could be parsed.
+	EffectiveOwnershipPercent float64 `json:"effective_ownership_percent"`
+	VotingMinShares           string  `json:"voting_min_shares"`
+	VotingMaxShares           string  `json:"voting_max_shares"`
+
+	// Appointment date when reported.
+	AppointmentDate string `json:"appointment_date"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksRegistryBeneficialOwners leniently.
+func (r *SessionDecisionKeyPeopleChecksRegistryBeneficialOwners) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersEntityType is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersEntityType string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersEntityType.
+const (
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersEntityTypePerson  SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersEntityType = "person"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersEntityTypeCompany SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersEntityType = "company"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus: Status of
+// the AML screening run for this beneficial owner. `null` when no AML screening
+// was run.
+//
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus.
+const (
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatusNotFinished    SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "Not Finished"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatusApproved       SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "Approved"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatusDeclined       SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "Declined"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatusInReview       SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "In Review"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatusResubRequested SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "Resub Requested"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus: Raw
+// lifecycle status of the child KYC session spawned for this beneficial owner.
+// This is the full session status enum (not a reduced Approved/Declined/Pending
+// set). `null` when no child KYC session exists.
+//
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus.
+const (
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusNotStarted   SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Not Started"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusInProgress   SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "In Progress"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusApproved     SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Approved"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusDeclined     SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Declined"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusInReview     SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "In Review"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusExpired      SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Expired"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusAbandoned    SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Abandoned"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusKYCExpired   SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Kyc Expired"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusResubmitted  SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Resubmitted"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatusAwaitingUser SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Awaiting User"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures
+// is a response object.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures struct {
+	// Feature display name (e.g. `ID_VERIFICATION`, `LIVENESS`, `AML`).
+	Feature string `json:"feature"`
+
+	// Feature-level status inside the child session.
+	Status SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures leniently.
+func (r *SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus:
+// Feature-level status inside the child session.
+//
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus
+// is a string with known values below. The set is open: other values may appear
+// and never cause an error.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus.
+const (
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusNotFinished    SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "Not Finished"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusApproved       SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "Approved"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusDeclined       SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "Declined"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusInReview       SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "In Review"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusResubRequested SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "Resub Requested"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories:
+// Per-category summary derived from the person's AML hits. `null` when there
+// are no hits.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories struct {
+	Sanctions    SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions    `json:"sanctions"`
+	PEP          SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP          `json:"pep"`
+	AdverseMedia SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia `json:"adverse_media"`
+	Warnings     SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings     `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories leniently.
+func (r *SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions
+// is a string with known values below. The set is open: other values may appear
+// and never cause an error.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions.
+const (
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctionsMatch SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions = "match"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctionsClear SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions = "clear"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP is
+// a string with known values below. The set is open: other values may appear
+// and never cause an error.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP.
+const (
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEPMatch SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP = "match"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEPClear SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP = "clear"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia
+// is a string with known values below. The set is open: other values may appear
+// and never cause an error.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia.
+const (
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMediaMatch SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia = "match"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMediaClear SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia = "clear"
+)
+
+// SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings
+// is a string with known values below. The set is open: other values may appear
+// and never cause an error.
+type SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings string
+
+// Known values of SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings.
+const (
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarningsMatch SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings = "match"
+	SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarningsClear SessionDecisionKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings = "clear"
+)
+
+// SessionDecisionKeyPeopleChecksSubmitted: Parties submitted by the business
+// admin during the Key People flow (BusinessParty rows where source=USER).
+type SessionDecisionKeyPeopleChecksSubmitted struct {
+	Parties []SessionDecisionKeyPeopleChecksSubmittedParties `json:"parties"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksSubmitted leniently.
+func (r *SessionDecisionKeyPeopleChecksSubmitted) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksSubmittedParties: Party submitted by the
+// business admin via the Key People flow (source=USER).
+type SessionDecisionKeyPeopleChecksSubmittedParties struct {
+	UUID       string                                                   `json:"uuid"`
+	EntityType SessionDecisionKeyPeopleChecksSubmittedPartiesEntityType `json:"entity_type"`
+
+	// Always `USER` here - this bucket only contains parties entered or confirmed
+	// by the end user in the Key People flow (registry-discovered people appear
+	// under `registry`).
+	Source             SessionDecisionKeyPeopleChecksSubmittedPartiesSource `json:"source"`
+	Name               string                                               `json:"name"`
+	FirstName          string                                               `json:"first_name"`
+	LastName           string                                               `json:"last_name"`
+	CompanyName        string                                               `json:"company_name"`
+	RegistrationNumber string                                               `json:"registration_number"`
+	Email              string                                               `json:"email"`
+
+	// Nationality for persons; country of incorporation for company parties.
+	Nationality string `json:"nationality"`
+	PhoneNumber string `json:"phone_number"`
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Free-text job title / position (persons only).
+	Position string `json:"position"`
+
+	// Workflow-defined custom fields collected for this party; keys are defined by
+	// the workflow's key-people field descriptors.
+	CustomFields map[string]any `json:"custom_fields"`
+	IsActive     bool           `json:"is_active"`
+
+	// True when the end user skipped verification for this party (only possible
+	// when the role allows skipping).
+	IsSkipped bool `json:"is_skipped"`
+
+	// True when a child KYC / KYB sub-session is required for this party based on
+	// role settings and ownership thresholds.
+	RequiresVerification bool `json:"requires_verification"`
+
+	// All roles held by this party, each with its own ownership and voting
+	// percentages. There is no scalar `role`/`ownership_percent` on the party
+	// itself.
+	Roles []SessionDecisionKeyPeopleChecksSubmittedPartiesRoles `json:"roles"`
+
+	// Child KYC session id for person parties requiring verification. `null`
+	// otherwise.
+	KYCSessionID string `json:"kyc_session_id"`
+
+	// Lifecycle status of the child KYC session. `null` when no child KYC session
+	// exists.
+	KYCSessionStatus SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus `json:"kyc_session_status"`
+	KYCSessionURL    string                                                         `json:"kyc_session_url"`
+
+	// Child KYB sub-session id for corporate parties requiring verification. `null`
+	// otherwise.
+	KYBSubSessionID string `json:"kyb_sub_session_id"`
+
+	// Lifecycle status of the child KYB sub-session. `null` when no sub-session
+	// exists.
+	KYBSubSessionStatus SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus `json:"kyb_sub_session_status"`
+
+	// Shareable URL of the child KYB sub-session. `null` when no sub-session
+	// exists.
+	KYBSubSessionURL string `json:"kyb_sub_session_url"`
+
+	// Base workflow type of the child session's workflow (KYC session preferred,
+	// falling back to the KYB sub-session). `null` for graph-based workflows or
+	// when no child session exists.
+	VerificationWorkflowType string `json:"verification_workflow_type"`
+
+	// Workflow id used by the child session. `null` when no child session exists.
+	VerificationWorkflowID string `json:"verification_workflow_id"`
+
+	// Human-readable label of the child session's workflow. `null` when unset.
+	VerificationWorkflowLabel string `json:"verification_workflow_label"`
+
+	// Per-feature progress of the child verification session, e.g. `[{"feature":
+	// "ID_VERIFICATION", "status": "Approved"}]`. `null` when the child session has
+	// no resolvable feature list.
+	VerificationWorkflowFeatures []SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures `json:"verification_workflow_features"`
+
+	// Stable internal identifier of the verified individual behind the child
+	// session. `null` when not resolved.
+	DiditInternalID string `json:"didit_internal_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksSubmittedParties leniently.
+func (r *SessionDecisionKeyPeopleChecksSubmittedParties) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksSubmittedPartiesEntityType is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionDecisionKeyPeopleChecksSubmittedPartiesEntityType string
+
+// Known values of SessionDecisionKeyPeopleChecksSubmittedPartiesEntityType.
+const (
+	SessionDecisionKeyPeopleChecksSubmittedPartiesEntityTypePerson  SessionDecisionKeyPeopleChecksSubmittedPartiesEntityType = "person"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesEntityTypeCompany SessionDecisionKeyPeopleChecksSubmittedPartiesEntityType = "company"
+)
+
+// SessionDecisionKeyPeopleChecksSubmittedPartiesSource: Always `USER` here -
+// this bucket only contains parties entered or confirmed by the end user in the
+// Key People flow (registry-discovered people appear under `registry`).
+//
+// SessionDecisionKeyPeopleChecksSubmittedPartiesSource is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionKeyPeopleChecksSubmittedPartiesSource string
+
+// Known values of SessionDecisionKeyPeopleChecksSubmittedPartiesSource.
+const (
+	SessionDecisionKeyPeopleChecksSubmittedPartiesSourceUser SessionDecisionKeyPeopleChecksSubmittedPartiesSource = "USER"
+)
+
+// SessionDecisionKeyPeopleChecksSubmittedPartiesRoles is a response object.
+type SessionDecisionKeyPeopleChecksSubmittedPartiesRoles struct {
+	Role             SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole `json:"role"`
+	OwnershipPercent float64                                                 `json:"ownership_percent"`
+	VotingPercent    float64                                                 `json:"voting_percent"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksSubmittedPartiesRoles leniently.
+func (r *SessionDecisionKeyPeopleChecksSubmittedPartiesRoles) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole string
+
+// Known values of SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole.
+const (
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleDirector             SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "director"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleNonExecutiveDirector SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "non_executive_director"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleSecretary            SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "secretary"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleChairman             SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "chairman"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleUBO                  SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "ubo"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleShareholder          SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "shareholder"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleRepresentative       SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "representative"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleFounder              SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "founder"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleLegalAdvisor         SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "legal_advisor"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleAuthorizedSignatory  SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "authorized_signatory"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleTrustee              SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "trustee"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleBeneficiary          SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "beneficiary"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleSettlor              SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "settlor"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleProtector            SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "protector"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleCompanyOfficer       SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "company_officer"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleInvestor             SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "investor"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRoleOther                SessionDecisionKeyPeopleChecksSubmittedPartiesRolesRole = "other"
+)
+
+// SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus: Lifecycle
+// status of the child KYC session. `null` when no child KYC session exists.
+//
+// SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus string
+
+// Known values of SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus.
+const (
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusNotStarted   SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Not Started"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusInProgress   SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "In Progress"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusApproved     SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Approved"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusDeclined     SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Declined"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusInReview     SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "In Review"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusExpired      SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Expired"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusAbandoned    SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Abandoned"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusKYCExpired   SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Kyc Expired"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusResubmitted  SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Resubmitted"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatusAwaitingUser SessionDecisionKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Awaiting User"
+)
+
+// SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus: Lifecycle
+// status of the child KYB sub-session. `null` when no sub-session exists.
+//
+// SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus string
+
+// Known values of SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus.
+const (
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusNotStarted   SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Not Started"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusInProgress   SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "In Progress"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusApproved     SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Approved"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusDeclined     SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Declined"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusInReview     SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "In Review"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusExpired      SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Expired"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusAbandoned    SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Abandoned"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusKYCExpired   SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Kyc Expired"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusResubmitted  SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Resubmitted"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusAwaitingUser SessionDecisionKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Awaiting User"
+)
+
+// SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures is
+// a response object.
+type SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures struct {
+	// Feature display name (e.g. `ID_VERIFICATION`, `LIVENESS`, `AML`).
+	Feature string `json:"feature"`
+
+	// Feature-level status inside the child session.
+	Status SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures leniently.
+func (r *SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus:
+// Feature-level status inside the child session.
+//
+// SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus
+// is a string with known values below. The set is open: other values may appear
+// and never cause an error.
+type SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus string
+
+// Known values of SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus.
+const (
+	SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusNotFinished    SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "Not Finished"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusApproved       SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "Approved"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusDeclined       SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "Declined"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusInReview       SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "In Review"
+	SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusResubRequested SessionDecisionKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "Resub Requested"
+)
+
+// SessionDecisionKeyPeopleChecksUBOKYCSummary: Aggregate UBO KYC progress, or
+// null when no UBOs have linked KYC sessions.
+type SessionDecisionKeyPeopleChecksUBOKYCSummary struct {
+	Total    int64 `json:"total"`
+	Approved int64 `json:"approved"`
+
+	// UBOs whose KYC is Declined or In Review.
+	Flagged int64 `json:"flagged"`
+	Pending int64 `json:"pending"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksUBOKYCSummary leniently.
+func (r *SessionDecisionKeyPeopleChecksUBOKYCSummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDocumentVerifications: Documents grouped by workflow node.
+// Present only when session_kind = business.
+type SessionDecisionDocumentVerifications struct {
+	Status string                                      `json:"status"`
+	NodeID string                                      `json:"node_id"`
+	Items  []SessionDecisionDocumentVerificationsItems `json:"items"`
+
+	// Per-group progress counters keyed by group name (e.g. legal_presence,
+	// ownership_structure).
+	Groups         map[string]SessionDecisionDocumentVerificationsGroups `json:"groups"`
+	RequiredGroups []string                                              `json:"required_groups"`
+	Warnings       []map[string]any                                      `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDocumentVerifications leniently.
+func (r *SessionDecisionDocumentVerifications) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDocumentVerificationsItems is a response object.
+type SessionDecisionDocumentVerificationsItems struct {
+	UUID string `json:"uuid"`
+
+	// High-level KYB document group the file was classified into. `null` while
+	// unclassified.
+	DocumentType SessionDecisionDocumentVerificationsItemsDocumentType `json:"document_type"`
+
+	// Specific OCR-detected subtype (e.g. `CERTIFICATE_OF_INCORPORATION`,
+	// `SHAREHOLDER_REGISTRY`); `UNKNOWN` when the OCR could not confidently
+	// classify the document.
+	DocumentSubtype string `json:"document_subtype"`
+
+	// Alias of `document_type` - the group name used by `groups` and
+	// `required_groups`.
+	DocumentGroup SessionDecisionDocumentVerificationsItemsDocumentGroup `json:"document_group"`
+
+	// Short-lived presigned link to the uploaded file. `null` for analyst-created
+	// document request placeholders (`is_requested = true`) that have not been
+	// fulfilled yet.
+	FileURL string `json:"file_url"`
+
+	// Filename as uploaded by the user or analyst.
+	OriginalFilename string `json:"original_filename"`
+
+	// File size in bytes.
+	FileSize int64 `json:"file_size"`
+
+	// Per-document verification status.
+	Status    SessionDecisionDocumentVerificationsItemsStatus `json:"status"`
+	CreatedAt time.Time                                       `json:"created_at"`
+
+	// Cross-reference of the OCR-extracted document fields against the registry
+	// company profile. An object with `critical`, `non_critical` and `people`
+	// sections, each mapping a field name (e.g. `company_name`,
+	// `registration_number`, `incorporation_date`, `registered_address`) to a
+	// comparison record like `{"document": "...", "registry": "...", "match": true,
+	// "score": 0.97}`. `null` when the document had no OCR data or there was no
+	// registry company to compare against.
+	CrossCheckResult map[string]any `json:"cross_check_result"`
+
+	// Metadata extracted from the uploaded corporate document. When metadata
+	// extraction succeeded, all 16 keys are always present (individual values are
+	// `null` when not applicable to the file type); the whole object is `null` when
+	// nothing could be extracted. For PDFs, `overlay_manipulation` carries forensic
+	// overlay-text analysis.
+	DocumentMetadata SessionDecisionDocumentVerificationsItemsDocumentMetadata `json:"document_metadata"`
+
+	// Analyst-provided label or reason for a document request. `null` for regular
+	// uploads.
+	Description string `json:"description"`
+
+	// True for analyst-created document request placeholders awaiting an upload.
+	IsRequested bool           `json:"is_requested"`
+	OCRData     map[string]any `json:"ocr_data"`
+
+	// True for documents uploaded from the console rather than the end-user flow.
+	// Console uploads never change the feature-level aggregate status.
+	IsConsoleUpload bool `json:"is_console_upload"`
+
+	// Console uploads start `false` and flip `true` once the admin confirms them;
+	// end-user uploads are always `true`.
+	IsConfirmed bool `json:"is_confirmed"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDocumentVerificationsItems leniently.
+func (r *SessionDecisionDocumentVerificationsItems) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDocumentVerificationsItemsDocumentType: High-level KYB
+// document group the file was classified into. `null` while unclassified.
+//
+// SessionDecisionDocumentVerificationsItemsDocumentType is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionDocumentVerificationsItemsDocumentType string
+
+// Known values of SessionDecisionDocumentVerificationsItemsDocumentType.
+const (
+	SessionDecisionDocumentVerificationsItemsDocumentTypeLegalPresence                SessionDecisionDocumentVerificationsItemsDocumentType = "LEGAL_PRESENCE"
+	SessionDecisionDocumentVerificationsItemsDocumentTypeCompanyDetails               SessionDecisionDocumentVerificationsItemsDocumentType = "COMPANY_DETAILS"
+	SessionDecisionDocumentVerificationsItemsDocumentTypeOwnershipStructure           SessionDecisionDocumentVerificationsItemsDocumentType = "OWNERSHIP_STRUCTURE"
+	SessionDecisionDocumentVerificationsItemsDocumentTypeRepresentativesAuthorization SessionDecisionDocumentVerificationsItemsDocumentType = "REPRESENTATIVES_AUTHORIZATION"
+	SessionDecisionDocumentVerificationsItemsDocumentTypeOther                        SessionDecisionDocumentVerificationsItemsDocumentType = "OTHER"
+)
+
+// SessionDecisionDocumentVerificationsItemsDocumentGroup: Alias of
+// `document_type` - the group name used by `groups` and `required_groups`.
+//
+// SessionDecisionDocumentVerificationsItemsDocumentGroup is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionDocumentVerificationsItemsDocumentGroup string
+
+// Known values of SessionDecisionDocumentVerificationsItemsDocumentGroup.
+const (
+	SessionDecisionDocumentVerificationsItemsDocumentGroupLegalPresence                SessionDecisionDocumentVerificationsItemsDocumentGroup = "LEGAL_PRESENCE"
+	SessionDecisionDocumentVerificationsItemsDocumentGroupCompanyDetails               SessionDecisionDocumentVerificationsItemsDocumentGroup = "COMPANY_DETAILS"
+	SessionDecisionDocumentVerificationsItemsDocumentGroupOwnershipStructure           SessionDecisionDocumentVerificationsItemsDocumentGroup = "OWNERSHIP_STRUCTURE"
+	SessionDecisionDocumentVerificationsItemsDocumentGroupRepresentativesAuthorization SessionDecisionDocumentVerificationsItemsDocumentGroup = "REPRESENTATIVES_AUTHORIZATION"
+	SessionDecisionDocumentVerificationsItemsDocumentGroupOther                        SessionDecisionDocumentVerificationsItemsDocumentGroup = "OTHER"
+)
+
+// SessionDecisionDocumentVerificationsItemsStatus: Per-document verification
+// status.
+//
+// SessionDecisionDocumentVerificationsItemsStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionDocumentVerificationsItemsStatus string
+
+// Known values of SessionDecisionDocumentVerificationsItemsStatus.
+const (
+	SessionDecisionDocumentVerificationsItemsStatusNotFinished    SessionDecisionDocumentVerificationsItemsStatus = "Not Finished"
+	SessionDecisionDocumentVerificationsItemsStatusApproved       SessionDecisionDocumentVerificationsItemsStatus = "Approved"
+	SessionDecisionDocumentVerificationsItemsStatusDeclined       SessionDecisionDocumentVerificationsItemsStatus = "Declined"
+	SessionDecisionDocumentVerificationsItemsStatusInReview       SessionDecisionDocumentVerificationsItemsStatus = "In Review"
+	SessionDecisionDocumentVerificationsItemsStatusResubRequested SessionDecisionDocumentVerificationsItemsStatus = "Resub Requested"
+)
+
+// SessionDecisionDocumentVerificationsItemsDocumentMetadata: Metadata extracted
+// from the uploaded corporate document. When metadata extraction succeeded, all
+// 16 keys are always present (individual values are `null` when not applicable
+// to the file type); the whole object is `null` when nothing could be
+// extracted. For PDFs, `overlay_manipulation` carries forensic overlay-text
+// analysis.
+type SessionDecisionDocumentVerificationsItemsDocumentMetadata struct {
+	// Size of the document.
+	FileSize int64 `json:"file_size"`
+
+	// Content type of the document.
+	ContentType string `json:"content_type"`
+
+	// Date when the document was created.
+	CreationDate string `json:"creation_date"`
+
+	// Date when the document was modified.
+	ModifiedDate string `json:"modified_date"`
+
+	// Authoring tool/user recorded in the file metadata (PDF `Creator`).
+	Creator string `json:"creator"`
+
+	// Software that produced the file (PDF `Producer`).
+	Producer string `json:"producer"`
+
+	// Editing software recorded in the file metadata.
+	Software string `json:"software"`
+
+	// Encryption scheme of the file, when encrypted.
+	Encryption string `json:"encryption"`
+
+	// Whether the document carries a digital signature.
+	IsSigned bool `json:"is_signed"`
+
+	// Whether the digital signature failed validation (post-signing modification).
+	IsTampered bool `json:"is_tampered"`
+
+	// Details of the digital signature(s), when present.
+	SignatureInfo map[string]any `json:"signature_info"`
+
+	// EXIF original capture date, for image uploads.
+	ExifOriginalDate string `json:"exif_original_date"`
+
+	// EXIF digitization date, for image uploads.
+	ExifDigitizedDate string `json:"exif_digitized_date"`
+
+	// Whether metadata indicates the file passed through a known image/PDF editor.
+	ProcessedByKnownEditor bool `json:"processed_by_known_editor"`
+
+	// Whether creation and modification dates differ - a possible (but not
+	// conclusive) editing signal.
+	HasDifferentCreationModDate bool `json:"has_different_creation_mod_date"`
+
+	// PDF forensic analysis for suspected overlay-text manipulation. Null when no
+	// overlay manipulation evidence was found or the document was not a PDF.
+	OverlayManipulation SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulation `json:"overlay_manipulation"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDocumentVerificationsItemsDocumentMetadata leniently.
+func (r *SessionDecisionDocumentVerificationsItemsDocumentMetadata) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulation:
+// PDF forensic analysis for suspected overlay-text manipulation. Null when no
+// overlay manipulation evidence was found or the document was not a PDF.
+type SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulation struct {
+	// Whether overlay-text manipulation evidence was detected.
+	Detected bool `json:"detected"`
+
+	// Whether the PDF could be analyzed.
+	Analyzed bool `json:"analyzed"`
+
+	// Forensic signals that fired, such as duplicate_font_subset or
+	// glyph_fragmentation.
+	Signals []string `json:"signals"`
+
+	// Suspected manipulated areas in PDF page coordinates.
+	ManipulatedRegions []SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions `json:"manipulated_regions"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulation leniently.
+func (r *SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions
+// is a response object.
+type SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions struct {
+	Page       int64   `json:"page"`
+	X          float64 `json:"x"`
+	Y          float64 `json:"y"`
+	Width      float64 `json:"width"`
+	Height     float64 `json:"height"`
+	PageWidth  float64 `json:"page_width"`
+	PageHeight float64 `json:"page_height"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions leniently.
+func (r *SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDocumentVerificationsGroups is a response object.
+type SessionDecisionDocumentVerificationsGroups struct {
+	Total    int64 `json:"total"`
+	Approved int64 `json:"approved"`
+	Pending  int64 `json:"pending"`
+	Declined int64 `json:"declined"`
+	InReview int64 `json:"in_review"`
+	Other    int64 `json:"other"`
+
+	// Requested placeholders with no file uploaded yet.
+	Missing int64 `json:"missing"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDocumentVerificationsGroups leniently.
+func (r *SessionDecisionDocumentVerificationsGroups) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionEnvironment: Whether the session was created by a live
+// application (`live`) or a sandbox application (`sandbox`). Sandbox sessions
+// are free, fully simulated, and never bill credits.
+//
+// SessionDecisionEnvironment is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SessionDecisionEnvironment string
+
+// Known values of SessionDecisionEnvironment.
+const (
+	SessionDecisionEnvironmentLive    SessionDecisionEnvironment = "live"
+	SessionDecisionEnvironmentSandbox SessionDecisionEnvironment = "sandbox"
+)
+
+// SessionDecisionResubmissions is a response object.
+type SessionDecisionResubmissions struct {
+	// 1 for the first resubmission of the session, 2 for the second, and so on.
+	Number int64 `json:"number"`
+
+	// When the resubmission was requested.
+	CreatedAt time.Time `json:"created_at"`
+
+	// The session status just before the request.
+	PreviousStatus string `json:"previous_status"`
+
+	// The workflow steps sent back to the user.
+	Nodes []SessionDecisionResubmissionsNodes `json:"nodes"`
+
+	// The reason given for each step, keyed by `node_id`.
+	Reasons map[string]string `json:"reasons"`
+
+	// Who requested the resubmission.
+	RequestedBy SessionDecisionResubmissionsRequestedBy `json:"requested_by"`
+
+	// What the resubmitted steps returned before the request, under the same keys
+	// and in the same shape as the current results of this response
+	// (`id_verifications`, `nfc_verifications`, `liveness_checks`, `face_matches`,
+	// `poa_verifications`, `phone_verifications`, `email_verifications`,
+	// `aml_screenings`, `ip_analyses`, `database_validations`,
+	// `questionnaire_responses`, `document_ai_documents`, `geolocation_checks`; for
+	// business sessions also `document_verifications`). Only the keys of the steps
+	// that were sent back appear.
+	Results map[string]any `json:"results"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionResubmissions leniently.
+func (r *SessionDecisionResubmissions) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionResubmissionsNodes is a response object.
+type SessionDecisionResubmissionsNodes struct {
+	NodeID  string `json:"node_id"`
+	Feature string `json:"feature"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionResubmissionsNodes leniently.
+func (r *SessionDecisionResubmissionsNodes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionResubmissionsRequestedBy: Who requested the resubmission.
+type SessionDecisionResubmissionsRequestedBy struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Type  string `json:"type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionResubmissionsRequestedBy leniently.
+func (r *SessionDecisionResubmissionsRequestedBy) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
 }
 
 // SessionsListParams holds the parameters of Client.Sessions.List.
@@ -2595,19 +10726,448 @@ func (r *SessionsListResponseResultsAdditionalDetailsEmailVerification) Unmarsha
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsListNetworksResponse is a response object.
-type SessionsListNetworksResponse struct {
-	Results []EntityNetworkMembership `json:"results"`
+// SessionsListAMLScreeningHistoryParams holds the parameters of
+// Client.Sessions.ListAMLScreeningHistory.
+type SessionsListAMLScreeningHistoryParams struct {
+	// Workflow graph node ID of the AML check. Needed only when the session ran
+	// more than one AML step; without it the most recent AML check is used. An
+	// unknown node returns `404`.
+	NodeID Opt[string] `json:"-" query:"node_id"`
+
+	// Maximum number of screening runs per page. Defaults to 50. A value below 1 or
+	// a non-numeric value falls back to 50; a value above 1,000,000 returns `400`.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Number of results to skip before the first returned one. Defaults to 0; a
+	// negative or non-numeric value falls back to 0, a value above 1,000,000
+	// returns `400`. Prefer following the `next` and `previous` URLs.
+	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// Optional sort override. The default order is `-completed_at`. Pass a result
+	// field name (for example `completed_at`, `started_at`, `outcome` or `score`)
+	// to sort ascending, prefix it with `-` to sort descending, and separate
+	// several fields with commas. Unknown fields are ignored.
+	Ordering Opt[string] `json:"-" query:"ordering"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsListAMLScreeningHistoryParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// AMLScreeningRun: One completed ongoing-monitoring re-screen of an AML check.
+type AMLScreeningRun struct {
+	// Identifier of this screening run.
+	UUID string `json:"uuid"`
+
+	// When this subject's re-screen finished. Results are ordered by it, newest
+	// first.
+	CompletedAt time.Time `json:"completed_at"`
+
+	// When the monitoring batch this re-screen belongs to started.
+	StartedAt time.Time `json:"started_at"`
+
+	// `NO_CHANGE`: completed and the result did not move. `CHANGED`: completed and
+	// the score, status, hit count or hits changed. `FAILED`: no usable answer for
+	// this subject, so the check was left as it was.
+	Outcome AMLScreeningRunOutcome `json:"outcome"`
+
+	// What started the screening. Always `ONGOING_MONITORING` today.
+	Trigger AMLScreeningRunTrigger `json:"trigger"`
+
+	// Opaque identifier of the AML data source that answered. Treat it as an opaque
+	// string; do not branch on it.
+	Provider string `json:"provider"`
+
+	// AML check status this run left the check in.
+	Status AMLScreeningRunStatus `json:"status"`
+
+	// AML score this run left the check in.
+	Score float64 `json:"score"`
+
+	// Number of hits this run left the check in.
+	TotalHits int64 `json:"total_hits"`
+
+	// Dataset freshness behind this run, or `null` when no dates were available.
+	DatasetFreshness AMLDatasetFreshness `json:"dataset_freshness"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsListNetworksResponse leniently.
-func (r *SessionsListNetworksResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes AMLScreeningRun leniently.
+func (r *AMLScreeningRun) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// AMLScreeningRunOutcome: `NO_CHANGE`: completed and the result did not move.
+// `CHANGED`: completed and the score, status, hit count or hits changed.
+// `FAILED`: no usable answer for this subject, so the check was left as it was.
+//
+// AMLScreeningRunOutcome is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type AMLScreeningRunOutcome string
+
+// Known values of AMLScreeningRunOutcome.
+const (
+	AMLScreeningRunOutcomeNoChange AMLScreeningRunOutcome = "NO_CHANGE"
+	AMLScreeningRunOutcomeChanged  AMLScreeningRunOutcome = "CHANGED"
+	AMLScreeningRunOutcomeFailed   AMLScreeningRunOutcome = "FAILED"
+)
+
+// AMLScreeningRunTrigger: What started the screening. Always
+// `ONGOING_MONITORING` today.
+//
+// AMLScreeningRunTrigger is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type AMLScreeningRunTrigger string
+
+// Known values of AMLScreeningRunTrigger.
+const (
+	AMLScreeningRunTriggerOngoingMonitoring AMLScreeningRunTrigger = "ONGOING_MONITORING"
+)
+
+// AMLScreeningRunStatus: AML check status this run left the check in.
+//
+// AMLScreeningRunStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type AMLScreeningRunStatus string
+
+// Known values of AMLScreeningRunStatus.
+const (
+	AMLScreeningRunStatusNotFinished    AMLScreeningRunStatus = "Not Finished"
+	AMLScreeningRunStatusApproved       AMLScreeningRunStatus = "Approved"
+	AMLScreeningRunStatusDeclined       AMLScreeningRunStatus = "Declined"
+	AMLScreeningRunStatusInReview       AMLScreeningRunStatus = "In Review"
+	AMLScreeningRunStatusResubRequested AMLScreeningRunStatus = "Resub Requested"
+)
+
+// SessionsListEventsParams holds the parameters of Client.Sessions.ListEvents.
+type SessionsListEventsParams struct {
+	// Maximum number of events per page. Defaults to 50. A value below 1 or a
+	// non-numeric value falls back to 50; a value above 1,000,000 returns `400`.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Number of results to skip before the first returned one. Defaults to 0; a
+	// negative or non-numeric value falls back to 0, a value above 1,000,000
+	// returns `400`. Prefer following the `next` and `previous` URLs.
+	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// Optional sort override. The default order is `-sent_at`. Pass a result field
+	// name (for example `sent_at`, `created_at`, `event_type`, `feature_step` or
+	// `step`) to sort ascending, prefix it with `-` to sort descending, and
+	// separate several fields with commas. Unknown fields are ignored.
+	Ordering Opt[string] `json:"-" query:"ordering"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsListEventsParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionEvent: One entry of a verification session's event timeline.
+type SessionEvent struct {
+	// Event identifier.
+	UUID string `json:"uuid"`
+
+	// What happened. Reported by the device during the hosted flow or SDK:
+	// `LINK_OPENED`, `STEP_RENDERED`, `BUTTON_CLICKED`, `FORM_SUBMITTED`,
+	// `FILE_UPLOADED`, `ATTEMPT_FAILED` and `LOG` (debugging). Recorded by the
+	// server: `SESSION_CREATED`, `SESSION_STATUS_CHANGED` (`details.old_status`,
+	// `details.current_status`), `FEATURE_STEP_CHANGED`
+	// (`details.old_feature_step`, `details.current_feature_step`),
+	// `WORKFLOW_BRANCH_EVALUATED` and `WORKFLOW_STATUS_NODE_REACHED` (the workflow
+	// routing trace). `SESSION_COMPLETED`, `NOTE_ADDED` and `MANUAL_REVIEW_STARTED`
+	// can appear on older sessions.
+	EventType SessionEventEventType `json:"event_type"`
+
+	// When Didit stored the event. Events are stored asynchronously, a few seconds
+	// after `sent_at`.
+	CreatedAt time.Time `json:"created_at"`
+
+	// UI component that reported the event (device events only).
+	Component string `json:"component"`
+
+	// Verification feature the session was on when the event happened.
+	FeatureStep SessionEventFeatureStep `json:"feature_step"`
+
+	// Screen within the feature, for example `DOCUMENT_CAPTURE_FRONT` or
+	// `FACE_PASSIVE_LIVENESS`.
+	Step string `json:"step"`
+
+	// Event-specific data. The keys depend on `event_type`.
+	Details map[string]any `json:"details"`
+
+	// IP address the device reported the event from. `null` for server-recorded
+	// events.
+	IPAddress string `json:"ip_address"`
+
+	// User agent of the device. `null` for server-recorded events.
+	UserAgent string `json:"user_agent"`
+
+	// Device details the SDK or browser reported.
+	DeviceInfo map[string]any `json:"device_info"`
+
+	// Short-lived presigned link to a file attached to the event (for example a
+	// captured image). `null` when there is none, and always `null` for a scoped
+	// API key without `media: read`.
+	FileURL string `json:"file_url"`
+
+	// When the event happened, as a Unix timestamp in milliseconds. Results are
+	// ordered by it.
+	SentAt int64 `json:"sent_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionEvent leniently.
+func (r *SessionEvent) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionEventEventType: What happened. Reported by the device during the
+// hosted flow or SDK: `LINK_OPENED`, `STEP_RENDERED`, `BUTTON_CLICKED`,
+// `FORM_SUBMITTED`, `FILE_UPLOADED`, `ATTEMPT_FAILED` and `LOG` (debugging).
+// Recorded by the server: `SESSION_CREATED`, `SESSION_STATUS_CHANGED`
+// (`details.old_status`, `details.current_status`), `FEATURE_STEP_CHANGED`
+// (`details.old_feature_step`, `details.current_feature_step`),
+// `WORKFLOW_BRANCH_EVALUATED` and `WORKFLOW_STATUS_NODE_REACHED` (the workflow
+// routing trace). `SESSION_COMPLETED`, `NOTE_ADDED` and `MANUAL_REVIEW_STARTED`
+// can appear on older sessions.
+//
+// SessionEventEventType is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SessionEventEventType string
+
+// Known values of SessionEventEventType.
+const (
+	SessionEventEventTypeSessionCreated            SessionEventEventType = "SESSION_CREATED"
+	SessionEventEventTypeSessionCompleted          SessionEventEventType = "SESSION_COMPLETED"
+	SessionEventEventTypeSessionStatusChanged      SessionEventEventType = "SESSION_STATUS_CHANGED"
+	SessionEventEventTypeLinkOpened                SessionEventEventType = "LINK_OPENED"
+	SessionEventEventTypeFormSubmitted             SessionEventEventType = "FORM_SUBMITTED"
+	SessionEventEventTypeButtonClicked             SessionEventEventType = "BUTTON_CLICKED"
+	SessionEventEventTypeFileUploaded              SessionEventEventType = "FILE_UPLOADED"
+	SessionEventEventTypeAttemptFailed             SessionEventEventType = "ATTEMPT_FAILED"
+	SessionEventEventTypeFeatureStepChanged        SessionEventEventType = "FEATURE_STEP_CHANGED"
+	SessionEventEventTypeStepRendered              SessionEventEventType = "STEP_RENDERED"
+	SessionEventEventTypeNoteAdded                 SessionEventEventType = "NOTE_ADDED"
+	SessionEventEventTypeManualReviewStarted       SessionEventEventType = "MANUAL_REVIEW_STARTED"
+	SessionEventEventTypeWorkflowBranchEvaluated   SessionEventEventType = "WORKFLOW_BRANCH_EVALUATED"
+	SessionEventEventTypeWorkflowStatusNodeReached SessionEventEventType = "WORKFLOW_STATUS_NODE_REACHED"
+	SessionEventEventTypeLog                       SessionEventEventType = "LOG"
+)
+
+// SessionEventFeatureStep: Verification feature the session was on when the
+// event happened.
+//
+// SessionEventFeatureStep is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SessionEventFeatureStep string
+
+// Known values of SessionEventFeatureStep.
+const (
+	SessionEventFeatureStepOCR                SessionEventFeatureStep = "OCR"
+	SessionEventFeatureStepOCRBack            SessionEventFeatureStep = "OCR_BACK"
+	SessionEventFeatureStepNFC                SessionEventFeatureStep = "NFC"
+	SessionEventFeatureStepAML                SessionEventFeatureStep = "AML"
+	SessionEventFeatureStepFace               SessionEventFeatureStep = "FACE"
+	SessionEventFeatureStepLiveness           SessionEventFeatureStep = "LIVENESS"
+	SessionEventFeatureStepFaceMatch          SessionEventFeatureStep = "FACE_MATCH"
+	SessionEventFeatureStepIPAnalysis         SessionEventFeatureStep = "IP_ANALYSIS"
+	SessionEventFeatureStepAgeEstimation      SessionEventFeatureStep = "AGE_ESTIMATION"
+	SessionEventFeatureStepProofOfAddress     SessionEventFeatureStep = "PROOF_OF_ADDRESS"
+	SessionEventFeatureStepPhoneVerification  SessionEventFeatureStep = "PHONE_VERIFICATION"
+	SessionEventFeatureStepEmailVerification  SessionEventFeatureStep = "EMAIL_VERIFICATION"
+	SessionEventFeatureStepFaceSearch         SessionEventFeatureStep = "FACE_SEARCH"
+	SessionEventFeatureStepDatabaseValidation SessionEventFeatureStep = "DATABASE_VALIDATION"
+	SessionEventFeatureStepQuestionnaire      SessionEventFeatureStep = "QUESTIONNAIRE"
+	SessionEventFeatureStepKYBRegistry        SessionEventFeatureStep = "KYB_REGISTRY"
+	SessionEventFeatureStepKYBDocuments       SessionEventFeatureStep = "KYB_DOCUMENTS"
+	SessionEventFeatureStepKYBKeyPeople       SessionEventFeatureStep = "KYB_KEY_PEOPLE"
+	SessionEventFeatureStepDocumentAi         SessionEventFeatureStep = "DOCUMENT_AI"
+	SessionEventFeatureStepGeolocation        SessionEventFeatureStep = "GEOLOCATION"
+)
+
+// SessionsListFeatureOverridesResponse is a response object.
+type SessionsListFeatureOverridesResponse struct {
+	SessionID string `json:"session_id"`
+
+	// Whether the person is still in the flow, so a new override with
+	// `defer_until_flow_finishes: true` would wait.
+	PersonInFlow bool `json:"person_in_flow"`
+
+	// When the person last finished the flow. `null` while they are still in it (a
+	// resubmission included) and when the session closed before they finished
+	// (abandoned, expired or decided mid-flow).
+	FlowFinishedAt time.Time `json:"flow_finished_at"`
+
+	// Every override of the session, newest first.
+	Overrides []FeatureStatusOverride `json:"overrides"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListFeatureOverridesResponse leniently.
+func (r *SessionsListFeatureOverridesResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsPreviewDecisionEmailParams holds the parameters of
+// Client.Sessions.PreviewDecisionEmail.
+type SessionsPreviewDecisionEmailParams struct {
+	// The decision whose email you want to preview. Required.
+	NewStatus SessionsPreviewDecisionEmailParamsNewStatus `json:"new_status"`
+
+	// Language of the email, the same default as Update Session Status. A language
+	// that is not offered falls back to English; `language` in the response says
+	// which one is used.
+	EmailLanguage Opt[string] `json:"email_language"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsPreviewDecisionEmailParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsPreviewDecisionEmailParamsNewStatus: The decision whose email you
+// want to preview.
+//
+// SessionsPreviewDecisionEmailParamsNewStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsPreviewDecisionEmailParamsNewStatus string
+
+// Known values of SessionsPreviewDecisionEmailParamsNewStatus.
+const (
+	SessionsPreviewDecisionEmailParamsNewStatusApproved SessionsPreviewDecisionEmailParamsNewStatus = "Approved"
+	SessionsPreviewDecisionEmailParamsNewStatusDeclined SessionsPreviewDecisionEmailParamsNewStatus = "Declined"
+)
+
+// SessionsPreviewDecisionEmailResponse is a response object.
+type SessionsPreviewDecisionEmailResponse struct {
+	// The address the email goes to. An empty string when no address is known for
+	// the person: then no email can be sent and `preview_token` is empty too. Pass
+	// it as `email_address` when you confirm.
+	Recipient string `json:"recipient"`
+
+	// Where `recipient` comes from. `email_verification`: the address the person
+	// verified in an email verification step of the flow. `contact_details`: the
+	// address given in `contact_details` when the session was created. An empty
+	// string when there is no address.
+	RecipientSource SessionsPreviewDecisionEmailResponseRecipientSource `json:"recipient_source"`
+
+	// The `From` header the email goes out with.
+	Sender string `json:"sender"`
+
+	// The display name part of `sender`.
+	SenderName string `json:"sender_name"`
+
+	// The address part of `sender`.
+	SenderEmail string `json:"sender_email"`
+
+	// `customer`: the email goes out from your application's verified sender domain
+	// (white label). `didit`: it goes out from Didit's own sender.
+	SenderKind SessionsPreviewDecisionEmailResponseSenderKind `json:"sender_kind"`
+
+	// The subject line exactly as it is sent.
+	Subject string `json:"subject"`
+
+	// The email's HTML exactly as it is sent, with its logo embedded as a data URL.
+	// Render it in a sandboxed frame, never directly in your application DOM.
+	HTML string `json:"html"`
+
+	// The language the email is written in. English (`en`) when the
+	// `email_language` you asked for is not offered.
+	Language string `json:"language"`
+
+	// Whether confirming the change with `send_email: true` sends this email.
+	// `false` when `not_sent_reason` is set.
+	WillBeSent bool `json:"will_be_sent"`
+
+	// Why confirming would send no email, or `null` when it will be sent.
+	// `status_unchanged`: the session already has this status, so the update
+	// changes nothing and sends nothing. `notification_emails_disabled`: the
+	// session was created without `contact_details.send_notification_emails: true`,
+	// so no decision email goes to the address given in `contact_details`.
+	// `no_recipient`: no address is known for the person. `sandbox`: a sandbox
+	// session whose recipient has not opted into sandbox email delivery, so the
+	// send is only simulated.
+	NotSentReason SessionsPreviewDecisionEmailResponseNotSentReason `json:"not_sent_reason"`
+
+	// Signed receipt for this exact email, valid for 15 minutes. Pass it as
+	// `email_preview_token` to [Update Session
+	// Status](/sessions-api/update-status). An empty string when there is no
+	// recipient.
+	PreviewToken string `json:"preview_token"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsPreviewDecisionEmailResponse leniently.
+func (r *SessionsPreviewDecisionEmailResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsPreviewDecisionEmailResponseRecipientSource: Where `recipient` comes
+// from. `email_verification`: the address the person verified in an email
+// verification step of the flow. `contact_details`: the address given in
+// `contact_details` when the session was created. An empty string when there is
+// no address.
+//
+// SessionsPreviewDecisionEmailResponseRecipientSource is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionsPreviewDecisionEmailResponseRecipientSource string
+
+// Known values of SessionsPreviewDecisionEmailResponseRecipientSource.
+const (
+	SessionsPreviewDecisionEmailResponseRecipientSourceEmailVerification SessionsPreviewDecisionEmailResponseRecipientSource = "email_verification"
+	SessionsPreviewDecisionEmailResponseRecipientSourceContactDetails    SessionsPreviewDecisionEmailResponseRecipientSource = "contact_details"
+	SessionsPreviewDecisionEmailResponseRecipientSourceEmpty             SessionsPreviewDecisionEmailResponseRecipientSource = ""
+)
+
+// SessionsPreviewDecisionEmailResponseSenderKind: `customer`: the email goes
+// out from your application's verified sender domain (white label). `didit`: it
+// goes out from Didit's own sender.
+//
+// SessionsPreviewDecisionEmailResponseSenderKind is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsPreviewDecisionEmailResponseSenderKind string
+
+// Known values of SessionsPreviewDecisionEmailResponseSenderKind.
+const (
+	SessionsPreviewDecisionEmailResponseSenderKindCustomer SessionsPreviewDecisionEmailResponseSenderKind = "customer"
+	SessionsPreviewDecisionEmailResponseSenderKindDidit    SessionsPreviewDecisionEmailResponseSenderKind = "didit"
+)
+
+// SessionsPreviewDecisionEmailResponseNotSentReason: Why confirming would send
+// no email, or `null` when it will be sent. `status_unchanged`: the session
+// already has this status, so the update changes nothing and sends nothing.
+// `notification_emails_disabled`: the session was created without
+// `contact_details.send_notification_emails: true`, so no decision email goes
+// to the address given in `contact_details`. `no_recipient`: no address is
+// known for the person. `sandbox`: a sandbox session whose recipient has not
+// opted into sandbox email delivery, so the send is only simulated.
+//
+// SessionsPreviewDecisionEmailResponseNotSentReason is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionsPreviewDecisionEmailResponseNotSentReason string
+
+// Known values of SessionsPreviewDecisionEmailResponseNotSentReason.
+const (
+	SessionsPreviewDecisionEmailResponseNotSentReasonStatusUnchanged            SessionsPreviewDecisionEmailResponseNotSentReason = "status_unchanged"
+	SessionsPreviewDecisionEmailResponseNotSentReasonNotificationEmailsDisabled SessionsPreviewDecisionEmailResponseNotSentReason = "notification_emails_disabled"
+	SessionsPreviewDecisionEmailResponseNotSentReasonNoRecipient                SessionsPreviewDecisionEmailResponseNotSentReason = "no_recipient"
+	SessionsPreviewDecisionEmailResponseNotSentReasonSandbox                    SessionsPreviewDecisionEmailResponseNotSentReason = "sandbox"
+)
 
 // SessionsPreviewResubmissionParams holds the parameters of
 // Client.Sessions.PreviewResubmission.
@@ -2617,8 +11177,10 @@ type SessionsPreviewResubmissionParams struct {
 	// resubmission.
 	NodesToResubmit Opt[[]SessionsPreviewResubmissionParamsNodesToResubmit] `json:"nodes_to_resubmit"`
 
-	// Recipient shown in the preview. No email is sent. Required.
-	EmailAddress string `json:"email_address"`
+	// Optional. Send the email to this address instead of the person's own. Without
+	// it, the recipient is the address the person verified in the flow, else the
+	// one given in `contact_details`. No email is sent by this call.
+	EmailAddress Opt[string] `json:"email_address"`
 
 	// Language for the notification email. Accepts any string at schema level;
 	// unsupported codes silently fall back to English (`en`).
@@ -2691,20 +11253,63 @@ const (
 
 // SessionsPreviewResubmissionResponse is a response object.
 type SessionsPreviewResubmissionResponse struct {
+	// The address the email goes to. An empty string when no address is known for
+	// the person: then no email can be sent and `preview_token` is empty too. Pass
+	// it as `email_address` when you confirm.
 	Recipient string `json:"recipient"`
-	Sender    string `json:"sender"`
-	Subject   string `json:"subject"`
 
-	// Rendered email. Inline image attachments use data URLs for preview.
-	HTML            string                                               `json:"html"`
+	// Where `recipient` comes from. `request`: the `email_address` you passed.
+	// `email_verification`: the address the person verified in an email
+	// verification step of the flow. `contact_details`: the address given in
+	// `contact_details` when the session was created. An empty string when there is
+	// no address.
+	RecipientSource SessionsPreviewResubmissionResponseRecipientSource `json:"recipient_source"`
+
+	// The `From` header the email goes out with.
+	Sender string `json:"sender"`
+
+	// The display name part of `sender`.
+	SenderName string `json:"sender_name"`
+
+	// The address part of `sender`.
+	SenderEmail string `json:"sender_email"`
+
+	// `customer`: the email goes out from your application's verified sender domain
+	// (white label). `didit`: it goes out from Didit's own sender.
+	SenderKind SessionsPreviewResubmissionResponseSenderKind `json:"sender_kind"`
+
+	// The subject line exactly as it is sent.
+	Subject string `json:"subject"`
+
+	// The email's HTML exactly as it is sent, with its logo embedded as a data URL.
+	// Render it in a sandboxed frame, never directly in your application DOM.
+	HTML string `json:"html"`
+
+	// The language the email is written in. English (`en`) when the
+	// `email_language` you asked for is not offered.
+	Language string `json:"language"`
+
+	// Whether confirming the change with `send_email: true` sends this email.
+	// `false` when `not_sent_reason` is set.
+	WillBeSent bool `json:"will_be_sent"`
+
+	// Why confirming would send no email, or `null` when it will be sent.
+	// `no_user_action`: every selected step runs without the person, so the
+	// resubmission finishes on its own and no email goes out. `no_recipient`: no
+	// address is known for the person and you passed none. `sandbox`: a sandbox
+	// session whose recipient has not opted into sandbox email delivery, so the
+	// send is only simulated.
+	NotSentReason   SessionsPreviewResubmissionResponseNotSentReason     `json:"not_sent_reason"`
 	NodesToResubmit []SessionsPreviewResubmissionResponseNodesToResubmit `json:"nodes_to_resubmit"`
 
 	// Whether at least one selected check requires user interaction. This does not
 	// predict the final workflow outcome.
 	RequiresUserAction bool `json:"requires_user_action"`
 
-	// Signed confirmation receipt, valid for 15 minutes. Pass it as
-	// email_preview_token when confirming the same message.
+	// Signed receipt for this exact email, valid for 15 minutes. Pass it as
+	// `email_preview_token` to [Update Session
+	// Status](/sessions-api/update-status). An empty string when there is no
+	// recipient.
 	PreviewToken string `json:"preview_token"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -2716,6 +11321,58 @@ type SessionsPreviewResubmissionResponse struct {
 func (r *SessionsPreviewResubmissionResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// SessionsPreviewResubmissionResponseRecipientSource: Where `recipient` comes
+// from. `request`: the `email_address` you passed. `email_verification`: the
+// address the person verified in an email verification step of the flow.
+// `contact_details`: the address given in `contact_details` when the session
+// was created. An empty string when there is no address.
+//
+// SessionsPreviewResubmissionResponseRecipientSource is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionsPreviewResubmissionResponseRecipientSource string
+
+// Known values of SessionsPreviewResubmissionResponseRecipientSource.
+const (
+	SessionsPreviewResubmissionResponseRecipientSourceEmailVerification SessionsPreviewResubmissionResponseRecipientSource = "email_verification"
+	SessionsPreviewResubmissionResponseRecipientSourceContactDetails    SessionsPreviewResubmissionResponseRecipientSource = "contact_details"
+	SessionsPreviewResubmissionResponseRecipientSourceRequest           SessionsPreviewResubmissionResponseRecipientSource = "request"
+	SessionsPreviewResubmissionResponseRecipientSourceEmpty             SessionsPreviewResubmissionResponseRecipientSource = ""
+)
+
+// SessionsPreviewResubmissionResponseSenderKind: `customer`: the email goes out
+// from your application's verified sender domain (white label). `didit`: it
+// goes out from Didit's own sender.
+//
+// SessionsPreviewResubmissionResponseSenderKind is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsPreviewResubmissionResponseSenderKind string
+
+// Known values of SessionsPreviewResubmissionResponseSenderKind.
+const (
+	SessionsPreviewResubmissionResponseSenderKindCustomer SessionsPreviewResubmissionResponseSenderKind = "customer"
+	SessionsPreviewResubmissionResponseSenderKindDidit    SessionsPreviewResubmissionResponseSenderKind = "didit"
+)
+
+// SessionsPreviewResubmissionResponseNotSentReason: Why confirming would send
+// no email, or `null` when it will be sent. `no_user_action`: every selected
+// step runs without the person, so the resubmission finishes on its own and no
+// email goes out. `no_recipient`: no address is known for the person and you
+// passed none. `sandbox`: a sandbox session whose recipient has not opted into
+// sandbox email delivery, so the send is only simulated.
+//
+// SessionsPreviewResubmissionResponseNotSentReason is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionsPreviewResubmissionResponseNotSentReason string
+
+// Known values of SessionsPreviewResubmissionResponseNotSentReason.
+const (
+	SessionsPreviewResubmissionResponseNotSentReasonNoUserAction SessionsPreviewResubmissionResponseNotSentReason = "no_user_action"
+	SessionsPreviewResubmissionResponseNotSentReasonNoRecipient  SessionsPreviewResubmissionResponseNotSentReason = "no_recipient"
+	SessionsPreviewResubmissionResponseNotSentReasonSandbox      SessionsPreviewResubmissionResponseNotSentReason = "sandbox"
+)
 
 // SessionsPreviewResubmissionResponseNodesToResubmit is a response object.
 type SessionsPreviewResubmissionResponseNodesToResubmit struct {
@@ -2780,6 +11437,268 @@ const (
 	SessionsPreviewResubmissionResponseNodesToResubmitFeatureKYB                SessionsPreviewResubmissionResponseNodesToResubmitFeature = "KYB"
 )
 
+// KYBKeyPeopleParty: A Key People party of a Business Verification (KYB)
+// session, with its child verification. The same party appears in
+// `key_people_checks[].submitted.parties[]` of the business session decision.
+type KYBKeyPeopleParty struct {
+	// Party identifier.
+	UUID string `json:"uuid"`
+
+	// Whether the party is an individual or a company.
+	EntityType KYBKeyPeoplePartyEntityType `json:"entity_type"`
+
+	// `REGISTRY`: taken from the company registry. `USER`: entered in the Key
+	// People screen.
+	Source KYBKeyPeoplePartySource `json:"source"`
+
+	// Display name of the party.
+	Name string `json:"name"`
+
+	// First name (persons).
+	FirstName string `json:"first_name"`
+
+	// Last name (persons).
+	LastName string `json:"last_name"`
+
+	// Company name (company parties).
+	CompanyName string `json:"company_name"`
+
+	// Company registration number (company parties).
+	RegistrationNumber string `json:"registration_number"`
+
+	// Email the verification link is sent to.
+	Email string `json:"email"`
+
+	// Nationality for persons, country of incorporation for companies.
+	Nationality string `json:"nationality"`
+
+	// Phone number collected for the party.
+	PhoneNumber string `json:"phone_number"`
+
+	// Date of birth (persons).
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Free-text job title (persons).
+	Position string `json:"position"`
+
+	// Workflow-defined custom fields collected for the party, keyed by field key.
+	CustomFields map[string]any `json:"custom_fields"`
+
+	// Whether the party is active.
+	IsActive bool `json:"is_active"`
+
+	// Whether the party is exempt from verification. Regenerating clears it.
+	IsSkipped bool `json:"is_skipped"`
+
+	// Whether the role and ownership rules require a verification for this party.
+	RequiresVerification bool `json:"requires_verification"`
+
+	// Roles the party holds in the company.
+	Roles []KYBKeyPeoplePartyRoles `json:"roles"`
+
+	// Child individual KYC session (persons).
+	KYCSessionID string `json:"kyc_session_id"`
+
+	// Status of the child KYC session. A deleted session keeps the status it had
+	// when it was deleted.
+	KYCSessionStatus KYBKeyPeoplePartyKYCSessionStatus `json:"kyc_session_status"`
+
+	// Hosted link of the child KYC session. `null` when there is none or it was
+	// deleted, and for a scoped API key without `sessions: write`.
+	KYCSessionURL string `json:"kyc_session_url"`
+
+	// The child KYC session was deleted, so it can never settle.
+	KYCSessionDeleted bool `json:"kyc_session_deleted"`
+
+	// Child KYB session (company parties).
+	KYBSubSessionID string `json:"kyb_sub_session_id"`
+
+	// Status of the child KYB session.
+	KYBSubSessionStatus KYBKeyPeoplePartyKYBSubSessionStatus `json:"kyb_sub_session_status"`
+
+	// Hosted link of the child KYB session, with the same `null` rules as
+	// `kyc_session_url`.
+	KYBSubSessionURL string `json:"kyb_sub_session_url"`
+
+	// Company-party counterpart of `kyc_session_deleted`.
+	KYBSubSessionDeleted bool `json:"kyb_sub_session_deleted"`
+
+	// Type of the workflow the child session runs.
+	VerificationWorkflowType KYBKeyPeoplePartyVerificationWorkflowType `json:"verification_workflow_type"`
+
+	// Workflow the child session runs.
+	VerificationWorkflowID string `json:"verification_workflow_id"`
+
+	// Label of that workflow.
+	VerificationWorkflowLabel string `json:"verification_workflow_label"`
+
+	// Features of the child session's workflow with their current status.
+	VerificationWorkflowFeatures []KYBKeyPeoplePartyVerificationWorkflowFeatures `json:"verification_workflow_features"`
+
+	// Didit's identifier of the verified person, once known.
+	DiditInternalID string `json:"didit_internal_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBKeyPeopleParty leniently.
+func (r *KYBKeyPeopleParty) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBKeyPeoplePartyEntityType: Whether the party is an individual or a company.
+//
+// KYBKeyPeoplePartyEntityType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type KYBKeyPeoplePartyEntityType string
+
+// Known values of KYBKeyPeoplePartyEntityType.
+const (
+	KYBKeyPeoplePartyEntityTypePerson  KYBKeyPeoplePartyEntityType = "person"
+	KYBKeyPeoplePartyEntityTypeCompany KYBKeyPeoplePartyEntityType = "company"
+)
+
+// KYBKeyPeoplePartySource: `REGISTRY`: taken from the company registry. `USER`:
+// entered in the Key People screen.
+//
+// KYBKeyPeoplePartySource is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type KYBKeyPeoplePartySource string
+
+// Known values of KYBKeyPeoplePartySource.
+const (
+	KYBKeyPeoplePartySourceRegistry KYBKeyPeoplePartySource = "REGISTRY"
+	KYBKeyPeoplePartySourceUser     KYBKeyPeoplePartySource = "USER"
+)
+
+// KYBKeyPeoplePartyRoles is a response object.
+type KYBKeyPeoplePartyRoles struct {
+	// Role code.
+	Role KYBKeyPeoplePartyRolesRole `json:"role"`
+
+	// Ownership percentage for this role, when known.
+	OwnershipPercent float64 `json:"ownership_percent"`
+
+	// Voting-rights percentage for this role, when known.
+	VotingPercent float64 `json:"voting_percent"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBKeyPeoplePartyRoles leniently.
+func (r *KYBKeyPeoplePartyRoles) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBKeyPeoplePartyRolesRole: Role code.
+//
+// KYBKeyPeoplePartyRolesRole is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type KYBKeyPeoplePartyRolesRole string
+
+// Known values of KYBKeyPeoplePartyRolesRole.
+const (
+	KYBKeyPeoplePartyRolesRoleDirector             KYBKeyPeoplePartyRolesRole = "director"
+	KYBKeyPeoplePartyRolesRoleNonExecutiveDirector KYBKeyPeoplePartyRolesRole = "non_executive_director"
+	KYBKeyPeoplePartyRolesRoleSecretary            KYBKeyPeoplePartyRolesRole = "secretary"
+	KYBKeyPeoplePartyRolesRoleChairman             KYBKeyPeoplePartyRolesRole = "chairman"
+	KYBKeyPeoplePartyRolesRoleUBO                  KYBKeyPeoplePartyRolesRole = "ubo"
+	KYBKeyPeoplePartyRolesRoleShareholder          KYBKeyPeoplePartyRolesRole = "shareholder"
+	KYBKeyPeoplePartyRolesRoleRepresentative       KYBKeyPeoplePartyRolesRole = "representative"
+	KYBKeyPeoplePartyRolesRoleFounder              KYBKeyPeoplePartyRolesRole = "founder"
+	KYBKeyPeoplePartyRolesRoleLegalAdvisor         KYBKeyPeoplePartyRolesRole = "legal_advisor"
+	KYBKeyPeoplePartyRolesRoleAuthorizedSignatory  KYBKeyPeoplePartyRolesRole = "authorized_signatory"
+	KYBKeyPeoplePartyRolesRoleTrustee              KYBKeyPeoplePartyRolesRole = "trustee"
+	KYBKeyPeoplePartyRolesRoleBeneficiary          KYBKeyPeoplePartyRolesRole = "beneficiary"
+	KYBKeyPeoplePartyRolesRoleSettlor              KYBKeyPeoplePartyRolesRole = "settlor"
+	KYBKeyPeoplePartyRolesRoleProtector            KYBKeyPeoplePartyRolesRole = "protector"
+	KYBKeyPeoplePartyRolesRoleCompanyOfficer       KYBKeyPeoplePartyRolesRole = "company_officer"
+	KYBKeyPeoplePartyRolesRoleInvestor             KYBKeyPeoplePartyRolesRole = "investor"
+	KYBKeyPeoplePartyRolesRoleOther                KYBKeyPeoplePartyRolesRole = "other"
+)
+
+// KYBKeyPeoplePartyKYCSessionStatus: Status of the child KYC session. A deleted
+// session keeps the status it had when it was deleted.
+//
+// KYBKeyPeoplePartyKYCSessionStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type KYBKeyPeoplePartyKYCSessionStatus string
+
+// Known values of KYBKeyPeoplePartyKYCSessionStatus.
+const (
+	KYBKeyPeoplePartyKYCSessionStatusNotStarted   KYBKeyPeoplePartyKYCSessionStatus = "Not Started"
+	KYBKeyPeoplePartyKYCSessionStatusInProgress   KYBKeyPeoplePartyKYCSessionStatus = "In Progress"
+	KYBKeyPeoplePartyKYCSessionStatusApproved     KYBKeyPeoplePartyKYCSessionStatus = "Approved"
+	KYBKeyPeoplePartyKYCSessionStatusDeclined     KYBKeyPeoplePartyKYCSessionStatus = "Declined"
+	KYBKeyPeoplePartyKYCSessionStatusInReview     KYBKeyPeoplePartyKYCSessionStatus = "In Review"
+	KYBKeyPeoplePartyKYCSessionStatusExpired      KYBKeyPeoplePartyKYCSessionStatus = "Expired"
+	KYBKeyPeoplePartyKYCSessionStatusAbandoned    KYBKeyPeoplePartyKYCSessionStatus = "Abandoned"
+	KYBKeyPeoplePartyKYCSessionStatusKYCExpired   KYBKeyPeoplePartyKYCSessionStatus = "Kyc Expired"
+	KYBKeyPeoplePartyKYCSessionStatusResubmitted  KYBKeyPeoplePartyKYCSessionStatus = "Resubmitted"
+	KYBKeyPeoplePartyKYCSessionStatusAwaitingUser KYBKeyPeoplePartyKYCSessionStatus = "Awaiting User"
+)
+
+// KYBKeyPeoplePartyKYBSubSessionStatus: Status of the child KYB session.
+//
+// KYBKeyPeoplePartyKYBSubSessionStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type KYBKeyPeoplePartyKYBSubSessionStatus string
+
+// Known values of KYBKeyPeoplePartyKYBSubSessionStatus.
+const (
+	KYBKeyPeoplePartyKYBSubSessionStatusNotStarted   KYBKeyPeoplePartyKYBSubSessionStatus = "Not Started"
+	KYBKeyPeoplePartyKYBSubSessionStatusInProgress   KYBKeyPeoplePartyKYBSubSessionStatus = "In Progress"
+	KYBKeyPeoplePartyKYBSubSessionStatusApproved     KYBKeyPeoplePartyKYBSubSessionStatus = "Approved"
+	KYBKeyPeoplePartyKYBSubSessionStatusDeclined     KYBKeyPeoplePartyKYBSubSessionStatus = "Declined"
+	KYBKeyPeoplePartyKYBSubSessionStatusInReview     KYBKeyPeoplePartyKYBSubSessionStatus = "In Review"
+	KYBKeyPeoplePartyKYBSubSessionStatusExpired      KYBKeyPeoplePartyKYBSubSessionStatus = "Expired"
+	KYBKeyPeoplePartyKYBSubSessionStatusAbandoned    KYBKeyPeoplePartyKYBSubSessionStatus = "Abandoned"
+	KYBKeyPeoplePartyKYBSubSessionStatusKYCExpired   KYBKeyPeoplePartyKYBSubSessionStatus = "Kyc Expired"
+	KYBKeyPeoplePartyKYBSubSessionStatusResubmitted  KYBKeyPeoplePartyKYBSubSessionStatus = "Resubmitted"
+	KYBKeyPeoplePartyKYBSubSessionStatusAwaitingUser KYBKeyPeoplePartyKYBSubSessionStatus = "Awaiting User"
+)
+
+// KYBKeyPeoplePartyVerificationWorkflowType: Type of the workflow the child
+// session runs.
+//
+// KYBKeyPeoplePartyVerificationWorkflowType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type KYBKeyPeoplePartyVerificationWorkflowType string
+
+// Known values of KYBKeyPeoplePartyVerificationWorkflowType.
+const (
+	KYBKeyPeoplePartyVerificationWorkflowTypeKYC                       KYBKeyPeoplePartyVerificationWorkflowType = "kyc"
+	KYBKeyPeoplePartyVerificationWorkflowTypeKYB                       KYBKeyPeoplePartyVerificationWorkflowType = "kyb"
+	KYBKeyPeoplePartyVerificationWorkflowTypeAdaptiveAgeVerification   KYBKeyPeoplePartyVerificationWorkflowType = "adaptive_age_verification"
+	KYBKeyPeoplePartyVerificationWorkflowTypeBiometricAuthentication   KYBKeyPeoplePartyVerificationWorkflowType = "biometric_authentication"
+	KYBKeyPeoplePartyVerificationWorkflowTypeAddressVerification       KYBKeyPeoplePartyVerificationWorkflowType = "address_verification"
+	KYBKeyPeoplePartyVerificationWorkflowTypeQuestionnaireVerification KYBKeyPeoplePartyVerificationWorkflowType = "questionnaire_verification"
+	KYBKeyPeoplePartyVerificationWorkflowTypeEmailVerification         KYBKeyPeoplePartyVerificationWorkflowType = "email_verification"
+	KYBKeyPeoplePartyVerificationWorkflowTypePhoneVerification         KYBKeyPeoplePartyVerificationWorkflowType = "phone_verification"
+)
+
+// KYBKeyPeoplePartyVerificationWorkflowFeatures is a response object.
+type KYBKeyPeoplePartyVerificationWorkflowFeatures struct {
+	// Feature code, for example `ID_VERIFICATION` or `LIVENESS`.
+	Feature string `json:"feature"`
+
+	// Feature status, `Not Finished` until it runs.
+	Status string `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBKeyPeoplePartyVerificationWorkflowFeatures leniently.
+func (r *KYBKeyPeoplePartyVerificationWorkflowFeatures) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // SessionsRetrieveDecisionParams holds the parameters of
 // Client.Sessions.RetrieveDecision.
 type SessionsRetrieveDecisionParams struct {
@@ -2835,6735 +11754,16 @@ const (
 	SessionsRetrieveDecisionParamsIncludeEventsResubmissions SessionsRetrieveDecisionParamsInclude = "events,resubmissions"
 )
 
-// SessionsRetrieveDecisionResponse is a response object.
-type SessionsRetrieveDecisionResponse struct {
-	// The unique identifier of the session for which to retrieve verification
-	// results.
-	SessionID string `json:"session_id"`
-
-	// Discriminator indicating whether this is a User Verification (KYC) or
-	// Business Verification (KYB) session. When `user`, the KYC feature arrays
-	// (`id_verifications`, `nfc_verifications`, `liveness_checks`, `face_matches`,
-	// `poa_verifications`, `document_ai_documents`, `database_validations`, ...)
-	// apply and the business arrays are absent. When `business`, the payload
-	// instead carries `registry_checks`, `document_verifications`,
-	// `key_people_checks` plus the shared arrays (`aml_screenings`,
-	// `phone_verifications`, `email_verifications`, `ip_analyses`,
-	// `questionnaire_responses`). **Omitted when `include=events` is passed** - the
-	// events shape only exists for user sessions, so the discriminator is dropped
-	// from that variant.
-	SessionKind SessionsRetrieveDecisionResponseSessionKind `json:"session_kind"`
-
-	// The number of the session.
-	SessionNumber int64 `json:"session_number"`
-
-	// The URL of the session.
-	SessionURL string `json:"session_url"`
-
-	// Overall lifecycle status of the session - the rolled-up workflow result.
-	// Terminal values are `Approved`, `Declined`, `In Review`, `Expired`, `Kyc
-	// Expired`, and `Abandoned`; `Not Started`, `In Progress`, `Awaiting User`, and
-	// `Resubmitted` indicate the session is still moving through the workflow.
-	Status SessionsRetrieveDecisionResponseStatus `json:"status"`
-
-	// Stable identifier of the workflow group that produced this session. Workflows
-	// are versioned - this value identifies the workflow itself, not the specific
-	// version.
-	WorkflowID string `json:"workflow_id"`
-
-	// List of verification features configured for this session, as display names:
-	// `ID_VERIFICATION`, `NFC`, `LIVENESS`, `FACE_MATCH`, `POA`, `PHONE`,
-	// `EMAIL_VERIFICATION`, `AML`, `IP_ANALYSIS`, `DATABASE_VALIDATION`,
-	// `QUESTIONNAIRE`, `AGE_ESTIMATION`, `FACE_SEARCH` (Business Verification
-	// sessions use the KYB feature set: `KYB_REGISTRY`, `KYB_DOCUMENTS`,
-	// `KYB_KEY_PEOPLE`, `AML`, `PHONE`, `EMAIL_VERIFICATION`, `IP_ANALYSIS`,
-	// `QUESTIONNAIRE`). With `include=events` each entry becomes an object
-	// `{feature, node_id}` instead of a plain string, and the email feature is
-	// renamed: it appears as `EMAIL` in events mode instead of the
-	// `EMAIL_VERIFICATION` used here.
-	Features []string `json:"features"`
-
-	// The vendor data of the session.
-	VendorData string `json:"vendor_data"`
-
-	// The metadata of the session.
-	Metadata map[string]any `json:"metadata"`
-
-	// Expected details supplied at session creation - used for cross-validation
-	// against extracted data (KYC) or to pre-fill the company registry search
-	// (KYB). Echoes back exactly the keys that were provided; `null` when none were
-	// supplied. KYC sessions carry the person fields; Business (KYB) sessions carry
-	// `company_name`, `registry_country` and `registration_number`.
-	ExpectedDetails SessionsRetrieveDecisionResponseExpectedDetails `json:"expected_details"`
-
-	// Contact details supplied when the session was created (used for notification
-	// emails, prefilled phone/email verification, and communication language).
-	// `null` when neither an email nor a phone number was provided.
-	ContactDetails SessionsRetrieveDecisionResponseContactDetails `json:"contact_details"`
-
-	// The callback URL of the session.
-	Callback string `json:"callback"`
-
-	// **Array of ID verification (OCR) reports** produced by ID-document steps in
-	// the workflow graph. Always a JSON array - read `id_verifications[0]` and
-	// iterate if your workflow can run more than one ID check (for example a
-	// primary check plus a step-up). `null` until at least one ID step has produced
-	// data. Each item is the full report, including `node_id`, feature-level
-	// `status`, extracted document fields, image URLs, quality scores, MRZ, address
-	// parsing, cross-session matches, and `warnings[]`.
-	IDVerifications []SessionsRetrieveDecisionResponseIDVerifications `json:"id_verifications"`
-
-	// Why NFC chip verification did not run, populated whenever the workflow
-	// includes an NFC step. `null` while NFC is pending or when the chip was
-	// actually read. Values: `USER_SKIPPED` - the user chose to skip on an
-	// NFC-capable device (allowed by `allow_nfc_skip`); `DOCUMENT_WITHOUT_CHIP` -
-	// the document has no readable NFC chip (not an ICAO 9303 electronic document);
-	// `CHIP_CERTIFICATE_UNAVAILABLE` - the issuing country's signing certificate
-	// (CSCA) covering the document's issue period is unavailable, so the chip
-	// signature cannot be verified; `DEVICE_WITHOUT_NFC` - the device reported no
-	// NFC reader; `INTEGRATION_WITHOUT_NFC_ACCESS` - the verification ran without a
-	// native SDK (e.g. in a web browser), which has no access to the phone's NFC
-	// reader; `MRZ_KEY_UNAVAILABLE` - the chip access key could not be derived from
-	// the document's MRZ.
-	NFCSkipReason SessionsRetrieveDecisionResponseNFCSkipReason `json:"nfc_skip_reason"`
-
-	// **Array of NFC / ePassport reports** produced by NFC steps in the workflow
-	// graph. **This is always a JSON array, never a singular `nfc` object** - read
-	// `nfc_verifications[0]` and iterate if your workflow can run NFC more than
-	// once. `null` until at least one NFC step has produced data. Each item is the
-	// full report, including `node_id`, feature-level `status`, `chip_data`,
-	// `authenticity` (SOD + DG integrity), `certificate_summary`, and `warnings[]`.
-	// When the NFC step was bypassed before it could ever be offered (chipless
-	// document, missing certificate, no NFC capability reported, unreadable MRZ
-	// key), this stays `null` and `nfc_skip_reason` explains why; a skip at the
-	// step itself (user tapped skip, or the reader turned out unavailable at scan
-	// time) still produces a report with `is_nfc_skipped: true`.
-	NFCVerifications []SessionsRetrieveDecisionResponseNFCVerifications `json:"nfc_verifications"`
-
-	// **Array of liveness reports** produced by liveness steps in the workflow
-	// graph. Always a JSON array - never a singular `liveness` object. `null` until
-	// at least one liveness step has produced data. Each item is the full report,
-	// including `node_id`, feature-level `status`, `method`, `score`,
-	// `reference_image`, `video_url`, optional `age_estimation`, cross-session
-	// `matches[]`, and `warnings[]`.
-	LivenessChecks []SessionsRetrieveDecisionResponseLivenessChecks `json:"liveness_checks"`
-
-	// **Array of face-match reports** produced by face-match steps in the workflow
-	// graph. Always a JSON array - never a singular `face_match` object. `null`
-	// until at least one face-match step has produced data. Each item is the full
-	// report, including `node_id`, feature-level `status`, similarity `score`,
-	// `source_image`, `target_image`, and `warnings[]`.
-	FaceMatches []SessionsRetrieveDecisionResponseFaceMatches `json:"face_matches"`
-
-	// **Array of phone verification reports** - always a JSON array, never a
-	// singular `phone` object. `null` until at least one phone step has produced
-	// data. Each item is the full report, including `node_id`, feature-level
-	// `status`, the phone number and country metadata, `lifecycle[]`, `matches[]`,
-	// and `warnings[]`.
-	PhoneVerifications []SessionsRetrieveDecisionResponsePhoneVerifications `json:"phone_verifications"`
-
-	// **Array of email verification reports** - always a JSON array, never a
-	// singular `email` object. `null` until at least one email step has produced
-	// data. Each item is the full report, including `node_id`, feature-level
-	// `status`, the email address, breach data, `lifecycle[]`, `matches[]`, and
-	// `warnings[]`.
-	EmailVerifications []SessionsRetrieveDecisionResponseEmailVerifications `json:"email_verifications"`
-
-	// **Array of Proof of Address (POA) reports** - always a JSON array, never a
-	// singular `poa` object. `null` until at least one POA step has produced data.
-	// Each item is the full report, including `node_id`, feature-level `status`,
-	// the document file URL, issuer, dates, parsed address, and `warnings[]`.
-	POAVerifications []SessionsRetrieveDecisionResponsePOAVerifications `json:"poa_verifications"`
-
-	// **Document AI reports grouped by workflow node** - always a JSON array, never
-	// a singular object. `null` until at least one Document AI step has produced
-	// data. Present only when `session_kind = user`. Each item is a node group with
-	// an aggregate `status`, the `node_id`, an `items[]` array of the per-document
-	// results (extracted data keyed by the configured field key), and `warnings`.
-	DocumentAiDocuments []SessionsRetrieveDecisionResponseDocumentAiDocuments `json:"document_ai_documents"`
-
-	// **Array of questionnaire response reports** - always a JSON array, never a
-	// singular `questionnaire` object. `null` until at least one questionnaire step
-	// has produced data. Each item is the full report, including `node_id`, the
-	// questionnaire metadata, sections with form elements, and the user's answers.
-	QuestionnaireResponses []SessionsRetrieveDecisionResponseQuestionnaireResponses `json:"questionnaire_responses"`
-
-	// **Array of AML screening reports** - always a JSON array, never a singular
-	// `aml` object. `null` until at least one AML step has produced data. Each item
-	// is the full report, including `node_id`, feature-level `status`,
-	// `total_hits`, `entity_type`, `hits[]`, `score`, `screened_data`,
-	// `is_ongoing_monitoring_enabled`, and `warnings[]`.
-	AMLScreenings []SessionsRetrieveDecisionResponseAMLScreenings `json:"aml_screenings"`
-
-	// **Array of Device & IP Analysis reports** - always a JSON array, never a
-	// singular `ip_analysis` object. `null` until at least one IP-analysis step has
-	// produced data. Each item is the full report, including `node_id`,
-	// feature-level `status`, IP and geolocation data, device fingerprint, and
-	// `warnings[]`. Entries with duplicate `(node_id, ip_address,
-	// device_fingerprint)` are deduplicated server-side.
-	IPAnalyses []SessionsRetrieveDecisionResponseIPAnalyses `json:"ip_analyses"`
-
-	// **Array of Database Validation reports** - always a JSON array, never a
-	// singular `database_validation` object. `null` until at least one DB
-	// validation step has produced data. Each item is the full report, including
-	// `node_id`, feature-level `status`, `screened_data`, the per-service
-	// `validations[]` (each with its registry `source_data`), and `warnings[]`. The
-	// `screened_data` and `source_data` fields vary by country:
-	//
-	// **ARG (Argentina)**: screened_data: {document_number, selfie, gender,
-	// first_name, last_name}. source_data: {identification_number, first_name,
-	// last_name, full_name, date_of_birth, date_of_death, tax_id, tax_id_type,
-	// face_match_score, sit_1_since, banks, last_position, highest_position,
-	// rejected_checks}. Uses RENAPER biometric face-match validation. Gender is
-	// auto-inferred from face analysis or given name when not present in the
-	// document (e.g., driver licenses)
-	//
-	// **BOL (Bolivia)**: screened_data: {document_number, date_of_birth,
-	// first_name, last_name}. source_data: {identification_number, first_name,
-	// last_name, full_name, date_of_birth, gender}
-	//
-	// **BRA (Brazil)**: screened_data: {tax_number, first_name, last_name,
-	// date_of_birth}. source_data always includes {identification_number,
-	// first_name, last_name, date_of_birth, lgpd_minor, minor_under_18,
-	// minor_under_16} for successful CPF matches. Successful adult lookups set
-	// those flags to false. The Receita Federal Consulta CPF service may return
-	// HTTP 422 (minor under 18) or 451 (under 16) with LGPD-withheld data; in those
-	// cases source_data sets the minor flags to true as appropriate, includes the
-	// upstream HTTP status, and field-level validation is no_match. See the Brazil
-	// section of the Database Validation Outcome Codes reference for the full code
-	// list.
-	//
-	// **CHL (Chile)**: screened_data: {personal_number, first_name, last_name,
-	// date_of_birth}. source_data: {identification_number, first_name, last_name,
-	// date_of_birth, gender}
-	//
-	// **COL (Colombia)**: screened_data: {document_number, document_type,
-	// first_name, last_name}. source_data: {identification_number, first_name,
-	// last_name, full_name, date_of_birth, document_type}
-	//
-	// **CRI (Costa Rica)**: screened_data: {personal_number, first_name,
-	// last_name}. source_data: {identification_number, first_name, last_name,
-	// full_name}
-	//
-	// **DOM (Dominican Republic)**: screened_data: {personal_number}. source_data:
-	// {identification_number} (returns valid/invalid only)
-	//
-	// **ECU (Ecuador)**: screened_data: {personal_number, first_name, last_name}.
-	// source_data: {identification_number, first_name, last_name, street,
-	// formatted_address, gender, nationality, education, marital_status, spouse,
-	// mother_name, father_name, profession}
-	//
-	// **ESP (Spain)**: screened_data: {personal_number, document_type,
-	// expiration_date, first_name, last_name}. source_data: {identification_number,
-	// first_name, last_name, full_name, document_type, expiration_date}
-	//
-	// **GTM (Guatemala)**: screened_data: {document_number, first_name, last_name}.
-	// source_data: {identification_number, first_name, last_name, full_name}
-	//
-	// **HND (Honduras)**: screened_data: {document_number, first_name, last_name}.
-	// source_data: {identification_number, first_name, last_name, full_name}
-	//
-	// **MEX (Mexico)**: screened_data: {personal_number (CURP), first_name,
-	// last_name}. source_data: {identification_number, first_name, last_name,
-	// full_name, date_of_birth, gender, nationality, curp_status, state_of_birth,
-	// doc_probatorio, registration_year, registration_state,
-	// registration_municipality, num_acta, crip, issuing_state_code,
-	// foreign_registry_number, folio_carta, folio_certificado}. Uses the RENAPO
-	// civil registry. A separate INE validity-check service is also available for
-	// MEX as an additional one-by-one validation.
-	//
-	// **PAN (Panama)**: screened_data: {personal_number, selfie}. source_data:
-	// {identification_number}. Uses SIB biometric validation
-	//
-	// **PER (Peru)**: screened_data: {personal_number (DNI), first_name,
-	// last_name}. source_data: {identification_number, first_name, last_name,
-	// paternal_name, maternal_name, verification_number, verification_letter}
-	//
-	// **PRY (Paraguay)**: screened_data: {document_number, first_name, last_name}.
-	// source_data: {identification_number, first_name, last_name, full_name}
-	//
-	// **SLV (El Salvador)**: screened_data: {document_number, date_of_birth,
-	// first_name, last_name}. source_data: {identification_number, first_name,
-	// last_name, full_name}
-	//
-	// **URY (Uruguay)**: screened_data: {personal_number, date_of_birth,
-	// first_name, last_name}. source_data: {identification_number, first_name,
-	// last_name, full_name}
-	//
-	// **VEN (Venezuela)**: screened_data: {document_number, first_name, last_name}.
-	// source_data: {identification_number, first_name, last_name, full_name,
-	// gender, date_of_birth, document_type}
-	DatabaseValidations []SessionsRetrieveDecisionResponseDatabaseValidations `json:"database_validations"`
-	Reviews             []SessionsRetrieveDecisionResponseReviews             `json:"reviews"`
-
-	// Timestamp at which the session was created (ISO 8601, UTC).
-	CreatedAt time.Time `json:"created_at"`
-
-	// Timestamp at which this session is scheduled to expire. Set on User
-	// Verification (KYC) sessions when an expiration was configured at creation
-	// time (or once `Approved` status triggers KYC expiry computation). `null` for
-	// sessions without a configured expiration, and for kinds that do not use
-	// expiry (e.g. Business Verification (KYB) sessions that never received an
-	// `expires_at`).
-	ExpiresAt time.Time `json:"expires_at"`
-
-	// Company registry checks. Present only when `session_kind = business`. Each
-	// item wraps the full company-registry payload.
-	RegistryChecks []SessionsRetrieveDecisionResponseRegistryChecks `json:"registry_checks"`
-
-	// Aggregate key-people checks. Present only when `session_kind = business`.
-	// Each item uses the two-bucket shape (`registry`, `submitted`,
-	// `ubo_kyc_summary`).
-	KeyPeopleChecks []SessionsRetrieveDecisionResponseKeyPeopleChecks `json:"key_people_checks"`
-
-	// Document verification checks grouped by workflow node. Present only when
-	// `session_kind = business`.
-	DocumentVerifications []SessionsRetrieveDecisionResponseDocumentVerifications `json:"document_verifications"`
-
-	// Whether the session was created by a live application (`live`) or a sandbox
-	// application (`sandbox`). Sandbox sessions are free, fully simulated, and
-	// never bill credits.
-	Environment SessionsRetrieveDecisionResponseEnvironment `json:"environment"`
-
-	// Returned only with `include=resubmissions`, for user and business sessions.
-	// One entry per resubmission request, oldest first. Each entry carries the
-	// results the resubmitted steps returned before the request, so earlier
-	// submissions stay readable. Deleting the session deletes every submission.
-	Resubmissions []SessionsRetrieveDecisionResponseResubmissions `json:"resubmissions"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponse leniently.
-func (r *SessionsRetrieveDecisionResponse) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseSessionKind: Discriminator indicating whether
-// this is a User Verification (KYC) or Business Verification (KYB) session.
-// When `user`, the KYC feature arrays (`id_verifications`, `nfc_verifications`,
-// `liveness_checks`, `face_matches`, `poa_verifications`,
-// `document_ai_documents`, `database_validations`, ...) apply and the business
-// arrays are absent. When `business`, the payload instead carries
-// `registry_checks`, `document_verifications`, `key_people_checks` plus the
-// shared arrays (`aml_screenings`, `phone_verifications`,
-// `email_verifications`, `ip_analyses`, `questionnaire_responses`). **Omitted
-// when `include=events` is passed** - the events shape only exists for user
-// sessions, so the discriminator is dropped from that variant.
-//
-// SessionsRetrieveDecisionResponseSessionKind is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type SessionsRetrieveDecisionResponseSessionKind string
-
-// Known values of SessionsRetrieveDecisionResponseSessionKind.
-const (
-	SessionsRetrieveDecisionResponseSessionKindUser     SessionsRetrieveDecisionResponseSessionKind = "user"
-	SessionsRetrieveDecisionResponseSessionKindBusiness SessionsRetrieveDecisionResponseSessionKind = "business"
-)
-
-// SessionsRetrieveDecisionResponseStatus: Overall lifecycle status of the
-// session - the rolled-up workflow result. Terminal values are `Approved`,
-// `Declined`, `In Review`, `Expired`, `Kyc Expired`, and `Abandoned`; `Not
-// Started`, `In Progress`, `Awaiting User`, and `Resubmitted` indicate the
-// session is still moving through the workflow.
-//
-// SessionsRetrieveDecisionResponseStatus is a string with known values below.
-// The set is open: other values may appear and never cause an error.
-type SessionsRetrieveDecisionResponseStatus string
-
-// Known values of SessionsRetrieveDecisionResponseStatus.
-const (
-	SessionsRetrieveDecisionResponseStatusNotStarted   SessionsRetrieveDecisionResponseStatus = "Not Started"
-	SessionsRetrieveDecisionResponseStatusInProgress   SessionsRetrieveDecisionResponseStatus = "In Progress"
-	SessionsRetrieveDecisionResponseStatusAwaitingUser SessionsRetrieveDecisionResponseStatus = "Awaiting User"
-	SessionsRetrieveDecisionResponseStatusInReview     SessionsRetrieveDecisionResponseStatus = "In Review"
-	SessionsRetrieveDecisionResponseStatusApproved     SessionsRetrieveDecisionResponseStatus = "Approved"
-	SessionsRetrieveDecisionResponseStatusDeclined     SessionsRetrieveDecisionResponseStatus = "Declined"
-	SessionsRetrieveDecisionResponseStatusResubmitted  SessionsRetrieveDecisionResponseStatus = "Resubmitted"
-	SessionsRetrieveDecisionResponseStatusExpired      SessionsRetrieveDecisionResponseStatus = "Expired"
-	SessionsRetrieveDecisionResponseStatusKYCExpired   SessionsRetrieveDecisionResponseStatus = "Kyc Expired"
-	SessionsRetrieveDecisionResponseStatusAbandoned    SessionsRetrieveDecisionResponseStatus = "Abandoned"
-)
-
-// SessionsRetrieveDecisionResponseExpectedDetails: Expected details supplied at
-// session creation - used for cross-validation against extracted data (KYC) or
-// to pre-fill the company registry search (KYB). Echoes back exactly the keys
-// that were provided; `null` when none were supplied. KYC sessions carry the
-// person fields; Business (KYB) sessions carry `company_name`,
-// `registry_country` and `registration_number`.
-type SessionsRetrieveDecisionResponseExpectedDetails struct {
-	// User's first name. For example, `John`.
-	FirstName string `json:"first_name"`
-
-	// User's last name. For example, `Doe`.
-	LastName string `json:"last_name"`
-
-	// User's date of birth with format: YYYY-MM-DD. For example, `1990-05-15`.
-	DateOfBirth string `json:"date_of_birth"`
-
-	// User's gender. Must be either 'M', 'F', or null.
-	Gender SessionsRetrieveDecisionResponseExpectedDetailsGender `json:"gender"`
-
-	// ISO 3166-1 alpha-3 country code representing the applicant's country of
-	// origin. For example, `USA`.
-	Nationality string `json:"nationality"`
-
-	// ISO 3166-1 alpha-3 country code representing the country of the Proof of
-	// Address document, or the country of the applicant's ID document, which may
-	// differ from nationality. For example, `GBR`.
-	Country string `json:"country"`
-
-	// The address in a human readable format, including as much information as
-	// possible. For example, `123 Main St, San Francisco, CA 94105, USA`.
-	Address string `json:"address"`
-
-	// The user's document number, personal number, or tax number. For example,
-	// `123456789`.
-	IdentificationNumber string `json:"identification_number"`
-
-	// Expected IP address for the session. If the actual IP address differs from
-	// this value, a warning will be logged. For example, `192.168.1.100`.
-	IPAddress string `json:"ip_address"`
-
-	// Document types the ID verification step was restricted to at session
-	// creation. Empty/unset means no restriction. Codes: `P` (passport), `ID`
-	// (national ID), `DL` (driver's license), `RP` (residence permit), `HIC`
-	// (health insurance card), `TC` (tax card), `SSC` (social security card).
-	ExpectedDocumentTypes []SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes `json:"expected_document_types"`
-
-	// Expected ID-document issuing country (ISO 3166-1 alpha-3), when restricted at
-	// creation time.
-	IDCountry string `json:"id_country"`
-
-	// Expected Proof of Address document country (ISO 3166-1 alpha-3), when
-	// restricted at creation time.
-	POACountry string `json:"poa_country"`
-
-	// Expected legal name of the business. Business (KYB) sessions only.
-	CompanyName string `json:"company_name"`
-
-	// Expected registry country as `XX` or `XX-YY` (ISO 3166-1 alpha-2, optionally
-	// with an ISO 3166-2 subdivision for state-level registries, e.g. `US-CA`).
-	// Business (KYB) sessions only.
-	RegistryCountry string `json:"registry_country"`
-
-	// Expected company registration number. Business (KYB) sessions only.
-	RegistrationNumber string `json:"registration_number"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseExpectedDetails leniently.
-func (r *SessionsRetrieveDecisionResponseExpectedDetails) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseExpectedDetailsGender: User's gender. Must be
-// either 'M', 'F', or null.
-//
-// SessionsRetrieveDecisionResponseExpectedDetailsGender is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type SessionsRetrieveDecisionResponseExpectedDetailsGender string
-
-// Known values of SessionsRetrieveDecisionResponseExpectedDetailsGender.
-const (
-	SessionsRetrieveDecisionResponseExpectedDetailsGenderM SessionsRetrieveDecisionResponseExpectedDetailsGender = "M"
-	SessionsRetrieveDecisionResponseExpectedDetailsGenderF SessionsRetrieveDecisionResponseExpectedDetailsGender = "F"
-)
-
-// SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes string
-
-// Known values of SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes.
-const (
-	SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypesP   SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes = "P"
-	SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypesID  SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes = "ID"
-	SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypesDl  SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes = "DL"
-	SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypesRp  SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes = "RP"
-	SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypesHic SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes = "HIC"
-	SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypesTc  SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes = "TC"
-	SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypesSsc SessionsRetrieveDecisionResponseExpectedDetailsExpectedDocumentTypes = "SSC"
-)
-
-// SessionsRetrieveDecisionResponseContactDetails: Contact details supplied when
-// the session was created (used for notification emails, prefilled phone/email
-// verification, and communication language). `null` when neither an email nor a
-// phone number was provided.
-type SessionsRetrieveDecisionResponseContactDetails struct {
-	// Email address of the user (e.g., "john.doe@example.com") that will be used
-	// during the Email Verification step. If not provided, the user must provide it
-	// during the verification flow.
-	Email string `json:"email"`
-
-	// Language code (ISO 639-1) for email notifications. Controls the language of
-	// all email communications (e.g., "en", "es", "fr").
-	EmailLang string `json:"email_lang"`
-
-	// If true and an email is provided, Didit sends the initial "Verify your
-	// identity" email asynchronously when the User Verification (KYC) or Business
-	// Verification (KYB) session is created. Didit also sends verification status
-	// notifications for sessions requiring manual review to the provided email
-	// address.
-	SendNotificationEmails bool `json:"send_notification_emails"`
-
-	// Phone number of the user in E.164 format if available (e.g., +14155552671).
-	// `null` when only an email was supplied at session creation. Note: This field
-	// returns the original phone number provided during session creation. If the
-	// number was invalid, it may not be in E.164 format.
-	Phone string `json:"phone"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseContactDetails leniently.
-func (r *SessionsRetrieveDecisionResponseContactDetails) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerifications: One ID verification report -
-// the full report for a single ID Verification step. `verification_method` says
-// which of the three methods produced it (document capture, non-doc lookup or
-// wallet sign-in) and the method-specific evidence block is populated
-// accordingly.
-type SessionsRetrieveDecisionResponseIDVerifications struct {
-	// Workflow graph node id of the OCR step that produced this report.
-	NodeID string `json:"node_id"`
-
-	// Which ID Verification method produced this report. `document` - the user
-	// photographed a physical ID (the default, and the value on every session
-	// created before the other methods existed). `id_lookup` - the user typed their
-	// national ID number and it was checked against a government register or
-	// another authoritative source for that country (`id_lookup.source` names
-	// which). `wallet` - the user signed in with a government or bank digital
-	// identity.
-	VerificationMethod SessionsRetrieveDecisionResponseIDVerificationsVerificationMethod `json:"verification_method"`
-
-	// Assurance tier derived from `verification_method`: `documentary` for a
-	// document that was captured and checked, `data_match` for details that matched
-	// a record held by the source queried, `cryptographic` for attributes an
-	// identity provider authenticated and signed.
-	Assurance SessionsRetrieveDecisionResponseIDVerificationsAssurance `json:"assurance"`
-
-	// Catalog wallet id when `verification_method` is `wallet` (`mitid`,
-	// `bankid_se`, `itsme`, ...). `null` otherwise.
-	WalletProvider string `json:"wallet_provider"`
-
-	// Why a non-document method ended the ID step. Set on the declined report when
-	// a lookup or a wallet sign-in failed and the country's fallback switch was
-	// `decline`. `null` otherwise.
-	FallbackFrom SessionsRetrieveDecisionResponseIDVerificationsFallbackFrom `json:"fallback_from"`
-
-	// Registry evidence. Present only when `verification_method` is `id_lookup`;
-	// `null` otherwise.
-	IDLookup SessionsRetrieveDecisionResponseIDVerificationsIDLookup `json:"id_lookup"`
-
-	// Credential evidence. Present only when `verification_method` is `wallet`;
-	// `null` otherwise.
-	WalletVerification SessionsRetrieveDecisionResponseIDVerificationsWalletVerification `json:"wallet_verification"`
-
-	// Feature-level status of this ID verification step. Independent of the
-	// top-level session `status` - a session can reach its overall decision while
-	// an individual feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponseIDVerificationsStatus `json:"status"`
-
-	// Type of identity document
-	DocumentType string `json:"document_type"`
-
-	// Accepted document subtype code from the workflow document settings, including
-	// the document region when applicable. Examples: `ID_CARD_GENERIC`,
-	// `QUEENSLAND_DRIVER_LICENSE_GENERIC`.
-	DocumentSubtype string `json:"document_subtype"`
-
-	// Document identification number
-	DocumentNumber string `json:"document_number"`
-
-	// Personal identification number
-	PersonalNumber string `json:"personal_number"`
-
-	// URL of the portrait image
-	PortraitImage string `json:"portrait_image"`
-
-	// URL of the front document image
-	FrontImage string `json:"front_image"`
-
-	// URL of the front document video
-	FrontVideo string `json:"front_video"`
-
-	// URL of the back document image
-	BackImage string `json:"back_image"`
-
-	// URL of the back document video
-	BackVideo string `json:"back_video"`
-
-	// URL of the full front document image
-	FullFrontImage string `json:"full_front_image"`
-
-	// URL of the full back document image
-	FullBackImage string `json:"full_back_image"`
-
-	// URL of the front document image captured from the front-facing camera
-	FrontImageCameraFront string `json:"front_image_camera_front"`
-
-	// URL of the back document image captured from the front-facing camera
-	BackImageCameraFront string `json:"back_image_camera_front"`
-
-	// Date of birth from document
-	DateOfBirth string `json:"date_of_birth"`
-
-	// Calculated age from date of birth
-	Age int64 `json:"age"`
-
-	// Document expiration date
-	ExpirationDate string `json:"expiration_date"`
-
-	// Document issue date
-	DateOfIssue string `json:"date_of_issue"`
-
-	// ISO code of issuing state
-	IssuingState string `json:"issuing_state"`
-
-	// Full name of issuing state
-	IssuingStateName string `json:"issuing_state_name"`
-
-	// First name from document
-	FirstName string `json:"first_name"`
-
-	// Last name from document
-	LastName string `json:"last_name"`
-
-	// Full name from document
-	FullName string `json:"full_name"`
-
-	// Gender from document
-	Gender string `json:"gender"`
-
-	// Raw address from document
-	Address string `json:"address"`
-
-	// Formatted full address
-	FormattedAddress string `json:"formatted_address"`
-
-	// Place of birth from document
-	PlaceOfBirth string `json:"place_of_birth"`
-
-	// Marital status from document
-	MaritalStatus string `json:"marital_status"`
-
-	// ISO nationality code
-	Nationality string `json:"nationality"`
-
-	// Additional document fields. Includes document-specific attributes (e.g.
-	// `dl_categories`, `blood_group`, `sponsor`, `employer`,
-	// `dl_class_code_b_from`, `dl_class_code_b_to`). Driver license class validity
-	// dates are returned as `dl_class_code_<class>_from` and
-	// `dl_class_code_<class>_to`, and per-class restriction/information codes (e.g.
-	// column 12 of UK licences) as `dl_class_code_<class>_notes`. When the document
-	// carries names, address, or place of birth in multiple scripts, this object
-	// also includes alternate-script versions of those fields. The workflow setting
-	// `preferred_characters` (`latin` or `non_latin`) controls which script
-	// populates the top-level fields (`first_name`, `last_name`, `full_name`,
-	// `address`, `place_of_birth`); the opposite script lands here as
-	// `first_name_non_latin` / `last_name_non_latin` / `full_name_non_latin` /
-	// `middle_name_non_latin` / `address_non_latin` / `place_of_birth_non_latin`
-	// (when `preferred_characters` is `latin`) or with a `_latin` suffix (when
-	// `preferred_characters` is `non_latin`). Keys appear only when the OCR
-	// actually extracts a real alternate-script value - a field whose alternate
-	// value is in the same script as the preferred set (for example, a
-	// Cyrillic-labelled field whose OCR value came back in Latin homoglyphs) is
-	// skipped. When `preferred_characters` is `latin` but the document only carries
-	// non-Latin text, Didit transliterates the extracted values and exposes
-	// `first_name_latin` / `last_name_latin` / etc. as a fallback.
-	ExtraFields SessionsRetrieveDecisionResponseIDVerificationsExtraFields `json:"extra_fields"`
-
-	// Parsed Machine-Readable Zone (MRZ) fields extracted from the document. `null`
-	// if no MRZ was detected.
-	MRZ SessionsRetrieveDecisionResponseIDVerificationsMRZ `json:"mrz"`
-
-	// Structured address details
-	ParsedAddress SessionsRetrieveDecisionResponseIDVerificationsParsedAddress `json:"parsed_address"`
-
-	// Additional document verification files
-	ExtraFiles []string `json:"extra_files"`
-
-	// Face match score between the portrait extracted from the front document image
-	// and the front camera image
-	FrontImageCameraFrontFaceMatchScore float64 `json:"front_image_camera_front_face_match_score"`
-
-	// Face match score between the portrait extracted from the back document image
-	// and the front camera image
-	BackImageCameraFrontFaceMatchScore float64 `json:"back_image_camera_front_face_match_score"`
-
-	// Previous sessions or face blocklist entries whose face matched the selfie the
-	// front camera took during document capture (Silent Capture Face Search). Same
-	// entry format as `liveness_checks[].matches`. `null` for sessions created
-	// before this field existed or when the search did not run; an empty array when
-	// it ran and found nothing. `match_image_url` is a presigned URL that expires.
-	DocumentSelfieFaceMatches []SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatches `json:"document_selfie_face_matches"`
-
-	// Quality metrics for the front document image. Each sub-score ranges from 0 to
-	// 100.
-	FrontImageQualityScore SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScore `json:"front_image_quality_score"`
-
-	// Quality metrics for the back document image. Same structure as
-	// front_image_quality_score.
-	BackImageQualityScore SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScore `json:"back_image_quality_score"`
-
-	// Document verification warnings
-	Warnings []SessionsRetrieveDecisionResponseIDVerificationsWarnings `json:"warnings"`
-
-	// Matching documents found during duplicate/blocklist detection (up to 5
-	// matches)
-	Matches []SessionsRetrieveDecisionResponseIDVerificationsMatches `json:"matches"`
-
-	// Document-liveness scores per fraud type, reported whether or not a warning
-	// fired, so an approved document can still be audited. `null` when the check
-	// did not run.
-	DocumentLiveness SessionsRetrieveDecisionResponseIDVerificationsDocumentLiveness `json:"document_liveness"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerifications leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerifications) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsVerificationMethod: Which ID
-// Verification method produced this report. `document` - the user photographed
-// a physical ID (the default, and the value on every session created before the
-// other methods existed). `id_lookup` - the user typed their national ID number
-// and it was checked against a government register or another authoritative
-// source for that country (`id_lookup.source` names which). `wallet` - the user
-// signed in with a government or bank digital identity.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsVerificationMethod is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsVerificationMethod string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsVerificationMethod.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsVerificationMethodDocument SessionsRetrieveDecisionResponseIDVerificationsVerificationMethod = "document"
-	SessionsRetrieveDecisionResponseIDVerificationsVerificationMethodIDLookup SessionsRetrieveDecisionResponseIDVerificationsVerificationMethod = "id_lookup"
-	SessionsRetrieveDecisionResponseIDVerificationsVerificationMethodWallet   SessionsRetrieveDecisionResponseIDVerificationsVerificationMethod = "wallet"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsAssurance: Assurance tier
-// derived from `verification_method`: `documentary` for a document that was
-// captured and checked, `data_match` for details that matched a record held by
-// the source queried, `cryptographic` for attributes an identity provider
-// authenticated and signed.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsAssurance is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseIDVerificationsAssurance string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsAssurance.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsAssuranceDocumentary   SessionsRetrieveDecisionResponseIDVerificationsAssurance = "documentary"
-	SessionsRetrieveDecisionResponseIDVerificationsAssuranceDataMatch     SessionsRetrieveDecisionResponseIDVerificationsAssurance = "data_match"
-	SessionsRetrieveDecisionResponseIDVerificationsAssuranceCryptographic SessionsRetrieveDecisionResponseIDVerificationsAssurance = "cryptographic"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsFallbackFrom: Why a
-// non-document method ended the ID step. Set on the declined report when a
-// lookup or a wallet sign-in failed and the country's fallback switch was
-// `decline`. `null` otherwise.
-type SessionsRetrieveDecisionResponseIDVerificationsFallbackFrom struct {
-	// The method that failed.
-	Method SessionsRetrieveDecisionResponseIDVerificationsFallbackFromMethod `json:"method"`
-
-	// The outcome that ended it, e.g. `no_match`, `provider_error`, `cancelled`,
-	// `timeout`.
-	Reason string `json:"reason"`
-
-	// The configured action that was taken, e.g. `decline`.
-	Action string `json:"action"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsFallbackFrom leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsFallbackFrom) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsFallbackFromMethod: The method
-// that failed.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsFallbackFromMethod is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsFallbackFromMethod string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsFallbackFromMethod.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsFallbackFromMethodIDLookup SessionsRetrieveDecisionResponseIDVerificationsFallbackFromMethod = "id_lookup"
-	SessionsRetrieveDecisionResponseIDVerificationsFallbackFromMethodWallet   SessionsRetrieveDecisionResponseIDVerificationsFallbackFromMethod = "wallet"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsIDLookup: Registry evidence.
-// Present only when `verification_method` is `id_lookup`; `null` otherwise.
-type SessionsRetrieveDecisionResponseIDVerificationsIDLookup struct {
-	// Customer-facing name of the source queried, e.g. `Department of Home Affairs`
-	// (a government register) or `UK credit bureau and financial services records`
-	// (not a government register). This is the only statement of provenance for the
-	// lookup; do not assume a government source.
-	Source string `json:"source"`
-
-	// When the register answered.
-	CheckedAt time.Time `json:"checked_at"`
-
-	// 1-based attempt number this report came from.
-	Attempts int64 `json:"attempts"`
-
-	// Attempt budget configured for the country (1 to 5, default 1).
-	MaxAttempts int64 `json:"max_attempts"`
-
-	// What the register answered. Only `match`, `partial_match` and `no_match`
-	// count against the attempt budget and bill.
-	Outcome SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome `json:"outcome"`
-
-	// One row per comparable field the source answered on, plus one row per source
-	// error. Comparison rows use the normalised field names below rather than the
-	// country's request field keys, because several request fields (first and last
-	// name, or any of the identifier aliases) collapse into a single comparison. A
-	// source that failed appends a row with `field: "provider"` and `result:
-	// "error"`, so read `result` before treating a row as a field verdict.
-	Comparison []SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparison `json:"comparison"`
-
-	// Short-lived presigned URL to the portrait the source returned. Only the four
-	// government registers that return one (South Africa, Nigeria, Argentina,
-	// Panama).
-	RegistryPortrait string `json:"registry_portrait"`
-
-	// Selfie against the registry portrait, 0-100. Only where the register returns
-	// a portrait.
-	FaceMatchScore float64 `json:"face_match_score"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsIDLookup leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsIDLookup) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome: What the
-// register answered. Only `match`, `partial_match` and `no_match` count against
-// the attempt budget and bill.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcomeMatch          SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome = "match"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcomePartialMatch   SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome = "partial_match"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcomeNoMatch        SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome = "no_match"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcomeProviderError  SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome = "provider_error"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcomeFormatRejected SessionsRetrieveDecisionResponseIDVerificationsIDLookupOutcome = "format_rejected"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparison is a
-// response object.
-type SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparison struct {
-	// Normalised comparison field. `provider` is not a user field: it marks a
-	// source error row.
-	Field SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField `json:"field"`
-
-	// Display label for the row, e.g. `ID number`, `Full name`, `Provider`.
-	Label string `json:"label"`
-
-	// What the user typed. `null` on a `provider` error row.
-	Provided string `json:"provided"`
-
-	// What the source held. On a `provider` error row this carries the error
-	// message instead.
-	Record string `json:"record"`
-
-	// Per-field comparison result. `error` appears only on a `provider` row and
-	// means that source did not answer; treat it as evidence about the query, never
-	// as a field mismatch.
-	Result SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResult `json:"result"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparison leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparison) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField:
-// Normalised comparison field. `provider` is not a user field: it marks a
-// source error row.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonFieldIdentificationNumber SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField = "identification_number"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonFieldFullName             SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField = "full_name"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonFieldDateOfBirth          SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField = "date_of_birth"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonFieldAddress              SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField = "address"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonFieldProvider             SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonField = "provider"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResult:
-// Per-field comparison result. `error` appears only on a `provider` row and
-// means that source did not answer; treat it as evidence about the query, never
-// as a field mismatch.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResult is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResult string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResult.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResultMatch   SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResult = "match"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResultPartial SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResult = "partial"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResultNoMatch SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResult = "no_match"
-	SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResultError   SessionsRetrieveDecisionResponseIDVerificationsIDLookupComparisonResult = "error"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsWalletVerification: Credential
-// evidence. Present only when `verification_method` is `wallet`; `null`
-// otherwise.
-type SessionsRetrieveDecisionResponseIDVerificationsWalletVerification struct {
-	// Catalog wallet id, e.g. `mitid`.
-	Provider string `json:"provider"`
-
-	// Wallet name as the end user knows it, e.g. `MitID`.
-	ProviderName string `json:"provider_name"`
-
-	// The authority behind the wallet, e.g. `Danish Agency for Digital Government`.
-	IssuingAuthority string `json:"issuing_authority"`
-
-	// ISO 3166-1 alpha-3 country the wallet was offered in.
-	IssuingCountry string `json:"issuing_country"`
-
-	// Credential the wallet presented, e.g. `person_identification`.
-	CredentialType string `json:"credential_type"`
-
-	// The level of assurance the wallet asserted. A sign-in that asserts less than
-	// the level requested fails instead of downgrading.
-	LevelOfAssurance SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssurance `json:"level_of_assurance"`
-
-	// The wallet's authentication instant.
-	VerifiedAt time.Time `json:"verified_at"`
-
-	// Whether the signed assertion the wallet returned validated.
-	SignatureValid bool `json:"signature_valid"`
-
-	// The attributes the wallet shared, keyed as the wallet's catalog entry lists
-	// them.
-	Attributes map[string]any `json:"attributes"`
-
-	// Short-lived presigned URL to the portrait the wallet shared, where it shares
-	// one.
-	Portrait string `json:"portrait"`
-
-	// Selfie against the wallet portrait, 0-100, where the wallet shares one.
-	FaceMatchScore float64 `json:"face_match_score"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsWalletVerification leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsWalletVerification) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssurance:
-// The level of assurance the wallet asserted. A sign-in that asserts less than
-// the level requested fails instead of downgrading.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssurance
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssurance string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssurance.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssuranceLow         SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssurance = "low"
-	SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssuranceSubstantial SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssurance = "substantial"
-	SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssuranceHigh        SessionsRetrieveDecisionResponseIDVerificationsWalletVerificationLevelOfAssurance = "high"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsStatus: Feature-level status
-// of this ID verification step. Independent of the top-level session `status` -
-// a session can reach its overall decision while an individual feature stays
-// `In Review`.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsStatus is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type SessionsRetrieveDecisionResponseIDVerificationsStatus string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsStatus.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsStatusNotFinished SessionsRetrieveDecisionResponseIDVerificationsStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseIDVerificationsStatusApproved    SessionsRetrieveDecisionResponseIDVerificationsStatus = "Approved"
-	SessionsRetrieveDecisionResponseIDVerificationsStatusDeclined    SessionsRetrieveDecisionResponseIDVerificationsStatus = "Declined"
-	SessionsRetrieveDecisionResponseIDVerificationsStatusInReview    SessionsRetrieveDecisionResponseIDVerificationsStatus = "In Review"
-	SessionsRetrieveDecisionResponseIDVerificationsStatusExpired     SessionsRetrieveDecisionResponseIDVerificationsStatus = "Expired"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsExtraFields: Additional
-// document fields. Includes document-specific attributes (e.g. `dl_categories`,
-// `blood_group`, `sponsor`, `employer`, `dl_class_code_b_from`,
-// `dl_class_code_b_to`). Driver license class validity dates are returned as
-// `dl_class_code_<class>_from` and `dl_class_code_<class>_to`, and per-class
-// restriction/information codes (e.g. column 12 of UK licences) as
-// `dl_class_code_<class>_notes`. When the document carries names, address, or
-// place of birth in multiple scripts, this object also includes
-// alternate-script versions of those fields. The workflow setting
-// `preferred_characters` (`latin` or `non_latin`) controls which script
-// populates the top-level fields (`first_name`, `last_name`, `full_name`,
-// `address`, `place_of_birth`); the opposite script lands here as
-// `first_name_non_latin` / `last_name_non_latin` / `full_name_non_latin` /
-// `middle_name_non_latin` / `address_non_latin` / `place_of_birth_non_latin`
-// (when `preferred_characters` is `latin`) or with a `_latin` suffix (when
-// `preferred_characters` is `non_latin`). Keys appear only when the OCR
-// actually extracts a real alternate-script value - a field whose alternate
-// value is in the same script as the preferred set (for example, a
-// Cyrillic-labelled field whose OCR value came back in Latin homoglyphs) is
-// skipped. When `preferred_characters` is `latin` but the document only carries
-// non-Latin text, Didit transliterates the extracted values and exposes
-// `first_name_latin` / `last_name_latin` / etc. as a fallback.
-type SessionsRetrieveDecisionResponseIDVerificationsExtraFields struct {
-	DlCategories []string `json:"dl_categories"`
-	BloodGroup   string   `json:"blood_group"`
-
-	// First name in the non-Latin script when `preferred_characters=latin` and a
-	// non-Latin version is present on the document (e.g. `Айна` for a Kyrgyz ID).
-	FirstNameNonLatin string `json:"first_name_non_latin"`
-
-	// Surname in the non-Latin script when `preferred_characters=latin` and a
-	// non-Latin version is present on the document.
-	LastNameNonLatin string `json:"last_name_non_latin"`
-
-	// Middle name / patronymic in the non-Latin script when
-	// `preferred_characters=latin` and a non-Latin version is present on the
-	// document.
-	MiddleNameNonLatin string `json:"middle_name_non_latin"`
-
-	// Composed full name in the non-Latin script. Reconstructed from the individual
-	// components when both first and last names are available.
-	FullNameNonLatin string `json:"full_name_non_latin"`
-
-	// Address in the non-Latin script when `preferred_characters=latin` and a
-	// non-Latin version is present on the document.
-	AddressNonLatin string `json:"address_non_latin"`
-
-	// Place of birth in the non-Latin script when `preferred_characters=latin` and
-	// a non-Latin version is present on the document.
-	PlaceOfBirthNonLatin string `json:"place_of_birth_non_latin"`
-
-	// First name in Latin script. Populated when `preferred_characters=non_latin`
-	// and a Latin version is present on the document, or - as a transliteration
-	// fallback - when `preferred_characters=latin` but the document only carries
-	// non-Latin text.
-	FirstNameLatin string `json:"first_name_latin"`
-
-	// Surname in Latin script. Same rules as `first_name_latin`.
-	LastNameLatin string `json:"last_name_latin"`
-
-	// Middle name / patronymic in Latin script. Same rules as `first_name_latin`.
-	MiddleNameLatin string `json:"middle_name_latin"`
-
-	// Composed full name in Latin script. Always reconstructed from the individual
-	// components when both first and last names are available.
-	FullNameLatin string `json:"full_name_latin"`
-
-	// Address in Latin script. Same rules as `first_name_latin`.
-	AddressLatin string `json:"address_latin"`
-
-	// Place of birth in Latin script. Same rules as `first_name_latin`.
-	PlaceOfBirthLatin string `json:"place_of_birth_latin"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsExtraFields leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsExtraFields) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsMRZ: Parsed Machine-Readable
-// Zone (MRZ) fields extracted from the document. `null` if no MRZ was detected.
-type SessionsRetrieveDecisionResponseIDVerificationsMRZ struct {
-	Surname            string   `json:"surname"`
-	Name               string   `json:"name"`
-	Country            string   `json:"country"`
-	Nationality        string   `json:"nationality"`
-	BirthDate          string   `json:"birth_date"`
-	ExpiryDate         string   `json:"expiry_date"`
-	Sex                string   `json:"sex"`
-	DocumentType       string   `json:"document_type"`
-	DocumentNumber     string   `json:"document_number"`
-	OptionalData       string   `json:"optional_data"`
-	OptionalData2      string   `json:"optional_data_2"`
-	BirthDateHash      string   `json:"birth_date_hash"`
-	ExpiryDateHash     string   `json:"expiry_date_hash"`
-	DocumentNumberHash string   `json:"document_number_hash"`
-	FinalHash          string   `json:"final_hash"`
-	PersonalNumber     string   `json:"personal_number"`
-	Warnings           []string `json:"warnings"`
-	Errors             []string `json:"errors"`
-	MRZType            string   `json:"mrz_type"`
-	MRZString          string   `json:"mrz_string"`
-	MRZKey             string   `json:"mrz_key"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsMRZ leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsMRZ) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddress: Structured
-// address details
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddress struct {
-	City   string `json:"city"`
-	Label  string `json:"label"`
-	Region string `json:"region"`
-
-	// Two-letter country code
-	Country string `json:"country"`
-
-	// Address category (e.g., Residential, Commercial)
-	Category string `json:"category"`
-	Street1  string `json:"street_1"`
-	Street2  string `json:"street_2"`
-
-	// Whether the address has been verified
-	IsVerified       bool                                                                         `json:"is_verified"`
-	PostalCode       string                                                                       `json:"postal_code"`
-	RawResults       SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResults       `json:"raw_results"`
-	AddressType      string                                                                       `json:"address_type"`
-	DocumentLocation SessionsRetrieveDecisionResponseIDVerificationsParsedAddressDocumentLocation `json:"document_location"`
-	FormattedAddress string                                                                       `json:"formatted_address"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddress leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddress) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResults is a
-// response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResults struct {
-	Types             []string                                                                                  `json:"types"`
-	Geometry          SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometry            `json:"geometry"`
-	PlaceID           string                                                                                    `json:"place_id"`
-	FormattedAddress  string                                                                                    `json:"formatted_address"`
-	NavigationPoints  []SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPoints  `json:"navigation_points"`
-	AddressComponents []SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsAddressComponents `json:"address_components"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResults leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResults) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometry
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometry struct {
-	Location     SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryLocation `json:"location"`
-	Viewport     SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewport `json:"viewport"`
-	LocationType string                                                                                 `json:"location_type"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometry leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometry) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryLocation
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryLocation struct {
-	Lat float64 `json:"lat"`
-	Lng float64 `json:"lng"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryLocation leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryLocation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewport
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewport struct {
-	Northeast SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportNortheast `json:"northeast"`
-	Southwest SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest `json:"southwest"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewport leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewport) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportNortheast
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportNortheast struct {
-	Lat float64 `json:"lat"`
-	Lng float64 `json:"lng"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportNortheast leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportNortheast) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest struct {
-	Lat float64 `json:"lat"`
-	Lng float64 `json:"lng"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsGeometryViewportSouthwest) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPoints
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPoints struct {
-	Location SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPointsLocation `json:"location"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPoints leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPoints) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPointsLocation
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPointsLocation struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPointsLocation leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsNavigationPointsLocation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsAddressComponents
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsAddressComponents struct {
-	Types     []string `json:"types"`
-	LongName  string   `json:"long_name"`
-	ShortName string   `json:"short_name"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsAddressComponents leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressRawResultsAddressComponents) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsParsedAddressDocumentLocation
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsParsedAddressDocumentLocation struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsParsedAddressDocumentLocation leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsParsedAddressDocumentLocation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatches is a
-// response object.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatches struct {
-	// Session ID of the matching face. `null` when `source` is `imported`,
-	// `list_entry`, or `retained_template`.
-	SessionID     string `json:"session_id"`
-	SessionNumber int64  `json:"session_number"`
-
-	// Face similarity between the two images, clamped to 0-100.
-	SimilarityPercentage float64 `json:"similarity_percentage"`
-
-	// `vendor_data` of the matching session or linked User for imported and
-	// retained-template faces.
-	VendorData string `json:"vendor_data"`
-
-	// Linked User id for `imported` and `retained_template` matches and for session
-	// matches linked to a User. `null` for list entries and sessions without a
-	// User.
-	VendorUserID string `json:"vendor_user_id"`
-
-	// Id of the retained biometric template. Set only when `source` is
-	// `retained_template`; `null` otherwise.
-	BiometricTemplateID string `json:"biometric_template_id"`
-
-	// When the matching face was captured, or when a retained template was created.
-	// `null` for list entries.
-	VerificationDate time.Time `json:"verification_date"`
-
-	// Identity data from the matching session or imported User profile. Always
-	// `null` for `retained_template` and `list_entry` matches.
-	UserDetails SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesUserDetails `json:"user_details"`
-
-	// Reference image for image-backed matches. Always `null` for
-	// `retained_template` matches because retained templates contain no image.
-	MatchImageURL string `json:"match_image_url"`
-
-	// Lifecycle status of the matching session. `null` for non-session sources.
-	Status string `json:"status"`
-
-	// Whether the matching face is on a blocklist.
-	IsBlocklisted bool `json:"is_blocklisted"`
-
-	// Whether the matching face is on an allowlist.
-	IsAllowlisted bool `json:"is_allowlisted"`
-
-	// Standalone API service of the matching session (e.g. `PASSIVE_LIVENESS`,
-	// `FACE_MATCH`); `null` for workflow sessions and non-session sources.
-	APIService string `json:"api_service"`
-
-	// Origin of the matching face: `session`, `imported` (User face upload),
-	// `list_entry` (allow/block list), or `retained_template` (an image-free
-	// biometric template stored on a User, listed under
-	// `/v3/biometric-templates/`).
-	Source SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSource `json:"source"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatches leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesUserDetails:
-// Identity data from the matching session or imported User profile. Always
-// `null` for `retained_template` and `list_entry` matches.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesUserDetails struct {
-	FullName       string `json:"full_name"`
-	DocumentType   string `json:"document_type"`
-	DocumentNumber string `json:"document_number"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesUserDetails leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesUserDetails) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSource:
-// Origin of the matching face: `session`, `imported` (User face upload),
-// `list_entry` (allow/block list), or `retained_template` (an image-free
-// biometric template stored on a User, listed under
-// `/v3/biometric-templates/`).
-//
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSource
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSource string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSource.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSourceSession          SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSource = "session"
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSourceImported         SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSource = "imported"
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSourceListEntry        SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSource = "list_entry"
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSourceRetainedTemplate SessionsRetrieveDecisionResponseIDVerificationsDocumentSelfieFaceMatchesSource = "retained_template"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScore:
-// Quality metrics for the front document image. Each sub-score ranges from 0 to
-// 100.
-type SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScore struct {
-	// Sharpness of the image measured via top-10% local Laplacian variance. Robust
-	// to documents with large uniform backgrounds. Higher values indicate a
-	// sharper, less blurry image.
-	FocusScore float64 `json:"focus_score"`
-
-	// How well-lit the image is. Penalizes images that are too dark or overexposed,
-	// with ideal brightness around mid-range.
-	BrightnessScore float64 `json:"brightness_score"`
-
-	// Indicates the direction of the brightness problem when the brightness_score
-	// is low. 'ok' means brightness is acceptable, 'too_dark' means the image is
-	// underexposed, 'too_bright' means the image is overexposed.
-	BrightnessIssue SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssue `json:"brightness_issue"`
-
-	// true if all four corners of the document are fully visible inside the image
-	// frame, false if any corner is cut off. Null when corner coordinates are
-	// unavailable.
-	IsDocumentFullyVisible bool `json:"is_document_fully_visible"`
-
-	// Effective resolution of the image based on total pixel count.
-	ResolutionScore float64 `json:"resolution_score"`
-
-	// Weighted composite of sub-scores (focus 45%, brightness 30%, resolution 25%).
-	OverallScore float64 `json:"overall_score"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScore leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScore) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssue:
-// Indicates the direction of the brightness problem when the brightness_score
-// is low. 'ok' means brightness is acceptable, 'too_dark' means the image is
-// underexposed, 'too_bright' means the image is overexposed.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssue
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssue string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssue.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssueOk        SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssue = "ok"
-	SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssueTooDark   SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssue = "too_dark"
-	SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssueTooBright SessionsRetrieveDecisionResponseIDVerificationsFrontImageQualityScoreBrightnessIssue = "too_bright"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScore: Quality
-// metrics for the back document image. Same structure as
-// front_image_quality_score.
-type SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScore struct {
-	// Sharpness of the image measured via top-10% local Laplacian variance. Robust
-	// to documents with large uniform backgrounds. Higher values indicate a
-	// sharper, less blurry image.
-	FocusScore float64 `json:"focus_score"`
-
-	// How well-lit the image is. Penalizes images that are too dark or overexposed,
-	// with ideal brightness around mid-range.
-	BrightnessScore float64 `json:"brightness_score"`
-
-	// Indicates the direction of the brightness problem when the brightness_score
-	// is low. 'ok' means brightness is acceptable, 'too_dark' means the image is
-	// underexposed, 'too_bright' means the image is overexposed.
-	BrightnessIssue SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssue `json:"brightness_issue"`
-
-	// true if all four corners of the document are fully visible inside the image
-	// frame, false if any corner is cut off. Null when corner coordinates are
-	// unavailable.
-	IsDocumentFullyVisible bool `json:"is_document_fully_visible"`
-
-	// Effective resolution of the image based on total pixel count.
-	ResolutionScore float64 `json:"resolution_score"`
-
-	// Weighted composite of sub-scores (focus 45%, brightness 30%, resolution 25%).
-	OverallScore float64 `json:"overall_score"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScore leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScore) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssue:
-// Indicates the direction of the brightness problem when the brightness_score
-// is low. 'ok' means brightness is acceptable, 'too_dark' means the image is
-// underexposed, 'too_bright' means the image is overexposed.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssue
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssue string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssue.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssueOk        SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssue = "ok"
-	SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssueTooDark   SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssue = "too_dark"
-	SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssueTooBright SessionsRetrieveDecisionResponseIDVerificationsBackImageQualityScoreBrightnessIssue = "too_bright"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsWarnings is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsWarnings struct {
-	// The feature that generated this warning (e.g., `ID_VERIFICATION`, `NFC`,
-	// `LIVENESS`). The value identifies the feature block the warning belongs to.
-	// Each module's warnings array typically uses the value matching its module,
-	// but the enum above is authoritative across all feature warnings on the
-	// decision payload.
-	Feature SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature `json:"feature"`
-	Risk    string                                                         `json:"risk"`
-
-	// Additional contextual data about the warning
-	AdditionalData map[string]any `json:"additional_data"`
-
-	// Type of log: information, warning, or error
-	LogType          string `json:"log_type"`
-	ShortDescription string `json:"short_description"`
-	LongDescription  string `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning (for graph-based
-	// workflows)
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsWarnings leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature: The feature
-// that generated this warning (e.g., `ID_VERIFICATION`, `NFC`, `LIVENESS`). The
-// value identifies the feature block the warning belongs to. Each module's
-// warnings array typically uses the value matching its module, but the enum
-// above is authoritative across all feature warnings on the decision payload.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureIDVerification     SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureNFC                SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureLiveness           SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureFacematch          SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeaturePhone              SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureEmail              SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureAML                SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureLocation           SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponseIDVerificationsWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponseIDVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsMatches is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsMatches struct {
-	// Session ID of the matching document
-	SessionID string `json:"session_id"`
-
-	// Session number of the matching document
-	SessionNumber int64 `json:"session_number"`
-
-	// Vendor data associated with the matching session
-	VendorData string `json:"vendor_data"`
-
-	// Date when the matching session was verified
-	VerificationDate time.Time                                                         `json:"verification_date"`
-	UserDetails      SessionsRetrieveDecisionResponseIDVerificationsMatchesUserDetails `json:"user_details"`
-
-	// Status of the matching session
-	Status string `json:"status"`
-
-	// Whether the matching document is blocklisted
-	IsBlocklisted bool `json:"is_blocklisted"`
-
-	// API service type of the matching session
-	APIService string `json:"api_service"`
-
-	// URL of the front document image from the matching document
-	FrontImageURL string `json:"front_image_url"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsMatches leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsMatchesUserDetails is a
-// response object.
-type SessionsRetrieveDecisionResponseIDVerificationsMatchesUserDetails struct {
-	// Full name from the matching document
-	Name string `json:"name"`
-
-	// Type of the matching document
-	DocumentType string `json:"document_type"`
-
-	// Document number of the matching document
-	DocumentNumber string `json:"document_number"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsMatchesUserDetails leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsMatchesUserDetails) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLiveness:
-// Document-liveness scores per fraud type, reported whether or not a warning
-// fired, so an approved document can still be audited. `null` when the check
-// did not run.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentLiveness struct {
-	PortraitReplace SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplace `json:"portrait_replace"`
-	PrintedCopy     SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopy     `json:"printed_copy"`
-	ScreenReplay    SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplay    `json:"screen_replay"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsDocumentLiveness leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsDocumentLiveness) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplace
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplace struct {
-	// Likelihood that the document is genuine for this fraud type, 0-100 (higher =
-	// more likely genuine). The lowest of the two sides - the value the decision
-	// used. `null` when neither side produced a usable score.
-	Score float64 `json:"score"`
-
-	// Score for the front side; `null` when not captured or when the score was
-	// dropped.
-	Front float64 `json:"front"`
-
-	// Score for the back side; `null` when not captured or when the score was
-	// dropped.
-	Back float64 `json:"back"`
-
-	// The decline threshold saved when this document was evaluated. Later workflow
-	// edits do not change it. Null when historical evaluation evidence is
-	// unavailable.
-	DeclineThreshold float64 `json:"decline_threshold"`
-
-	// The review threshold saved when this document was evaluated. Later workflow
-	// edits do not change it. Null when historical evaluation evidence is
-	// unavailable.
-	ReviewThreshold float64 `json:"review_threshold"`
-
-	// The fraud-type bucket saved at evaluation time. Null when there is no usable
-	// score, the check was not applied, or historical evaluation evidence is
-	// unavailable. Later workflow edits do not change it.
-	Bucket SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucket `json:"bucket"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplace leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplace) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucket:
-// The fraud-type bucket saved at evaluation time. Null when there is no usable
-// score, the check was not applied, or historical evaluation evidence is
-// unavailable. Later workflow edits do not change it.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucket
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucket string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucket.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucketApprove SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucket = "approve"
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucketReview  SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucket = "review"
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucketDecline SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPortraitReplaceBucket = "decline"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopy is
-// a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopy struct {
-	// Likelihood that the document is genuine for this fraud type, 0-100 (higher =
-	// more likely genuine). The lowest of the two sides - the value the decision
-	// used. `null` when neither side produced a usable score.
-	Score float64 `json:"score"`
-
-	// Score for the front side; `null` when not captured or when the score was
-	// dropped.
-	Front float64 `json:"front"`
-
-	// Score for the back side; `null` when not captured or when the score was
-	// dropped.
-	Back float64 `json:"back"`
-
-	// The decline threshold saved when this document was evaluated. Later workflow
-	// edits do not change it. Null when historical evaluation evidence is
-	// unavailable.
-	DeclineThreshold float64 `json:"decline_threshold"`
-
-	// The review threshold saved when this document was evaluated. Later workflow
-	// edits do not change it. Null when historical evaluation evidence is
-	// unavailable.
-	ReviewThreshold float64 `json:"review_threshold"`
-
-	// The fraud-type bucket saved at evaluation time. Null when there is no usable
-	// score, the check was not applied, or historical evaluation evidence is
-	// unavailable. Later workflow edits do not change it.
-	Bucket SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucket `json:"bucket"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopy leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopy) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucket:
-// The fraud-type bucket saved at evaluation time. Null when there is no usable
-// score, the check was not applied, or historical evaluation evidence is
-// unavailable. Later workflow edits do not change it.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucket
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucket string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucket.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucketApprove SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucket = "approve"
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucketReview  SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucket = "review"
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucketDecline SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessPrintedCopyBucket = "decline"
-)
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplay
-// is a response object.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplay struct {
-	// Likelihood that the document is genuine for this fraud type, 0-100 (higher =
-	// more likely genuine). The lowest of the two sides - the value the decision
-	// used. `null` when neither side produced a usable score.
-	Score float64 `json:"score"`
-
-	// Score for the front side; `null` when not captured or when the score was
-	// dropped.
-	Front float64 `json:"front"`
-
-	// Score for the back side; `null` when not captured or when the score was
-	// dropped.
-	Back float64 `json:"back"`
-
-	// The decline threshold saved when this document was evaluated. Later workflow
-	// edits do not change it. Null when historical evaluation evidence is
-	// unavailable.
-	DeclineThreshold float64 `json:"decline_threshold"`
-
-	// The review threshold saved when this document was evaluated. Later workflow
-	// edits do not change it. Null when historical evaluation evidence is
-	// unavailable.
-	ReviewThreshold float64 `json:"review_threshold"`
-
-	// The fraud-type bucket saved at evaluation time. Null when there is no usable
-	// score, the check was not applied, or historical evaluation evidence is
-	// unavailable. Later workflow edits do not change it.
-	Bucket SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucket `json:"bucket"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplay leniently.
-func (r *SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplay) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucket:
-// The fraud-type bucket saved at evaluation time. Null when there is no usable
-// score, the check was not applied, or historical evaluation evidence is
-// unavailable. Later workflow edits do not change it.
-//
-// SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucket
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucket string
-
-// Known values of SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucket.
-const (
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucketApprove SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucket = "approve"
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucketReview  SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucket = "review"
-	SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucketDecline SessionsRetrieveDecisionResponseIDVerificationsDocumentLivenessScreenReplayBucket = "decline"
-)
-
-// SessionsRetrieveDecisionResponseNFCSkipReason: Why NFC chip verification did
-// not run, populated whenever the workflow includes an NFC step. `null` while
-// NFC is pending or when the chip was actually read. Values: `USER_SKIPPED` -
-// the user chose to skip on an NFC-capable device (allowed by
-// `allow_nfc_skip`); `DOCUMENT_WITHOUT_CHIP` - the document has no readable NFC
-// chip (not an ICAO 9303 electronic document); `CHIP_CERTIFICATE_UNAVAILABLE` -
-// the issuing country's signing certificate (CSCA) covering the document's
-// issue period is unavailable, so the chip signature cannot be verified;
-// `DEVICE_WITHOUT_NFC` - the device reported no NFC reader;
-// `INTEGRATION_WITHOUT_NFC_ACCESS` - the verification ran without a native SDK
-// (e.g. in a web browser), which has no access to the phone's NFC reader;
-// `MRZ_KEY_UNAVAILABLE` - the chip access key could not be derived from the
-// document's MRZ.
-//
-// SessionsRetrieveDecisionResponseNFCSkipReason is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type SessionsRetrieveDecisionResponseNFCSkipReason string
-
-// Known values of SessionsRetrieveDecisionResponseNFCSkipReason.
-const (
-	SessionsRetrieveDecisionResponseNFCSkipReasonUserSkipped                 SessionsRetrieveDecisionResponseNFCSkipReason = "USER_SKIPPED"
-	SessionsRetrieveDecisionResponseNFCSkipReasonDocumentWithoutChip         SessionsRetrieveDecisionResponseNFCSkipReason = "DOCUMENT_WITHOUT_CHIP"
-	SessionsRetrieveDecisionResponseNFCSkipReasonChipCertificateUnavailable  SessionsRetrieveDecisionResponseNFCSkipReason = "CHIP_CERTIFICATE_UNAVAILABLE"
-	SessionsRetrieveDecisionResponseNFCSkipReasonDeviceWithoutNFC            SessionsRetrieveDecisionResponseNFCSkipReason = "DEVICE_WITHOUT_NFC"
-	SessionsRetrieveDecisionResponseNFCSkipReasonIntegrationWithoutNFCAccess SessionsRetrieveDecisionResponseNFCSkipReason = "INTEGRATION_WITHOUT_NFC_ACCESS"
-	SessionsRetrieveDecisionResponseNFCSkipReasonMRZKeyUnavailable           SessionsRetrieveDecisionResponseNFCSkipReason = "MRZ_KEY_UNAVAILABLE"
-)
-
-// SessionsRetrieveDecisionResponseNFCVerifications: One NFC report - the full
-// report for a single ePassport chip read.
-type SessionsRetrieveDecisionResponseNFCVerifications struct {
-	// Workflow graph node id of the NFC step that produced this report. Use it to
-	// correlate the report with the workflow definition.
-	NodeID string `json:"node_id"`
-
-	// Feature-level status of this NFC step. Independent of the top-level session
-	// `status` - a session can reach its overall decision while an individual
-	// feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponseNFCVerificationsStatus `json:"status"`
-
-	// `true` when this NFC step was explicitly skipped instead of read;
-	// `skip_reason` says why.
-	IsNFCSkipped bool `json:"is_nfc_skipped"`
-
-	// Why this NFC step was skipped. Only set when `is_nfc_skipped` is `true`. Same
-	// taxonomy as the session-level `nfc_skip_reason`, which additionally covers
-	// the cases where NFC never produced a report at all.
-	SkipReason         SessionsRetrieveDecisionResponseNFCVerificationsSkipReason         `json:"skip_reason"`
-	PortraitImage      string                                                             `json:"portrait_image"`
-	SignatureImage     string                                                             `json:"signature_image"`
-	ChipData           SessionsRetrieveDecisionResponseNFCVerificationsChipData           `json:"chip_data"`
-	Authenticity       SessionsRetrieveDecisionResponseNFCVerificationsAuthenticity       `json:"authenticity"`
-	CertificateSummary SessionsRetrieveDecisionResponseNFCVerificationsCertificateSummary `json:"certificate_summary"`
-	Warnings           []SessionsRetrieveDecisionResponseNFCVerificationsWarnings         `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseNFCVerifications leniently.
-func (r *SessionsRetrieveDecisionResponseNFCVerifications) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseNFCVerificationsStatus: Feature-level status
-// of this NFC step. Independent of the top-level session `status` - a session
-// can reach its overall decision while an individual feature stays `In Review`.
-//
-// SessionsRetrieveDecisionResponseNFCVerificationsStatus is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type SessionsRetrieveDecisionResponseNFCVerificationsStatus string
-
-// Known values of SessionsRetrieveDecisionResponseNFCVerificationsStatus.
-const (
-	SessionsRetrieveDecisionResponseNFCVerificationsStatusNotFinished    SessionsRetrieveDecisionResponseNFCVerificationsStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseNFCVerificationsStatusApproved       SessionsRetrieveDecisionResponseNFCVerificationsStatus = "Approved"
-	SessionsRetrieveDecisionResponseNFCVerificationsStatusDeclined       SessionsRetrieveDecisionResponseNFCVerificationsStatus = "Declined"
-	SessionsRetrieveDecisionResponseNFCVerificationsStatusInReview       SessionsRetrieveDecisionResponseNFCVerificationsStatus = "In Review"
-	SessionsRetrieveDecisionResponseNFCVerificationsStatusResubRequested SessionsRetrieveDecisionResponseNFCVerificationsStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseNFCVerificationsSkipReason: Why this NFC step
-// was skipped. Only set when `is_nfc_skipped` is `true`. Same taxonomy as the
-// session-level `nfc_skip_reason`, which additionally covers the cases where
-// NFC never produced a report at all.
-//
-// SessionsRetrieveDecisionResponseNFCVerificationsSkipReason is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseNFCVerificationsSkipReason string
-
-// Known values of SessionsRetrieveDecisionResponseNFCVerificationsSkipReason.
-const (
-	SessionsRetrieveDecisionResponseNFCVerificationsSkipReasonUserSkipped                 SessionsRetrieveDecisionResponseNFCVerificationsSkipReason = "USER_SKIPPED"
-	SessionsRetrieveDecisionResponseNFCVerificationsSkipReasonDocumentWithoutChip         SessionsRetrieveDecisionResponseNFCVerificationsSkipReason = "DOCUMENT_WITHOUT_CHIP"
-	SessionsRetrieveDecisionResponseNFCVerificationsSkipReasonChipCertificateUnavailable  SessionsRetrieveDecisionResponseNFCVerificationsSkipReason = "CHIP_CERTIFICATE_UNAVAILABLE"
-	SessionsRetrieveDecisionResponseNFCVerificationsSkipReasonDeviceWithoutNFC            SessionsRetrieveDecisionResponseNFCVerificationsSkipReason = "DEVICE_WITHOUT_NFC"
-	SessionsRetrieveDecisionResponseNFCVerificationsSkipReasonIntegrationWithoutNFCAccess SessionsRetrieveDecisionResponseNFCVerificationsSkipReason = "INTEGRATION_WITHOUT_NFC_ACCESS"
-	SessionsRetrieveDecisionResponseNFCVerificationsSkipReasonMRZKeyUnavailable           SessionsRetrieveDecisionResponseNFCVerificationsSkipReason = "MRZ_KEY_UNAVAILABLE"
-)
-
-// SessionsRetrieveDecisionResponseNFCVerificationsChipData is a response
-// object.
-type SessionsRetrieveDecisionResponseNFCVerificationsChipData struct {
-	DocumentType   string `json:"document_type"`
-	IssuingCountry string `json:"issuing_country"`
-	DocumentNumber string `json:"document_number"`
-	ExpirationDate string `json:"expiration_date"`
-	FirstName      string `json:"first_name"`
-	LastName       string `json:"last_name"`
-	BirthDate      string `json:"birth_date"`
-	Gender         string `json:"gender"`
-	Nationality    string `json:"nationality"`
-	Address        string `json:"address"`
-	PlaceOfBirth   string `json:"place_of_birth"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseNFCVerificationsChipData leniently.
-func (r *SessionsRetrieveDecisionResponseNFCVerificationsChipData) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseNFCVerificationsAuthenticity is a response
-// object.
-type SessionsRetrieveDecisionResponseNFCVerificationsAuthenticity struct {
-	SodIntegrity bool `json:"sod_integrity"`
-	DgIntegrity  bool `json:"dg_integrity"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseNFCVerificationsAuthenticity leniently.
-func (r *SessionsRetrieveDecisionResponseNFCVerificationsAuthenticity) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseNFCVerificationsCertificateSummary is a
-// response object.
-type SessionsRetrieveDecisionResponseNFCVerificationsCertificateSummary struct {
-	Issuer         string    `json:"issuer"`
-	Subject        string    `json:"subject"`
-	SerialNumber   string    `json:"serial_number"`
-	NotValidAfter  time.Time `json:"not_valid_after"`
-	NotValidBefore time.Time `json:"not_valid_before"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseNFCVerificationsCertificateSummary leniently.
-func (r *SessionsRetrieveDecisionResponseNFCVerificationsCertificateSummary) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseNFCVerificationsWarnings is a response
-// object.
-type SessionsRetrieveDecisionResponseNFCVerificationsWarnings struct {
-	// The feature that generated this warning. The value identifies the feature
-	// block the warning belongs to. Each module's warnings array typically uses the
-	// value matching its module (e.g. `PHONE` inside
-	// `phone_verifications[].warnings`), but the enum above is authoritative across
-	// all feature warnings on the decision payload.
-	Feature          SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature `json:"feature"`
-	Risk             string                                                          `json:"risk"`
-	AdditionalData   map[string]any                                                  `json:"additional_data"`
-	LogType          string                                                          `json:"log_type"`
-	ShortDescription string                                                          `json:"short_description"`
-	LongDescription  string                                                          `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseNFCVerificationsWarnings leniently.
-func (r *SessionsRetrieveDecisionResponseNFCVerificationsWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature: The feature
-// that generated this warning. The value identifies the feature block the
-// warning belongs to. Each module's warnings array typically uses the value
-// matching its module (e.g. `PHONE` inside `phone_verifications[].warnings`),
-// but the enum above is authoritative across all feature warnings on the
-// decision payload.
-//
-// SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureIDVerification     SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureNFC                SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureLiveness           SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureFacematch          SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeaturePhone              SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureEmail              SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureAML                SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureLocation           SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponseNFCVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponseLivenessChecks: One liveness report - the
-// full report for a single liveness pass.
-type SessionsRetrieveDecisionResponseLivenessChecks struct {
-	// Workflow graph node id of the liveness step that produced this report.
-	NodeID string `json:"node_id"`
-
-	// Feature-level status of this liveness step. Independent of the top-level
-	// session `status` - a session can reach its overall decision while an
-	// individual feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponseLivenessChecksStatus `json:"status"`
-
-	// Method used for liveness detection
-	Method string `json:"method"`
-
-	// Confidence score of the liveness check
-	Score float64 `json:"score"`
-
-	// URL of the reference image used
-	ReferenceImage string `json:"reference_image"`
-
-	// URL of the liveness check video
-	VideoURL string `json:"video_url"`
-
-	// Estimated age of the person
-	AgeEstimation float64 `json:"age_estimation"`
-
-	// Similar faces found by the duplicate-face search (top matches,
-	// blocklisted/allowlisted entries first). Each entry's `source` tells you where
-	// the matching face came from: `session` (another verification session),
-	// `imported` (a face uploaded against a vendor user), `list_entry` (an
-	// org-managed allow/block list face), or `retained_template` (an image-free
-	// biometric template stored on a User, listed under
-	// `/v3/biometric-templates/`). `session_id`, `session_number`, `status` and
-	// `api_service` are `null` for non-session sources. `imported` matches still
-	// populate `vendor_data`, `verification_date` and - when the vendor user has a
-	// name on file - `user_details` (with `full_name` only) from the vendor-user
-	// record; `retained_template` matches populate `vendor_user_id`, `vendor_data`,
-	// `biometric_template_id` and `verification_date`, while their image and
-	// identity fields are `null`; `list_entry` matches return all of these as
-	// `null`.
-	Matches  []SessionsRetrieveDecisionResponseLivenessChecksMatches  `json:"matches"`
-	Warnings []SessionsRetrieveDecisionResponseLivenessChecksWarnings `json:"warnings"`
-
-	// Face image quality score (0-100%). Only available for passive liveness.
-	FaceQuality float64 `json:"face_quality"`
-
-	// Face luminance/brightness score (0-100%). Only available for passive
-	// liveness.
-	FaceLuminance float64 `json:"face_luminance"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseLivenessChecks leniently.
-func (r *SessionsRetrieveDecisionResponseLivenessChecks) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseLivenessChecksStatus: Feature-level status of
-// this liveness step. Independent of the top-level session `status` - a session
-// can reach its overall decision while an individual feature stays `In Review`.
-//
-// SessionsRetrieveDecisionResponseLivenessChecksStatus is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type SessionsRetrieveDecisionResponseLivenessChecksStatus string
-
-// Known values of SessionsRetrieveDecisionResponseLivenessChecksStatus.
-const (
-	SessionsRetrieveDecisionResponseLivenessChecksStatusNotFinished    SessionsRetrieveDecisionResponseLivenessChecksStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseLivenessChecksStatusApproved       SessionsRetrieveDecisionResponseLivenessChecksStatus = "Approved"
-	SessionsRetrieveDecisionResponseLivenessChecksStatusDeclined       SessionsRetrieveDecisionResponseLivenessChecksStatus = "Declined"
-	SessionsRetrieveDecisionResponseLivenessChecksStatusInReview       SessionsRetrieveDecisionResponseLivenessChecksStatus = "In Review"
-	SessionsRetrieveDecisionResponseLivenessChecksStatusResubRequested SessionsRetrieveDecisionResponseLivenessChecksStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseLivenessChecksMatches is a response object.
-type SessionsRetrieveDecisionResponseLivenessChecksMatches struct {
-	// Session ID of the matching face. `null` when `source` is `imported`,
-	// `list_entry`, or `retained_template`.
-	SessionID     string `json:"session_id"`
-	SessionNumber int64  `json:"session_number"`
-
-	// Face similarity between the two images, clamped to 0-100.
-	SimilarityPercentage float64 `json:"similarity_percentage"`
-
-	// `vendor_data` of the matching session or linked User for imported and
-	// retained-template faces.
-	VendorData string `json:"vendor_data"`
-
-	// Linked User id for `imported` and `retained_template` matches and for session
-	// matches linked to a User. `null` for list entries and sessions without a
-	// User.
-	VendorUserID string `json:"vendor_user_id"`
-
-	// Id of the retained biometric template. Set only when `source` is
-	// `retained_template`; `null` otherwise.
-	BiometricTemplateID string `json:"biometric_template_id"`
-
-	// When the matching face was captured, or when a retained template was created.
-	// `null` for list entries.
-	VerificationDate time.Time `json:"verification_date"`
-
-	// Identity data from the matching session or imported User profile. Always
-	// `null` for `retained_template` and `list_entry` matches.
-	UserDetails SessionsRetrieveDecisionResponseLivenessChecksMatchesUserDetails `json:"user_details"`
-
-	// Reference image for image-backed matches. Always `null` for
-	// `retained_template` matches because retained templates contain no image.
-	MatchImageURL string `json:"match_image_url"`
-
-	// Lifecycle status of the matching session. `null` for non-session sources.
-	Status string `json:"status"`
-
-	// Whether the matching face is on a blocklist.
-	IsBlocklisted bool `json:"is_blocklisted"`
-
-	// Whether the matching face is on an allowlist.
-	IsAllowlisted bool `json:"is_allowlisted"`
-
-	// Standalone API service of the matching session (e.g. `PASSIVE_LIVENESS`,
-	// `FACE_MATCH`); `null` for workflow sessions and non-session sources.
-	APIService string `json:"api_service"`
-
-	// Origin of the matching face: `session`, `imported` (User face upload),
-	// `list_entry` (allow/block list), or `retained_template` (an image-free
-	// biometric template stored on a User, listed under
-	// `/v3/biometric-templates/`).
-	Source SessionsRetrieveDecisionResponseLivenessChecksMatchesSource `json:"source"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseLivenessChecksMatches leniently.
-func (r *SessionsRetrieveDecisionResponseLivenessChecksMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseLivenessChecksMatchesUserDetails: Identity
-// data from the matching session or imported User profile. Always `null` for
-// `retained_template` and `list_entry` matches.
-type SessionsRetrieveDecisionResponseLivenessChecksMatchesUserDetails struct {
-	FullName       string `json:"full_name"`
-	DocumentType   string `json:"document_type"`
-	DocumentNumber string `json:"document_number"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseLivenessChecksMatchesUserDetails leniently.
-func (r *SessionsRetrieveDecisionResponseLivenessChecksMatchesUserDetails) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseLivenessChecksMatchesSource: Origin of the
-// matching face: `session`, `imported` (User face upload), `list_entry`
-// (allow/block list), or `retained_template` (an image-free biometric template
-// stored on a User, listed under `/v3/biometric-templates/`).
-//
-// SessionsRetrieveDecisionResponseLivenessChecksMatchesSource is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseLivenessChecksMatchesSource string
-
-// Known values of SessionsRetrieveDecisionResponseLivenessChecksMatchesSource.
-const (
-	SessionsRetrieveDecisionResponseLivenessChecksMatchesSourceSession          SessionsRetrieveDecisionResponseLivenessChecksMatchesSource = "session"
-	SessionsRetrieveDecisionResponseLivenessChecksMatchesSourceImported         SessionsRetrieveDecisionResponseLivenessChecksMatchesSource = "imported"
-	SessionsRetrieveDecisionResponseLivenessChecksMatchesSourceListEntry        SessionsRetrieveDecisionResponseLivenessChecksMatchesSource = "list_entry"
-	SessionsRetrieveDecisionResponseLivenessChecksMatchesSourceRetainedTemplate SessionsRetrieveDecisionResponseLivenessChecksMatchesSource = "retained_template"
-)
-
-// SessionsRetrieveDecisionResponseLivenessChecksWarnings is a response object.
-type SessionsRetrieveDecisionResponseLivenessChecksWarnings struct {
-	// The feature that generated this warning. The value identifies the feature
-	// block the warning belongs to. Each module's warnings array typically uses the
-	// value matching its module (e.g. `PHONE` inside
-	// `phone_verifications[].warnings`), but the enum above is authoritative across
-	// all feature warnings on the decision payload.
-	Feature          SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature `json:"feature"`
-	Risk             string                                                        `json:"risk"`
-	AdditionalData   map[string]any                                                `json:"additional_data"`
-	LogType          string                                                        `json:"log_type"`
-	ShortDescription string                                                        `json:"short_description"`
-	LongDescription  string                                                        `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseLivenessChecksWarnings leniently.
-func (r *SessionsRetrieveDecisionResponseLivenessChecksWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature: The feature
-// that generated this warning. The value identifies the feature block the
-// warning belongs to. Each module's warnings array typically uses the value
-// matching its module (e.g. `PHONE` inside `phone_verifications[].warnings`),
-// but the enum above is authoritative across all feature warnings on the
-// decision payload.
-//
-// SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureIDVerification     SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureNFC                SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureLiveness           SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureFacematch          SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeaturePhone              SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureEmail              SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureAML                SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureLocation           SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponseLivenessChecksWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponseLivenessChecksWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponseFaceMatches: One face-match report - the full
-// report.
-type SessionsRetrieveDecisionResponseFaceMatches struct {
-	// Workflow graph node id of the face-match step that produced this report.
-	NodeID string `json:"node_id"`
-
-	// Feature-level status of this face-match step. Independent of the top-level
-	// session `status` - a session can reach its overall decision while an
-	// individual feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponseFaceMatchesStatus `json:"status"`
-
-	// Confidence score of the face match
-	Score float64 `json:"score"`
-
-	// Session id under which the source (reference) portrait is stored. In
-	// biometric-authentication flows this is the session's own id (the submitted
-	// portrait is stored under the new session). `null` when the source image is
-	// the same session's document portrait.
-	SourceImageSessionID string `json:"source_image_session_id"`
-
-	// URL of the source image used for comparison
-	SourceImage string `json:"source_image"`
-
-	// URL of the target image used for comparison
-	TargetImage string `json:"target_image"`
-
-	// Face match verification warnings
-	Warnings []SessionsRetrieveDecisionResponseFaceMatchesWarnings `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseFaceMatches leniently.
-func (r *SessionsRetrieveDecisionResponseFaceMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseFaceMatchesStatus: Feature-level status of
-// this face-match step. Independent of the top-level session `status` - a
-// session can reach its overall decision while an individual feature stays `In
-// Review`.
-//
-// SessionsRetrieveDecisionResponseFaceMatchesStatus is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type SessionsRetrieveDecisionResponseFaceMatchesStatus string
-
-// Known values of SessionsRetrieveDecisionResponseFaceMatchesStatus.
-const (
-	SessionsRetrieveDecisionResponseFaceMatchesStatusNotFinished    SessionsRetrieveDecisionResponseFaceMatchesStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseFaceMatchesStatusApproved       SessionsRetrieveDecisionResponseFaceMatchesStatus = "Approved"
-	SessionsRetrieveDecisionResponseFaceMatchesStatusDeclined       SessionsRetrieveDecisionResponseFaceMatchesStatus = "Declined"
-	SessionsRetrieveDecisionResponseFaceMatchesStatusInReview       SessionsRetrieveDecisionResponseFaceMatchesStatus = "In Review"
-	SessionsRetrieveDecisionResponseFaceMatchesStatusResubRequested SessionsRetrieveDecisionResponseFaceMatchesStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseFaceMatchesWarnings is a response object.
-type SessionsRetrieveDecisionResponseFaceMatchesWarnings struct {
-	// The feature that generated this warning. The value identifies the feature
-	// block the warning belongs to. Each module's warnings array typically uses the
-	// value matching its module (e.g. `PHONE` inside
-	// `phone_verifications[].warnings`), but the enum above is authoritative across
-	// all feature warnings on the decision payload.
-	Feature          SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature `json:"feature"`
-	Risk             string                                                     `json:"risk"`
-	AdditionalData   map[string]any                                             `json:"additional_data"`
-	LogType          string                                                     `json:"log_type"`
-	ShortDescription string                                                     `json:"short_description"`
-	LongDescription  string                                                     `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseFaceMatchesWarnings leniently.
-func (r *SessionsRetrieveDecisionResponseFaceMatchesWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature: The feature that
-// generated this warning. The value identifies the feature block the warning
-// belongs to. Each module's warnings array typically uses the value matching
-// its module (e.g. `PHONE` inside `phone_verifications[].warnings`), but the
-// enum above is authoritative across all feature warnings on the decision
-// payload.
-//
-// SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureIDVerification     SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureNFC                SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureLiveness           SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureFacematch          SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeaturePhone              SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureEmail              SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureAML                SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureLocation           SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponseFaceMatchesWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponseFaceMatchesWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponsePhoneVerifications is a response object.
-type SessionsRetrieveDecisionResponsePhoneVerifications struct {
-	// Unique identifier for this phone step in the workflow graph.
-	NodeID string `json:"node_id"`
-
-	// Feature-level status of this phone verification step. Independent of the
-	// top-level session `status` - a session can reach its overall decision while
-	// an individual feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponsePhoneVerificationsStatus `json:"status"`
-
-	// Country calling code prefix
-	PhoneNumberPrefix string `json:"phone_number_prefix"`
-
-	// Phone number without country prefix
-	PhoneNumber string `json:"phone_number"`
-
-	// Complete phone number with country prefix
-	FullNumber string `json:"full_number"`
-
-	// Two-letter country code (ISO 3166-1 alpha-2)
-	CountryCode string `json:"country_code"`
-
-	// Full country name
-	CountryName string                                                    `json:"country_name"`
-	Carrier     SessionsRetrieveDecisionResponsePhoneVerificationsCarrier `json:"carrier"`
-
-	// Whether the phone number is from a disposable service
-	IsDisposable bool `json:"is_disposable"`
-
-	// Whether the phone number is virtual
-	IsVirtual bool `json:"is_virtual"`
-
-	// Method used to verify the phone number
-	VerificationMethod string `json:"verification_method"`
-
-	// Number of verification attempts made
-	VerificationAttempts int64 `json:"verification_attempts"`
-
-	// Timestamp when the phone was verified
-	VerifiedAt time.Time `json:"verified_at"`
-
-	// Chronological list of events in the phone verification lifecycle.
-	Lifecycle []SessionsRetrieveDecisionResponsePhoneVerificationsLifecycle `json:"lifecycle"`
-
-	// List of warnings related to phone verification
-	Warnings []SessionsRetrieveDecisionResponsePhoneVerificationsWarnings `json:"warnings"`
-
-	// Matches found for this phone number. Each match has a `source`: `session`
-	// (another verification session in your application matched on the same number,
-	// returned with
-	// `session_id`/`session_number`/`vendor_data`/`verification_date`) or
-	// `list_entry` (the number is on an org-managed allow/block list - see
-	// `/management-api/lists/overview`). Cross-session matches use different
-	// `vendor_data` and are capped at 5.
-	Matches []SessionsRetrieveDecisionResponsePhoneVerificationsMatches `json:"matches"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePhoneVerifications leniently.
-func (r *SessionsRetrieveDecisionResponsePhoneVerifications) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePhoneVerificationsStatus: Feature-level
-// status of this phone verification step. Independent of the top-level session
-// `status` - a session can reach its overall decision while an individual
-// feature stays `In Review`.
-//
-// SessionsRetrieveDecisionResponsePhoneVerificationsStatus is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponsePhoneVerificationsStatus string
-
-// Known values of SessionsRetrieveDecisionResponsePhoneVerificationsStatus.
-const (
-	SessionsRetrieveDecisionResponsePhoneVerificationsStatusNotFinished SessionsRetrieveDecisionResponsePhoneVerificationsStatus = "Not Finished"
-	SessionsRetrieveDecisionResponsePhoneVerificationsStatusApproved    SessionsRetrieveDecisionResponsePhoneVerificationsStatus = "Approved"
-	SessionsRetrieveDecisionResponsePhoneVerificationsStatusDeclined    SessionsRetrieveDecisionResponsePhoneVerificationsStatus = "Declined"
-	SessionsRetrieveDecisionResponsePhoneVerificationsStatusInReview    SessionsRetrieveDecisionResponsePhoneVerificationsStatus = "In Review"
-	SessionsRetrieveDecisionResponsePhoneVerificationsStatusExpired     SessionsRetrieveDecisionResponsePhoneVerificationsStatus = "Expired"
-)
-
-// SessionsRetrieveDecisionResponsePhoneVerificationsCarrier is a response
-// object.
-type SessionsRetrieveDecisionResponsePhoneVerificationsCarrier struct {
-	// Name of the phone carrier
-	Name string `json:"name"`
-
-	// Type of phone line (mobile, landline, etc)
-	Type string `json:"type"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePhoneVerificationsCarrier leniently.
-func (r *SessionsRetrieveDecisionResponsePhoneVerificationsCarrier) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePhoneVerificationsLifecycle is a response
-// object.
-type SessionsRetrieveDecisionResponsePhoneVerificationsLifecycle struct {
-	Type      string    `json:"type"`
-	Timestamp time.Time `json:"timestamp"`
-
-	// Event-specific payload. Send events carry `status`, `reason`, `channel`,
-	// `actual_channel`; delivery events carry `channel`, `status`; code-check
-	// events carry `code_tried`, `status`; final status events carry `reason` - or
-	// `null` when there is no reason to report (e.g.
-	// `PHONE_VERIFICATION_APPROVED`).
-	Details SessionsRetrieveDecisionResponsePhoneVerificationsLifecycleDetails `json:"details"`
-	Fee     float64                                                            `json:"fee"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePhoneVerificationsLifecycle leniently.
-func (r *SessionsRetrieveDecisionResponsePhoneVerificationsLifecycle) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePhoneVerificationsLifecycleDetails:
-// Event-specific payload. Send events carry `status`, `reason`, `channel`,
-// `actual_channel`; delivery events carry `channel`, `status`; code-check
-// events carry `code_tried`, `status`; final status events carry `reason` - or
-// `null` when there is no reason to report (e.g.
-// `PHONE_VERIFICATION_APPROVED`).
-type SessionsRetrieveDecisionResponsePhoneVerificationsLifecycleDetails struct {
-	Status        string `json:"status"`
-	Reason        string `json:"reason"`
-	Channel       string `json:"channel"`
-	ActualChannel string `json:"actual_channel"`
-	CodeTried     string `json:"code_tried"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePhoneVerificationsLifecycleDetails leniently.
-func (r *SessionsRetrieveDecisionResponsePhoneVerificationsLifecycleDetails) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePhoneVerificationsWarnings is a response
-// object.
-type SessionsRetrieveDecisionResponsePhoneVerificationsWarnings struct {
-	// The feature that generated this warning. The value identifies the feature
-	// block the warning belongs to. Each module's warnings array typically uses the
-	// value matching its module (e.g. `PHONE` inside
-	// `phone_verifications[].warnings`), but the enum above is authoritative across
-	// all feature warnings on the decision payload.
-	Feature          SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature `json:"feature"`
-	Risk             string                                                            `json:"risk"`
-	AdditionalData   map[string]any                                                    `json:"additional_data"`
-	LogType          string                                                            `json:"log_type"`
-	ShortDescription string                                                            `json:"short_description"`
-	LongDescription  string                                                            `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePhoneVerificationsWarnings leniently.
-func (r *SessionsRetrieveDecisionResponsePhoneVerificationsWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature: The
-// feature that generated this warning. The value identifies the feature block
-// the warning belongs to. Each module's warnings array typically uses the value
-// matching its module (e.g. `PHONE` inside `phone_verifications[].warnings`),
-// but the enum above is authoritative across all feature warnings on the
-// decision payload.
-//
-// SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureIDVerification     SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureNFC                SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureLiveness           SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureFacematch          SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeaturePhone              SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureEmail              SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureAML                SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureLocation           SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponsePhoneVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponsePhoneVerificationsMatches is a response
-// object.
-type SessionsRetrieveDecisionResponsePhoneVerificationsMatches struct {
-	SessionID        string    `json:"session_id"`
-	SessionNumber    int64     `json:"session_number"`
-	VendorData       string    `json:"vendor_data"`
-	VerificationDate time.Time `json:"verification_date"`
-	PhoneNumber      string    `json:"phone_number"`
-	Status           string    `json:"status"`
-	IsBlocklisted    bool      `json:"is_blocklisted"`
-	APIService       string    `json:"api_service"`
-
-	// Where this match came from. `session` means another verification session in
-	// your application matched on this value. `list_entry` means the value was hit
-	// against an org-managed list (allowlist/blocklist) - see the management API
-	// lists overview at `/management-api/lists/overview` for how to manage those
-	// lists.
-	Source SessionsRetrieveDecisionResponsePhoneVerificationsMatchesSource `json:"source"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePhoneVerificationsMatches leniently.
-func (r *SessionsRetrieveDecisionResponsePhoneVerificationsMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePhoneVerificationsMatchesSource: Where this
-// match came from. `session` means another verification session in your
-// application matched on this value. `list_entry` means the value was hit
-// against an org-managed list (allowlist/blocklist) - see the management API
-// lists overview at `/management-api/lists/overview` for how to manage those
-// lists.
-//
-// SessionsRetrieveDecisionResponsePhoneVerificationsMatchesSource is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponsePhoneVerificationsMatchesSource string
-
-// Known values of SessionsRetrieveDecisionResponsePhoneVerificationsMatchesSource.
-const (
-	SessionsRetrieveDecisionResponsePhoneVerificationsMatchesSourceSession   SessionsRetrieveDecisionResponsePhoneVerificationsMatchesSource = "session"
-	SessionsRetrieveDecisionResponsePhoneVerificationsMatchesSourceListEntry SessionsRetrieveDecisionResponsePhoneVerificationsMatchesSource = "list_entry"
-)
-
-// SessionsRetrieveDecisionResponseEmailVerifications is a response object.
-type SessionsRetrieveDecisionResponseEmailVerifications struct {
-	// Unique identifier for this email step in the workflow graph.
-	NodeID string `json:"node_id"`
-
-	// Feature-level status of this email verification step. Independent of the
-	// top-level session `status` - a session can reach its overall decision while
-	// an individual feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponseEmailVerificationsStatus `json:"status"`
-
-	// The email address being verified
-	Email string `json:"email"`
-
-	// Indicates if the email was found in known data breaches
-	IsBreached bool `json:"is_breached"`
-
-	// List of known breaches this email was found in
-	Breaches []SessionsRetrieveDecisionResponseEmailVerificationsBreaches `json:"breaches"`
-
-	// Indicates if the email is from a disposable provider
-	IsDisposable bool `json:"is_disposable"`
-
-	// Indicates if the email address is undeliverable
-	IsUndeliverable bool `json:"is_undeliverable"`
-
-	// Number of verification attempts for this email
-	VerificationAttempts int64 `json:"verification_attempts"`
-
-	// Timestamp when the email was verified
-	VerifiedAt time.Time `json:"verified_at"`
-
-	// List of warnings related to email verification
-	Warnings []SessionsRetrieveDecisionResponseEmailVerificationsWarnings `json:"warnings"`
-
-	// Chronological list of events in the email verification lifecycle.
-	Lifecycle []SessionsRetrieveDecisionResponseEmailVerificationsLifecycle `json:"lifecycle"`
-
-	// Matches found for this email address. Each match has a `source`: `session`
-	// (another verification session in your application matched on the same email,
-	// returned with
-	// `session_id`/`session_number`/`vendor_data`/`verification_date`) or
-	// `list_entry` (the email is on an org-managed allow/block list - see
-	// `/management-api/lists/overview`). Cross-session matches use different
-	// `vendor_data` and are capped at 5.
-	Matches []SessionsRetrieveDecisionResponseEmailVerificationsMatches `json:"matches"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseEmailVerifications leniently.
-func (r *SessionsRetrieveDecisionResponseEmailVerifications) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseEmailVerificationsStatus: Feature-level
-// status of this email verification step. Independent of the top-level session
-// `status` - a session can reach its overall decision while an individual
-// feature stays `In Review`.
-//
-// SessionsRetrieveDecisionResponseEmailVerificationsStatus is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseEmailVerificationsStatus string
-
-// Known values of SessionsRetrieveDecisionResponseEmailVerificationsStatus.
-const (
-	SessionsRetrieveDecisionResponseEmailVerificationsStatusNotFinished SessionsRetrieveDecisionResponseEmailVerificationsStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseEmailVerificationsStatusApproved    SessionsRetrieveDecisionResponseEmailVerificationsStatus = "Approved"
-	SessionsRetrieveDecisionResponseEmailVerificationsStatusDeclined    SessionsRetrieveDecisionResponseEmailVerificationsStatus = "Declined"
-	SessionsRetrieveDecisionResponseEmailVerificationsStatusInReview    SessionsRetrieveDecisionResponseEmailVerificationsStatus = "In Review"
-	SessionsRetrieveDecisionResponseEmailVerificationsStatusExpired     SessionsRetrieveDecisionResponseEmailVerificationsStatus = "Expired"
-)
-
-// SessionsRetrieveDecisionResponseEmailVerificationsBreaches is a response
-// object.
-type SessionsRetrieveDecisionResponseEmailVerificationsBreaches struct {
-	// Name of the breach
-	Name string `json:"name"`
-
-	// Domain affected by the breach
-	Domain string `json:"domain"`
-
-	// URL to the logo of the breached service
-	LogoPath string `json:"logo_path"`
-
-	// Date when the breach occurred
-	BreachDate string `json:"breach_date"`
-
-	// Description of the breach
-	Description string `json:"description"`
-
-	// Whether the breach is verified
-	IsVerified bool `json:"is_verified"`
-
-	// Types of data exposed in the breach
-	DataClasses []string `json:"data_classes"`
-
-	// Number of email addresses affected in the breach
-	BreachEmailsCount int64 `json:"breach_emails_count"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseEmailVerificationsBreaches leniently.
-func (r *SessionsRetrieveDecisionResponseEmailVerificationsBreaches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseEmailVerificationsWarnings is a response
-// object.
-type SessionsRetrieveDecisionResponseEmailVerificationsWarnings struct {
-	// The feature that generated this warning. The value identifies the feature
-	// block the warning belongs to. Each module's warnings array typically uses the
-	// value matching its module (e.g. `PHONE` inside
-	// `phone_verifications[].warnings`), but the enum above is authoritative across
-	// all feature warnings on the decision payload.
-	Feature          SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature `json:"feature"`
-	Risk             string                                                            `json:"risk"`
-	AdditionalData   map[string]any                                                    `json:"additional_data"`
-	LogType          string                                                            `json:"log_type"`
-	ShortDescription string                                                            `json:"short_description"`
-	LongDescription  string                                                            `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseEmailVerificationsWarnings leniently.
-func (r *SessionsRetrieveDecisionResponseEmailVerificationsWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature: The
-// feature that generated this warning. The value identifies the feature block
-// the warning belongs to. Each module's warnings array typically uses the value
-// matching its module (e.g. `PHONE` inside `phone_verifications[].warnings`),
-// but the enum above is authoritative across all feature warnings on the
-// decision payload.
-//
-// SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureIDVerification     SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureNFC                SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureLiveness           SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureFacematch          SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeaturePhone              SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureEmail              SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureAML                SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureLocation           SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponseEmailVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponseEmailVerificationsLifecycle is a response
-// object.
-type SessionsRetrieveDecisionResponseEmailVerificationsLifecycle struct {
-	Type      string    `json:"type"`
-	Timestamp time.Time `json:"timestamp"`
-
-	// Event-specific payload. Send events carry `status`, `reason`; code-check
-	// events carry `code_tried`, `status`; final status events carry `reason` - or
-	// `null` when there is no reason to report (e.g.
-	// `EMAIL_VERIFICATION_APPROVED`).
-	Details SessionsRetrieveDecisionResponseEmailVerificationsLifecycleDetails `json:"details"`
-	Fee     float64                                                            `json:"fee"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseEmailVerificationsLifecycle leniently.
-func (r *SessionsRetrieveDecisionResponseEmailVerificationsLifecycle) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseEmailVerificationsLifecycleDetails:
-// Event-specific payload. Send events carry `status`, `reason`; code-check
-// events carry `code_tried`, `status`; final status events carry `reason` - or
-// `null` when there is no reason to report (e.g.
-// `EMAIL_VERIFICATION_APPROVED`).
-type SessionsRetrieveDecisionResponseEmailVerificationsLifecycleDetails struct {
-	Status    string `json:"status"`
-	Reason    string `json:"reason"`
-	CodeTried string `json:"code_tried"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseEmailVerificationsLifecycleDetails leniently.
-func (r *SessionsRetrieveDecisionResponseEmailVerificationsLifecycleDetails) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseEmailVerificationsMatches is a response
-// object.
-type SessionsRetrieveDecisionResponseEmailVerificationsMatches struct {
-	SessionID        string    `json:"session_id"`
-	SessionNumber    int64     `json:"session_number"`
-	VendorData       string    `json:"vendor_data"`
-	VerificationDate time.Time `json:"verification_date"`
-	Email            string    `json:"email"`
-	Status           string    `json:"status"`
-	IsBlocklisted    bool      `json:"is_blocklisted"`
-	APIService       string    `json:"api_service"`
-
-	// Where this match came from. `session` means another verification session in
-	// your application matched on this value. `list_entry` means the value was hit
-	// against an org-managed list (allowlist/blocklist) - see the management API
-	// lists overview at `/management-api/lists/overview` for how to manage those
-	// lists.
-	Source SessionsRetrieveDecisionResponseEmailVerificationsMatchesSource `json:"source"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseEmailVerificationsMatches leniently.
-func (r *SessionsRetrieveDecisionResponseEmailVerificationsMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseEmailVerificationsMatchesSource: Where this
-// match came from. `session` means another verification session in your
-// application matched on this value. `list_entry` means the value was hit
-// against an org-managed list (allowlist/blocklist) - see the management API
-// lists overview at `/management-api/lists/overview` for how to manage those
-// lists.
-//
-// SessionsRetrieveDecisionResponseEmailVerificationsMatchesSource is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseEmailVerificationsMatchesSource string
-
-// Known values of SessionsRetrieveDecisionResponseEmailVerificationsMatchesSource.
-const (
-	SessionsRetrieveDecisionResponseEmailVerificationsMatchesSourceSession   SessionsRetrieveDecisionResponseEmailVerificationsMatchesSource = "session"
-	SessionsRetrieveDecisionResponseEmailVerificationsMatchesSourceListEntry SessionsRetrieveDecisionResponseEmailVerificationsMatchesSource = "list_entry"
-)
-
-// SessionsRetrieveDecisionResponsePOAVerifications is a response object.
-type SessionsRetrieveDecisionResponsePOAVerifications struct {
-	// Unique identifier for this POA step in the workflow graph.
-	NodeID string `json:"node_id"`
-
-	// Feature-level status of this Proof of Address step. Independent of the
-	// top-level session `status` - a session can reach its overall decision while
-	// an individual feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponsePOAVerificationsStatus `json:"status"`
-
-	// URL of the proof of address document
-	DocumentFile string `json:"document_file"`
-
-	// Two-letter country code of the issuing state
-	IssuingState string `json:"issuing_state"`
-
-	// Type of proof of address document
-	DocumentType string `json:"document_type"`
-
-	// More specific classification of the POA document within its `document_type`,
-	// when one was detected. `null` otherwise.
-	DocumentSubtype string `json:"document_subtype"`
-
-	// Language code of the document
-	DocumentLanguage string `json:"document_language"`
-
-	// File-forensics metadata extracted from the uploaded POA document. Always
-	// contains the keys below (values are `null` when not applicable, e.g. EXIF
-	// dates for PDFs). `null` when no metadata could be extracted.
-	DocumentMetadata SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadata `json:"document_metadata"`
-
-	// Name of the document issuer
-	Issuer string `json:"issuer"`
-
-	// Date when the document was issued
-	IssueDate string `json:"issue_date"`
-
-	// Expiration date of the document, if available
-	ExpirationDate string `json:"expiration_date"`
-
-	// Raw address from the proof of address document
-	POAAddress string `json:"poa_address"`
-
-	// Formatted address from the proof of address document
-	POAFormattedAddress string                                                           `json:"poa_formatted_address"`
-	POAParsedAddress    SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddress `json:"poa_parsed_address"`
-
-	// Account-holder / addressee name extracted from the POA document, used for
-	// name matching. `null` when no name could be extracted.
-	NameOnDocument string `json:"name_on_document"`
-
-	// Similarity score (0-100) between `name_on_document` and the expected name
-	// supplied at session creation. `null` when either side is missing.
-	NameMatchScoreExpectedDetails float64 `json:"name_match_score_expected_details"`
-
-	// Similarity score (0-100) between `name_on_document` and the name extracted by
-	// the ID verification step. `null` when either side is missing.
-	NameMatchScoreIDVerification float64 `json:"name_match_score_id_verification"`
-
-	// Expected raw address for verification
-	ExpectedDetailsAddress string `json:"expected_details_address"`
-
-	// Expected formatted address for verification
-	ExpectedDetailsFormattedAddress string `json:"expected_details_formatted_address"`
-
-	// Expected parsed address details for verification
-	ExpectedDetailsParsedAddress map[string]any `json:"expected_details_parsed_address"`
-
-	// Additional banking and contact details extracted from the document.
-	ExtraFields SessionsRetrieveDecisionResponsePOAVerificationsExtraFields `json:"extra_fields"`
-
-	// Additional proof of address files
-	ExtraFiles []string                                                   `json:"extra_files"`
-	Warnings   []SessionsRetrieveDecisionResponsePOAVerificationsWarnings `json:"warnings"`
-
-	// QR codes and barcodes detected across every processed page of the document.
-	// Empty when none are found. A located but undecodable QR code has
-	// `parsed_payload: null`.
-	DetectedCodes []DocumentAiDetectedCode `json:"detected_codes"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePOAVerifications leniently.
-func (r *SessionsRetrieveDecisionResponsePOAVerifications) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePOAVerificationsStatus: Feature-level status
-// of this Proof of Address step. Independent of the top-level session `status`
-// - a session can reach its overall decision while an individual feature stays
-// `In Review`.
-//
-// SessionsRetrieveDecisionResponsePOAVerificationsStatus is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type SessionsRetrieveDecisionResponsePOAVerificationsStatus string
-
-// Known values of SessionsRetrieveDecisionResponsePOAVerificationsStatus.
-const (
-	SessionsRetrieveDecisionResponsePOAVerificationsStatusNotFinished    SessionsRetrieveDecisionResponsePOAVerificationsStatus = "Not Finished"
-	SessionsRetrieveDecisionResponsePOAVerificationsStatusApproved       SessionsRetrieveDecisionResponsePOAVerificationsStatus = "Approved"
-	SessionsRetrieveDecisionResponsePOAVerificationsStatusDeclined       SessionsRetrieveDecisionResponsePOAVerificationsStatus = "Declined"
-	SessionsRetrieveDecisionResponsePOAVerificationsStatusInReview       SessionsRetrieveDecisionResponsePOAVerificationsStatus = "In Review"
-	SessionsRetrieveDecisionResponsePOAVerificationsStatusResubRequested SessionsRetrieveDecisionResponsePOAVerificationsStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadata:
-// File-forensics metadata extracted from the uploaded POA document. Always
-// contains the keys below (values are `null` when not applicable, e.g. EXIF
-// dates for PDFs). `null` when no metadata could be extracted.
-type SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadata struct {
-	// Size of the document
-	FileSize int64 `json:"file_size"`
-
-	// Content type of the document
-	ContentType string `json:"content_type"`
-
-	// Date when the document was created
-	CreationDate string `json:"creation_date"`
-
-	// Date when the document was modified
-	ModifiedDate string `json:"modified_date"`
-
-	// PDF forensic analysis for suspected overlay-text manipulation. Null when no
-	// overlay manipulation evidence was found or the document was not a PDF.
-	OverlayManipulation SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulation `json:"overlay_manipulation"`
-
-	// Creator application recorded in the document metadata.
-	Creator string `json:"creator"`
-
-	// Producer software recorded in the PDF metadata.
-	Producer string `json:"producer"`
-
-	// Editing/processing software recorded in the file metadata.
-	Software string `json:"software"`
-
-	// Encryption scheme of the document, when encrypted.
-	Encryption string `json:"encryption"`
-
-	// Whether the PDF carries a digital signature.
-	IsSigned bool `json:"is_signed"`
-
-	// Whether signature validation indicates the file was modified after signing.
-	IsTampered bool `json:"is_tampered"`
-
-	// Details of the digital signature(s), when present.
-	SignatureInfo map[string]any `json:"signature_info"`
-
-	// EXIF original capture date, for image uploads.
-	ExifOriginalDate string `json:"exif_original_date"`
-
-	// EXIF digitization date, for image uploads.
-	ExifDigitizedDate string `json:"exif_digitized_date"`
-
-	// Whether the file metadata indicates processing by a known document editor.
-	ProcessedByKnownEditor bool `json:"processed_by_known_editor"`
-
-	// Whether the creation and modification dates differ - a common manipulation
-	// signal.
-	HasDifferentCreationModDate bool `json:"has_different_creation_mod_date"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadata leniently.
-func (r *SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadata) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulation:
-// PDF forensic analysis for suspected overlay-text manipulation. Null when no
-// overlay manipulation evidence was found or the document was not a PDF.
-type SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulation struct {
-	// Whether overlay-text manipulation evidence was detected.
-	Detected bool `json:"detected"`
-
-	// Whether the PDF could be analyzed.
-	Analyzed bool `json:"analyzed"`
-
-	// Forensic signals that fired, such as duplicate_font_subset or
-	// glyph_fragmentation.
-	Signals []string `json:"signals"`
-
-	// Suspected manipulated areas in PDF page coordinates.
-	ManipulatedRegions []SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions `json:"manipulated_regions"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulation leniently.
-func (r *SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions
-// is a response object.
-type SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions struct {
-	Page       int64   `json:"page"`
-	X          float64 `json:"x"`
-	Y          float64 `json:"y"`
-	Width      float64 `json:"width"`
-	Height     float64 `json:"height"`
-	PageWidth  float64 `json:"page_width"`
-	PageHeight float64 `json:"page_height"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions leniently.
-func (r *SessionsRetrieveDecisionResponsePOAVerificationsDocumentMetadataOverlayManipulationManipulatedRegions) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddress is a
-// response object.
-type SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddress struct {
-	// Type of address (Street, Avenue, etc)
-	AddressType string `json:"address_type"`
-
-	// Primary street address
-	Street1 string `json:"street_1"`
-
-	// Secondary street address
-	Street2 string `json:"street_2"`
-
-	// City name
-	City string `json:"city"`
-
-	// Region or state name
-	Region string `json:"region"`
-
-	// Two-letter country code
-	Country string `json:"country"`
-
-	// Postal code
-	PostalCode       string                                                                           `json:"postal_code"`
-	DocumentLocation SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddressDocumentLocation `json:"document_location"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddress leniently.
-func (r *SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddress) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddressDocumentLocation
-// is a response object.
-type SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddressDocumentLocation struct {
-	// Latitude coordinate
-	Latitude float64 `json:"latitude"`
-
-	// Longitude coordinate
-	Longitude float64 `json:"longitude"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddressDocumentLocation leniently.
-func (r *SessionsRetrieveDecisionResponsePOAVerificationsPOAParsedAddressDocumentLocation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePOAVerificationsExtraFields: Additional
-// banking and contact details extracted from the document.
-type SessionsRetrieveDecisionResponsePOAVerificationsExtraFields struct {
-	BankAccountNumber   string   `json:"bank_account_number"`
-	BankIBAN            string   `json:"bank_iban"`
-	BankSortCode        string   `json:"bank_sort_code"`
-	BankRoutingNumber   string   `json:"bank_routing_number"`
-	BankSwiftBIC        string   `json:"bank_swift_bic"`
-	BankBranchName      string   `json:"bank_branch_name"`
-	BankBranchAddress   string   `json:"bank_branch_address"`
-	DocumentPhoneNumber string   `json:"document_phone_number"`
-	AdditionalNames     []string `json:"additional_names"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePOAVerificationsExtraFields leniently.
-func (r *SessionsRetrieveDecisionResponsePOAVerificationsExtraFields) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePOAVerificationsWarnings is a response
-// object.
-type SessionsRetrieveDecisionResponsePOAVerificationsWarnings struct {
-	// The feature that generated this warning. The value identifies the feature
-	// block the warning belongs to. Each module's warnings array typically uses the
-	// value matching its module (e.g. `PHONE` inside
-	// `phone_verifications[].warnings`), but the enum above is authoritative across
-	// all feature warnings on the decision payload.
-	Feature          SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature `json:"feature"`
-	Risk             string                                                          `json:"risk"`
-	AdditionalData   map[string]any                                                  `json:"additional_data"`
-	LogType          string                                                          `json:"log_type"`
-	ShortDescription string                                                          `json:"short_description"`
-	LongDescription  string                                                          `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponsePOAVerificationsWarnings leniently.
-func (r *SessionsRetrieveDecisionResponsePOAVerificationsWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature: The feature
-// that generated this warning. The value identifies the feature block the
-// warning belongs to. Each module's warnings array typically uses the value
-// matching its module (e.g. `PHONE` inside `phone_verifications[].warnings`),
-// but the enum above is authoritative across all feature warnings on the
-// decision payload.
-//
-// SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureIDVerification     SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureNFC                SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureLiveness           SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureFacematch          SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeaturePhone              SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureEmail              SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureAML                SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureLocation           SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponsePOAVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponseDocumentAiDocuments: Document AI results
-// grouped by workflow node.
-type SessionsRetrieveDecisionResponseDocumentAiDocuments struct {
-	// Aggregate Document AI status for this node, rolled up from its `items[]`.
-	Status SessionsRetrieveDecisionResponseDocumentAiDocumentsStatus `json:"status"`
-
-	// Unique identifier for this Document AI step in the workflow graph.
-	NodeID string                                                     `json:"node_id"`
-	Items  []SessionsRetrieveDecisionResponseDocumentAiDocumentsItems `json:"items"`
-
-	// Warning logs raised for this Document AI node.
-	Warnings []map[string]any `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDocumentAiDocuments leniently.
-func (r *SessionsRetrieveDecisionResponseDocumentAiDocuments) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDocumentAiDocumentsStatus: Aggregate Document
-// AI status for this node, rolled up from its `items[]`.
-//
-// SessionsRetrieveDecisionResponseDocumentAiDocumentsStatus is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseDocumentAiDocumentsStatus string
-
-// Known values of SessionsRetrieveDecisionResponseDocumentAiDocumentsStatus.
-const (
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsStatusApproved    SessionsRetrieveDecisionResponseDocumentAiDocumentsStatus = "Approved"
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsStatusDeclined    SessionsRetrieveDecisionResponseDocumentAiDocumentsStatus = "Declined"
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsStatusInReview    SessionsRetrieveDecisionResponseDocumentAiDocumentsStatus = "In Review"
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsStatusNotFinished SessionsRetrieveDecisionResponseDocumentAiDocumentsStatus = "Not Finished"
-)
-
-// SessionsRetrieveDecisionResponseDocumentAiDocumentsItems is a response
-// object.
-type SessionsRetrieveDecisionResponseDocumentAiDocumentsItems struct {
-	UUID string `json:"uuid"`
-
-	// Workflow graph node that produced this document.
-	NodeID string `json:"node_id"`
-
-	// Key of the configured Document AI document this file corresponds to.
-	DocumentKey string `json:"document_key"`
-
-	// Filename as uploaded by the user.
-	OriginalFilename string `json:"original_filename"`
-
-	// File size in bytes.
-	FileSize int64 `json:"file_size"`
-
-	// Short-lived presigned link to the uploaded file.
-	FileURL string `json:"file_url"`
-
-	// Per-document Document AI status.
-	Status SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatus `json:"status"`
-
-	// Values extracted by Document AI, keyed by the configured field `key`. Each
-	// value is a string, number, or `null`.
-	ExtractedData map[string]any `json:"extracted_data"`
-
-	// QR codes and barcodes detected across every processed page. Empty when none
-	// are found. A located but undecodable QR code has `parsed_payload: null`.
-	DetectedCodes []DocumentAiDetectedCode `json:"detected_codes"`
-
-	// The configured extraction fields for this document.
-	Fields []SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFields `json:"fields"`
-
-	// File-forensics metadata extracted from the uploaded document (e.g.
-	// `is_tampered`). `null` when nothing could be extracted.
-	DocumentMetadata map[string]any `json:"document_metadata"`
-
-	// Cross-reference of the extracted document fields against other session data.
-	// `null` when no cross-check was performed.
-	CrossCheckResult map[string]any `json:"cross_check_result"`
-	CreatedAt        time.Time      `json:"created_at"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDocumentAiDocumentsItems leniently.
-func (r *SessionsRetrieveDecisionResponseDocumentAiDocumentsItems) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatus: Per-document
-// Document AI status.
-//
-// SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatus is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatus string
-
-// Known values of SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatus.
-const (
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatusApproved    SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatus = "Approved"
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatusDeclined    SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatus = "Declined"
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatusInReview    SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatus = "In Review"
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatusNotFinished SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsStatus = "Not Finished"
-)
-
-// SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFields is a response
-// object.
-type SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFields struct {
-	// Stable field key used as the key in `extracted_data`.
-	Key string `json:"key"`
-
-	// Human-readable field name.
-	Name string `json:"name"`
-
-	// Extraction instruction shown to the model.
-	Instruction string `json:"instruction"`
-
-	// Expected value type of the extracted field.
-	Type SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsType `json:"type"`
-
-	// Whether this field is required.
-	Required bool `json:"required"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFields leniently.
-func (r *SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFields) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsType: Expected
-// value type of the extracted field.
-//
-// SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsType is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsType string
-
-// Known values of SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsType.
-const (
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsTypeText   SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsType = "text"
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsTypeNumber SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsType = "number"
-	SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsTypeDate   SessionsRetrieveDecisionResponseDocumentAiDocumentsItemsFieldsType = "date"
-)
-
-// SessionsRetrieveDecisionResponseQuestionnaireResponses is a response object.
-type SessionsRetrieveDecisionResponseQuestionnaireResponses struct {
-	// Unique identifier for this questionnaire step in the workflow graph.
-	NodeID string `json:"node_id"`
-
-	// Unique identifier for the questionnaire
-	QuestionnaireID string `json:"questionnaire_id"`
-
-	// Title of the questionnaire
-	Title string `json:"title"`
-
-	// Description of the questionnaire
-	Description string `json:"description"`
-
-	// Supported languages
-	Languages []string `json:"languages"`
-
-	// Default language
-	DefaultLanguage string `json:"default_language"`
-
-	// Whether the questionnaire is active
-	IsActive bool `json:"is_active"`
-
-	// Whether the questionnaire is a simple linear form (no branching graph).
-	IsSimpleQuestionnaire bool `json:"is_simple_questionnaire"`
-
-	// Stable identifier of the questionnaire group across versions.
-	QuestionnaireGroupID string `json:"questionnaire_group_id"`
-
-	// Version number of the questionnaire that was answered.
-	Version int64 `json:"version"`
-
-	// Timestamp at which this questionnaire version was published.
-	PublishedAt time.Time                                                        `json:"published_at"`
-	Sections    []SessionsRetrieveDecisionResponseQuestionnaireResponsesSections `json:"sections"`
-
-	// Status of the questionnaire
-	Status string `json:"status"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseQuestionnaireResponses leniently.
-func (r *SessionsRetrieveDecisionResponseQuestionnaireResponses) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseQuestionnaireResponsesSections is a response
-// object.
-type SessionsRetrieveDecisionResponseQuestionnaireResponsesSections struct {
-	// Section title
-	Title string `json:"title"`
-
-	// Section description
-	Description string                                                                `json:"description"`
-	Items       []SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItems `json:"items"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseQuestionnaireResponsesSections leniently.
-func (r *SessionsRetrieveDecisionResponseQuestionnaireResponsesSections) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItems is a
-// response object.
-type SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItems struct {
-	// Unique identifier for the item
-	UUID string `json:"uuid"`
-
-	// Stable node identifier of this form element within the questionnaire graph.
-	Value string `json:"value"`
-
-	// Type of the questionnaire element
-	ElementType string `json:"element_type"`
-
-	// Whether the item is required
-	IsRequired bool `json:"is_required"`
-
-	// Title of the item
-	Title string `json:"title"`
-
-	// Description of the item
-	Description string `json:"description"`
-
-	// Placeholder text
-	Placeholder string `json:"placeholder"`
-
-	// Choices for dropdown or single choice elements
-	Choices []SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsChoices `json:"choices"`
-
-	// Maximum number of files allowed
-	MaxFiles int64 `json:"max_files"`
-
-	// Answer provided for the item
-	Answer SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsAnswer `json:"answer"`
-
-	// Conditional-requirement rule, when the element is only required for certain
-	// answers.
-	RequiredIf map[string]any `json:"required_if"`
-
-	// Configuration for repeatable element groups, when applicable.
-	RepeatableConfig map[string]any `json:"repeatable_config"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItems leniently.
-func (r *SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItems) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsChoices is
-// a response object.
-type SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsChoices struct {
-	Label string `json:"label"`
-	Value string `json:"value"`
-
-	// Whether this choice requires additional text input
-	RequiresTextInput bool `json:"requires_text_input"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsChoices leniently.
-func (r *SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsChoices) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsAnswer:
-// Answer provided for the item
-type SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsAnswer struct {
-	Value string   `json:"value"`
-	Text  string   `json:"text"`
-	Files []string `json:"files"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsAnswer leniently.
-func (r *SessionsRetrieveDecisionResponseQuestionnaireResponsesSectionsItemsAnswer) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreenings is a response object.
-type SessionsRetrieveDecisionResponseAMLScreenings struct {
-	// Unique identifier for this AML step in the workflow graph.
-	NodeID string `json:"node_id"`
-
-	// Feature-level status of this AML screening. Independent of the top-level
-	// session `status` - a session can reach its overall decision while an
-	// individual feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponseAMLScreeningsStatus `json:"status"`
-
-	// Total number of matches found
-	TotalHits int64 `json:"total_hits"`
-
-	// Type of entity screened: person or company
-	EntityType string                                              `json:"entity_type"`
-	Hits       []SessionsRetrieveDecisionResponseAMLScreeningsHits `json:"hits"`
-
-	// Overall AML screening score - the highest risk score across all hits (float,
-	// 0-100). `null` until computed.
-	Score        float64                                                   `json:"score"`
-	ScreenedData SessionsRetrieveDecisionResponseAMLScreeningsScreenedData `json:"screened_data"`
-
-	// Whether AML ongoing monitoring is enabled for this screening. When `true`,
-	// the entity is re-screened periodically and any new hits update the report.
-	IsOngoingMonitoringEnabled bool `json:"is_ongoing_monitoring_enabled"`
-
-	// Date (YYYY-MM-DD) when this ongoing-monitoring subscription will next be
-	// billed. Computed as the date of the last ongoing-monitoring billing plus 365
-	// days when `is_ongoing_monitoring_enabled = true`; otherwise `null`. This is a
-	// billing date, not a screening date - use `last_ongoing_screening_at` for
-	// that.
-	NextOngoingMonitoringBillDate string `json:"next_ongoing_monitoring_bill_date"`
-
-	// When ongoing monitoring last completed a re-screening of this record, whether
-	// or not the result changed. `null` when the record has never been re-screened;
-	// it is never back-filled from the enablement or billing date.
-	LastOngoingScreeningAt time.Time `json:"last_ongoing_screening_at"`
-
-	// The most recent AML dataset update date the provider reported at the time of
-	// that screening. `null` when the provider reported no dataset dates; never
-	// estimated.
-	LastOngoingScreeningDatasetsUpdatedAt time.Time                                               `json:"last_ongoing_screening_datasets_updated_at"`
-	Warnings                              []SessionsRetrieveDecisionResponseAMLScreeningsWarnings `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreenings leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreenings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsStatus: Feature-level status of
-// this AML screening. Independent of the top-level session `status` - a session
-// can reach its overall decision while an individual feature stays `In Review`.
-//
-// SessionsRetrieveDecisionResponseAMLScreeningsStatus is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type SessionsRetrieveDecisionResponseAMLScreeningsStatus string
-
-// Known values of SessionsRetrieveDecisionResponseAMLScreeningsStatus.
-const (
-	SessionsRetrieveDecisionResponseAMLScreeningsStatusNotFinished    SessionsRetrieveDecisionResponseAMLScreeningsStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseAMLScreeningsStatusApproved       SessionsRetrieveDecisionResponseAMLScreeningsStatus = "Approved"
-	SessionsRetrieveDecisionResponseAMLScreeningsStatusDeclined       SessionsRetrieveDecisionResponseAMLScreeningsStatus = "Declined"
-	SessionsRetrieveDecisionResponseAMLScreeningsStatusInReview       SessionsRetrieveDecisionResponseAMLScreeningsStatus = "In Review"
-	SessionsRetrieveDecisionResponseAMLScreeningsStatusResubRequested SessionsRetrieveDecisionResponseAMLScreeningsStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHits is a response object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHits struct {
-	// Unique identifier of the match
-	ID string `json:"id"`
-
-	// Source URL for the match
-	URL string `json:"url"`
-
-	// Whether this is a confirmed match
-	Match bool `json:"match"`
-
-	// Deprecated weighted match score in the 0-1 range (e.g. `0.73`). Use
-	// `match_score` (0-100) instead.
-	Score float64 `json:"score"`
-
-	// Whether the matched entity is the direct target of the listing (as opposed to
-	// a related party). `null` when the source does not specify it.
-	Target bool `json:"target"`
-
-	// Caption or title of the match
-	Caption string `json:"caption"`
-
-	// List of dataset categories where the match was found. Indicates whether the
-	// entity appeared in PEP lists (with level), sanctions databases, adverse
-	// media, warnings/regulatory enforcement, or other compliance datasets.
-	Datasets []SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets `json:"datasets"`
-
-	// Additional features of the match
-	Features map[string]any `json:"features"`
-
-	// RCA name if applicable
-	RcaName string `json:"rca_name"`
-
-	// Date when match was last seen
-	LastSeen time.Time                                                 `json:"last_seen"`
-	RiskView SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskView `json:"risk_view"`
-
-	// Date when match was first seen
-	FirstSeen  time.Time                                                   `json:"first_seen"`
-	Properties SessionsRetrieveDecisionResponseAMLScreeningsHitsProperties `json:"properties"`
-
-	// Weighted identity confidence score (0-100) calculated from name similarity,
-	// date of birth, and country matching. Used to determine if hit is a False
-	// Positive or Possible Match.
-	MatchScore float64 `json:"match_score"`
-
-	// Entity risk score (0-100). Used to determine final AML status (Approved/In
-	// Review/Declined) based on the highest risk_score among non-False-Positive
-	// hits.
-	RiskScore float64 `json:"risk_score"`
-
-	// Review status for this hit. Can be 'Unreviewed', 'Confirmed Match', 'False
-	// Positive', or 'Inconclusive'.
-	ReviewStatus SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatus `json:"review_status"`
-
-	// Detailed breakdown of how the match_score was calculated.
-	ScoreBreakdown SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdown   `json:"score_breakdown"`
-	PEPMatches     []SessionsRetrieveDecisionResponseAMLScreeningsHitsPEPMatches     `json:"pep_matches"`
-	LinkedEntities []SessionsRetrieveDecisionResponseAMLScreeningsHitsLinkedEntities `json:"linked_entities"`
-
-	// List of warning and regulatory enforcement matches. Includes entries from
-	// categories: Warning, SIP, Warnings and Regulatory Enforcement, Fitness and
-	// Probity, SIE, and Insolvency.
-	WarningMatches []SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatches `json:"warning_matches"`
-
-	// List of sanction list matches found for this entity.
-	SanctionMatches       []SessionsRetrieveDecisionResponseAMLScreeningsHitsSanctionMatches     `json:"sanction_matches"`
-	AdverseMediaDetails   SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaDetails   `json:"adverse_media_details"`
-	AdverseMediaMatches   []SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaMatches `json:"adverse_media_matches"`
-	AdditionalInformation map[string]any                                                         `json:"additional_information"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHits leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHits) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets string
-
-// Known values of SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets.
-const (
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsPEP                              SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "PEP"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsPEPLevel1                        SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "PEP Level 1"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsPEPLevel2                        SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "PEP Level 2"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsPEPLevel3                        SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "PEP Level 3"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsPEPLevel4                        SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "PEP Level 4"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsSanctions                        SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "Sanctions"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsAdverseMedia                     SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "Adverse Media"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsWarningsAndRegulatoryEnforcement SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "Warnings and Regulatory Enforcement"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsFitnessAndProbity                SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "Fitness and Probity"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsSip                              SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "SIP"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsSie                              SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "SIE"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasetsInsolvency                       SessionsRetrieveDecisionResponseAMLScreeningsHitsDatasets = "Insolvency"
-)
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskView is a response
-// object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskView struct {
-	Crimes     SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCrimes     `json:"crimes"`
-	Countries  SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCountries  `json:"countries"`
-	Categories SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCategories `json:"categories"`
-	CustomList map[string]any                                                      `json:"custom_list"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskView leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskView) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCrimes is a response
-// object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCrimes struct {
-	Score      int64          `json:"score"`
-	Weightage  int64          `json:"weightage"`
-	RiskLevel  string         `json:"risk_level"`
-	RiskScores map[string]any `json:"risk_scores"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCrimes leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCrimes) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCountries is a
-// response object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCountries struct {
-	Score      int64          `json:"score"`
-	Weightage  int64          `json:"weightage"`
-	RiskLevel  string         `json:"risk_level"`
-	RiskScores map[string]any `json:"risk_scores"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCountries leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCountries) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCategories is a
-// response object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCategories struct {
-	Score      int64          `json:"score"`
-	Weightage  int64          `json:"weightage"`
-	RiskLevel  string         `json:"risk_level"`
-	RiskScores map[string]any `json:"risk_scores"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCategories leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsRiskViewCategories) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsProperties is a response
-// object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsProperties struct {
-	Name        []string `json:"name"`
-	Alias       []string `json:"alias"`
-	Notes       []string `json:"notes"`
-	Title       string   `json:"title"`
-	Gender      []string `json:"gender"`
-	Height      string   `json:"height"`
-	Topics      string   `json:"topics"`
-	Weight      string   `json:"weight"`
-	Address     string   `json:"address"`
-	Country     string   `json:"country"`
-	Website     string   `json:"website"`
-	EyeColor    string   `json:"eyeColor"`
-	Keywords    string   `json:"keywords"`
-	LastName    []string `json:"lastName"`
-	Position    string   `json:"position"`
-	Religion    string   `json:"religion"`
-	BirthDate   []string `json:"birthDate"`
-	Education   []string `json:"education"`
-	Ethnicity   string   `json:"ethnicity"`
-	FirstName   []string `json:"firstName"`
-	HairColor   string   `json:"hairColor"`
-	WeakAlias   string   `json:"weakAlias"`
-	BirthPlace  []string `json:"birthPlace"`
-	ModifiedAt  string   `json:"modifiedAt"`
-	WikidataID  string   `json:"wikidataId"`
-	Citizenship string   `json:"citizenship"`
-	Nationality string   `json:"nationality"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsProperties leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsProperties) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatus: Review status
-// for this hit. Can be 'Unreviewed', 'Confirmed Match', 'False Positive', or
-// 'Inconclusive'.
-//
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatus is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatus string
-
-// Known values of SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatus.
-const (
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatusUnreviewed     SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatus = "Unreviewed"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatusConfirmedMatch SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatus = "Confirmed Match"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatusFalsePositive  SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatus = "False Positive"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatusInconclusive   SessionsRetrieveDecisionResponseAMLScreeningsHitsReviewStatus = "Inconclusive"
-)
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdown: Detailed
-// breakdown of how the match_score was calculated.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdown struct {
-	// Raw name similarity percentage (0-100).
-	NameScore int64 `json:"name_score"`
-
-	// Original weight for name from config (0-100).
-	NameWeight int64 `json:"name_weight"`
-
-	// Normalized weight for name after re-weighting for missing data (0-100).
-	NameWeightNormalized float64 `json:"name_weight_normalized"`
-
-	// Points contributed by name to the total score.
-	NameContribution float64 `json:"name_contribution"`
-
-	// DOB match score (-100 to 100).
-	DOBScore int64 `json:"dob_score"`
-
-	// Original weight for DOB from config (0-100).
-	DOBWeight int64 `json:"dob_weight"`
-
-	// Normalized weight for DOB after re-weighting for missing data (0-100).
-	DOBWeightNormalized float64 `json:"dob_weight_normalized"`
-
-	// Points contributed by DOB to the total score.
-	DOBContribution float64 `json:"dob_contribution"`
-
-	// Country match score (-100 to 100).
-	CountryScore int64 `json:"country_score"`
-
-	// Original weight for country from config (0-100).
-	CountryWeight int64 `json:"country_weight"`
-
-	// Normalized weight for country after re-weighting for missing data (0-100).
-	CountryWeightNormalized float64 `json:"country_weight_normalized"`
-
-	// Points contributed by country to the total score.
-	CountryContribution float64 `json:"country_contribution"`
-
-	// Result of document number 'Golden Key' evaluation.
-	DocumentNumberMatchType SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchType `json:"document_number_match_type"`
-
-	// Human-readable description of the document number effect on the score.
-	DocumentNumberEffect string `json:"document_number_effect"`
-
-	// Final weighted match score (0-100).
-	TotalScore int64 `json:"total_score"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdown leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdown) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchType:
-// Result of document number 'Golden Key' evaluation.
-//
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchType
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchType string
-
-// Known values of SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchType.
-const (
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchTypeMatch        SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchType = "MATCH"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchTypeNeutral      SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchType = "NEUTRAL"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchTypeHardMismatch SessionsRetrieveDecisionResponseAMLScreeningsHitsScoreBreakdownDocumentNumberMatchType = "HARD_MISMATCH"
-)
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsPEPMatches is a response
-// object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsPEPMatches struct {
-	Aliases      []string `json:"aliases"`
-	Education    []string `json:"education"`
-	ListName     string   `json:"list_name"`
-	Publisher    string   `json:"publisher"`
-	SourceURL    string   `json:"source_url"`
-	Description  string   `json:"description"`
-	MatchedName  string   `json:"matched_name"`
-	PEPPosition  string   `json:"pep_position"`
-	DateOfBirth  string   `json:"date_of_birth"`
-	OtherSources []string `json:"other_sources"`
-	PlaceOfBirth string   `json:"place_of_birth"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsPEPMatches leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsPEPMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsLinkedEntities is a response
-// object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsLinkedEntities struct {
-	Name     []string `json:"name"`
-	Active   []string `json:"active"`
-	Status   []string `json:"status"`
-	Details  []string `json:"details"`
-	Relation []string `json:"relation"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsLinkedEntities leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsLinkedEntities) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatches is a response
-// object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatches struct {
-	// Name of the warning list publisher
-	ListName string `json:"list_name"`
-
-	// Name matched in the warning list
-	MatchedName string `json:"matched_name"`
-
-	// Description of the warning entry
-	Description string `json:"description"`
-
-	// Publisher or source of the warning
-	Publisher string `json:"publisher"`
-
-	// URL to the source of the warning
-	SourceURL string `json:"source_url"`
-
-	// Additional source URLs
-	OtherSources []string `json:"other_sources"`
-
-	// Countries associated with the warning
-	Countries []string `json:"countries"`
-
-	// Date the warning entry was created
-	CreatedAt string `json:"created_at"`
-
-	// Date the warning entry was last updated
-	UpdatedAt string `json:"updated_at"`
-
-	// Additional data from the warning source. May contain a `data` object with
-	// `case_details` array.
-	AdditionalData SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalData `json:"additional_data"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatches leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalData:
-// Additional data from the warning source. May contain a `data` object with
-// `case_details` array.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalData struct {
-	Data SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataData `json:"data"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalData leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalData) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataData
-// is a response object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataData struct {
-	// Details of warning cases associated with this match
-	CaseDetails []SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetails `json:"case_details"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataData leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataData) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetails
-// is a response object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetails struct {
-	// Type of the warning case
-	CaseType SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType `json:"case_type"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetails leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetails) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType:
-// Type of the warning case
-//
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType string
-
-// Known values of SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType.
-const (
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeAccusation              SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Accusation"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeArrest                  SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Arrest"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeBribery                 SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Bribery"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeCriminal                SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Criminal"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeFraud                   SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Fraud"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeIllegalFundraising      SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Illegal Fundraising"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeNonConvictionTerror     SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Non-conviction Terror"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeProclaimedOffender      SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Proclaimed Offender"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeRegulatoryEnforcement   SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Regulatory Enforcement"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeTerrorism               SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Terrorism"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeTerrorismRelated        SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Terrorism-related"
-	SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseTypeTerrorismRelatedListing SessionsRetrieveDecisionResponseAMLScreeningsHitsWarningMatchesAdditionalDataDataCaseDetailsCaseType = "Terrorism-related listing"
-)
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsSanctionMatches is a
-// response object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsSanctionMatches struct {
-	// Name(s) of the sanction list(s)
-	ListName []string `json:"list_name"`
-
-	// Name matched in the sanction list
-	MatchedName string `json:"matched_name"`
-
-	// Description of the sanction entry
-	Description string `json:"description"`
-
-	// Free-text reason why the entity was sanctioned. Joined from the sanction
-	// list's reason entries. Examples: 'Executive Order 13224 (Terrorism)',
-	// 'Support for actions undermining Ukraine's sovereignty', 'Listed due to
-	// national security concerns.'
-	Reason string `json:"reason"`
-
-	// URL to the source of the sanction
-	SourceURL string `json:"source_url"`
-
-	// Additional source URLs
-	OtherSources []string `json:"other_sources"`
-
-	// Additional details about the sanction
-	Details []string `json:"details"`
-
-	// Legal basis for the sanction
-	LegalBasis []string `json:"legal_basis"`
-
-	// Date(s) when the entity was listed
-	ListedOn []string `json:"listed_on"`
-
-	// Sanction list identifier(s)
-	SanctionList []string `json:"sanction_list"`
-
-	// Sanction program(s) the entity is listed under
-	SanctionProgram []string `json:"sanction_program"`
-
-	// Authority/authorities that imposed the sanction
-	SanctioningAuthority []string `json:"sanctioning_authority"`
-
-	// Date(s) when the sanction entry was last updated
-	UpdatedOn []string `json:"updated_on"`
-
-	// Additional data from the sanction source not captured in the main fields
-	AdditionalData map[string]any `json:"additional_data"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsSanctionMatches leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsSanctionMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaDetails is a
-// response object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaDetails struct {
-	Sentiment       string           `json:"sentiment"`
-	EntityType      string           `json:"entity_type"`
-	SentimentScore  int64            `json:"sentiment_score"`
-	AdverseKeywords map[string]int64 `json:"adverse_keywords"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaDetails leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaDetails) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaMatches is a
-// response object.
-type SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaMatches struct {
-	Country         string    `json:"country"`
-	Summary         string    `json:"summary"`
-	Headline        string    `json:"headline"`
-	Sentiment       string    `json:"sentiment"`
-	Thumbnail       string    `json:"thumbnail"`
-	SourceURL       string    `json:"source_url"`
-	AuthorName      string    `json:"author_name"`
-	OtherSources    []string  `json:"other_sources"`
-	AdverseKeywords []string  `json:"adverse_keywords"`
-	SentimentScore  int64     `json:"sentiment_score"`
-	PublicationDate time.Time `json:"publication_date"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaMatches leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsHitsAdverseMediaMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsScreenedData is a response
-// object.
-type SessionsRetrieveDecisionResponseAMLScreeningsScreenedData struct {
-	FullName       string `json:"full_name"`
-	Nationality    string `json:"nationality"`
-	DateOfBirth    string `json:"date_of_birth"`
-	DocumentNumber string `json:"document_number"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsScreenedData leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsScreenedData) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsWarnings is a response object.
-type SessionsRetrieveDecisionResponseAMLScreeningsWarnings struct {
-	// The feature that generated this warning. The value identifies the feature
-	// block the warning belongs to. Within an AML screening this is typically
-	// `AML`, but the enum above is authoritative across all feature warnings on the
-	// decision payload.
-	Feature          SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature `json:"feature"`
-	Risk             string                                                       `json:"risk"`
-	AdditionalData   map[string]any                                               `json:"additional_data"`
-	LogType          string                                                       `json:"log_type"`
-	ShortDescription string                                                       `json:"short_description"`
-	LongDescription  string                                                       `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseAMLScreeningsWarnings leniently.
-func (r *SessionsRetrieveDecisionResponseAMLScreeningsWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature: The feature
-// that generated this warning. The value identifies the feature block the
-// warning belongs to. Within an AML screening this is typically `AML`, but the
-// enum above is authoritative across all feature warnings on the decision
-// payload.
-//
-// SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureIDVerification     SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureNFC                SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureLiveness           SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureFacematch          SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeaturePhone              SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureEmail              SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureAML                SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureLocation           SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponseAMLScreeningsWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponseIPAnalyses is a response object.
-type SessionsRetrieveDecisionResponseIPAnalyses struct {
-	// Unique identifier for this Device & IP Analysis step in the workflow graph.
-	NodeID string `json:"node_id"`
-
-	// Feature-level status of this Device & IP Analysis entry. Independent of the
-	// top-level session `status` - a session can reach its overall decision while
-	// an individual feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponseIPAnalysesStatus `json:"status"`
-
-	// Brand of the device used
-	DeviceBrand string `json:"device_brand"`
-
-	// Model of the device used
-	DeviceModel string `json:"device_model"`
-
-	// Browser family used
-	BrowserFamily string `json:"browser_family"`
-
-	// Operating system family
-	OsFamily string `json:"os_family"`
-
-	// Platform type (mobile, desktop, etc)
-	Platform string `json:"platform"`
-
-	// Unique device fingerprint identifier
-	DeviceFingerprint string `json:"device_fingerprint"`
-
-	// Country detected from IP
-	IPCountry string `json:"ip_country"`
-
-	// Two-letter country code from IP
-	IPCountryCode string `json:"ip_country_code"`
-
-	// State/region detected from IP
-	IPState string `json:"ip_state"`
-
-	// City detected from IP
-	IPCity string `json:"ip_city"`
-
-	// Latitude coordinate of IP location
-	Latitude float64 `json:"latitude"`
-
-	// Longitude coordinate of IP location
-	Longitude float64 `json:"longitude"`
-
-	// IP address
-	IPAddress string `json:"ip_address"`
-
-	// Internet Service Provider
-	Isp string `json:"isp"`
-
-	// Organization associated with IP
-	Organization string `json:"organization"`
-
-	// Whether IP is from VPN or Tor network
-	IsVpnOrTor bool `json:"is_vpn_or_tor"`
-
-	// Whether IP is from a data center
-	IsDataCenter bool `json:"is_data_center"`
-
-	// Time zone detected from IP
-	TimeZone string `json:"time_zone"`
-
-	// Time zone offset
-	TimeZoneOffset string `json:"time_zone_offset"`
-
-	// IP geolocation of this entry plus great-circle distances (km) to the ID
-	// document address and the POA document address. Distances are `null` when
-	// either side has no resolvable location.
-	IP SessionsRetrieveDecisionResponseIPAnalysesIP `json:"ip"`
-
-	// Location extracted from the ID document address plus distances (km) to the IP
-	// geolocation and the POA document address. `location` is `null` when no
-	// document address could be geocoded.
-	IDDocument SessionsRetrieveDecisionResponseIPAnalysesIDDocument `json:"id_document"`
-
-	// Location extracted from the Proof of Address document plus distances (km) to
-	// the IP geolocation and the ID document address. `location` is `null` when the
-	// session has no POA step or the address could not be geocoded.
-	POADocument SessionsRetrieveDecisionResponseIPAnalysesPOADocument `json:"poa_document"`
-	Warnings    []SessionsRetrieveDecisionResponseIPAnalysesWarnings  `json:"warnings"`
-
-	// Cross-session matches found for this entry's IP address or device identity.
-	// Every match is another verification session in your application (`source` is
-	// always `session`) that shares the same value, always belonging to a different
-	// vendor user / `vendor_data` than the current session, capped at 5 per
-	// collector (`device_fingerprint` sums two independently capped collectors, so
-	// up to 10 entries are possible). Every item carries `match_source`,
-	// `confidence`, `match_mode`, `device_info` and `location_info`; the keys
-	// `recovery_similarity`, `tls_ja4_corroborated` and `recovery_gate_reason` are
-	// present only when `match_source` is `recovered_high`.
-	Matches []SessionsRetrieveDecisionResponseIPAnalysesMatches `json:"matches"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalyses leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalyses) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesStatus: Feature-level status of
-// this Device & IP Analysis entry. Independent of the top-level session
-// `status` - a session can reach its overall decision while an individual
-// feature stays `In Review`.
-//
-// SessionsRetrieveDecisionResponseIPAnalysesStatus is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type SessionsRetrieveDecisionResponseIPAnalysesStatus string
-
-// Known values of SessionsRetrieveDecisionResponseIPAnalysesStatus.
-const (
-	SessionsRetrieveDecisionResponseIPAnalysesStatusNotFinished    SessionsRetrieveDecisionResponseIPAnalysesStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseIPAnalysesStatusApproved       SessionsRetrieveDecisionResponseIPAnalysesStatus = "Approved"
-	SessionsRetrieveDecisionResponseIPAnalysesStatusDeclined       SessionsRetrieveDecisionResponseIPAnalysesStatus = "Declined"
-	SessionsRetrieveDecisionResponseIPAnalysesStatusInReview       SessionsRetrieveDecisionResponseIPAnalysesStatus = "In Review"
-	SessionsRetrieveDecisionResponseIPAnalysesStatusResubRequested SessionsRetrieveDecisionResponseIPAnalysesStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseIPAnalysesIP: IP geolocation of this entry
-// plus great-circle distances (km) to the ID document address and the POA
-// document address. Distances are `null` when either side has no resolvable
-// location.
-type SessionsRetrieveDecisionResponseIPAnalysesIP struct {
-	// Coordinates, or `null` when unavailable.
-	Location                SessionsRetrieveDecisionResponseIPAnalysesIPLocation `json:"location"`
-	DistanceFromIDDocument  float64                                              `json:"distance_from_id_document"`
-	DistanceFromPOADocument float64                                              `json:"distance_from_poa_document"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesIP leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesIP) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesIPLocation: Coordinates, or `null`
-// when unavailable.
-type SessionsRetrieveDecisionResponseIPAnalysesIPLocation struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesIPLocation leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesIPLocation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesIDDocument: Location extracted from
-// the ID document address plus distances (km) to the IP geolocation and the POA
-// document address. `location` is `null` when no document address could be
-// geocoded.
-type SessionsRetrieveDecisionResponseIPAnalysesIDDocument struct {
-	// Coordinates, or `null` when unavailable.
-	Location                SessionsRetrieveDecisionResponseIPAnalysesIDDocumentLocation `json:"location"`
-	DistanceFromIP          float64                                                      `json:"distance_from_ip"`
-	DistanceFromPOADocument float64                                                      `json:"distance_from_poa_document"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesIDDocument leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesIDDocument) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesIDDocumentLocation: Coordinates, or
-// `null` when unavailable.
-type SessionsRetrieveDecisionResponseIPAnalysesIDDocumentLocation struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesIDDocumentLocation leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesIDDocumentLocation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesPOADocument: Location extracted
-// from the Proof of Address document plus distances (km) to the IP geolocation
-// and the ID document address. `location` is `null` when the session has no POA
-// step or the address could not be geocoded.
-type SessionsRetrieveDecisionResponseIPAnalysesPOADocument struct {
-	// Coordinates, or `null` when unavailable.
-	Location               SessionsRetrieveDecisionResponseIPAnalysesPOADocumentLocation `json:"location"`
-	DistanceFromIP         float64                                                       `json:"distance_from_ip"`
-	DistanceFromIDDocument float64                                                       `json:"distance_from_id_document"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesPOADocument leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesPOADocument) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesPOADocumentLocation: Coordinates,
-// or `null` when unavailable.
-type SessionsRetrieveDecisionResponseIPAnalysesPOADocumentLocation struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesPOADocumentLocation leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesPOADocumentLocation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesWarnings is a response object.
-type SessionsRetrieveDecisionResponseIPAnalysesWarnings struct {
-	// The feature that generated this warning. The value identifies the feature
-	// block the warning belongs to. Each module's warnings array typically uses the
-	// value matching its module (e.g. `PHONE` inside
-	// `phone_verifications[].warnings`), but the enum above is authoritative across
-	// all feature warnings on the decision payload.
-	Feature          SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature `json:"feature"`
-	Risk             string                                                    `json:"risk"`
-	AdditionalData   map[string]any                                            `json:"additional_data"`
-	LogType          string                                                    `json:"log_type"`
-	ShortDescription string                                                    `json:"short_description"`
-	LongDescription  string                                                    `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesWarnings leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature: The feature that
-// generated this warning. The value identifies the feature block the warning
-// belongs to. Each module's warnings array typically uses the value matching
-// its module (e.g. `PHONE` inside `phone_verifications[].warnings`), but the
-// enum above is authoritative across all feature warnings on the decision
-// payload.
-//
-// SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureIDVerification     SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureNFC                SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureLiveness           SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureFacematch          SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeaturePhone              SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureEmail              SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureAML                SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureLocation           SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponseIPAnalysesWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponseIPAnalysesWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponseIPAnalysesMatches is a response object.
-type SessionsRetrieveDecisionResponseIPAnalysesMatches struct {
-	// Session ID of the matching session.
-	SessionID string `json:"session_id"`
-
-	// Sequential number of the matching session.
-	SessionNumber int64 `json:"session_number"`
-
-	// `vendor_data` of the matching session - always different from the current
-	// session's vendor user.
-	VendorData string `json:"vendor_data"`
-
-	// Creation date of the matching session (`YYYY-MM-DDTHH:MM:SSZ`).
-	VerificationDate time.Time `json:"verification_date"`
-
-	// Whether the match was on IP address or device fingerprint
-	MatchType SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchType `json:"match_type"`
-
-	// How this match was reached: `ip_address` (shared IP address - network
-	// co-location, not a device-identity claim), `persistent_id` (exact stored
-	// persistent device identifier), `legacy_fp` (legacy `didit-fp-*`
-	// device-fingerprint hash), or `recovered_high` (high-confidence fuzzy
-	// fingerprint-recovery hit). Lower-confidence recovery candidates surface as
-	// risk warnings only, never in this array.
-	MatchSource SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSource `json:"match_source"`
-
-	// The value that matched: the shared IP address, the persistent device
-	// identifier or legacy fingerprint hash, or - for `recovered_high` - the UUID
-	// of the recovered device.
-	MatchedValue string `json:"matched_value"`
-
-	// Lifecycle status of the matching session.
-	Status string `json:"status"`
-
-	// Whether the matched value is on a blocklist. Currently always `false` for
-	// device/IP matches.
-	IsBlocklisted bool `json:"is_blocklisted"`
-
-	// Standalone API service of the matching session; `null` for workflow sessions.
-	APIService string `json:"api_service"`
-
-	// Always `session` for device/IP matches - every match is another verification
-	// session in your application.
-	Source SessionsRetrieveDecisionResponseIPAnalysesMatchesSource `json:"source"`
-
-	// Device details observed on the matching session.
-	DeviceInfo SessionsRetrieveDecisionResponseIPAnalysesMatchesDeviceInfo `json:"device_info"`
-
-	// Network and geolocation details observed on the matching session.
-	LocationInfo SessionsRetrieveDecisionResponseIPAnalysesMatchesLocationInfo `json:"location_info"`
-
-	// Server-side identification confidence, computed as `1 - P(false positive)`:
-	// `1.0` for deterministic matches (`persistent_id`, or hardware-rooted
-	// `recovered_high`), `0.5` for `legacy_fp`, `0.0` for `ip_address` (co-location
-	// only), and a corroboration-adjusted value below `1.0` for probabilistic
-	// recovered matches (higher when the TLS JA4 fingerprint and IP country
-	// independently agree).
-	Confidence float64 `json:"confidence"`
-
-	// Evidence class of the match: `deterministic` (exact stored or hardware-rooted
-	// identifier that cannot collide between physical devices), `probabilistic`
-	// (fuzzy fingerprint evidence), or `co_occurrence` (shared network only, no
-	// device-identity claim).
-	MatchMode SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchMode `json:"match_mode"`
-
-	// Cosine similarity of the fingerprint-recovery match, rounded to 4 decimals.
-	// Present only when `match_source` is `recovered_high`.
-	RecoverySimilarity float64 `json:"recovery_similarity"`
-
-	// Whether the TLS JA4 fingerprints of the two observations agree - a
-	// server-observed signal the browser cannot spoof. Present only when
-	// `match_source` is `recovered_high`.
-	TLSJa4Corroborated bool `json:"tls_ja4_corroborated"`
-
-	// Why the recovery match passed the false-positive hard gate:
-	// `hardware_root_match` (a hardware-rooted device identifier matched exactly)
-	// or, on configurations that admit probe-only evidence,
-	// `exact_composite_plus_<n>_families` /
-	// `very_high_similarity_plus_<n>_families`. Present only when `match_source` is
-	// `recovered_high`.
-	RecoveryGateReason string `json:"recovery_gate_reason"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesMatches leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesMatches) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchType: Whether the match
-// was on IP address or device fingerprint
-//
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchType is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchType string
-
-// Known values of SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchType.
-const (
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchTypeIPAddress         SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchType = "ip_address"
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchTypeDeviceFingerprint SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchType = "device_fingerprint"
-)
-
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSource: How this match
-// was reached: `ip_address` (shared IP address - network co-location, not a
-// device-identity claim), `persistent_id` (exact stored persistent device
-// identifier), `legacy_fp` (legacy `didit-fp-*` device-fingerprint hash), or
-// `recovered_high` (high-confidence fuzzy fingerprint-recovery hit).
-// Lower-confidence recovery candidates surface as risk warnings only, never in
-// this array.
-//
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSource is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSource string
-
-// Known values of SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSource.
-const (
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSourceIPAddress     SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSource = "ip_address"
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSourcePersistentID  SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSource = "persistent_id"
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSourceLegacyFp      SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSource = "legacy_fp"
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSourceRecoveredHigh SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchSource = "recovered_high"
-)
-
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesSource: Always `session` for
-// device/IP matches - every match is another verification session in your
-// application.
-//
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesSource is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseIPAnalysesMatchesSource string
-
-// Known values of SessionsRetrieveDecisionResponseIPAnalysesMatchesSource.
-const (
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesSourceSession SessionsRetrieveDecisionResponseIPAnalysesMatchesSource = "session"
-)
-
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesDeviceInfo: Device details
-// observed on the matching session.
-type SessionsRetrieveDecisionResponseIPAnalysesMatchesDeviceInfo struct {
-	DeviceBrand       string `json:"device_brand"`
-	DeviceModel       string `json:"device_model"`
-	BrowserFamily     string `json:"browser_family"`
-	OsFamily          string `json:"os_family"`
-	Platform          string `json:"platform"`
-	DeviceFingerprint string `json:"device_fingerprint"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesMatchesDeviceInfo leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesMatchesDeviceInfo) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesLocationInfo: Network and
-// geolocation details observed on the matching session.
-type SessionsRetrieveDecisionResponseIPAnalysesMatchesLocationInfo struct {
-	IPAddress     string `json:"ip_address"`
-	IPCountry     string `json:"ip_country"`
-	IPCountryCode string `json:"ip_country_code"`
-	IPState       string `json:"ip_state"`
-	IPCity        string `json:"ip_city"`
-	IsVpnOrTor    bool   `json:"is_vpn_or_tor"`
-	IsDataCenter  bool   `json:"is_data_center"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseIPAnalysesMatchesLocationInfo leniently.
-func (r *SessionsRetrieveDecisionResponseIPAnalysesMatchesLocationInfo) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchMode: Evidence class of
-// the match: `deterministic` (exact stored or hardware-rooted identifier that
-// cannot collide between physical devices), `probabilistic` (fuzzy fingerprint
-// evidence), or `co_occurrence` (shared network only, no device-identity
-// claim).
-//
-// SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchMode is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchMode string
-
-// Known values of SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchMode.
-const (
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchModeDeterministic SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchMode = "deterministic"
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchModeProbabilistic SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchMode = "probabilistic"
-	SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchModeCoOccurrence  SessionsRetrieveDecisionResponseIPAnalysesMatchesMatchMode = "co_occurrence"
-)
-
-// SessionsRetrieveDecisionResponseDatabaseValidations is a response object.
-type SessionsRetrieveDecisionResponseDatabaseValidations struct {
-	// Unique identifier for this database validation step in the workflow graph.
-	NodeID string `json:"node_id"`
-
-	// ISO 3166-1 alpha-3 code of the country whose government/registry sources were
-	// queried (e.g. `BRA`, `MEX`, `ESP`, `NGA`, `IDN`). Database Validation covers
-	// 60+ countries across the Americas, Europe, Africa, the Middle East and
-	// Asia-Pacific, plus global multi-country sources - coverage expands regularly,
-	// so treat the value as an open set rather than a fixed enum.
-	IssuingState string `json:"issuing_state"`
-
-	// How the result was corroborated: `one_by_one` (single-service outcome),
-	// `two_by_two` (two or more distinct services independently full-matched the
-	// identification number), or `not_enabled` (persisted when no service produced
-	// a usable match). The value is never `null`. Dedicated biometric 2x2
-	// validation modes are currently available for `ECU` and `PER`.
-	ValidationType SessionsRetrieveDecisionResponseDatabaseValidationsValidationType `json:"validation_type"`
-
-	// The input data used for validation. Fields vary by country - see the Database
-	// Validation docs (`/core-technology/database-validation/overview`) for
-	// country-specific formats.
-	ScreenedData SessionsRetrieveDecisionResponseDatabaseValidationsScreenedData `json:"screened_data"`
-
-	// One entry per registry service that returned a validation payload. Each entry
-	// identifies the service (`service_id`, `service_name`) and carries the
-	// per-field `validation` comparison, the service `outcome_code` /
-	// `outcome_detail` when reported, and the normalised registry record in
-	// `source_data`.
-	Validations []SessionsRetrieveDecisionResponseDatabaseValidationsValidations `json:"validations"`
-
-	// Errors returned by registry services while validating, each tagged with the
-	// `service_id` that produced it. **This key is omitted entirely when there are
-	// no errors.**
-	Errors []SessionsRetrieveDecisionResponseDatabaseValidationsErrors `json:"errors"`
-
-	// The aggregate match outcome across the queried services. `null` until the
-	// validation has been evaluated.
-	MatchType SessionsRetrieveDecisionResponseDatabaseValidationsMatchType `json:"match_type"`
-
-	// Feature-level status of this database validation. Independent of the
-	// top-level session `status` - a session can reach its overall decision while
-	// an individual feature stays `In Review`.
-	Status SessionsRetrieveDecisionResponseDatabaseValidationsStatus `json:"status"`
-
-	// Warnings related to the database validation.
-	Warnings []SessionsRetrieveDecisionResponseDatabaseValidationsWarnings `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDatabaseValidations leniently.
-func (r *SessionsRetrieveDecisionResponseDatabaseValidations) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDatabaseValidationsValidationType: How the
-// result was corroborated: `one_by_one` (single-service outcome), `two_by_two`
-// (two or more distinct services independently full-matched the identification
-// number), or `not_enabled` (persisted when no service produced a usable
-// match). The value is never `null`. Dedicated biometric 2x2 validation modes
-// are currently available for `ECU` and `PER`.
-//
-// SessionsRetrieveDecisionResponseDatabaseValidationsValidationType is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseDatabaseValidationsValidationType string
-
-// Known values of SessionsRetrieveDecisionResponseDatabaseValidationsValidationType.
-const (
-	SessionsRetrieveDecisionResponseDatabaseValidationsValidationTypeOneByOne   SessionsRetrieveDecisionResponseDatabaseValidationsValidationType = "one_by_one"
-	SessionsRetrieveDecisionResponseDatabaseValidationsValidationTypeTwoByTwo   SessionsRetrieveDecisionResponseDatabaseValidationsValidationType = "two_by_two"
-	SessionsRetrieveDecisionResponseDatabaseValidationsValidationTypeNotEnabled SessionsRetrieveDecisionResponseDatabaseValidationsValidationType = "not_enabled"
-)
-
-// SessionsRetrieveDecisionResponseDatabaseValidationsScreenedData: The input
-// data used for validation. Fields vary by country - see the Database
-// Validation docs (`/core-technology/database-validation/overview`) for
-// country-specific formats.
-type SessionsRetrieveDecisionResponseDatabaseValidationsScreenedData struct {
-	LastName  string `json:"last_name"`
-	FirstName string `json:"first_name"`
-
-	// Brazil: CPF (11 digits)
-	TaxNumber string `json:"tax_number"`
-
-	// Chile: RUT, DOM: Cédula (11 digits), ECU: Cédula (10 digits), ESP: DNI/NIE,
-	// MEX: CURP (18 chars), PER: DNI (8 digits), URY: CI
-	PersonalNumber string `json:"personal_number"`
-
-	// ARG: DNI, BOL: CI, COL: Cédula, GTM: DPI, HND: DNI, PAN: Cédula, PRY: CI,
-	// SLV: DUI, VEN: Cédula
-	DocumentNumber string `json:"document_number"`
-	DateOfBirth    string `json:"date_of_birth"`
-
-	// COL: CC/CE/TI/NIT, ESP: ID/PASSPORT
-	DocumentType string `json:"document_type"`
-
-	// Required for ESP
-	ExpirationDate string `json:"expiration_date"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDatabaseValidationsScreenedData leniently.
-func (r *SessionsRetrieveDecisionResponseDatabaseValidationsScreenedData) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDatabaseValidationsValidations is a response
-// object.
-type SessionsRetrieveDecisionResponseDatabaseValidationsValidations struct {
-	// Identifier of the registry service that produced this validation result.
-	ServiceID string `json:"service_id"`
-
-	// Human-readable name of the registry service.
-	ServiceName string `json:"service_name"`
-
-	// The results of the field validations.
-	Validation SessionsRetrieveDecisionResponseDatabaseValidationsValidationsValidation `json:"validation"`
-
-	// Machine-readable outcome of the registry lookup (e.g. `MATCH`, `NO_MATCH`,
-	// `PARTIAL_MATCH`, `INCONCLUSIVE`, source-specific codes). Present when the
-	// service reports one.
-	OutcomeCode string `json:"outcome_code"`
-
-	// Human-readable explanation of `outcome_code`, when provided by the service.
-	OutcomeDetail string `json:"outcome_detail"`
-
-	// The data returned from the government database. Common fields:
-	// identification_number, first_name, last_name, full_name, date_of_birth,
-	// gender. Additional fields by country: BRA always includes lgpd_minor,
-	// minor_under_18, and minor_under_16 on successful CPF matches; it also
-	// includes the upstream HTTP status when CPF data is withheld under LGPD (HTTP
-	// 422/451). ECU adds street, formatted_address, nationality, education,
-	// marital_status, spouse, mother_name, father_name, profession. PER adds
-	// paternal_name, maternal_name, verification_number, verification_letter. ESP
-	// adds document_type, expiration_date. VEN/COL add document_type.
-	SourceData map[string]any `json:"source_data"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDatabaseValidationsValidations leniently.
-func (r *SessionsRetrieveDecisionResponseDatabaseValidationsValidations) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDatabaseValidationsValidationsValidation: The
-// results of the field validations.
-type SessionsRetrieveDecisionResponseDatabaseValidationsValidationsValidation struct {
-	// Match result for full name (e.g., 'full_match', 'partial_match', 'no_match').
-	FullName string `json:"full_name"`
-
-	// Match result for date of birth.
-	DateOfBirth string `json:"date_of_birth"`
-
-	// Match result for identification number.
-	IdentificationNumber string `json:"identification_number"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDatabaseValidationsValidationsValidation leniently.
-func (r *SessionsRetrieveDecisionResponseDatabaseValidationsValidationsValidation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDatabaseValidationsErrors: The upstream
-// service's error object spread as-is - its keys vary by service (commonly a
-// message/code and any provider-specific details) - plus `service_id`
-// identifying the service that errored.
-type SessionsRetrieveDecisionResponseDatabaseValidationsErrors struct {
-	// Identifier of the registry service that errored.
-	ServiceID string `json:"service_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDatabaseValidationsErrors leniently.
-func (r *SessionsRetrieveDecisionResponseDatabaseValidationsErrors) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDatabaseValidationsMatchType: The aggregate
-// match outcome across the queried services. `null` until the validation has
-// been evaluated.
-//
-// SessionsRetrieveDecisionResponseDatabaseValidationsMatchType is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseDatabaseValidationsMatchType string
-
-// Known values of SessionsRetrieveDecisionResponseDatabaseValidationsMatchType.
-const (
-	SessionsRetrieveDecisionResponseDatabaseValidationsMatchTypeNoMatch      SessionsRetrieveDecisionResponseDatabaseValidationsMatchType = "no_match"
-	SessionsRetrieveDecisionResponseDatabaseValidationsMatchTypePartialMatch SessionsRetrieveDecisionResponseDatabaseValidationsMatchType = "partial_match"
-	SessionsRetrieveDecisionResponseDatabaseValidationsMatchTypeFullMatch    SessionsRetrieveDecisionResponseDatabaseValidationsMatchType = "full_match"
-)
-
-// SessionsRetrieveDecisionResponseDatabaseValidationsStatus: Feature-level
-// status of this database validation. Independent of the top-level session
-// `status` - a session can reach its overall decision while an individual
-// feature stays `In Review`.
-//
-// SessionsRetrieveDecisionResponseDatabaseValidationsStatus is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type SessionsRetrieveDecisionResponseDatabaseValidationsStatus string
-
-// Known values of SessionsRetrieveDecisionResponseDatabaseValidationsStatus.
-const (
-	SessionsRetrieveDecisionResponseDatabaseValidationsStatusNotFinished    SessionsRetrieveDecisionResponseDatabaseValidationsStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseDatabaseValidationsStatusApproved       SessionsRetrieveDecisionResponseDatabaseValidationsStatus = "Approved"
-	SessionsRetrieveDecisionResponseDatabaseValidationsStatusDeclined       SessionsRetrieveDecisionResponseDatabaseValidationsStatus = "Declined"
-	SessionsRetrieveDecisionResponseDatabaseValidationsStatusInReview       SessionsRetrieveDecisionResponseDatabaseValidationsStatus = "In Review"
-	SessionsRetrieveDecisionResponseDatabaseValidationsStatusResubRequested SessionsRetrieveDecisionResponseDatabaseValidationsStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseDatabaseValidationsWarnings is a response
-// object.
-type SessionsRetrieveDecisionResponseDatabaseValidationsWarnings struct {
-	// The feature that generated this warning. The value identifies the feature
-	// block the warning belongs to. Each module's warnings array typically uses the
-	// value matching its module (e.g. `PHONE` inside
-	// `phone_verifications[].warnings`), but the enum above is authoritative across
-	// all feature warnings on the decision payload.
-	Feature          SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature `json:"feature"`
-	Risk             string                                                             `json:"risk"`
-	AdditionalData   map[string]any                                                     `json:"additional_data"`
-	LogType          string                                                             `json:"log_type"`
-	ShortDescription string                                                             `json:"short_description"`
-	LongDescription  string                                                             `json:"long_description"`
-
-	// The workflow graph node ID that generated this warning
-	NodeID string `json:"node_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDatabaseValidationsWarnings leniently.
-func (r *SessionsRetrieveDecisionResponseDatabaseValidationsWarnings) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature: The
-// feature that generated this warning. The value identifies the feature block
-// the warning belongs to. Each module's warnings array typically uses the value
-// matching its module (e.g. `PHONE` inside `phone_verifications[].warnings`),
-// but the enum above is authoritative across all feature warnings on the
-// decision payload.
-//
-// SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature string
-
-// Known values of SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature.
-const (
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureIDVerification     SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "ID_VERIFICATION"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureNFC                SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "NFC"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureLiveness           SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "LIVENESS"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureFacematch          SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "FACEMATCH"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureProofOfAddress     SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "PROOF_OF_ADDRESS"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeaturePhone              SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "PHONE"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureEmail              SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "EMAIL"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureAML                SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "AML"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureLocation           SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "LOCATION"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureDatabaseValidation SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "DATABASE_VALIDATION"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureQuestionnaire      SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "QUESTIONNAIRE"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureDocumentAi         SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "DOCUMENT_AI"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureKYBRegistry        SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "KYB_REGISTRY"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureKYBDocuments       SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "KYB_DOCUMENTS"
-	SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeatureKYBKeyPeople       SessionsRetrieveDecisionResponseDatabaseValidationsWarningsFeature = "KYB_KEY_PEOPLE"
-)
-
-// SessionsRetrieveDecisionResponseReviews is a response object.
-type SessionsRetrieveDecisionResponseReviews struct {
-	// Who performed the review. Usually the console reviewer's identifier (their
-	// email), but the value is `"API Client"` for status updates made with an API
-	// key and `"Unknown"` when no actor could be resolved - so do not parse this
-	// field as an email address.
-	User      string    `json:"user"`
-	NewStatus string    `json:"new_status"`
-	Comment   string    `json:"comment"`
-	CreatedAt time.Time `json:"created_at"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseReviews leniently.
-func (r *SessionsRetrieveDecisionResponseReviews) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseRegistryChecks: One company registry check -
-// the full company-registry payload enriched with ownership structure and
-// warnings. Present only when `session_kind = business`.
-type SessionsRetrieveDecisionResponseRegistryChecks struct {
-	// Feature lifecycle status.
-	Status       string `json:"status"`
-	NodeID       string `json:"node_id"`
-	DataResolved bool   `json:"data_resolved"`
-
-	// Full registry payload for the company (registry record merged with any
-	// user-provided or console-edited data).
-	Company SessionsRetrieveDecisionResponseRegistryChecksCompany `json:"company"`
-
-	// Raw ownership snapshot kept for reviewers; its shape differs by registry
-	// source and is not a stable contract. Read `company.beneficial_owners` and
-	// `company.ownership` instead.
-	OwnershipStructure map[string]any   `json:"ownership_structure"`
-	Warnings           []map[string]any `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseRegistryChecks leniently.
-func (r *SessionsRetrieveDecisionResponseRegistryChecks) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseRegistryChecksCompany: Full registry payload
-// for the company (registry record merged with any user-provided or
-// console-edited data).
-type SessionsRetrieveDecisionResponseRegistryChecksCompany struct {
-	UUID               string `json:"uuid"`
-	NodeID             string `json:"node_id"`
-	Status             string `json:"status"`
-	RegistryStatus     string `json:"registry_status"`
-	DataResolved       bool   `json:"data_resolved"`
-	CompanyName        string `json:"company_name"`
-	RegistrationNumber string `json:"registration_number"`
-
-	// Country of incorporation (ISO 3166-1 alpha-2, e.g. `GB`, `DE`, `US`).
-	CountryCode string `json:"country_code"`
-
-	// ISO 3166-2 subdivision code when applicable (e.g. `CA`, `NY` for US states).
-	Region             string                                                         `json:"region"`
-	CompanyType        string                                                         `json:"company_type"`
-	IncorporationDate  string                                                         `json:"incorporation_date"`
-	RegisteredAddress  string                                                         `json:"registered_address"`
-	TaxNumber          string                                                         `json:"tax_number"`
-	RiskLevel          SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevel `json:"risk_level"`
-	VerificationStatus string                                                         `json:"verification_status"`
-	IsFromRegistry     bool                                                           `json:"is_from_registry"`
-	FetchStatus        string                                                         `json:"fetch_status"`
-
-	// Alternative, trading, former or original-language company names as text, when
-	// reported.
-	AlternativeNames  string `json:"alternative_names"`
-	NatureOfBusiness  string `json:"nature_of_business"`
-	RegisteredCapital string `json:"registered_capital"`
-
-	// Registered/share capital amount as a decimal string (e.g. `"100.00"`), parsed
-	// from the registry filing. `null` when not available.
-	RegisteredCapitalAmount string `json:"registered_capital_amount"`
-
-	// ISO 4217 currency code of `registered_capital_amount` (e.g. `"GBP"`). `null`
-	// when not available.
-	RegisteredCapitalCurrency string `json:"registered_capital_currency"`
-	Website                   string `json:"website"`
-	Email                     string `json:"email"`
-	Phone                     string `json:"phone"`
-	LegalEntityIdentifier     string `json:"legal_entity_identifier"`
-	LocationOfRegistration    string `json:"location_of_registration"`
-
-	// EU VAT number, when collected during the hosted registry step or edited
-	// afterwards.
-	VATNumber string `json:"vat_number"`
-
-	// Result of validating the VAT number or, when there is none, the `tax_number`,
-	// at registry submit. `valid` / `invalid`: decided by the official registry of
-	// the country (EU VIES, Norway, Switzerland, Brazil, Colombia, Costa Rica,
-	// Ecuador, Paraguay; Poland also by its domestic VAT register). `format_valid`
-	// / `invalid_format`: decided by the country's format and check-digit rules
-	// where no registry can be queried. `could_not_validate`: the registry was
-	// unavailable. `not_applicable`: no number, a country without registry or
-	// rules, or a sandbox session.
-	VATValidationStatus SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus `json:"vat_validation_status"`
-
-	// The number that was checked, as the source knows it (for example the VAT
-	// number derived from a French SIREN or a Dutch RSIN). `null` when no check
-	// ran.
-	VATValidatedNumber string `json:"vat_validated_number"`
-
-	// The source that decided `vat_validation_status`: an official registry, or
-	// `format_rules`. `null` when no check ran.
-	VATValidationSource SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource `json:"vat_validation_source"`
-
-	// Name registered with the source that validated the number, when it discloses
-	// one. Only set when the status is `valid`.
-	VATValidatedName string `json:"vat_validated_name"`
-
-	// Address registered with the source that validated the number, when it
-	// discloses one. Only set when the status is `valid`.
-	VATValidatedAddress string `json:"vat_validated_address"`
-
-	// Timestamp of the check. `null` when no check ran.
-	VATCheckedAt     time.Time                                                               `json:"vat_checked_at"`
-	FinancialSummary map[string]any                                                          `json:"financial_summary"`
-	Officers         []SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficers         `json:"officers"`
-	BeneficialOwners []SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwners `json:"beneficial_owners"`
-
-	// Every address the registry states, one canonical shape. Null when it states
-	// none.
-	Addresses []KYBRegistryAddress `json:"addresses"`
-
-	// The activities the registry classifies the company under, one canonical
-	// shape. Null when it states none.
-	Industries []KYBRegistryIndustry `json:"industries"`
-
-	// Registry filing dates, when available. Annual returns and general meetings
-	// use last_annual_return_date and last_agm_date; they are distinct from
-	// financial accounts.
-	Accounts map[string]any `json:"accounts"`
-
-	// Raw record returned by the registry source, kept for reviewers. Its shape
-	// differs by country and source and is not a stable contract: read the
-	// canonical fields (`addresses`, `industries`, `ownership`,
-	// `beneficial_owners[].shareholding`) instead.
-	RegistryData map[string]any `json:"registry_data"`
-
-	// Data confirmed or edited by the end user.
-	UserProvidedData  map[string]any       `json:"user_provided_data"`
-	ConfirmedByUserAt time.Time            `json:"confirmed_by_user_at"`
-	LastConsoleEditAt time.Time            `json:"last_console_edit_at"`
-	IsEditable        bool                 `json:"is_editable"`
-	Ownership         KYBRegistryOwnership `json:"ownership"`
-
-	// The registry tier the workflow ordered: `basic`, `shareholders` or `ubo`.
-	// Also in `ownership.tier_requested`.
-	RegistryTier string `json:"registry_tier"`
-
-	// The tier the registry delivered and that is billed. Also in
-	// `ownership.tier_delivered`.
-	RegistryTierDelivered string `json:"registry_tier_delivered"`
-
-	// `not_requested`, `pending`, `delivered` or `unavailable`. Also in
-	// `ownership.status`.
-	RegistryOwnershipStatus string `json:"registry_ownership_status"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseRegistryChecksCompany leniently.
-func (r *SessionsRetrieveDecisionResponseRegistryChecksCompany) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevel is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevel string
-
-// Known values of SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevel.
-const (
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevelLow    SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevel = "LOW"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevelMedium SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevel = "MEDIUM"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevelHigh   SessionsRetrieveDecisionResponseRegistryChecksCompanyRiskLevel = "HIGH"
-)
-
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus:
-// Result of validating the VAT number or, when there is none, the `tax_number`,
-// at registry submit. `valid` / `invalid`: decided by the official registry of
-// the country (EU VIES, Norway, Switzerland, Brazil, Colombia, Costa Rica,
-// Ecuador, Paraguay; Poland also by its domestic VAT register). `format_valid`
-// / `invalid_format`: decided by the country's format and check-digit rules
-// where no registry can be queried. `could_not_validate`: the registry was
-// unavailable. `not_applicable`: no number, a country without registry or
-// rules, or a sandbox session.
-//
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus string
-
-// Known values of SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus.
-const (
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatusValid            SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus = "valid"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatusInvalid          SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus = "invalid"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatusFormatValid      SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus = "format_valid"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatusInvalidFormat    SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus = "invalid_format"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatusCouldNotValidate SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus = "could_not_validate"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatusNotApplicable    SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationStatus = "not_applicable"
-)
-
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource: The
-// source that decided `vat_validation_status`: an official registry, or
-// `format_rules`. `null` when no check ran.
-//
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource string
-
-// Known values of SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource.
-const (
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourceEuVies           SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "eu_vies"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourcePlVATWhiteList   SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "pl_vat_white_list"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourceNoBrreg          SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "no_brreg"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourceChUIDRegister    SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "ch_uid_register"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourceBrReceitaFederal SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "br_receita_federal"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourceCoRues           SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "co_rues"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourceCrHacienda       SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "cr_hacienda"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourceEcSri            SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "ec_sri"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourcePyDnit           SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "py_dnit"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSourceFormatRules      SessionsRetrieveDecisionResponseRegistryChecksCompanyVATValidationSource = "format_rules"
-)
-
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficers is a response
-// object.
-type SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficers struct {
-	UUID          string                                                                 `json:"uuid"`
-	Name          string                                                                 `json:"name"`
-	Designation   string                                                                 `json:"designation"`
-	Role          string                                                                 `json:"role"`
-	Nationality   string                                                                 `json:"nationality"`
-	IsActive      bool                                                                   `json:"is_active"`
-	KYCStatus     SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatus `json:"kyc_status"`
-	KYCSessionURL string                                                                 `json:"kyc_session_url"`
-
-	// Given name when explicitly reported by the registry; not inferred from the
-	// full name.
-	FirstName string `json:"first_name"`
-
-	// Family name when explicitly reported by the registry.
-	LastName string `json:"last_name"`
-
-	// Officer address reported by the registry.
-	Address string `json:"address"`
-
-	// Date the officer was appointed.
-	AppointmentDate string `json:"appointment_date"`
-
-	// Date the appointment ended, when reported.
-	TerminationDate string `json:"termination_date"`
-
-	// Complete registry-reported birth date. Null when only a birth year or month
-	// is known.
-	DateOfBirth string `json:"date_of_birth"`
-
-	// Registry-reported birth year, including when the full date is unavailable.
-	DateOfBirthYear int64 `json:"date_of_birth_year"`
-
-	// Registry-reported birth month. Null when only the year is known.
-	DateOfBirthMonth int64 `json:"date_of_birth_month"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficers leniently.
-func (r *SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficers) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatus is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatus string
-
-// Known values of SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatus.
-const (
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatusApproved SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatus = "Approved"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatusDeclined SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatus = "Declined"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatusPending  SessionsRetrieveDecisionResponseRegistryChecksCompanyOfficersKYCStatus = "Pending"
-)
-
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwners is a
-// response object.
-type SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwners struct {
-	UUID       string                                                                          `json:"uuid"`
-	Name       string                                                                          `json:"name"`
-	FirstName  string                                                                          `json:"first_name"`
-	LastName   string                                                                          `json:"last_name"`
-	EntityType SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersEntityType `json:"entity_type"`
-	Roles      []string                                                                        `json:"roles"`
-
-	// Lower bound of the ownership percentage as reported by the registry.
-	// Free-form string (e.g. `"25.00"`, `"50"`); use `effective_ownership_percent`
-	// for a parsed numeric value.
-	OwnershipMinShares string `json:"ownership_min_shares"`
-
-	// Upper bound of the ownership percentage as reported by the registry.
-	// Free-form string; use `effective_ownership_percent` for a parsed numeric
-	// value.
-	OwnershipMaxShares        string                                                                         `json:"ownership_max_shares"`
-	IsActive                  bool                                                                           `json:"is_active"`
-	KYCStatus                 SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatus `json:"kyc_status"`
-	KYCSessionURL             string                                                                         `json:"kyc_session_url"`
-	EffectiveOwnershipPercent float64                                                                        `json:"effective_ownership_percent"`
-	CompanyName               string                                                                         `json:"company_name"`
-	RegistrationNumber        string                                                                         `json:"registration_number"`
-	CountryOfBirth            string                                                                         `json:"country_of_birth"`
-	Email                     string                                                                         `json:"email"`
-	Nationality               string                                                                         `json:"nationality"`
-	Designation               string                                                                         `json:"designation"`
-	VotingMinShares           string                                                                         `json:"voting_min_shares"`
-	VotingMaxShares           string                                                                         `json:"voting_max_shares"`
-
-	// Complete birth date when reported.
-	DateOfBirth string `json:"date_of_birth"`
-
-	// Appointment date when reported.
-	AppointmentDate string                  `json:"appointment_date"`
-	Shareholding    KYBRegistryShareholding `json:"shareholding"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwners leniently.
-func (r *SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwners) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersEntityType
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersEntityType string
-
-// Known values of SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersEntityType.
-const (
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersEntityTypePerson  SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersEntityType = "person"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersEntityTypeCompany SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersEntityType = "company"
-)
-
-// SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatus
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatus string
-
-// Known values of SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatus.
-const (
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatusApproved SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatus = "Approved"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatusDeclined SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatus = "Declined"
-	SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatusPending  SessionsRetrieveDecisionResponseRegistryChecksCompanyBeneficialOwnersKYCStatus = "Pending"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecks: Aggregate check over the
-// company's officers + UBOs. Uses the `registry` / `submitted` shape. Present
-// only when session_kind = business.
-type SessionsRetrieveDecisionResponseKeyPeopleChecks struct {
-	Status string `json:"status"`
-	NodeID string `json:"node_id"`
-
-	// Parties discovered via the registry check.
-	Registry SessionsRetrieveDecisionResponseKeyPeopleChecksRegistry `json:"registry"`
-
-	// Parties submitted by the business admin during the Key People flow
-	// (BusinessParty rows where source=USER).
-	Submitted SessionsRetrieveDecisionResponseKeyPeopleChecksSubmitted `json:"submitted"`
-
-	// Aggregate UBO KYC progress, or null when no UBOs have linked KYC sessions.
-	UBOKYCSummary SessionsRetrieveDecisionResponseKeyPeopleChecksUBOKYCSummary `json:"ubo_kyc_summary"`
-	Warnings      []map[string]any                                             `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecks leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecks) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistry: Parties discovered
-// via the registry check.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistry struct {
-	// Officers discovered via the registry check, each enriched with the status of
-	// any child KYC session and AML screening spawned for them.
-	Officers []SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficers `json:"officers"`
-
-	// Beneficial owners discovered via the registry check, each enriched with the
-	// status of any child KYC session and AML screening spawned for them.
-	BeneficialOwners []SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwners `json:"beneficial_owners"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksRegistry leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksRegistry) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficers is a response
-// object.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficers struct {
-	UUID string `json:"uuid"`
-
-	// Officer's full name as recorded in the registry.
-	Name string `json:"name"`
-
-	// Free-text designation from the registry (e.g. `Director`, `Company
-	// Secretary`).
-	Designation string `json:"designation"`
-
-	// Normalized officer role.
-	Role        SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole `json:"role"`
-	Nationality string                                                              `json:"nationality"`
-
-	// Date the officer was appointed.
-	AppointmentDate string `json:"appointment_date"`
-
-	// Date the appointment ended, when reported.
-	TerminationDate string `json:"termination_date"`
-	IsActive        bool   `json:"is_active"`
-
-	// Officer address reported by the registry.
-	Address string `json:"address"`
-
-	// Status of the AML screening run for this officer. `null` when no AML
-	// screening was run.
-	AMLStatus SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus `json:"aml_status"`
-
-	// Raw lifecycle status of the child KYC session spawned for this officer. This
-	// is the full session status enum (not a reduced Approved/Declined/Pending
-	// set). `null` when no child KYC session exists.
-	KYCStatus SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus `json:"kyc_status"`
-
-	// Shareable URL of the child KYC session. `null` when no child session exists.
-	KYCSessionURL string `json:"kyc_session_url"`
-
-	// Session id of the child KYC session. Pass it to this same decision endpoint
-	// to fetch the person's full KYC report. `null` when no child session exists.
-	KYCSessionID string `json:"kyc_session_id"`
-
-	// Base workflow type of the child session's workflow (e.g. `kyc`). `null` for
-	// graph-based workflows or when no child session exists.
-	VerificationWorkflowType string `json:"verification_workflow_type"`
-
-	// Workflow id used by the child session. `null` when no child session exists.
-	VerificationWorkflowID string `json:"verification_workflow_id"`
-
-	// Human-readable label of the child session's workflow. `null` when unset.
-	VerificationWorkflowLabel string `json:"verification_workflow_label"`
-
-	// Per-feature progress of the child verification session, e.g. `[{"feature":
-	// "ID_VERIFICATION", "status": "Approved"}]`. `null` when the child session has
-	// no resolvable feature list.
-	VerificationWorkflowFeatures []SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures `json:"verification_workflow_features"`
-
-	// Stable internal identifier of the verified individual behind the child
-	// session - useful for cross-session linking. `null` when no child session
-	// exists or the user has not been resolved yet.
-	DiditInternalID string `json:"didit_internal_id"`
-
-	// Document type presented in the child KYC session (e.g. `P`, `ID`, `DL`).
-	// `null` until the child session has an ID verification result.
-	KYCDocumentType string `json:"kyc_document_type"`
-
-	// Nationality extracted from the document in the child KYC session. `null`
-	// until available.
-	KYCNationality string `json:"kyc_nationality"`
-
-	// Whether the child KYC session's liveness check passed. `null` when no
-	// liveness check has run.
-	KYCLivenessPassed bool `json:"kyc_liveness_passed"`
-
-	// When the child KYC session reached `Approved`. `null` while the child session
-	// has any other status.
-	KYCVerifiedAt time.Time `json:"kyc_verified_at"`
-
-	// Per-category summary derived from the person's AML hits. `null` when there
-	// are no hits.
-	KYCAMLCategories SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategories `json:"kyc_aml_categories"`
-
-	// ISO 8601 timestamp of the last verification-invite notification sent for this
-	// person's child session. `null` when none was sent.
-	KYCNotificationSentAt string `json:"kyc_notification_sent_at"`
-
-	// Given name when explicitly reported by the registry; not inferred from the
-	// full name.
-	FirstName string `json:"first_name"`
-
-	// Family name when explicitly reported by the registry.
-	LastName string `json:"last_name"`
-
-	// Complete registry-reported birth date. Null when only a birth year or month
-	// is known.
-	DateOfBirth string `json:"date_of_birth"`
-
-	// Registry-reported birth year, including when the full date is unavailable.
-	DateOfBirthYear int64 `json:"date_of_birth_year"`
-
-	// Registry-reported birth month. Null when only the year is known.
-	DateOfBirthMonth int64 `json:"date_of_birth_month"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficers leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficers) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole:
-// Normalized officer role.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleDirector             SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "director"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleNonExecutiveDirector SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "non_executive_director"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleSecretary            SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "secretary"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleChairman             SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "chairman"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleUBO                  SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "ubo"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleShareholder          SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "shareholder"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleRepresentative       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "representative"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleFounder              SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "founder"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleLegalAdvisor         SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "legal_advisor"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleAuthorizedSignatory  SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "authorized_signatory"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleTrustee              SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "trustee"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleBeneficiary          SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "beneficiary"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleSettlor              SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "settlor"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleProtector            SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "protector"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleCompanyOfficer       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "company_officer"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleInvestor             SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "investor"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRoleOther                SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersRole = "other"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus:
-// Status of the AML screening run for this officer. `null` when no AML
-// screening was run.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatusNotFinished    SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatusApproved       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus = "Approved"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatusDeclined       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus = "Declined"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatusInReview       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus = "In Review"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatusResubRequested SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersAMLStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus: Raw
-// lifecycle status of the child KYC session spawned for this officer. This is
-// the full session status enum (not a reduced Approved/Declined/Pending set).
-// `null` when no child KYC session exists.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusNotStarted   SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "Not Started"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusInProgress   SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "In Progress"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusApproved     SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "Approved"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusDeclined     SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "Declined"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusInReview     SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "In Review"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusExpired      SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "Expired"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusAbandoned    SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "Abandoned"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusKYCExpired   SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "Kyc Expired"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusResubmitted  SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "Resubmitted"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatusAwaitingUser SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCStatus = "Awaiting User"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures
-// is a response object.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures struct {
-	// Feature display name (e.g. `ID_VERIFICATION`, `LIVENESS`, `AML`).
-	Feature string `json:"feature"`
-
-	// Feature-level status inside the child session.
-	Status SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus `json:"status"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeatures) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus:
-// Feature-level status inside the child session.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusNotFinished    SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusApproved       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "Approved"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusDeclined       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "Declined"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusInReview       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "In Review"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatusResubRequested SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersVerificationWorkflowFeaturesStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategories:
-// Per-category summary derived from the person's AML hits. `null` when there
-// are no hits.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategories struct {
-	Sanctions    SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions    `json:"sanctions"`
-	PEP          SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP          `json:"pep"`
-	AdverseMedia SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia `json:"adverse_media"`
-	Warnings     SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings     `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategories leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategories) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctionsMatch SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions = "match"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctionsClear SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesSanctions = "clear"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEPMatch SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP = "match"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEPClear SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesPEP = "clear"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMediaMatch SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia = "match"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMediaClear SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesAdverseMedia = "clear"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarningsMatch SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings = "match"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarningsClear SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryOfficersKYCAMLCategoriesWarnings = "clear"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwners is a
-// response object.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwners struct {
-	UUID string `json:"uuid"`
-
-	// Beneficial owner's full name (or company name for corporate UBOs).
-	Name      string `json:"name"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-
-	// Complete birth date when reported.
-	DateOfBirth        string                                                                            `json:"date_of_birth"`
-	CountryOfBirth     string                                                                            `json:"country_of_birth"`
-	Email              string                                                                            `json:"email"`
-	CompanyName        string                                                                            `json:"company_name"`
-	RegistrationNumber string                                                                            `json:"registration_number"`
-	EntityType         SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersEntityType `json:"entity_type"`
-	Nationality        string                                                                            `json:"nationality"`
-	Designation        string                                                                            `json:"designation"`
-
-	// Role names held by this owner, e.g. `["ubo", "shareholder"]`.
-	Roles []string `json:"roles"`
-
-	// Lower bound of the ownership percentage as reported by the registry.
-	// Free-form string (e.g. `"25"`, `"25-50%"`); use `effective_ownership_percent`
-	// for a parsed numeric value.
-	OwnershipMinShares string `json:"ownership_min_shares"`
-
-	// Upper bound of the ownership percentage as reported by the registry.
-	// Free-form string; use `effective_ownership_percent` for a parsed numeric
-	// value.
-	OwnershipMaxShares string `json:"ownership_max_shares"`
-	IsActive           bool   `json:"is_active"`
-
-	// Status of the AML screening run for this beneficial owner. `null` when no AML
-	// screening was run.
-	AMLStatus SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus `json:"aml_status"`
-
-	// Raw lifecycle status of the child KYC session spawned for this beneficial
-	// owner. This is the full session status enum (not a reduced
-	// Approved/Declined/Pending set). `null` when no child KYC session exists.
-	KYCStatus SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus `json:"kyc_status"`
-
-	// Shareable URL of the child KYC session. `null` when no child session exists.
-	KYCSessionURL string `json:"kyc_session_url"`
-
-	// Session id of the child KYC session. Pass it to this same decision endpoint
-	// to fetch the person's full KYC report. `null` when no child session exists.
-	KYCSessionID string `json:"kyc_session_id"`
-
-	// Base workflow type of the child session's workflow (e.g. `kyc`). `null` for
-	// graph-based workflows or when no child session exists.
-	VerificationWorkflowType string `json:"verification_workflow_type"`
-
-	// Workflow id used by the child session. `null` when no child session exists.
-	VerificationWorkflowID string `json:"verification_workflow_id"`
-
-	// Human-readable label of the child session's workflow. `null` when unset.
-	VerificationWorkflowLabel string `json:"verification_workflow_label"`
-
-	// Per-feature progress of the child verification session, e.g. `[{"feature":
-	// "ID_VERIFICATION", "status": "Approved"}]`. `null` when the child session has
-	// no resolvable feature list.
-	VerificationWorkflowFeatures []SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures `json:"verification_workflow_features"`
-
-	// Stable internal identifier of the verified individual behind the child
-	// session - useful for cross-session linking. `null` when no child session
-	// exists or the user has not been resolved yet.
-	DiditInternalID string `json:"didit_internal_id"`
-
-	// Document type presented in the child KYC session (e.g. `P`, `ID`, `DL`).
-	// `null` until the child session has an ID verification result.
-	KYCDocumentType string `json:"kyc_document_type"`
-
-	// Nationality extracted from the document in the child KYC session. `null`
-	// until available.
-	KYCNationality string `json:"kyc_nationality"`
-
-	// Whether the child KYC session's liveness check passed. `null` when no
-	// liveness check has run.
-	KYCLivenessPassed bool `json:"kyc_liveness_passed"`
-
-	// When the child KYC session reached `Approved`. `null` while the child session
-	// has any other status.
-	KYCVerifiedAt time.Time `json:"kyc_verified_at"`
-
-	// Per-category summary derived from the person's AML hits. `null` when there
-	// are no hits.
-	KYCAMLCategories SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories `json:"kyc_aml_categories"`
-
-	// ISO 8601 timestamp of the last verification-invite notification sent for this
-	// person's child session. `null` when none was sent.
-	KYCNotificationSentAt string `json:"kyc_notification_sent_at"`
-
-	// For corporate UBOs: the owning entity's own beneficial owners, as raw objects
-	// extracted from the registry. Empty array when not applicable.
-	ChildBeneficialOwners []map[string]any `json:"child_beneficial_owners"`
-
-	// Parsed numeric ownership percentage - the max bound when available, otherwise
-	// the min bound. `null` when neither bound could be parsed.
-	EffectiveOwnershipPercent float64 `json:"effective_ownership_percent"`
-	VotingMinShares           string  `json:"voting_min_shares"`
-	VotingMaxShares           string  `json:"voting_max_shares"`
-
-	// Appointment date when reported.
-	AppointmentDate string `json:"appointment_date"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwners leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwners) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersEntityType
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersEntityType string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersEntityType.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersEntityTypePerson  SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersEntityType = "person"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersEntityTypeCompany SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersEntityType = "company"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus:
-// Status of the AML screening run for this beneficial owner. `null` when no AML
-// screening was run.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatusNotFinished    SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatusApproved       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "Approved"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatusDeclined       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "Declined"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatusInReview       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "In Review"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatusResubRequested SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersAMLStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus:
-// Raw lifecycle status of the child KYC session spawned for this beneficial
-// owner. This is the full session status enum (not a reduced
-// Approved/Declined/Pending set). `null` when no child KYC session exists.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusNotStarted   SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Not Started"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusInProgress   SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "In Progress"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusApproved     SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Approved"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusDeclined     SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Declined"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusInReview     SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "In Review"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusExpired      SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Expired"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusAbandoned    SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Abandoned"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusKYCExpired   SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Kyc Expired"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusResubmitted  SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Resubmitted"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatusAwaitingUser SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCStatus = "Awaiting User"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures
-// is a response object.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures struct {
-	// Feature display name (e.g. `ID_VERIFICATION`, `LIVENESS`, `AML`).
-	Feature string `json:"feature"`
-
-	// Feature-level status inside the child session.
-	Status SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus `json:"status"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeatures) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus:
-// Feature-level status inside the child session.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusNotFinished    SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusApproved       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "Approved"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusDeclined       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "Declined"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusInReview       SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "In Review"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatusResubRequested SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersVerificationWorkflowFeaturesStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories:
-// Per-category summary derived from the person's AML hits. `null` when there
-// are no hits.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories struct {
-	Sanctions    SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions    `json:"sanctions"`
-	PEP          SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP          `json:"pep"`
-	AdverseMedia SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia `json:"adverse_media"`
-	Warnings     SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings     `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategories) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctionsMatch SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions = "match"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctionsClear SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesSanctions = "clear"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEPMatch SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP = "match"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEPClear SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesPEP = "clear"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMediaMatch SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia = "match"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMediaClear SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesAdverseMedia = "clear"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarningsMatch SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings = "match"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarningsClear SessionsRetrieveDecisionResponseKeyPeopleChecksRegistryBeneficialOwnersKYCAMLCategoriesWarnings = "clear"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmitted: Parties submitted
-// by the business admin during the Key People flow (BusinessParty rows where
-// source=USER).
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmitted struct {
-	Parties []SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedParties `json:"parties"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksSubmitted leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksSubmitted) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedParties: Party
-// submitted by the business admin via the Key People flow (source=USER).
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedParties struct {
-	UUID       string                                                                    `json:"uuid"`
-	EntityType SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesEntityType `json:"entity_type"`
-
-	// Always `USER` here - this bucket only contains parties entered or confirmed
-	// by the end user in the Key People flow (registry-discovered people appear
-	// under `registry`).
-	Source             SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesSource `json:"source"`
-	Name               string                                                                `json:"name"`
-	FirstName          string                                                                `json:"first_name"`
-	LastName           string                                                                `json:"last_name"`
-	CompanyName        string                                                                `json:"company_name"`
-	RegistrationNumber string                                                                `json:"registration_number"`
-	Email              string                                                                `json:"email"`
-
-	// Nationality for persons; country of incorporation for company parties.
-	Nationality string `json:"nationality"`
-	PhoneNumber string `json:"phone_number"`
-	DateOfBirth string `json:"date_of_birth"`
-
-	// Free-text job title / position (persons only).
-	Position string `json:"position"`
-
-	// Workflow-defined custom fields collected for this party; keys are defined by
-	// the workflow's key-people field descriptors.
-	CustomFields map[string]any `json:"custom_fields"`
-	IsActive     bool           `json:"is_active"`
-
-	// True when the end user skipped verification for this party (only possible
-	// when the role allows skipping).
-	IsSkipped bool `json:"is_skipped"`
-
-	// True when a child KYC / KYB sub-session is required for this party based on
-	// role settings and ownership thresholds.
-	RequiresVerification bool `json:"requires_verification"`
-
-	// All roles held by this party, each with its own ownership and voting
-	// percentages. There is no scalar `role`/`ownership_percent` on the party
-	// itself.
-	Roles []SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRoles `json:"roles"`
-
-	// Child KYC session id for person parties requiring verification. `null`
-	// otherwise.
-	KYCSessionID string `json:"kyc_session_id"`
-
-	// Lifecycle status of the child KYC session. `null` when no child KYC session
-	// exists.
-	KYCSessionStatus SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus `json:"kyc_session_status"`
-	KYCSessionURL    string                                                                          `json:"kyc_session_url"`
-
-	// Child KYB sub-session id for corporate parties requiring verification. `null`
-	// otherwise.
-	KYBSubSessionID string `json:"kyb_sub_session_id"`
-
-	// Lifecycle status of the child KYB sub-session. `null` when no sub-session
-	// exists.
-	KYBSubSessionStatus SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus `json:"kyb_sub_session_status"`
-
-	// Shareable URL of the child KYB sub-session. `null` when no sub-session
-	// exists.
-	KYBSubSessionURL string `json:"kyb_sub_session_url"`
-
-	// Base workflow type of the child session's workflow (KYC session preferred,
-	// falling back to the KYB sub-session). `null` for graph-based workflows or
-	// when no child session exists.
-	VerificationWorkflowType string `json:"verification_workflow_type"`
-
-	// Workflow id used by the child session. `null` when no child session exists.
-	VerificationWorkflowID string `json:"verification_workflow_id"`
-
-	// Human-readable label of the child session's workflow. `null` when unset.
-	VerificationWorkflowLabel string `json:"verification_workflow_label"`
-
-	// Per-feature progress of the child verification session, e.g. `[{"feature":
-	// "ID_VERIFICATION", "status": "Approved"}]`. `null` when the child session has
-	// no resolvable feature list.
-	VerificationWorkflowFeatures []SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures `json:"verification_workflow_features"`
-
-	// Stable internal identifier of the verified individual behind the child
-	// session. `null` when not resolved.
-	DiditInternalID string `json:"didit_internal_id"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedParties leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedParties) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesEntityType is
-// a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesEntityType string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesEntityType.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesEntityTypePerson  SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesEntityType = "person"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesEntityTypeCompany SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesEntityType = "company"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesSource: Always
-// `USER` here - this bucket only contains parties entered or confirmed by the
-// end user in the Key People flow (registry-discovered people appear under
-// `registry`).
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesSource is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesSource string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesSource.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesSourceUser SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesSource = "USER"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRoles is a
-// response object.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRoles struct {
-	Role             SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole `json:"role"`
-	OwnershipPercent float64                                                                  `json:"ownership_percent"`
-	VotingPercent    float64                                                                  `json:"voting_percent"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRoles leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRoles) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleDirector             SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "director"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleNonExecutiveDirector SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "non_executive_director"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleSecretary            SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "secretary"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleChairman             SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "chairman"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleUBO                  SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "ubo"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleShareholder          SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "shareholder"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleRepresentative       SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "representative"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleFounder              SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "founder"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleLegalAdvisor         SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "legal_advisor"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleAuthorizedSignatory  SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "authorized_signatory"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleTrustee              SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "trustee"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleBeneficiary          SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "beneficiary"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleSettlor              SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "settlor"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleProtector            SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "protector"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleCompanyOfficer       SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "company_officer"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleInvestor             SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "investor"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRoleOther                SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesRolesRole = "other"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus:
-// Lifecycle status of the child KYC session. `null` when no child KYC session
-// exists.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusNotStarted   SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Not Started"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusInProgress   SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "In Progress"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusApproved     SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Approved"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusDeclined     SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Declined"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusInReview     SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "In Review"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusExpired      SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Expired"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusAbandoned    SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Abandoned"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusKYCExpired   SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Kyc Expired"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusResubmitted  SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Resubmitted"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatusAwaitingUser SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYCSessionStatus = "Awaiting User"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus:
-// Lifecycle status of the child KYB sub-session. `null` when no sub-session
-// exists.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusNotStarted   SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Not Started"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusInProgress   SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "In Progress"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusApproved     SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Approved"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusDeclined     SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Declined"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusInReview     SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "In Review"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusExpired      SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Expired"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusAbandoned    SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Abandoned"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusKYCExpired   SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Kyc Expired"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusResubmitted  SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Resubmitted"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatusAwaitingUser SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesKYBSubSessionStatus = "Awaiting User"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures
-// is a response object.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures struct {
-	// Feature display name (e.g. `ID_VERIFICATION`, `LIVENESS`, `AML`).
-	Feature string `json:"feature"`
-
-	// Feature-level status inside the child session.
-	Status SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus `json:"status"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeatures) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus:
-// Feature-level status inside the child session.
-//
-// SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus
-// is a string with known values below. The set is open: other values may appear
-// and never cause an error.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus string
-
-// Known values of SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus.
-const (
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusNotFinished    SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusApproved       SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "Approved"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusDeclined       SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "Declined"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusInReview       SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "In Review"
-	SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatusResubRequested SessionsRetrieveDecisionResponseKeyPeopleChecksSubmittedPartiesVerificationWorkflowFeaturesStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseKeyPeopleChecksUBOKYCSummary: Aggregate UBO
-// KYC progress, or null when no UBOs have linked KYC sessions.
-type SessionsRetrieveDecisionResponseKeyPeopleChecksUBOKYCSummary struct {
-	Total    int64 `json:"total"`
-	Approved int64 `json:"approved"`
-
-	// UBOs whose KYC is Declined or In Review.
-	Flagged int64 `json:"flagged"`
-	Pending int64 `json:"pending"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseKeyPeopleChecksUBOKYCSummary leniently.
-func (r *SessionsRetrieveDecisionResponseKeyPeopleChecksUBOKYCSummary) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDocumentVerifications: Documents grouped by
-// workflow node. Present only when session_kind = business.
-type SessionsRetrieveDecisionResponseDocumentVerifications struct {
-	Status string                                                       `json:"status"`
-	NodeID string                                                       `json:"node_id"`
-	Items  []SessionsRetrieveDecisionResponseDocumentVerificationsItems `json:"items"`
-
-	// Per-group progress counters keyed by group name (e.g. legal_presence,
-	// ownership_structure).
-	Groups         map[string]SessionsRetrieveDecisionResponseDocumentVerificationsGroups `json:"groups"`
-	RequiredGroups []string                                                               `json:"required_groups"`
-	Warnings       []map[string]any                                                       `json:"warnings"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDocumentVerifications leniently.
-func (r *SessionsRetrieveDecisionResponseDocumentVerifications) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDocumentVerificationsItems is a response
-// object.
-type SessionsRetrieveDecisionResponseDocumentVerificationsItems struct {
-	UUID string `json:"uuid"`
-
-	// High-level KYB document group the file was classified into. `null` while
-	// unclassified.
-	DocumentType SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType `json:"document_type"`
-
-	// Specific OCR-detected subtype (e.g. `CERTIFICATE_OF_INCORPORATION`,
-	// `SHAREHOLDER_REGISTRY`); `UNKNOWN` when the OCR could not confidently
-	// classify the document.
-	DocumentSubtype string `json:"document_subtype"`
-
-	// Alias of `document_type` - the group name used by `groups` and
-	// `required_groups`.
-	DocumentGroup SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup `json:"document_group"`
-
-	// Short-lived presigned link to the uploaded file. `null` for analyst-created
-	// document request placeholders (`is_requested = true`) that have not been
-	// fulfilled yet.
-	FileURL string `json:"file_url"`
-
-	// Filename as uploaded by the user or analyst.
-	OriginalFilename string `json:"original_filename"`
-
-	// File size in bytes.
-	FileSize int64 `json:"file_size"`
-
-	// Per-document verification status.
-	Status    SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus `json:"status"`
-	CreatedAt time.Time                                                        `json:"created_at"`
-
-	// Cross-reference of the OCR-extracted document fields against the registry
-	// company profile. An object with `critical`, `non_critical` and `people`
-	// sections, each mapping a field name (e.g. `company_name`,
-	// `registration_number`, `incorporation_date`, `registered_address`) to a
-	// comparison record like `{"document": "...", "registry": "...", "match": true,
-	// "score": 0.97}`. `null` when the document had no OCR data or there was no
-	// registry company to compare against.
-	CrossCheckResult map[string]any `json:"cross_check_result"`
-
-	// Metadata extracted from the uploaded corporate document. When metadata
-	// extraction succeeded, all 16 keys are always present (individual values are
-	// `null` when not applicable to the file type); the whole object is `null` when
-	// nothing could be extracted. For PDFs, `overlay_manipulation` carries forensic
-	// overlay-text analysis.
-	DocumentMetadata SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadata `json:"document_metadata"`
-
-	// Analyst-provided label or reason for a document request. `null` for regular
-	// uploads.
-	Description string `json:"description"`
-
-	// True for analyst-created document request placeholders awaiting an upload.
-	IsRequested bool           `json:"is_requested"`
-	OCRData     map[string]any `json:"ocr_data"`
-
-	// True for documents uploaded from the console rather than the end-user flow.
-	// Console uploads never change the feature-level aggregate status.
-	IsConsoleUpload bool `json:"is_console_upload"`
-
-	// Console uploads start `false` and flip `true` once the admin confirms them;
-	// end-user uploads are always `true`.
-	IsConfirmed bool `json:"is_confirmed"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDocumentVerificationsItems leniently.
-func (r *SessionsRetrieveDecisionResponseDocumentVerificationsItems) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType:
-// High-level KYB document group the file was classified into. `null` while
-// unclassified.
-//
-// SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType string
-
-// Known values of SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType.
-const (
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentTypeLegalPresence                SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType = "LEGAL_PRESENCE"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentTypeCompanyDetails               SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType = "COMPANY_DETAILS"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentTypeOwnershipStructure           SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType = "OWNERSHIP_STRUCTURE"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentTypeRepresentativesAuthorization SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType = "REPRESENTATIVES_AUTHORIZATION"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentTypeOther                        SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentType = "OTHER"
-)
-
-// SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup:
-// Alias of `document_type` - the group name used by `groups` and
-// `required_groups`.
-//
-// SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup is a
-// string with known values below. The set is open: other values may appear and
-// never cause an error.
-type SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup string
-
-// Known values of SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup.
-const (
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroupLegalPresence                SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup = "LEGAL_PRESENCE"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroupCompanyDetails               SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup = "COMPANY_DETAILS"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroupOwnershipStructure           SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup = "OWNERSHIP_STRUCTURE"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroupRepresentativesAuthorization SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup = "REPRESENTATIVES_AUTHORIZATION"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroupOther                        SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentGroup = "OTHER"
-)
-
-// SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus:
-// Per-document verification status.
-//
-// SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus is a string
-// with known values below. The set is open: other values may appear and never
-// cause an error.
-type SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus string
-
-// Known values of SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus.
-const (
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatusNotFinished    SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus = "Not Finished"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatusApproved       SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus = "Approved"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatusDeclined       SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus = "Declined"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatusInReview       SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus = "In Review"
-	SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatusResubRequested SessionsRetrieveDecisionResponseDocumentVerificationsItemsStatus = "Resub Requested"
-)
-
-// SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadata:
-// Metadata extracted from the uploaded corporate document. When metadata
-// extraction succeeded, all 16 keys are always present (individual values are
-// `null` when not applicable to the file type); the whole object is `null` when
-// nothing could be extracted. For PDFs, `overlay_manipulation` carries forensic
-// overlay-text analysis.
-type SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadata struct {
-	// Size of the document.
-	FileSize int64 `json:"file_size"`
-
-	// Content type of the document.
-	ContentType string `json:"content_type"`
-
-	// Date when the document was created.
-	CreationDate string `json:"creation_date"`
-
-	// Date when the document was modified.
-	ModifiedDate string `json:"modified_date"`
-
-	// Authoring tool/user recorded in the file metadata (PDF `Creator`).
-	Creator string `json:"creator"`
-
-	// Software that produced the file (PDF `Producer`).
-	Producer string `json:"producer"`
-
-	// Editing software recorded in the file metadata.
-	Software string `json:"software"`
-
-	// Encryption scheme of the file, when encrypted.
-	Encryption string `json:"encryption"`
-
-	// Whether the document carries a digital signature.
-	IsSigned bool `json:"is_signed"`
-
-	// Whether the digital signature failed validation (post-signing modification).
-	IsTampered bool `json:"is_tampered"`
-
-	// Details of the digital signature(s), when present.
-	SignatureInfo map[string]any `json:"signature_info"`
-
-	// EXIF original capture date, for image uploads.
-	ExifOriginalDate string `json:"exif_original_date"`
-
-	// EXIF digitization date, for image uploads.
-	ExifDigitizedDate string `json:"exif_digitized_date"`
-
-	// Whether metadata indicates the file passed through a known image/PDF editor.
-	ProcessedByKnownEditor bool `json:"processed_by_known_editor"`
-
-	// Whether creation and modification dates differ - a possible (but not
-	// conclusive) editing signal.
-	HasDifferentCreationModDate bool `json:"has_different_creation_mod_date"`
-
-	// PDF forensic analysis for suspected overlay-text manipulation. Null when no
-	// overlay manipulation evidence was found or the document was not a PDF.
-	OverlayManipulation SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulation `json:"overlay_manipulation"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadata leniently.
-func (r *SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadata) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulation:
-// PDF forensic analysis for suspected overlay-text manipulation. Null when no
-// overlay manipulation evidence was found or the document was not a PDF.
-type SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulation struct {
-	// Whether overlay-text manipulation evidence was detected.
-	Detected bool `json:"detected"`
-
-	// Whether the PDF could be analyzed.
-	Analyzed bool `json:"analyzed"`
-
-	// Forensic signals that fired, such as duplicate_font_subset or
-	// glyph_fragmentation.
-	Signals []string `json:"signals"`
-
-	// Suspected manipulated areas in PDF page coordinates.
-	ManipulatedRegions []SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions `json:"manipulated_regions"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulation leniently.
-func (r *SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions
-// is a response object.
-type SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions struct {
-	Page       int64   `json:"page"`
-	X          float64 `json:"x"`
-	Y          float64 `json:"y"`
-	Width      float64 `json:"width"`
-	Height     float64 `json:"height"`
-	PageWidth  float64 `json:"page_width"`
-	PageHeight float64 `json:"page_height"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions leniently.
-func (r *SessionsRetrieveDecisionResponseDocumentVerificationsItemsDocumentMetadataOverlayManipulationManipulatedRegions) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseDocumentVerificationsGroups is a response
-// object.
-type SessionsRetrieveDecisionResponseDocumentVerificationsGroups struct {
-	Total    int64 `json:"total"`
-	Approved int64 `json:"approved"`
-	Pending  int64 `json:"pending"`
-	Declined int64 `json:"declined"`
-	InReview int64 `json:"in_review"`
-	Other    int64 `json:"other"`
-
-	// Requested placeholders with no file uploaded yet.
-	Missing int64 `json:"missing"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseDocumentVerificationsGroups leniently.
-func (r *SessionsRetrieveDecisionResponseDocumentVerificationsGroups) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseEnvironment: Whether the session was created
-// by a live application (`live`) or a sandbox application (`sandbox`). Sandbox
-// sessions are free, fully simulated, and never bill credits.
-//
-// SessionsRetrieveDecisionResponseEnvironment is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type SessionsRetrieveDecisionResponseEnvironment string
-
-// Known values of SessionsRetrieveDecisionResponseEnvironment.
-const (
-	SessionsRetrieveDecisionResponseEnvironmentLive    SessionsRetrieveDecisionResponseEnvironment = "live"
-	SessionsRetrieveDecisionResponseEnvironmentSandbox SessionsRetrieveDecisionResponseEnvironment = "sandbox"
-)
-
-// SessionsRetrieveDecisionResponseResubmissions is a response object.
-type SessionsRetrieveDecisionResponseResubmissions struct {
-	// 1 for the first resubmission of the session, 2 for the second, and so on.
-	Number int64 `json:"number"`
-
-	// When the resubmission was requested.
-	CreatedAt time.Time `json:"created_at"`
-
-	// The session status just before the request.
-	PreviousStatus string `json:"previous_status"`
-
-	// The workflow steps sent back to the user.
-	Nodes []SessionsRetrieveDecisionResponseResubmissionsNodes `json:"nodes"`
-
-	// The reason given for each step, keyed by `node_id`.
-	Reasons map[string]string `json:"reasons"`
-
-	// Who requested the resubmission.
-	RequestedBy SessionsRetrieveDecisionResponseResubmissionsRequestedBy `json:"requested_by"`
-
-	// What the resubmitted steps returned before the request, under the same keys
-	// and in the same shape as the current results of this response
-	// (`id_verifications`, `nfc_verifications`, `liveness_checks`, `face_matches`,
-	// `poa_verifications`, `phone_verifications`, `email_verifications`,
-	// `aml_screenings`, `ip_analyses`, `database_validations`,
-	// `questionnaire_responses`, `document_ai_documents`, `geolocation_checks`; for
-	// business sessions also `document_verifications`). Only the keys of the steps
-	// that were sent back appear.
-	Results map[string]any `json:"results"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseResubmissions leniently.
-func (r *SessionsRetrieveDecisionResponseResubmissions) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseResubmissionsNodes is a response object.
-type SessionsRetrieveDecisionResponseResubmissionsNodes struct {
-	NodeID  string `json:"node_id"`
-	Feature string `json:"feature"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseResubmissionsNodes leniently.
-func (r *SessionsRetrieveDecisionResponseResubmissionsNodes) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDecisionResponseResubmissionsRequestedBy: Who requested the
-// resubmission.
-type SessionsRetrieveDecisionResponseResubmissionsRequestedBy struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Type  string `json:"type"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes SessionsRetrieveDecisionResponseResubmissionsRequestedBy leniently.
-func (r *SessionsRetrieveDecisionResponseResubmissionsRequestedBy) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// SessionsRetrieveDeletionJobResponse: A bulk session deletion running in the
-// background: progress and counts per outcome, never which sessions it deleted.
-type SessionsRetrieveDeletionJobResponse struct {
+// SessionDeletionJob: A bulk session deletion running in the background:
+// progress and counts per outcome, never which sessions it deleted.
+type SessionDeletionJob struct {
 	// Poll `GET /v3/sessions/delete/{job_id}/` with this id.
 	JobID string `json:"job_id"`
 
 	// `PENDING`: accepted, not started yet. `PROCESSING`: deleting; `processed` and
 	// `outcomes` are updating. `COMPLETED`: every selected session is accounted
 	// for. `FAILED`: the job stopped early; see `error`.
-	Status SessionsRetrieveDeletionJobResponseStatus `json:"status"`
+	Status SessionDeletionJobStatus `json:"status"`
 
 	// Sessions selected when the deletion was requested.
 	Total int64 `json:"total"`
@@ -9572,7 +11772,7 @@ type SessionsRetrieveDeletionJobResponse struct {
 	Processed int64 `json:"processed"`
 
 	// How many sessions ended in each outcome. Every key is always present.
-	Outcomes SessionsRetrieveDeletionJobResponseOutcomes `json:"outcomes"`
+	Outcomes SessionDeletionJobOutcomes `json:"outcomes"`
 
 	// Verifications that the deleted business verifications created, deleted with
 	// them. Always `0` for a job started by `POST /v3/sessions/delete/`, which
@@ -9595,31 +11795,31 @@ type SessionsRetrieveDeletionJobResponse struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsRetrieveDeletionJobResponse leniently.
-func (r *SessionsRetrieveDeletionJobResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionDeletionJob leniently.
+func (r *SessionDeletionJob) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionsRetrieveDeletionJobResponseStatus: `PENDING`: accepted, not started
-// yet. `PROCESSING`: deleting; `processed` and `outcomes` are updating.
-// `COMPLETED`: every selected session is accounted for. `FAILED`: the job
-// stopped early; see `error`.
+// SessionDeletionJobStatus: `PENDING`: accepted, not started yet. `PROCESSING`:
+// deleting; `processed` and `outcomes` are updating. `COMPLETED`: every
+// selected session is accounted for. `FAILED`: the job stopped early; see
+// `error`.
 //
-// SessionsRetrieveDeletionJobResponseStatus is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type SessionsRetrieveDeletionJobResponseStatus string
+// SessionDeletionJobStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SessionDeletionJobStatus string
 
-// Known values of SessionsRetrieveDeletionJobResponseStatus.
+// Known values of SessionDeletionJobStatus.
 const (
-	SessionsRetrieveDeletionJobResponseStatusPending    SessionsRetrieveDeletionJobResponseStatus = "PENDING"
-	SessionsRetrieveDeletionJobResponseStatusProcessing SessionsRetrieveDeletionJobResponseStatus = "PROCESSING"
-	SessionsRetrieveDeletionJobResponseStatusCompleted  SessionsRetrieveDeletionJobResponseStatus = "COMPLETED"
-	SessionsRetrieveDeletionJobResponseStatusFailed     SessionsRetrieveDeletionJobResponseStatus = "FAILED"
+	SessionDeletionJobStatusPending    SessionDeletionJobStatus = "PENDING"
+	SessionDeletionJobStatusProcessing SessionDeletionJobStatus = "PROCESSING"
+	SessionDeletionJobStatusCompleted  SessionDeletionJobStatus = "COMPLETED"
+	SessionDeletionJobStatusFailed     SessionDeletionJobStatus = "FAILED"
 )
 
-// SessionsRetrieveDeletionJobResponseOutcomes: How many sessions ended in each
-// outcome. Every key is always present.
-type SessionsRetrieveDeletionJobResponseOutcomes struct {
+// SessionDeletionJobOutcomes: How many sessions ended in each outcome. Every
+// key is always present.
+type SessionDeletionJobOutcomes struct {
 	// Sessions deleted together with their face embedding.
 	Deleted int64 `json:"deleted"`
 
@@ -9647,8 +11847,8 @@ type SessionsRetrieveDeletionJobResponseOutcomes struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionsRetrieveDeletionJobResponseOutcomes leniently.
-func (r *SessionsRetrieveDeletionJobResponseOutcomes) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionDeletionJobOutcomes leniently.
+func (r *SessionDeletionJobOutcomes) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -9706,6 +11906,129 @@ const (
 	SessionsShareResponseSessionKindBusiness SessionsShareResponseSessionKind = "business"
 )
 
+// SandboxSimulateRequest: Force a sandbox session's status. Every field is
+// optional, but at least one of `new_status`, `scenario` or `risk` is required.
+type SandboxSimulateRequest struct {
+	// The status to set. When you leave it out, it defaults to the default status
+	// of the risk case (`risk`, or the first risk the scenario's magic values
+	// carry), else to the scenario's default status.
+	NewStatus Opt[SandboxSimulateRequestNewStatus] `json:"new_status"`
+
+	// Note added to the activity entry the status change records.
+	Comment Opt[string] `json:"comment"`
+
+	// A scenario slug from the catalog (`GET /v1/sandbox/scenarios/`). It supplies
+	// the default status and, without `risk`, the warning its magic values carry.
+	// An unknown slug returns `400`.
+	Scenario Opt[string] `json:"scenario"`
+
+	// A risk case from the catalog. Its warning is added to the session, with a log
+	// type that follows `new_status`. An unknown value returns `400`.
+	Risk Opt[string] `json:"risk"`
+
+	// Workflow node the risk warning is attached to. Defaults to the session's
+	// current node.
+	NodeID Opt[string] `json:"node_id"`
+
+	// `true` sends exactly the webhooks a real status change sends to the sandbox
+	// application's destinations: `status.updated`, plus the `user.status.updated`
+	// / `user.data.updated` (or `business.status.updated` /
+	// `business.data.updated`) events the change causes, for destinations
+	// subscribed to them. `false` changes the status without logging or sending any
+	// webhook: the missed-webhook recovery never re-sends that decision, the
+	// console still updates live, and the next status change of the session sends
+	// webhooks as usual.
+	SendWebhooks Opt[bool] `json:"send_webhooks"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SandboxSimulateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SandboxSimulateRequestNewStatus: The status to set. When you leave it out, it
+// defaults to the default status of the risk case (`risk`, or the first risk
+// the scenario's magic values carry), else to the scenario's default status.
+//
+// SandboxSimulateRequestNewStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type SandboxSimulateRequestNewStatus string
+
+// Known values of SandboxSimulateRequestNewStatus.
+const (
+	SandboxSimulateRequestNewStatusApproved  SandboxSimulateRequestNewStatus = "Approved"
+	SandboxSimulateRequestNewStatusDeclined  SandboxSimulateRequestNewStatus = "Declined"
+	SandboxSimulateRequestNewStatusInReview  SandboxSimulateRequestNewStatus = "In Review"
+	SandboxSimulateRequestNewStatusExpired   SandboxSimulateRequestNewStatus = "Expired"
+	SandboxSimulateRequestNewStatusAbandoned SandboxSimulateRequestNewStatus = "Abandoned"
+)
+
+// SandboxSimulateResponse is a response object.
+type SandboxSimulateResponse struct {
+	SessionID string `json:"session_id"`
+
+	// The session's status before the simulation.
+	PreviousStatus SandboxSimulateResponsePreviousStatus `json:"previous_status"`
+
+	// The status the simulation set.
+	Status SandboxSimulateResponseStatus `json:"status"`
+
+	// The scenario slug you passed, or `null`.
+	Scenario string `json:"scenario"`
+
+	// The risk case applied (`risk`, or the one taken from the scenario), or `null`
+	// when none.
+	Risk string `json:"risk"`
+
+	// The `send_webhooks` value the simulation applied.
+	SendWebhooks bool `json:"send_webhooks"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SandboxSimulateResponse leniently.
+func (r *SandboxSimulateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SandboxSimulateResponsePreviousStatus: The session's status before the
+// simulation.
+//
+// SandboxSimulateResponsePreviousStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SandboxSimulateResponsePreviousStatus string
+
+// Known values of SandboxSimulateResponsePreviousStatus.
+const (
+	SandboxSimulateResponsePreviousStatusNotStarted   SandboxSimulateResponsePreviousStatus = "Not Started"
+	SandboxSimulateResponsePreviousStatusInProgress   SandboxSimulateResponsePreviousStatus = "In Progress"
+	SandboxSimulateResponsePreviousStatusApproved     SandboxSimulateResponsePreviousStatus = "Approved"
+	SandboxSimulateResponsePreviousStatusDeclined     SandboxSimulateResponsePreviousStatus = "Declined"
+	SandboxSimulateResponsePreviousStatusInReview     SandboxSimulateResponsePreviousStatus = "In Review"
+	SandboxSimulateResponsePreviousStatusExpired      SandboxSimulateResponsePreviousStatus = "Expired"
+	SandboxSimulateResponsePreviousStatusAbandoned    SandboxSimulateResponsePreviousStatus = "Abandoned"
+	SandboxSimulateResponsePreviousStatusKYCExpired   SandboxSimulateResponsePreviousStatus = "Kyc Expired"
+	SandboxSimulateResponsePreviousStatusResubmitted  SandboxSimulateResponsePreviousStatus = "Resubmitted"
+	SandboxSimulateResponsePreviousStatusAwaitingUser SandboxSimulateResponsePreviousStatus = "Awaiting User"
+)
+
+// SandboxSimulateResponseStatus: The status the simulation set.
+//
+// SandboxSimulateResponseStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SandboxSimulateResponseStatus string
+
+// Known values of SandboxSimulateResponseStatus.
+const (
+	SandboxSimulateResponseStatusApproved  SandboxSimulateResponseStatus = "Approved"
+	SandboxSimulateResponseStatusDeclined  SandboxSimulateResponseStatus = "Declined"
+	SandboxSimulateResponseStatusInReview  SandboxSimulateResponseStatus = "In Review"
+	SandboxSimulateResponseStatusExpired   SandboxSimulateResponseStatus = "Expired"
+	SandboxSimulateResponseStatusAbandoned SandboxSimulateResponseStatus = "Abandoned"
+)
+
 // SessionsUpdateAMLHitStatusParams holds the parameters of
 // Client.Sessions.UpdateAMLHitStatus.
 type SessionsUpdateAMLHitStatusParams struct {
@@ -9742,6 +12065,130 @@ const (
 	SessionsUpdateAMLHitStatusParamsReviewStatusConfirmedMatch SessionsUpdateAMLHitStatusParamsReviewStatus = "Confirmed Match"
 	SessionsUpdateAMLHitStatusParamsReviewStatusFalsePositive  SessionsUpdateAMLHitStatusParamsReviewStatus = "False Positive"
 	SessionsUpdateAMLHitStatusParamsReviewStatusInconclusive   SessionsUpdateAMLHitStatusParamsReviewStatus = "Inconclusive"
+)
+
+// SessionsUpdateAMLHitStatusResponse is a response object.
+type SessionsUpdateAMLHitStatusResponse struct {
+	// Always `Hit status updated successfully`.
+	Message string `json:"message"`
+
+	// The updated hit, with surrounding whitespace removed.
+	HitID string `json:"hit_id"`
+
+	// The review status now stored on the hit.
+	ReviewStatus SessionsUpdateAMLHitStatusResponseReviewStatus `json:"review_status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsUpdateAMLHitStatusResponse leniently.
+func (r *SessionsUpdateAMLHitStatusResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsUpdateAMLHitStatusResponseReviewStatus: The review status now stored
+// on the hit.
+//
+// SessionsUpdateAMLHitStatusResponseReviewStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsUpdateAMLHitStatusResponseReviewStatus string
+
+// Known values of SessionsUpdateAMLHitStatusResponseReviewStatus.
+const (
+	SessionsUpdateAMLHitStatusResponseReviewStatusUnreviewed     SessionsUpdateAMLHitStatusResponseReviewStatus = "Unreviewed"
+	SessionsUpdateAMLHitStatusResponseReviewStatusConfirmedMatch SessionsUpdateAMLHitStatusResponseReviewStatus = "Confirmed Match"
+	SessionsUpdateAMLHitStatusResponseReviewStatusFalsePositive  SessionsUpdateAMLHitStatusResponseReviewStatus = "False Positive"
+	SessionsUpdateAMLHitStatusResponseReviewStatusInconclusive   SessionsUpdateAMLHitStatusResponseReviewStatus = "Inconclusive"
+)
+
+// SessionsUpdateAMLStatusParams holds the parameters of
+// Client.Sessions.UpdateAMLStatus.
+type SessionsUpdateAMLStatusParams struct {
+	// New status of the AML check. Required.
+	Status SessionsUpdateAMLStatusParamsStatus `json:"status"`
+
+	// Workflow graph node ID of the AML check, as an alternative to the query
+	// parameter.
+	NodeID Opt[string] `json:"node_id"`
+
+	// Workflow graph node ID of the AML check to update. Needed only when the
+	// session ran more than one AML step. Takes precedence over `node_id` in the
+	// body.
+	NodeIDQuery Opt[string] `json:"-" query:"node_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsUpdateAMLStatusParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsUpdateAMLStatusParamsStatus: New status of the AML check.
+//
+// SessionsUpdateAMLStatusParamsStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SessionsUpdateAMLStatusParamsStatus string
+
+// Known values of SessionsUpdateAMLStatusParamsStatus.
+const (
+	SessionsUpdateAMLStatusParamsStatusNotFinished    SessionsUpdateAMLStatusParamsStatus = "Not Finished"
+	SessionsUpdateAMLStatusParamsStatusApproved       SessionsUpdateAMLStatusParamsStatus = "Approved"
+	SessionsUpdateAMLStatusParamsStatusDeclined       SessionsUpdateAMLStatusParamsStatus = "Declined"
+	SessionsUpdateAMLStatusParamsStatusInReview       SessionsUpdateAMLStatusParamsStatus = "In Review"
+	SessionsUpdateAMLStatusParamsStatusResubRequested SessionsUpdateAMLStatusParamsStatus = "Resub Requested"
+)
+
+// SessionsUpdateAMLStatusResponse is a response object.
+type SessionsUpdateAMLStatusResponse struct {
+	// Always `AML status updated successfully`.
+	Message string `json:"message"`
+
+	// Status of the AML check now.
+	Status SessionsUpdateAMLStatusResponseStatus `json:"status"`
+
+	// Status before the call. Equal to `status` when nothing changed.
+	PreviousStatus SessionsUpdateAMLStatusResponsePreviousStatus `json:"previous_status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsUpdateAMLStatusResponse leniently.
+func (r *SessionsUpdateAMLStatusResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsUpdateAMLStatusResponseStatus: Status of the AML check now.
+//
+// SessionsUpdateAMLStatusResponseStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsUpdateAMLStatusResponseStatus string
+
+// Known values of SessionsUpdateAMLStatusResponseStatus.
+const (
+	SessionsUpdateAMLStatusResponseStatusNotFinished    SessionsUpdateAMLStatusResponseStatus = "Not Finished"
+	SessionsUpdateAMLStatusResponseStatusApproved       SessionsUpdateAMLStatusResponseStatus = "Approved"
+	SessionsUpdateAMLStatusResponseStatusDeclined       SessionsUpdateAMLStatusResponseStatus = "Declined"
+	SessionsUpdateAMLStatusResponseStatusInReview       SessionsUpdateAMLStatusResponseStatus = "In Review"
+	SessionsUpdateAMLStatusResponseStatusResubRequested SessionsUpdateAMLStatusResponseStatus = "Resub Requested"
+)
+
+// SessionsUpdateAMLStatusResponsePreviousStatus: Status before the call. Equal
+// to `status` when nothing changed.
+//
+// SessionsUpdateAMLStatusResponsePreviousStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsUpdateAMLStatusResponsePreviousStatus string
+
+// Known values of SessionsUpdateAMLStatusResponsePreviousStatus.
+const (
+	SessionsUpdateAMLStatusResponsePreviousStatusNotFinished    SessionsUpdateAMLStatusResponsePreviousStatus = "Not Finished"
+	SessionsUpdateAMLStatusResponsePreviousStatusApproved       SessionsUpdateAMLStatusResponsePreviousStatus = "Approved"
+	SessionsUpdateAMLStatusResponsePreviousStatusDeclined       SessionsUpdateAMLStatusResponsePreviousStatus = "Declined"
+	SessionsUpdateAMLStatusResponsePreviousStatusInReview       SessionsUpdateAMLStatusResponsePreviousStatus = "In Review"
+	SessionsUpdateAMLStatusResponsePreviousStatusResubRequested SessionsUpdateAMLStatusResponsePreviousStatus = "Resub Requested"
 )
 
 // SessionsUpdateDataParams holds the parameters of Client.Sessions.UpdateData.
@@ -10095,6 +12542,83 @@ func (r *SessionsUpdateDataResponseParsedAddress) UnmarshalJSON(data []byte) err
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SessionsUpdateDocumentAiDataParams holds the parameters of
+// Client.Sessions.UpdateDocumentAiData.
+type SessionsUpdateDocumentAiDataParams struct {
+	// Field keys (the keys you configured for the document) and their corrected
+	// values. Must be a JSON object; merged key by key into the stored data. Leave
+	// it out rather than sending `null`, which returns `400`.
+	ExtractedData Opt[map[string]any] `json:"extracted_data"`
+
+	// New review status of the document.
+	Status Opt[SessionsUpdateDocumentAiDataParamsStatus] `json:"status"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsUpdateDocumentAiDataParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsUpdateDocumentAiDataParamsStatus: New review status of the document.
+//
+// SessionsUpdateDocumentAiDataParamsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsUpdateDocumentAiDataParamsStatus string
+
+// Known values of SessionsUpdateDocumentAiDataParamsStatus.
+const (
+	SessionsUpdateDocumentAiDataParamsStatusApproved    SessionsUpdateDocumentAiDataParamsStatus = "Approved"
+	SessionsUpdateDocumentAiDataParamsStatusDeclined    SessionsUpdateDocumentAiDataParamsStatus = "Declined"
+	SessionsUpdateDocumentAiDataParamsStatusInReview    SessionsUpdateDocumentAiDataParamsStatus = "In Review"
+	SessionsUpdateDocumentAiDataParamsStatusNotFinished SessionsUpdateDocumentAiDataParamsStatus = "Not Finished"
+)
+
+// SessionsUpdateDocumentAiDataResponse is a response object.
+type SessionsUpdateDocumentAiDataResponse struct {
+	// Document identifier.
+	UUID string `json:"uuid"`
+
+	// The configured document this upload corresponds to.
+	DocumentKey string `json:"document_key"`
+
+	// File name the document was uploaded with.
+	OriginalFilename string `json:"original_filename"`
+
+	// Storage path of the uploaded file. It is not a download link: read the
+	// presigned `file_url` from the session decision to download the file.
+	FileURL string `json:"file_url"`
+
+	// Review status of the document.
+	Status SessionsUpdateDocumentAiDataResponseStatus `json:"status"`
+
+	// All extracted fields after the merge, keyed by field key.
+	ExtractedData map[string]any `json:"extracted_data"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsUpdateDocumentAiDataResponse leniently.
+func (r *SessionsUpdateDocumentAiDataResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsUpdateDocumentAiDataResponseStatus: Review status of the document.
+//
+// SessionsUpdateDocumentAiDataResponseStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsUpdateDocumentAiDataResponseStatus string
+
+// Known values of SessionsUpdateDocumentAiDataResponseStatus.
+const (
+	SessionsUpdateDocumentAiDataResponseStatusNotFinished    SessionsUpdateDocumentAiDataResponseStatus = "Not Finished"
+	SessionsUpdateDocumentAiDataResponseStatusApproved       SessionsUpdateDocumentAiDataResponseStatus = "Approved"
+	SessionsUpdateDocumentAiDataResponseStatusDeclined       SessionsUpdateDocumentAiDataResponseStatus = "Declined"
+	SessionsUpdateDocumentAiDataResponseStatusInReview       SessionsUpdateDocumentAiDataResponseStatus = "In Review"
+	SessionsUpdateDocumentAiDataResponseStatusResubRequested SessionsUpdateDocumentAiDataResponseStatus = "Resub Requested"
+)
+
 // SessionsUpdateFeatureStatusParams holds the parameters of
 // Client.Sessions.UpdateFeatureStatus.
 type SessionsUpdateFeatureStatusParams struct {
@@ -10104,6 +12628,17 @@ type SessionsUpdateFeatureStatusParams struct {
 	// Optional free-text note recorded on the session's review trail for this
 	// feature change.
 	Comment Opt[string] `json:"comment"`
+
+	// Which kind of step to target. Needed on non-graph workflows (`nodeId` =
+	// `default`), where every step shares no node; optional otherwise. An unknown
+	// value returns `400`.
+	FeatureType Opt[SessionsUpdateFeatureStatusParamsFeatureType] `json:"feature_type"`
+
+	// While the person is still in the flow, store the override as
+	// `pending_until_flow_finishes` and apply it when the flow finishes, instead of
+	// at once. Omitted or `false`, the override applies at once. On a session whose
+	// flow already ended it applies at once either way.
+	DeferUntilFlowFinishes Opt[bool] `json:"defer_until_flow_finishes"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -10125,15 +12660,61 @@ const (
 	SessionsUpdateFeatureStatusParamsNewStatusInReview SessionsUpdateFeatureStatusParamsNewStatus = "In Review"
 )
 
+// SessionsUpdateFeatureStatusParamsFeatureType: Which kind of step to target.
+// Needed on non-graph workflows (`nodeId` = `default`), where every step shares
+// no node; optional otherwise. An unknown value returns `400`.
+//
+// SessionsUpdateFeatureStatusParamsFeatureType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsUpdateFeatureStatusParamsFeatureType string
+
+// Known values of SessionsUpdateFeatureStatusParamsFeatureType.
+const (
+	SessionsUpdateFeatureStatusParamsFeatureTypeIDVerification     SessionsUpdateFeatureStatusParamsFeatureType = "ID_VERIFICATION"
+	SessionsUpdateFeatureStatusParamsFeatureTypeOCR                SessionsUpdateFeatureStatusParamsFeatureType = "OCR"
+	SessionsUpdateFeatureStatusParamsFeatureTypeOCRBack            SessionsUpdateFeatureStatusParamsFeatureType = "OCR_BACK"
+	SessionsUpdateFeatureStatusParamsFeatureTypeNFC                SessionsUpdateFeatureStatusParamsFeatureType = "NFC"
+	SessionsUpdateFeatureStatusParamsFeatureTypeLiveness           SessionsUpdateFeatureStatusParamsFeatureType = "LIVENESS"
+	SessionsUpdateFeatureStatusParamsFeatureTypeFace               SessionsUpdateFeatureStatusParamsFeatureType = "FACE"
+	SessionsUpdateFeatureStatusParamsFeatureTypeAgeEstimation      SessionsUpdateFeatureStatusParamsFeatureType = "AGE_ESTIMATION"
+	SessionsUpdateFeatureStatusParamsFeatureTypeAgeVerification    SessionsUpdateFeatureStatusParamsFeatureType = "AGE_VERIFICATION"
+	SessionsUpdateFeatureStatusParamsFeatureTypeFaceSearch         SessionsUpdateFeatureStatusParamsFeatureType = "FACE_SEARCH"
+	SessionsUpdateFeatureStatusParamsFeatureTypeFaceMatch          SessionsUpdateFeatureStatusParamsFeatureType = "FACE_MATCH"
+	SessionsUpdateFeatureStatusParamsFeatureTypeIPAnalysis         SessionsUpdateFeatureStatusParamsFeatureType = "IP_ANALYSIS"
+	SessionsUpdateFeatureStatusParamsFeatureTypeAML                SessionsUpdateFeatureStatusParamsFeatureType = "AML"
+	SessionsUpdateFeatureStatusParamsFeatureTypePhone              SessionsUpdateFeatureStatusParamsFeatureType = "PHONE"
+	SessionsUpdateFeatureStatusParamsFeatureTypePhoneVerification  SessionsUpdateFeatureStatusParamsFeatureType = "PHONE_VERIFICATION"
+	SessionsUpdateFeatureStatusParamsFeatureTypeEmail              SessionsUpdateFeatureStatusParamsFeatureType = "EMAIL"
+	SessionsUpdateFeatureStatusParamsFeatureTypeEmailVerification  SessionsUpdateFeatureStatusParamsFeatureType = "EMAIL_VERIFICATION"
+	SessionsUpdateFeatureStatusParamsFeatureTypePOA                SessionsUpdateFeatureStatusParamsFeatureType = "POA"
+	SessionsUpdateFeatureStatusParamsFeatureTypeProofOfAddress     SessionsUpdateFeatureStatusParamsFeatureType = "PROOF_OF_ADDRESS"
+	SessionsUpdateFeatureStatusParamsFeatureTypeDatabaseValidation SessionsUpdateFeatureStatusParamsFeatureType = "DATABASE_VALIDATION"
+	SessionsUpdateFeatureStatusParamsFeatureTypeDataValidation     SessionsUpdateFeatureStatusParamsFeatureType = "DATA_VALIDATION"
+	SessionsUpdateFeatureStatusParamsFeatureTypeQuestionnaire      SessionsUpdateFeatureStatusParamsFeatureType = "QUESTIONNAIRE"
+	SessionsUpdateFeatureStatusParamsFeatureTypeDocumentAi         SessionsUpdateFeatureStatusParamsFeatureType = "DOCUMENT_AI"
+	SessionsUpdateFeatureStatusParamsFeatureTypeKYBRegistry        SessionsUpdateFeatureStatusParamsFeatureType = "KYB_REGISTRY"
+	SessionsUpdateFeatureStatusParamsFeatureTypeKYBDocuments       SessionsUpdateFeatureStatusParamsFeatureType = "KYB_DOCUMENTS"
+	SessionsUpdateFeatureStatusParamsFeatureTypeKYBKeyPeople       SessionsUpdateFeatureStatusParamsFeatureType = "KYB_KEY_PEOPLE"
+	SessionsUpdateFeatureStatusParamsFeatureTypeBankVerification   SessionsUpdateFeatureStatusParamsFeatureType = "BANK_VERIFICATION"
+	SessionsUpdateFeatureStatusParamsFeatureTypeGeolocation        SessionsUpdateFeatureStatusParamsFeatureType = "GEOLOCATION"
+)
+
 // SessionsUpdateFeatureStatusResponse is a response object.
 type SessionsUpdateFeatureStatusResponse struct {
 	SessionID string `json:"session_id"`
-	NodeID    string `json:"node_id"`
+
+	// The updated step's workflow node, or `null` for a step without a node (the
+	// `default` path in a non-graph workflow).
+	NodeID string `json:"node_id"`
 
 	// Model name of the updated feature (e.g. `KYC`, `Face`, `FaceMatch`, `AML`,
 	// `POA`).
 	FeatureType string `json:"feature_type"`
-	NewStatus   string `json:"new_status"`
+
+	// The check's stored status: the requested one once the override applied, the
+	// unchanged one while the override waits for the flow to finish.
+	NewStatus string                `json:"new_status"`
+	Override  FeatureStatusOverride `json:"override"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -10815,11 +13396,15 @@ type SessionsUpdateStatusParams struct {
 	// unsupported codes silently fall back to English (`en`).
 	EmailLanguage Opt[string] `json:"email_language"`
 
-	// Optional signed receipt from Preview Resubmission Email. When supplied with
-	// send_email=true and new_status=Resubmitted, the recipient, language, checks,
-	// current session state, sender and message must still match the preview. A
-	// changed or expired receipt returns 409 before changing the session or sending
-	// email. Existing integrations may omit this field.
+	// Optional receipt from [Preview Decision
+	// Email](/sessions-api/preview-decision-email) (for `Approved` and `Declined`)
+	// or [Preview Resubmission Email](/sessions-api/preview-resubmission) (for
+	// `Resubmitted`): its `preview_token`. Valid only with `send_email: true`;
+	// without it the request returns `400`. The recipient, language, session
+	// status, sender and email (and, for a resubmission, the selected steps) must
+	// still match the preview, and the receipt expires after 15 minutes. Otherwise
+	// the request returns `409` before the session changes or an email is sent.
+	// Existing integrations may omit this field.
 	EmailPreviewToken Opt[string] `json:"email_preview_token"`
 }
 
@@ -11231,7 +13816,17 @@ type ReviewItem struct {
 	// edits, file changes, tags, and AML monitoring activity. STATUS_UPDATED rows
 	// are also written by system actors (e.g. AML ongoing monitoring with
 	// actor_type SYSTEM, and automatic feature-status updates), not only by the
-	// update-status endpoint and manual review posts.
+	// update-status endpoint and manual review posts. `FEATURE_OVERRIDE_PENDING`,
+	// `FEATURE_OVERRIDE_APPLIED` and `FEATURE_OVERRIDE_CANCELLED` record an
+	// override of one check's status (`PATCH
+	// /v3/session/{session_id}/features/{node_id}/update-status/`): requested to
+	// wait for the flow to finish, applied, or cancelled. They carry the check's
+	// status in `previous_value` / `new_value` (`{"status": ...}`), leave
+	// `previous_status` and `new_status` `null`, and name the override in
+	// `metadata` (`feature_override_id`, `node_id`, `feature_model`, `forced`,
+	// `state`, `cancel_reason`). The entry for the request carries the reviewer's
+	// `comment`; an override applied when the flow finishes is recorded with
+	// `actor_type` `SYSTEM`.
 	ActivityType ReviewItemActivityType `json:"activity_type"`
 
 	// Human-readable author label, resolved in order: actor's full name → Console
@@ -11306,7 +13901,16 @@ func (r *ReviewItem) UnmarshalJSON(data []byte) error {
 // and AML monitoring activity. STATUS_UPDATED rows are also written by system
 // actors (e.g. AML ongoing monitoring with actor_type SYSTEM, and automatic
 // feature-status updates), not only by the update-status endpoint and manual
-// review posts.
+// review posts. `FEATURE_OVERRIDE_PENDING`, `FEATURE_OVERRIDE_APPLIED` and
+// `FEATURE_OVERRIDE_CANCELLED` record an override of one check's status (`PATCH
+// /v3/session/{session_id}/features/{node_id}/update-status/`): requested to
+// wait for the flow to finish, applied, or cancelled. They carry the check's
+// status in `previous_value` / `new_value` (`{"status": ...}`), leave
+// `previous_status` and `new_status` `null`, and name the override in
+// `metadata` (`feature_override_id`, `node_id`, `feature_model`, `forced`,
+// `state`, `cancel_reason`). The entry for the request carries the reviewer's
+// `comment`; an override applied when the flow finishes is recorded with
+// `actor_type` `SYSTEM`.
 //
 // ReviewItemActivityType is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -11314,19 +13918,22 @@ type ReviewItemActivityType string
 
 // Known values of ReviewItemActivityType.
 const (
-	ReviewItemActivityTypeComment             ReviewItemActivityType = "COMMENT"
-	ReviewItemActivityTypeStatusUpdated       ReviewItemActivityType = "STATUS_UPDATED"
-	ReviewItemActivityTypeKYCDataUpdated      ReviewItemActivityType = "KYC_DATA_UPDATED"
-	ReviewItemActivityTypePOADataUpdated      ReviewItemActivityType = "POA_DATA_UPDATED"
-	ReviewItemActivityTypeFileAdded           ReviewItemActivityType = "FILE_ADDED"
-	ReviewItemActivityTypeFileRemoved         ReviewItemActivityType = "FILE_REMOVED"
-	ReviewItemActivityTypeAMLOngoingMatch     ReviewItemActivityType = "AML_ONGOING_MATCH"
-	ReviewItemActivityTypeAMLStatusUpdated    ReviewItemActivityType = "AML_STATUS_UPDATED"
-	ReviewItemActivityTypeAMLHitStatusUpdated ReviewItemActivityType = "AML_HIT_STATUS_UPDATED"
-	ReviewItemActivityTypeKYBDataUpdated      ReviewItemActivityType = "KYB_DATA_UPDATED"
-	ReviewItemActivityTypeKYBDocumentUploaded ReviewItemActivityType = "KYB_DOCUMENT_UPLOADED"
-	ReviewItemActivityTypeTagAdded            ReviewItemActivityType = "TAG_ADDED"
-	ReviewItemActivityTypeTagRemoved          ReviewItemActivityType = "TAG_REMOVED"
+	ReviewItemActivityTypeComment                  ReviewItemActivityType = "COMMENT"
+	ReviewItemActivityTypeStatusUpdated            ReviewItemActivityType = "STATUS_UPDATED"
+	ReviewItemActivityTypeKYCDataUpdated           ReviewItemActivityType = "KYC_DATA_UPDATED"
+	ReviewItemActivityTypePOADataUpdated           ReviewItemActivityType = "POA_DATA_UPDATED"
+	ReviewItemActivityTypeFileAdded                ReviewItemActivityType = "FILE_ADDED"
+	ReviewItemActivityTypeFileRemoved              ReviewItemActivityType = "FILE_REMOVED"
+	ReviewItemActivityTypeAMLOngoingMatch          ReviewItemActivityType = "AML_ONGOING_MATCH"
+	ReviewItemActivityTypeAMLStatusUpdated         ReviewItemActivityType = "AML_STATUS_UPDATED"
+	ReviewItemActivityTypeAMLHitStatusUpdated      ReviewItemActivityType = "AML_HIT_STATUS_UPDATED"
+	ReviewItemActivityTypeKYBDataUpdated           ReviewItemActivityType = "KYB_DATA_UPDATED"
+	ReviewItemActivityTypeKYBDocumentUploaded      ReviewItemActivityType = "KYB_DOCUMENT_UPLOADED"
+	ReviewItemActivityTypeTagAdded                 ReviewItemActivityType = "TAG_ADDED"
+	ReviewItemActivityTypeTagRemoved               ReviewItemActivityType = "TAG_REMOVED"
+	ReviewItemActivityTypeFeatureOverridePending   ReviewItemActivityType = "FEATURE_OVERRIDE_PENDING"
+	ReviewItemActivityTypeFeatureOverrideApplied   ReviewItemActivityType = "FEATURE_OVERRIDE_APPLIED"
+	ReviewItemActivityTypeFeatureOverrideCancelled ReviewItemActivityType = "FEATURE_OVERRIDE_CANCELLED"
 )
 
 // ReviewItemActorType: Who performed the action: an API key, a Console user, or
@@ -11387,3 +13994,94 @@ const (
 	ReviewItemPreviousStatusResubmitted  ReviewItemPreviousStatus = "Resubmitted"
 	ReviewItemPreviousStatusAwaitingUser ReviewItemPreviousStatus = "Awaiting User"
 )
+
+// SessionsSignaturesDownloadEvidenceParams holds the parameters of
+// Client.Sessions.Signatures.DownloadEvidence.
+type SessionsSignaturesDownloadEvidenceParams struct {
+	// `id` of the signer's item in `signatures[]`.
+	SignatureID Opt[string] `json:"-" query:"signature_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsSignaturesDownloadEvidenceParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsSignaturesValidateParams holds the parameters of
+// Client.Sessions.Signatures.Validate.
+type SessionsSignaturesValidateParams struct {
+	// `id` of one signer's item in `signatures[]`.
+	SignatureID Opt[string] `json:"signature_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsSignaturesValidateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsSignaturesValidateResponse is a response object.
+type SessionsSignaturesValidateResponse struct {
+	Signatures []SignatureResult `json:"signatures"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsSignaturesValidateResponse leniently.
+func (r *SessionsSignaturesValidateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionWebhookDelivery: One webhook delivery attempt recorded for a
+// verification session, with the exact request headers and body Didit sent.
+type SessionWebhookDelivery struct {
+	// Delivery ID. Use it as `{webhook_uuid}` to get or resend this delivery.
+	UUID string `json:"uuid"`
+
+	// The session the delivery belongs to (the session in the path).
+	SessionID string `json:"session_id"`
+
+	// URL the delivery was sent to.
+	RequestURL string `json:"request_url"`
+
+	// HTTP status your endpoint returned. `null` while the delivery is queued and
+	// not yet attempted. When no HTTP answer was received Didit records a status of
+	// its own: `504` when your endpoint did not answer within 5 seconds, `503` for
+	// a connection failure, `400` when the URL was refused as unsafe (for example a
+	// private or internal address), and `404` for any other request error. `400` or
+	// above counts as a failed delivery.
+	ResponseStatus int64 `json:"response_status"`
+
+	// Session status when the event was generated, for example `In Progress`,
+	// `Approved` or `Declined`.
+	Status      string       `json:"status"`
+	WebhookType WebhookEvent `json:"webhook_type"`
+
+	// JSON text (a string) of the request headers Didit sent: `Content-Type`,
+	// `X-Signature`, `X-Signature-V2`, `X-Signature-Simple`, `X-Timestamp` and
+	// `User-Agent`. Parse it with a JSON parser. It holds signatures, never the
+	// signing secret.
+	RequestHeader string `json:"request_header"`
+
+	// JSON text (a string) of the exact payload Didit sent, keys sorted, including
+	// `event_id` and `timestamp`. Parse it with a JSON parser; see [Payload
+	// shape](https://docs.didit.me/integration/webhooks#payload-shape). For a
+	// scoped key without `media: read`, media URLs inside it are `null`; without
+	// `sessions: write`, session tokens and hosted verification links are `null`. A
+	// body changed that way no longer matches its signatures. Didit does not record
+	// the response body your endpoint returned.
+	RequestBody string `json:"request_body"`
+
+	// When the delivery was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionWebhookDelivery leniently.
+func (r *SessionWebhookDelivery) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}

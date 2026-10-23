@@ -105,7 +105,7 @@ func TestSessionEvents(t *testing.T) {
 			// The decision type is generated; compare with a direct decode
 			// instead of reading its fields.
 			raw, _ := json.Marshal(decisionJSON)
-			want := new(didit.SessionsRetrieveDecisionResponse)
+			want := new(didit.SessionDecision)
 			if err := json.Unmarshal(raw, want); err != nil {
 				t.Fatal(err)
 			}
