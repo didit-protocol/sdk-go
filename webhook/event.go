@@ -168,7 +168,7 @@ type SessionFields struct {
 	// Decision is the session decision, the same shape as the response of
 	// Sessions.RetrieveDecision. It is nil when the body has no decision
 	// object.
-	Decision *didit.SessionsRetrieveDecisionResponse
+	Decision *didit.SessionDecision
 	// ResubmitInfo lists the steps the user must redo and why, as JSON. It is
 	// present when Status is Resubmitted.
 	ResubmitInfo json.RawMessage

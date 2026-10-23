@@ -18,6 +18,51 @@ type WebhooksService struct {
 	Destinations *WebhooksDestinationsService
 }
 
+// RetrieveConfig: Get webhook configuration.
+//
+// Return the application's webhook settings in one call: every [webhook
+// destination](https://docs.didit.me/management-api/webhook/list-destinations)
+// with its signing secret, the event types a destination can subscribe to, the
+// application-level (legacy) webhook URL, version and secret, the data and
+// biometric-template retention policy, and the Digital ID wallet return hosts.
+// Didit delivers webhooks to destinations, each signed with its own
+// `secret_shared_key`; the top-level `webhook_url`, `webhook_version` and
+// `secret_shared_key` are used only while no destination is enabled, and then
+// only for `status.updated` and `data.updated`. The response contains signing
+// secrets, so keep it out of logs and client-side code. A scoped API key needs
+// `webhooks: read`.
+//
+//	GET /v3/webhook/
+func (r *WebhooksService) RetrieveConfig(ctx context.Context, opts ...option.RequestOption) (*WebhookConfig, error) {
+	res := new(WebhookConfig)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/webhook/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// UpdateConfig: Update webhook configuration.
+//
+// Partially update application-level settings: the legacy webhook URL, version
+// and secret, the data and biometric-template retention policy, and the Digital
+// ID wallet return hosts. Send only the fields to change; the response is the
+// full configuration, the same shape as `GET /v3/webhook/`. Destinations are
+// not managed here: create, update and delete them with the
+// `/v3/webhook/destinations/` endpoints, and do not send an `endpoints` field
+// to this endpoint. A `data_retention_months` change also applies to existing
+// sessions, and sessions it deletes cannot be restored; read [Data
+// retention](https://docs.didit.me/console/data-retention) first. A scoped API
+// key needs `webhooks: write`.
+//
+//	PATCH /v3/webhook/
+func (r *WebhooksService) UpdateConfig(ctx context.Context, params WebhooksUpdateConfigParams, opts ...option.RequestOption) (*WebhookConfig, error) {
+	res := new(WebhookConfig)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/webhook/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // WebhooksDestinationsService holds the webhooks destinations operations. Use
 // it through Client.Webhooks.Destinations.
 type WebhooksDestinationsService struct {
@@ -32,7 +77,7 @@ type WebhooksDestinationsService struct {
 // `subscribed_events` with at least one event (no wildcards): an explicit empty
 // list is rejected with 400, and omitting the field creates a destination
 // subscribed to nothing, which never receives a webhook. The `(application,
-// url)` pair must be unique among non-deleted destinations.
+// url)` pair must be unique among the application's destinations.
 //
 //	POST /v3/webhook/destinations/
 func (r *WebhooksDestinationsService) Create(ctx context.Context, params WebhooksDestinationsCreateParams, opts ...option.RequestOption) (*WebhooksDestinationsCreateResponse, error) {
@@ -45,10 +90,16 @@ func (r *WebhooksDestinationsService) Create(ctx context.Context, params Webhook
 
 // Delete: Delete webhook destination.
 //
-// Delete a webhook destination. Future events stop being pushed to its URL.
-// Past delivery records are not affected and stay queryable from the Business
-// Console, so deleting a destination is not a way to remove your delivery
-// history. Calling again returns 404.
+// Permanently delete a webhook destination, its signing secret and its entire
+// delivery log. This cannot be undone. No new webhook is sent to the
+// destination's URL; other destinations subscribed to the same events keep
+// receiving them. Afterwards the destination no longer appears in `GET
+// /v3/webhook/destinations/`, and every route under
+// `/v3/webhook/destinations/{destination_uuid}/`, including its deliveries, a
+// delivery's detail and its resend, answers 404. The application's legacy
+// `webhook_url` is set to the URL of the oldest remaining enabled destination,
+// or cleared when no enabled destination is left. Calling DELETE again returns
+// 404.
 //
 //	DELETE /v3/webhook/destinations/{destination_uuid}/
 func (r *WebhooksDestinationsService) Delete(ctx context.Context, destinationUUID string, opts ...option.RequestOption) error {
@@ -58,10 +109,14 @@ func (r *WebhooksDestinationsService) Delete(ctx context.Context, destinationUUI
 
 // List: List webhook destinations.
 //
-// List all webhook destinations (unpaginated array, oldest first). Each row
-// includes URL, subscribed events, and delivery health metrics. The signing
-// secret is NOT included in the list - fetch a single destination (`GET
-// /v3/webhook/destinations/{destination_uuid}/`) to read `secret_shared_key`.
+// List all webhook destinations (unpaginated array, oldest first). Each item
+// carries the destination's configuration, its delivery metrics for the last 30
+// days (`metrics_window_days`) with one `daily_points` entry per day, and its
+// health (`health_status`, `failing_streak`, `failing_since`,
+// `last_success_at`). The list has no `summary` object and never includes the
+// signing secret: each item shows only `secret_last4`. Fetch a single
+// destination (`GET /v3/webhook/destinations/{destination_uuid}/`) to read
+// `secret_shared_key`.
 //
 //	GET /v3/webhook/destinations/
 func (r *WebhooksDestinationsService) List(ctx context.Context, opts ...option.RequestOption) ([]WebhooksDestinationsListResponse, error) {
@@ -72,11 +127,65 @@ func (r *WebhooksDestinationsService) List(ctx context.Context, opts ...option.R
 	return res, nil
 }
 
+// ListDeliveries: List webhook destination deliveries.
+//
+// Page through every delivery attempt to one webhook destination, newest first.
+// The first send of each event, each automatic
+// [retry](https://docs.didit.me/integration/webhooks#retry-policy) and each
+// resend are separate entries. Entries carry the HTTP status and response time
+// but not the payload: fetch one delivery to read its headers and body. `count`
+// is exact up to 100 and reads 100 above that, so follow `next` until it is
+// `null`. Delivery records are available for about 30 days. A scoped API key
+// needs `webhooks: read` and `decisions: read`; a key limited to some workflows
+// or to approved sessions cannot use this endpoint.
+//
+// It returns one page; ListDeliveriesAutoPaging iterates over every item of
+// every page.
+//
+//	GET /v3/webhook/destinations/{destination_uuid}/deliveries/
+func (r *WebhooksDestinationsService) ListDeliveries(ctx context.Context, destinationUUID string, params WebhooksDestinationsListDeliveriesParams, opts ...option.RequestOption) (*Page[WebhookDestinationDelivery], error) {
+	return getPage[WebhookDestinationDelivery](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/webhook/destinations/{destination_uuid}/deliveries/", pathParams: []string{"destination_uuid", destinationUUID}, params: params}, opts)
+}
+
+// ListDeliveriesAutoPaging iterates over every item of every page of
+// ListDeliveries, fetching pages as needed.
+func (r *WebhooksDestinationsService) ListDeliveriesAutoPaging(ctx context.Context, destinationUUID string, params WebhooksDestinationsListDeliveriesParams, opts ...option.RequestOption) *PageIterator[WebhookDestinationDelivery] {
+	return newPageIterator(ctx, func() (*Page[WebhookDestinationDelivery], error) {
+		return r.ListDeliveries(ctx, destinationUUID, params, opts...)
+	})
+}
+
+// ResendDelivery: Resend webhook destination delivery.
+//
+// Send a past delivery again, for example after your endpoint was down. Didit
+// takes the stored payload, sets a fresh `timestamp`, signs it again with the
+// destination's current `secret_shared_key` (`X-Signature`, `X-Signature-V2`,
+// `X-Signature-Simple` and `X-Timestamp`) and posts it to the delivery's
+// `request_url`, even if the destination's URL has changed since or the
+// destination is disabled. `event_id` and the rest of the payload are
+// unchanged, so deduplicate on `event_id`. The call waits up to 5 seconds for
+// your endpoint and returns the new delivery with `200` whatever your endpoint
+// answered: read `response_status`. A resend is not retried automatically,
+// every call sends again and creates a new delivery, and the request has no
+// body. A scoped API key needs `webhooks: write` and `decisions: read`; a key
+// limited to some workflows or to approved sessions cannot use this endpoint.
+//
+//	POST /v3/webhook/destinations/{destination_uuid}/deliveries/{delivery_uuid}/resend/
+func (r *WebhooksDestinationsService) ResendDelivery(ctx context.Context, destinationUUID string, deliveryUUID string, opts ...option.RequestOption) (*WebhookDestinationDeliveryDetail, error) {
+	res := new(WebhookDestinationDeliveryDetail)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/webhook/destinations/{destination_uuid}/deliveries/{delivery_uuid}/resend/", pathParams: []string{"destination_uuid", destinationUUID, "delivery_uuid", deliveryUUID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // Retrieve: Get webhook destination.
 //
-// Retrieve one webhook destination with its `secret_shared_key` signing secret
-// and delivery health summary. API-key callers always receive the secret in
-// full; Console users without `read:webhooks` see an empty string.
+// Retrieve one webhook destination with its `secret_shared_key` signing secret,
+// its health (`health_status`, `failing_streak`, `failing_since`,
+// `last_success_at`) and a delivery `summary` for the last 30 days. API-key
+// callers always receive the secret in full; Console users without
+// `read:webhooks` see an empty string.
 //
 //	GET /v3/webhook/destinations/{destination_uuid}/
 func (r *WebhooksDestinationsService) Retrieve(ctx context.Context, destinationUUID string, opts ...option.RequestOption) (*WebhooksDestinationsRetrieveResponse, error) {
@@ -87,10 +196,54 @@ func (r *WebhooksDestinationsService) Retrieve(ctx context.Context, destinationU
 	return res, nil
 }
 
+// RetrieveAnalytics: Get webhook destination analytics.
+//
+// Delivery totals, failure rate and response times for one webhook destination,
+// over the whole range (`summary`) and per UTC day (`points`). Every attempt
+// counts as a delivery: the first send of an event, each automatic
+// [retry](https://docs.didit.me/integration/webhooks#retry-policy) and each
+// resend. A delivery is failed when its recorded HTTP status is 400 or above,
+// so timeouts (recorded as `504`) and connection failures (`503`) count as
+// failed; a delivery still queued counts in `total_deliveries` only. Delivery
+// records are available for about 30 days. A scoped API key needs `webhooks:
+// read`.
+//
+//	GET /v3/webhook/destinations/{destination_uuid}/analytics/
+func (r *WebhooksDestinationsService) RetrieveAnalytics(ctx context.Context, destinationUUID string, params WebhooksDestinationsRetrieveAnalyticsParams, opts ...option.RequestOption) (*WebhooksDestinationsRetrieveAnalyticsResponse, error) {
+	res := new(WebhooksDestinationsRetrieveAnalyticsResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/webhook/destinations/{destination_uuid}/analytics/", pathParams: []string{"destination_uuid", destinationUUID}, params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// RetrieveDelivery: Get webhook destination delivery.
+//
+// Retrieve one delivery attempt to a webhook destination with the exact request
+// headers and JSON body Didit sent, the HTTP status your endpoint returned and
+// the response time. `request_header` and `request_body` are JSON text: parse
+// them to read the signature headers and the payload, for example to check your
+// [signature
+// verification](https://docs.didit.me/integration/webhooks#signature-verification)
+// against the destination's `secret_shared_key`. A delivery never contains the
+// signing secret, and Didit does not record your endpoint's response body. A
+// scoped API key needs `webhooks: read` and `decisions: read`; a key limited to
+// some workflows or to approved sessions cannot use this endpoint.
+//
+//	GET /v3/webhook/destinations/{destination_uuid}/deliveries/{delivery_uuid}/
+func (r *WebhooksDestinationsService) RetrieveDelivery(ctx context.Context, destinationUUID string, deliveryUUID string, opts ...option.RequestOption) (*WebhookDestinationDeliveryDetail, error) {
+	res := new(WebhookDestinationDeliveryDetail)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/webhook/destinations/{destination_uuid}/deliveries/{delivery_uuid}/", pathParams: []string{"destination_uuid", destinationUUID, "delivery_uuid", deliveryUUID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // Update: Update webhook destination.
 //
 // Update a webhook destination. **`subscribed_events` is REPLACED wholesale,
-// not merged** - fetch first, append, resend. Secret is not rotated.
+// not merged**: fetch first, append, resend. Secret is not rotated. A `uuid` in
+// the body is ignored: the path names the destination.
 //
 //	PATCH /v3/webhook/destinations/{destination_uuid}/
 func (r *WebhooksDestinationsService) Update(ctx context.Context, destinationUUID string, params WebhooksDestinationsUpdateParams, opts ...option.RequestOption) (*WebhooksDestinationsUpdateResponse, error) {
@@ -101,6 +254,280 @@ func (r *WebhooksDestinationsService) Update(ctx context.Context, destinationUUI
 	return res, nil
 }
 
+// WebhookConfig: Application-level webhook configuration, retention policy and
+// Digital ID wallet return hosts, with every webhook destination.
+type WebhookConfig struct {
+	// Application-level (legacy) webhook URL. Didit sends to it only while the
+	// application has no enabled destination, and then only `status.updated` and
+	// `data.updated`. Every create, update or delete of a destination sets it to
+	// the URL of the oldest enabled destination, or `null` when none is enabled.
+	WebhookURL string `json:"webhook_url"`
+
+	// Payload version of the legacy `webhook_url`. Each destination has its own
+	// `webhook_version`.
+	WebhookVersion WebhookConfigWebhookVersion `json:"webhook_version"`
+
+	// Application-level signing secret (43-character URL-safe token). It signs only
+	// deliveries to the legacy `webhook_url`; each destination signs with its own
+	// `secret_shared_key`. API-key callers always receive it in full; Console users
+	// without `read:webhooks` receive an empty string.
+	SecretSharedKey string `json:"secret_shared_key"`
+
+	// Legacy application setting. The verification flow does not read it: capture
+	// options are configured per workflow.
+	CaptureMethod WebhookConfigCaptureMethod `json:"capture_method"`
+
+	// Automatic deletion window. User verification sessions created more than this
+	// many months ago (a month counts as 30 days) are deleted automatically, and
+	// that deletion is irreversible. `null` means sessions are never deleted
+	// automatically. See [Data
+	// retention](https://docs.didit.me/console/data-retention).
+	DataRetentionMonths int64 `json:"data_retention_months"`
+
+	// What happens to a session's face embedding when the session is deleted.
+	// `delete_with_session` (default) deletes it with the session.
+	// `retain_until_user_deleted` is the opt-in [biometric template
+	// retention](https://docs.didit.me/console/data-retention#biometric-template-retention):
+	// an image-free biometric template linked to the User is managed separately
+	// until its retention period ends, the User is deleted, or you purge it.
+	FaceRetentionPolicy WebhookConfigFaceRetentionPolicy `json:"face_retention_policy"`
+
+	// Retention period, in days, of biometric templates under
+	// `retain_until_user_deleted`. Required when that policy is set.
+	FaceRetentionDays int64 `json:"face_retention_days"`
+
+	// Every event type a destination can subscribe to, with a display label.
+	AvailableEvents []WebhookConfigAvailableEvents `json:"available_events"`
+
+	// Hostnames (exact match, HTTPS only) a standalone Digital ID wallet
+	// verification may send the user back to with its `return_url`. Your
+	// white-label domain is always allowed as well. See [Register your return
+	// destination](https://docs.didit.me/standalone-apis/digital-id-wallets#register-your-return-destination).
+	AllowedReturnHosts []string `json:"allowed_return_hosts"`
+
+	// Every webhook destination of the application, oldest first, each with its
+	// signing secret. Read only here: manage destinations with the
+	// `/v3/webhook/destinations/` endpoints.
+	Endpoints []WebhookConfigDestination `json:"endpoints"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhookConfig leniently.
+func (r *WebhookConfig) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WebhookConfigWebhookVersion: Payload version of the legacy `webhook_url`.
+// Each destination has its own `webhook_version`.
+//
+// WebhookConfigWebhookVersion is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type WebhookConfigWebhookVersion string
+
+// Known values of WebhookConfigWebhookVersion.
+const (
+	WebhookConfigWebhookVersionV1 WebhookConfigWebhookVersion = "v1"
+	WebhookConfigWebhookVersionV2 WebhookConfigWebhookVersion = "v2"
+	WebhookConfigWebhookVersionV3 WebhookConfigWebhookVersion = "v3"
+)
+
+// WebhookConfigCaptureMethod: Legacy application setting. The verification flow
+// does not read it: capture options are configured per workflow.
+//
+// WebhookConfigCaptureMethod is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type WebhookConfigCaptureMethod string
+
+// Known values of WebhookConfigCaptureMethod.
+const (
+	WebhookConfigCaptureMethodMobile           WebhookConfigCaptureMethod = "MOBILE"
+	WebhookConfigCaptureMethodMobileAndDesktop WebhookConfigCaptureMethod = "MOBILE_AND_DESKTOP"
+)
+
+// WebhookConfigFaceRetentionPolicy: What happens to a session's face embedding
+// when the session is deleted. `delete_with_session` (default) deletes it with
+// the session. `retain_until_user_deleted` is the opt-in [biometric template
+// retention](https://docs.didit.me/console/data-retention#biometric-template-retention):
+// an image-free biometric template linked to the User is managed separately
+// until its retention period ends, the User is deleted, or you purge it.
+//
+// WebhookConfigFaceRetentionPolicy is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type WebhookConfigFaceRetentionPolicy string
+
+// Known values of WebhookConfigFaceRetentionPolicy.
+const (
+	WebhookConfigFaceRetentionPolicyDeleteWithSession      WebhookConfigFaceRetentionPolicy = "delete_with_session"
+	WebhookConfigFaceRetentionPolicyRetainUntilUserDeleted WebhookConfigFaceRetentionPolicy = "retain_until_user_deleted"
+)
+
+// WebhookConfigAvailableEvents is a response object.
+type WebhookConfigAvailableEvents struct {
+	Value WebhookEvent `json:"value"`
+
+	// Display label, for example `Session status updated`.
+	Label string `json:"label"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhookConfigAvailableEvents leniently.
+func (r *WebhookConfigAvailableEvents) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WebhookConfigDestination: A webhook destination as listed in the webhook
+// configuration, without delivery metrics. `GET
+// /v3/webhook/destinations/{destination_uuid}/` adds its delivery summary.
+type WebhookConfigDestination struct {
+	// Destination ID.
+	UUID string `json:"uuid"`
+
+	// Human-readable name.
+	Label string `json:"label"`
+
+	// HTTPS endpoint Didit posts events to.
+	URL string `json:"url"`
+
+	// `false` pauses deliveries to this destination.
+	Enabled bool `json:"enabled"`
+
+	// Payload version sent to this destination.
+	WebhookVersion WebhookConfigDestinationWebhookVersion `json:"webhook_version"`
+
+	// This destination's signing secret (43-character URL-safe token). Verify each
+	// webhook with the secret of the destination it was sent to. API-key callers
+	// always receive it in full; Console users without `read:webhooks` receive an
+	// empty string.
+	SecretSharedKey string `json:"secret_shared_key"`
+
+	// Event types delivered to this destination. Empty when the destination was
+	// created without events, in which case it receives nothing.
+	SubscribedEvents []WebhookEvent `json:"subscribed_events"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhookConfigDestination leniently.
+func (r *WebhookConfigDestination) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WebhookConfigDestinationWebhookVersion: Payload version sent to this
+// destination.
+//
+// WebhookConfigDestinationWebhookVersion is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type WebhookConfigDestinationWebhookVersion string
+
+// Known values of WebhookConfigDestinationWebhookVersion.
+const (
+	WebhookConfigDestinationWebhookVersionV1 WebhookConfigDestinationWebhookVersion = "v1"
+	WebhookConfigDestinationWebhookVersionV2 WebhookConfigDestinationWebhookVersion = "v2"
+	WebhookConfigDestinationWebhookVersionV3 WebhookConfigDestinationWebhookVersion = "v3"
+)
+
+// WebhooksUpdateConfigParams holds the parameters of
+// Client.Webhooks.UpdateConfig.
+type WebhooksUpdateConfigParams struct {
+	// Legacy application-level webhook URL. Didit uses it only while the
+	// application has no enabled destination, and then only for `status.updated`
+	// and `data.updated`. It does not create a destination, and the next create,
+	// update or delete of a destination replaces it. To receive webhooks, create a
+	// destination with `POST /v3/webhook/destinations/` instead.
+	WebhookURL Opt[string] `json:"webhook_url"`
+
+	// Payload version of the legacy `webhook_url`.
+	WebhookVersion Opt[WebhooksUpdateConfigParamsWebhookVersion] `json:"webhook_version"`
+
+	// `true` replaces the application-level `secret_shared_key` with a new random
+	// value at once; the new value is in the response. Destination secrets are not
+	// changed. Every call with `true` generates a new secret, so it is not
+	// idempotent.
+	RotateSecretKey Opt[bool] `json:"rotate_secret_key"`
+
+	// Legacy application setting. The verification flow does not read it.
+	CaptureMethod Opt[WebhooksUpdateConfigParamsCaptureMethod] `json:"capture_method"`
+
+	// Automatic deletion window in months (a month counts as 30 days), or `null`
+	// for no automatic deletion. A change applies to existing sessions too: every
+	// user verification session older than the new window is deleted automatically,
+	// and that deletion is irreversible.
+	DataRetentionMonths Opt[int64] `json:"data_retention_months"`
+
+	// What happens to a session's face embedding when the session is deleted.
+	// `retain_until_user_deleted` needs `face_retention_days` in the same request
+	// or already set. A change applies to session deletions from then on; it
+	// creates or purges no existing biometric template.
+	FaceRetentionPolicy Opt[WebhooksUpdateConfigParamsFaceRetentionPolicy] `json:"face_retention_policy"`
+
+	// Retention period, in days, of biometric templates under
+	// `retain_until_user_deleted`.
+	FaceRetentionDays Opt[int64] `json:"face_retention_days"`
+
+	// Replaces the whole list of Digital ID wallet return hosts. Bare hostnames
+	// only, such as `shop.example.com`: no scheme, port, path or wildcard. Values
+	// are lowercased and duplicates are dropped. Send `[]` to clear the list.
+	AllowedReturnHosts Opt[[]string] `json:"allowed_return_hosts"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r WebhooksUpdateConfigParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// WebhooksUpdateConfigParamsWebhookVersion: Payload version of the legacy
+// `webhook_url`.
+//
+// WebhooksUpdateConfigParamsWebhookVersion is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type WebhooksUpdateConfigParamsWebhookVersion string
+
+// Known values of WebhooksUpdateConfigParamsWebhookVersion.
+const (
+	WebhooksUpdateConfigParamsWebhookVersionV1 WebhooksUpdateConfigParamsWebhookVersion = "v1"
+	WebhooksUpdateConfigParamsWebhookVersionV2 WebhooksUpdateConfigParamsWebhookVersion = "v2"
+	WebhooksUpdateConfigParamsWebhookVersionV3 WebhooksUpdateConfigParamsWebhookVersion = "v3"
+)
+
+// WebhooksUpdateConfigParamsCaptureMethod: Legacy application setting. The
+// verification flow does not read it.
+//
+// WebhooksUpdateConfigParamsCaptureMethod is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type WebhooksUpdateConfigParamsCaptureMethod string
+
+// Known values of WebhooksUpdateConfigParamsCaptureMethod.
+const (
+	WebhooksUpdateConfigParamsCaptureMethodMobile           WebhooksUpdateConfigParamsCaptureMethod = "MOBILE"
+	WebhooksUpdateConfigParamsCaptureMethodMobileAndDesktop WebhooksUpdateConfigParamsCaptureMethod = "MOBILE_AND_DESKTOP"
+)
+
+// WebhooksUpdateConfigParamsFaceRetentionPolicy: What happens to a session's
+// face embedding when the session is deleted. `retain_until_user_deleted` needs
+// `face_retention_days` in the same request or already set. A change applies to
+// session deletions from then on; it creates or purges no existing biometric
+// template.
+//
+// WebhooksUpdateConfigParamsFaceRetentionPolicy is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type WebhooksUpdateConfigParamsFaceRetentionPolicy string
+
+// Known values of WebhooksUpdateConfigParamsFaceRetentionPolicy.
+const (
+	WebhooksUpdateConfigParamsFaceRetentionPolicyDeleteWithSession      WebhooksUpdateConfigParamsFaceRetentionPolicy = "delete_with_session"
+	WebhooksUpdateConfigParamsFaceRetentionPolicyRetainUntilUserDeleted WebhooksUpdateConfigParamsFaceRetentionPolicy = "retain_until_user_deleted"
+)
+
 // WebhooksDestinationsCreateParams holds the parameters of
 // Client.Webhooks.Destinations.Create.
 type WebhooksDestinationsCreateParams struct {
@@ -108,9 +535,9 @@ type WebhooksDestinationsCreateParams struct {
 	// destinations when you have several (e.g. "Prod", "Staging mirror"). Required.
 	Label string `json:"label"`
 
-	// HTTPS URL that will receive `POST` requests. Must be unique per application
-	// among non-deleted destinations. Use a stable, hardened endpoint - Didit
-	// retries failed deliveries on a backoff schedule. Required.
+	// HTTPS URL that will receive `POST` requests. Must be unique among the
+	// application's destinations. Use a stable, hardened endpoint: Didit retries
+	// failed deliveries on a backoff schedule. Required.
 	URL string `json:"url"`
 
 	// When `false`, the destination is saved but Didit will not push any webhooks
@@ -148,27 +575,6 @@ const (
 	WebhooksDestinationsCreateParamsWebhookVersionV3 WebhooksDestinationsCreateParamsWebhookVersion = "v3"
 )
 
-// WebhookEvent: Supported webhook event name. Use these exact strings in
-// `subscribed_events`; unsupported values are rejected.
-//
-// WebhookEvent is a string with known values below. The set is open: other
-// values may appear and never cause an error.
-type WebhookEvent string
-
-// Known values of WebhookEvent.
-const (
-	WebhookEventStatusUpdated            WebhookEvent = "status.updated"
-	WebhookEventDataUpdated              WebhookEvent = "data.updated"
-	WebhookEventUserStatusUpdated        WebhookEvent = "user.status.updated"
-	WebhookEventUserDataUpdated          WebhookEvent = "user.data.updated"
-	WebhookEventBusinessStatusUpdated    WebhookEvent = "business.status.updated"
-	WebhookEventBusinessDataUpdated      WebhookEvent = "business.data.updated"
-	WebhookEventActivityCreated          WebhookEvent = "activity.created"
-	WebhookEventTransactionCreated       WebhookEvent = "transaction.created"
-	WebhookEventTransactionStatusUpdated WebhookEvent = "transaction.status.updated"
-	WebhookEventTravelRuleStatusUpdated  WebhookEvent = "travel_rule.status.updated"
-)
-
 // WebhooksDestinationsCreateResponse is a response object.
 type WebhooksDestinationsCreateResponse struct {
 	// Stable destination identifier. Use as `{destination_uuid}` in subsequent
@@ -183,12 +589,59 @@ type WebhooksDestinationsCreateResponse struct {
 	// URL-safe token). Use it to verify the signature headers on incoming webhooks.
 	// Always returned in full to API-key callers; Console users need the
 	// `read:webhooks` permission, otherwise they see an empty string.
-	SecretSharedKey  string         `json:"secret_shared_key"`
-	SubscribedEvents []WebhookEvent `json:"subscribed_events"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
+	SecretSharedKey string `json:"secret_shared_key"`
 
-	// Delivery health summary (all zero/null on a brand-new destination).
+	// Last four characters of the destination's current signing secret, so you can
+	// tell secrets apart. Not enough to verify a signature.
+	SecretLast4 string `json:"secret_last4"`
+
+	// Set for 24 hours after the destination's signing secret is rotated in the
+	// Business Console. Until this time, every delivery to the destination also
+	// carries `X-Signature-Previous`, `X-Signature-V2-Previous` and
+	// `X-Signature-Simple-Previous`, made with the replaced secret (see [Signature
+	// verification](/integration/webhooks#signature-verification)). `null` when no
+	// rotation happened in the last 24 hours.
+	PreviousSecretExpiresAt time.Time      `json:"previous_secret_expires_at"`
+	SubscribedEvents        []WebhookEvent `json:"subscribed_events"`
+
+	// Email of the Business Console member who created the destination. `null` for
+	// a destination created with an API key.
+	CreatedByEmail string `json:"created_by_email"`
+
+	// Name of the Business Console member who created the destination. `null` for a
+	// destination created with an API key.
+	CreatedByName string    `json:"created_by_name"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+
+	// Delivery health. `failing`: 3 or more consecutive events failed their first
+	// delivery attempt since the destination last answered successfully (see
+	// `failing_streak`). `degraded`: not failing, but a delivery attempt failed in
+	// the last 24 hours and no later attempt has delivered that event; a retry or
+	// resend that delivers it clears this. `healthy`: neither. Independent of
+	// `enabled`. A failed attempt is one answered with HTTP 400 or above, or not
+	// answered at all.
+	HealthStatus WebhooksDestinationsCreateResponseHealthStatus `json:"health_status"`
+
+	// How many consecutive events failed their first delivery attempt since the
+	// destination last answered successfully, within the last 30 days. Retries are
+	// not counted, and any successful attempt, including a retry or a resend, ends
+	// the streak. `0` when no event has failed since the last success.
+	FailingStreak int64 `json:"failing_streak"`
+
+	// When the first failed attempt of the current `failing_streak` was made.
+	// `null` when `failing_streak` is `0`.
+	FailingSince time.Time `json:"failing_since"`
+
+	// When the destination last answered a delivery with an HTTP status under 400,
+	// within the last 30 days. `null` if it has not in that window.
+	LastSuccessAt time.Time `json:"last_success_at"`
+
+	// Environment of the application that owns the destination.
+	Environment WebhooksDestinationsCreateResponseEnvironment `json:"environment"`
+
+	// Delivery metrics for the last `metrics_window_days` (30) days.
+	// `last_delivery_at` is the most recent attempt, whenever it was made.
 	Summary WebhooksDestinationsCreateResponseSummary `json:"summary"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -213,8 +666,41 @@ const (
 	WebhooksDestinationsCreateResponseWebhookVersionV3 WebhooksDestinationsCreateResponseWebhookVersion = "v3"
 )
 
-// WebhooksDestinationsCreateResponseSummary: Delivery health summary (all
-// zero/null on a brand-new destination).
+// WebhooksDestinationsCreateResponseHealthStatus: Delivery health. `failing`: 3
+// or more consecutive events failed their first delivery attempt since the
+// destination last answered successfully (see `failing_streak`). `degraded`:
+// not failing, but a delivery attempt failed in the last 24 hours and no later
+// attempt has delivered that event; a retry or resend that delivers it clears
+// this. `healthy`: neither. Independent of `enabled`. A failed attempt is one
+// answered with HTTP 400 or above, or not answered at all.
+//
+// WebhooksDestinationsCreateResponseHealthStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type WebhooksDestinationsCreateResponseHealthStatus string
+
+// Known values of WebhooksDestinationsCreateResponseHealthStatus.
+const (
+	WebhooksDestinationsCreateResponseHealthStatusHealthy  WebhooksDestinationsCreateResponseHealthStatus = "healthy"
+	WebhooksDestinationsCreateResponseHealthStatusDegraded WebhooksDestinationsCreateResponseHealthStatus = "degraded"
+	WebhooksDestinationsCreateResponseHealthStatusFailing  WebhooksDestinationsCreateResponseHealthStatus = "failing"
+)
+
+// WebhooksDestinationsCreateResponseEnvironment: Environment of the application
+// that owns the destination.
+//
+// WebhooksDestinationsCreateResponseEnvironment is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type WebhooksDestinationsCreateResponseEnvironment string
+
+// Known values of WebhooksDestinationsCreateResponseEnvironment.
+const (
+	WebhooksDestinationsCreateResponseEnvironmentLive    WebhooksDestinationsCreateResponseEnvironment = "live"
+	WebhooksDestinationsCreateResponseEnvironmentSandbox WebhooksDestinationsCreateResponseEnvironment = "sandbox"
+)
+
+// WebhooksDestinationsCreateResponseSummary: Delivery metrics for the last
+// `metrics_window_days` (30) days. `last_delivery_at` is the most recent
+// attempt, whenever it was made.
 type WebhooksDestinationsCreateResponseSummary struct {
 	TotalDeliveries     int64     `json:"total_deliveries"`
 	FailedDeliveries    int64     `json:"failed_deliveries"`
@@ -223,6 +709,9 @@ type WebhooksDestinationsCreateResponseSummary struct {
 	AvgResponseTimeMs   int64     `json:"avg_response_time_ms"`
 	MaxResponseTimeMs   int64     `json:"max_response_time_ms"`
 	LastDeliveryAt      time.Time `json:"last_delivery_at"`
+
+	// Length in days of the window the other summary metrics cover. Always `30`.
+	MetricsWindowDays int64 `json:"metrics_window_days"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -256,26 +745,75 @@ type WebhooksDestinationsListResponse struct {
 	// Cached length of `subscribed_events`, useful for UI rendering.
 	SubscribedEventsCount int64 `json:"subscribed_events_count"`
 
-	// Total delivery attempts (successful + failed) recorded for this destination.
+	// Delivery attempts (retries included) made to this destination in the last 30
+	// days.
 	DeliveriesCount int64 `json:"deliveries_count"`
 
-	// Delivery attempts whose target responded with HTTP ≥ 400 (or did not
-	// respond).
+	// Delivery attempts in the last 30 days that the destination answered with HTTP
+	// 400 or above, or did not answer (timeout, refused connection or blocked
+	// address).
 	FailedDeliveriesCount int64 `json:"failed_deliveries_count"`
 
-	// Average target response time in milliseconds, rounded to an integer. `null`
-	// if no deliveries yet.
+	// Average response time in milliseconds over the last 30 days, rounded to an
+	// integer. `null` when there were no deliveries in that window.
 	AverageResponseTimeMs int64 `json:"average_response_time_ms"`
 
-	// `round(failed_deliveries_count / deliveries_count * 100)`; `0` when there are
-	// no deliveries.
+	// `round(failed_deliveries_count / deliveries_count * 100)` over the last 30
+	// days; `0` when there are no deliveries.
 	ErrorRatePercentage int64 `json:"error_rate_percentage"`
 
 	// Timestamp of the most recent delivery attempt (success or failure). `null` if
 	// never delivered.
 	LastDeliveryAt time.Time `json:"last_delivery_at"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+
+	// Length in days of the window that `deliveries_count`,
+	// `failed_deliveries_count`, `average_response_time_ms`,
+	// `error_rate_percentage` and `daily_points` cover. Always `30`.
+	MetricsWindowDays int64 `json:"metrics_window_days"`
+
+	// Delivery health. `failing`: 3 or more consecutive events failed their first
+	// delivery attempt since the destination last answered successfully (see
+	// `failing_streak`). `degraded`: not failing, but a delivery attempt failed in
+	// the last 24 hours and no later attempt has delivered that event; a retry or
+	// resend that delivers it clears this. `healthy`: neither. Independent of
+	// `enabled`. A failed attempt is one answered with HTTP 400 or above, or not
+	// answered at all.
+	HealthStatus WebhooksDestinationsListResponseHealthStatus `json:"health_status"`
+
+	// How many consecutive events failed their first delivery attempt since the
+	// destination last answered successfully, within the last 30 days. Retries are
+	// not counted, and any successful attempt, including a retry or a resend, ends
+	// the streak. `0` when no event has failed since the last success.
+	FailingStreak int64 `json:"failing_streak"`
+
+	// When the first failed attempt of the current `failing_streak` was made.
+	// `null` when `failing_streak` is `0`.
+	FailingSince time.Time `json:"failing_since"`
+
+	// When the destination last answered a delivery with an HTTP status under 400,
+	// within the last 30 days. `null` if it has not in that window.
+	LastSuccessAt time.Time `json:"last_success_at"`
+
+	// Environment of the application that owns the destination.
+	Environment WebhooksDestinationsListResponseEnvironment `json:"environment"`
+
+	// One entry per UTC day of the last 30 days, oldest first, including days with
+	// no deliveries. Counts every attempt, retries included.
+	DailyPoints []WebhooksDestinationsListResponseDailyPoints `json:"daily_points"`
+
+	// Last four characters of the destination's current signing secret, so you can
+	// tell secrets apart. Not enough to verify a signature.
+	SecretLast4 string `json:"secret_last4"`
+
+	// Email of the Business Console member who created the destination. `null` for
+	// a destination created with an API key.
+	CreatedByEmail string `json:"created_by_email"`
+
+	// Name of the Business Console member who created the destination. `null` for a
+	// destination created with an API key.
+	CreatedByName string    `json:"created_by_name"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -301,6 +839,191 @@ const (
 	WebhooksDestinationsListResponseWebhookVersionV3 WebhooksDestinationsListResponseWebhookVersion = "v3"
 )
 
+// WebhooksDestinationsListResponseHealthStatus: Delivery health. `failing`: 3
+// or more consecutive events failed their first delivery attempt since the
+// destination last answered successfully (see `failing_streak`). `degraded`:
+// not failing, but a delivery attempt failed in the last 24 hours and no later
+// attempt has delivered that event; a retry or resend that delivers it clears
+// this. `healthy`: neither. Independent of `enabled`. A failed attempt is one
+// answered with HTTP 400 or above, or not answered at all.
+//
+// WebhooksDestinationsListResponseHealthStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type WebhooksDestinationsListResponseHealthStatus string
+
+// Known values of WebhooksDestinationsListResponseHealthStatus.
+const (
+	WebhooksDestinationsListResponseHealthStatusHealthy  WebhooksDestinationsListResponseHealthStatus = "healthy"
+	WebhooksDestinationsListResponseHealthStatusDegraded WebhooksDestinationsListResponseHealthStatus = "degraded"
+	WebhooksDestinationsListResponseHealthStatusFailing  WebhooksDestinationsListResponseHealthStatus = "failing"
+)
+
+// WebhooksDestinationsListResponseEnvironment: Environment of the application
+// that owns the destination.
+//
+// WebhooksDestinationsListResponseEnvironment is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type WebhooksDestinationsListResponseEnvironment string
+
+// Known values of WebhooksDestinationsListResponseEnvironment.
+const (
+	WebhooksDestinationsListResponseEnvironmentLive    WebhooksDestinationsListResponseEnvironment = "live"
+	WebhooksDestinationsListResponseEnvironmentSandbox WebhooksDestinationsListResponseEnvironment = "sandbox"
+)
+
+// WebhooksDestinationsListResponseDailyPoints is a response object.
+type WebhooksDestinationsListResponseDailyPoints struct {
+	// The UTC day.
+	Date string `json:"date"`
+
+	// Delivery attempts made that day.
+	TotalDeliveries int64 `json:"total_deliveries"`
+
+	// Attempts made that day that were answered with HTTP 400 or above, or not
+	// answered at all.
+	FailedDeliveries int64 `json:"failed_deliveries"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhooksDestinationsListResponseDailyPoints leniently.
+func (r *WebhooksDestinationsListResponseDailyPoints) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WebhooksDestinationsListDeliveriesParams holds the parameters of
+// Client.Webhooks.Destinations.ListDeliveries.
+type WebhooksDestinationsListDeliveriesParams struct {
+	// Maximum number of deliveries per page. Defaults to 50. A value that is not a
+	// positive integer falls back to 50; a value above 1000000 returns `400`.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Number of deliveries to skip. Defaults to 0. Prefer following the `next` and
+	// `previous` URLs from the response.
+	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// First UTC day to include, as `YYYY-MM-DD` (inclusive). Omit to start from the
+	// oldest delivery available. `dateFrom` is accepted as an alias.
+	DateFrom Opt[string] `json:"-" query:"date_from"`
+
+	// Last UTC day to include, as `YYYY-MM-DD` (inclusive). Must not be earlier
+	// than `date_from`. `dateTo` is accepted as an alias.
+	DateTo Opt[string] `json:"-" query:"date_to"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r WebhooksDestinationsListDeliveriesParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// WebhookDestinationDelivery: One delivery attempt to a webhook destination.
+// The first send of an event, each automatic retry and each resend are separate
+// deliveries.
+type WebhookDestinationDelivery struct {
+	// Delivery ID, for the detail and resend calls.
+	UUID string `json:"uuid"`
+
+	// User verification session the event is about. `null` for business session,
+	// user, business, transaction, Travel Rule and workflow events.
+	SessionID string `json:"session_id"`
+
+	// URL the delivery was sent to: the destination's URL when the event was
+	// generated.
+	RequestURL string `json:"request_url"`
+
+	// HTTP status your endpoint returned. `null` while the delivery is queued and
+	// not yet attempted. When no HTTP answer was received Didit records a status of
+	// its own: `504` when your endpoint did not answer within 5 seconds, `503` for
+	// a connection failure, `400` when the URL was refused as unsafe (for example a
+	// private or internal address), and `404` for any other request error. `400` or
+	// above counts as a failed delivery.
+	ResponseStatus int64 `json:"response_status"`
+
+	// Time the attempt took, in milliseconds. `null` while the delivery is queued.
+	ResponseTimeMs int64 `json:"response_time_ms"`
+
+	// Status the event reported when it was generated: the session status for
+	// session events (for example `Approved` or `In Review`), the person's or
+	// company's status for user and business events, and the transaction status for
+	// transaction events. `null` for events that carry no status.
+	Status      string       `json:"status"`
+	WebhookType WebhookEvent `json:"webhook_type"`
+
+	// When the delivery was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhookDestinationDelivery leniently.
+func (r *WebhookDestinationDelivery) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WebhookDestinationDeliveryDetail: One delivery attempt to a webhook
+// destination, with the exact request headers and body Didit sent.
+type WebhookDestinationDeliveryDetail struct {
+	// Delivery ID, for the detail and resend calls.
+	UUID string `json:"uuid"`
+
+	// User verification session the event is about. `null` for business session,
+	// user, business, transaction, Travel Rule and workflow events.
+	SessionID string `json:"session_id"`
+
+	// URL the delivery was sent to: the destination's URL when the event was
+	// generated.
+	RequestURL string `json:"request_url"`
+
+	// HTTP status your endpoint returned. `null` while the delivery is queued and
+	// not yet attempted. When no HTTP answer was received Didit records a status of
+	// its own: `504` when your endpoint did not answer within 5 seconds, `503` for
+	// a connection failure, `400` when the URL was refused as unsafe (for example a
+	// private or internal address), and `404` for any other request error. `400` or
+	// above counts as a failed delivery.
+	ResponseStatus int64 `json:"response_status"`
+
+	// Time the attempt took, in milliseconds. `null` while the delivery is queued.
+	ResponseTimeMs int64 `json:"response_time_ms"`
+
+	// Status the event reported when it was generated: the session status for
+	// session events (for example `Approved` or `In Review`), the person's or
+	// company's status for user and business events, and the transaction status for
+	// transaction events. `null` for events that carry no status.
+	Status      string       `json:"status"`
+	WebhookType WebhookEvent `json:"webhook_type"`
+
+	// When the delivery was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON text (a string) of the request headers Didit sent: `Content-Type`,
+	// `X-Signature`, `X-Signature-V2`, `X-Signature-Simple`, `X-Timestamp` and
+	// `User-Agent`. Parse it with a JSON parser. It holds signatures, never the
+	// signing secret.
+	RequestHeader string `json:"request_header"`
+
+	// JSON text (a string) of the exact payload Didit sent, keys sorted, including
+	// `event_id` and `timestamp`. Parse it with a JSON parser; see [Payload
+	// shape](https://docs.didit.me/integration/webhooks#payload-shape). For a
+	// scoped key without `media: read`, media URLs inside it are `null`; without
+	// `sessions: write`, session tokens and hosted verification links are `null`. A
+	// body changed that way no longer matches its signatures. Didit does not record
+	// the response body your endpoint returned.
+	RequestBody string `json:"request_body"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhookDestinationDeliveryDetail leniently.
+func (r *WebhookDestinationDeliveryDetail) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // WebhooksDestinationsRetrieveResponse is a response object.
 type WebhooksDestinationsRetrieveResponse struct {
 	UUID           string                                             `json:"uuid"`
@@ -312,12 +1035,59 @@ type WebhooksDestinationsRetrieveResponse struct {
 	// HMAC signing secret (43-character URL-safe token). Always returned in full to
 	// API-key callers; Console users need `read:webhooks`, otherwise an empty
 	// string.
-	SecretSharedKey  string         `json:"secret_shared_key"`
-	SubscribedEvents []WebhookEvent `json:"subscribed_events"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
+	SecretSharedKey string `json:"secret_shared_key"`
 
-	// Delivery health metrics aggregated over the destination's lifetime.
+	// Last four characters of the destination's current signing secret, so you can
+	// tell secrets apart. Not enough to verify a signature.
+	SecretLast4 string `json:"secret_last4"`
+
+	// Set for 24 hours after the destination's signing secret is rotated in the
+	// Business Console. Until this time, every delivery to the destination also
+	// carries `X-Signature-Previous`, `X-Signature-V2-Previous` and
+	// `X-Signature-Simple-Previous`, made with the replaced secret (see [Signature
+	// verification](/integration/webhooks#signature-verification)). `null` when no
+	// rotation happened in the last 24 hours.
+	PreviousSecretExpiresAt time.Time      `json:"previous_secret_expires_at"`
+	SubscribedEvents        []WebhookEvent `json:"subscribed_events"`
+
+	// Email of the Business Console member who created the destination. `null` for
+	// a destination created with an API key.
+	CreatedByEmail string `json:"created_by_email"`
+
+	// Name of the Business Console member who created the destination. `null` for a
+	// destination created with an API key.
+	CreatedByName string    `json:"created_by_name"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+
+	// Delivery health. `failing`: 3 or more consecutive events failed their first
+	// delivery attempt since the destination last answered successfully (see
+	// `failing_streak`). `degraded`: not failing, but a delivery attempt failed in
+	// the last 24 hours and no later attempt has delivered that event; a retry or
+	// resend that delivers it clears this. `healthy`: neither. Independent of
+	// `enabled`. A failed attempt is one answered with HTTP 400 or above, or not
+	// answered at all.
+	HealthStatus WebhooksDestinationsRetrieveResponseHealthStatus `json:"health_status"`
+
+	// How many consecutive events failed their first delivery attempt since the
+	// destination last answered successfully, within the last 30 days. Retries are
+	// not counted, and any successful attempt, including a retry or a resend, ends
+	// the streak. `0` when no event has failed since the last success.
+	FailingStreak int64 `json:"failing_streak"`
+
+	// When the first failed attempt of the current `failing_streak` was made.
+	// `null` when `failing_streak` is `0`.
+	FailingSince time.Time `json:"failing_since"`
+
+	// When the destination last answered a delivery with an HTTP status under 400,
+	// within the last 30 days. `null` if it has not in that window.
+	LastSuccessAt time.Time `json:"last_success_at"`
+
+	// Environment of the application that owns the destination.
+	Environment WebhooksDestinationsRetrieveResponseEnvironment `json:"environment"`
+
+	// Delivery metrics for the last `metrics_window_days` (30) days.
+	// `last_delivery_at` is the most recent attempt, whenever it was made.
 	Summary WebhooksDestinationsRetrieveResponseSummary `json:"summary"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -342,8 +1112,42 @@ const (
 	WebhooksDestinationsRetrieveResponseWebhookVersionV3 WebhooksDestinationsRetrieveResponseWebhookVersion = "v3"
 )
 
-// WebhooksDestinationsRetrieveResponseSummary: Delivery health metrics
-// aggregated over the destination's lifetime.
+// WebhooksDestinationsRetrieveResponseHealthStatus: Delivery health. `failing`:
+// 3 or more consecutive events failed their first delivery attempt since the
+// destination last answered successfully (see `failing_streak`). `degraded`:
+// not failing, but a delivery attempt failed in the last 24 hours and no later
+// attempt has delivered that event; a retry or resend that delivers it clears
+// this. `healthy`: neither. Independent of `enabled`. A failed attempt is one
+// answered with HTTP 400 or above, or not answered at all.
+//
+// WebhooksDestinationsRetrieveResponseHealthStatus is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type WebhooksDestinationsRetrieveResponseHealthStatus string
+
+// Known values of WebhooksDestinationsRetrieveResponseHealthStatus.
+const (
+	WebhooksDestinationsRetrieveResponseHealthStatusHealthy  WebhooksDestinationsRetrieveResponseHealthStatus = "healthy"
+	WebhooksDestinationsRetrieveResponseHealthStatusDegraded WebhooksDestinationsRetrieveResponseHealthStatus = "degraded"
+	WebhooksDestinationsRetrieveResponseHealthStatusFailing  WebhooksDestinationsRetrieveResponseHealthStatus = "failing"
+)
+
+// WebhooksDestinationsRetrieveResponseEnvironment: Environment of the
+// application that owns the destination.
+//
+// WebhooksDestinationsRetrieveResponseEnvironment is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type WebhooksDestinationsRetrieveResponseEnvironment string
+
+// Known values of WebhooksDestinationsRetrieveResponseEnvironment.
+const (
+	WebhooksDestinationsRetrieveResponseEnvironmentLive    WebhooksDestinationsRetrieveResponseEnvironment = "live"
+	WebhooksDestinationsRetrieveResponseEnvironmentSandbox WebhooksDestinationsRetrieveResponseEnvironment = "sandbox"
+)
+
+// WebhooksDestinationsRetrieveResponseSummary: Delivery metrics for the last
+// `metrics_window_days` (30) days. `last_delivery_at` is the most recent
+// attempt, whenever it was made.
 type WebhooksDestinationsRetrieveResponseSummary struct {
 	TotalDeliveries     int64     `json:"total_deliveries"`
 	FailedDeliveries    int64     `json:"failed_deliveries"`
@@ -353,6 +1157,9 @@ type WebhooksDestinationsRetrieveResponseSummary struct {
 	MaxResponseTimeMs   int64     `json:"max_response_time_ms"`
 	LastDeliveryAt      time.Time `json:"last_delivery_at"`
 
+	// Length in days of the window the other summary metrics cover. Always `30`.
+	MetricsWindowDays int64 `json:"metrics_window_days"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -360,6 +1167,110 @@ type WebhooksDestinationsRetrieveResponseSummary struct {
 
 // UnmarshalJSON decodes WebhooksDestinationsRetrieveResponseSummary leniently.
 func (r *WebhooksDestinationsRetrieveResponseSummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WebhooksDestinationsRetrieveAnalyticsParams holds the parameters of
+// Client.Webhooks.Destinations.RetrieveAnalytics.
+type WebhooksDestinationsRetrieveAnalyticsParams struct {
+	// First UTC day to include, as `YYYY-MM-DD` (inclusive). Omit to start from the
+	// oldest delivery available. `dateFrom` is accepted as an alias.
+	DateFrom Opt[string] `json:"-" query:"date_from"`
+
+	// Last UTC day to include, as `YYYY-MM-DD` (inclusive). Must not be earlier
+	// than `date_from`. `dateTo` is accepted as an alias.
+	DateTo Opt[string] `json:"-" query:"date_to"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r WebhooksDestinationsRetrieveAnalyticsParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// WebhooksDestinationsRetrieveAnalyticsResponse is a response object.
+type WebhooksDestinationsRetrieveAnalyticsResponse struct {
+	// Totals over the requested range.
+	Summary WebhooksDestinationsRetrieveAnalyticsResponseSummary `json:"summary"`
+
+	// One entry per UTC day that had deliveries, oldest first. Days without
+	// deliveries are omitted, so fill the gaps with zeros when you chart them.
+	Points []WebhooksDestinationsRetrieveAnalyticsResponsePoints `json:"points"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhooksDestinationsRetrieveAnalyticsResponse leniently.
+func (r *WebhooksDestinationsRetrieveAnalyticsResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WebhooksDestinationsRetrieveAnalyticsResponseSummary: Totals over the
+// requested range.
+type WebhooksDestinationsRetrieveAnalyticsResponseSummary struct {
+	// Delivery attempts, including queued ones.
+	TotalDeliveries int64 `json:"total_deliveries"`
+
+	// Attempts whose recorded HTTP status is 400 or above.
+	FailedDeliveries int64 `json:"failed_deliveries"`
+
+	// Fastest attempt in milliseconds, or `null` when no attempt has a recorded
+	// time.
+	MinResponseTimeMs int64 `json:"min_response_time_ms"`
+
+	// Mean attempt time in milliseconds, rounded, or `null` when no attempt has a
+	// recorded time.
+	AvgResponseTimeMs int64 `json:"avg_response_time_ms"`
+
+	// Slowest attempt in milliseconds, or `null` when no attempt has a recorded
+	// time.
+	MaxResponseTimeMs int64 `json:"max_response_time_ms"`
+
+	// `failed_deliveries` / `total_deliveries` x 100, rounded to a whole number.
+	// `0` when there are no deliveries.
+	ErrorRatePercentage int64 `json:"error_rate_percentage"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhooksDestinationsRetrieveAnalyticsResponseSummary leniently.
+func (r *WebhooksDestinationsRetrieveAnalyticsResponseSummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WebhooksDestinationsRetrieveAnalyticsResponsePoints is a response object.
+type WebhooksDestinationsRetrieveAnalyticsResponsePoints struct {
+	// UTC day, `YYYY-MM-DD`.
+	Date string `json:"date"`
+
+	// Delivery attempts, including queued ones.
+	TotalDeliveries int64 `json:"total_deliveries"`
+
+	// Attempts whose recorded HTTP status is 400 or above.
+	FailedDeliveries int64 `json:"failed_deliveries"`
+
+	// Fastest attempt in milliseconds, or `null` when no attempt has a recorded
+	// time.
+	MinResponseTimeMs int64 `json:"min_response_time_ms"`
+
+	// Mean attempt time in milliseconds, rounded, or `null` when no attempt has a
+	// recorded time.
+	AvgResponseTimeMs int64 `json:"avg_response_time_ms"`
+
+	// Slowest attempt in milliseconds, or `null` when no attempt has a recorded
+	// time.
+	MaxResponseTimeMs int64 `json:"max_response_time_ms"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhooksDestinationsRetrieveAnalyticsResponsePoints leniently.
+func (r *WebhooksDestinationsRetrieveAnalyticsResponsePoints) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -401,16 +1312,65 @@ const (
 
 // WebhooksDestinationsUpdateResponse is a response object.
 type WebhooksDestinationsUpdateResponse struct {
-	UUID             string                                           `json:"uuid"`
-	Label            string                                           `json:"label"`
-	URL              string                                           `json:"url"`
-	Enabled          bool                                             `json:"enabled"`
-	WebhookVersion   WebhooksDestinationsUpdateResponseWebhookVersion `json:"webhook_version"`
-	SecretSharedKey  string                                           `json:"secret_shared_key"`
-	SubscribedEvents []WebhookEvent                                   `json:"subscribed_events"`
-	CreatedAt        time.Time                                        `json:"created_at"`
-	UpdatedAt        time.Time                                        `json:"updated_at"`
-	Summary          WebhooksDestinationsUpdateResponseSummary        `json:"summary"`
+	UUID            string                                           `json:"uuid"`
+	Label           string                                           `json:"label"`
+	URL             string                                           `json:"url"`
+	Enabled         bool                                             `json:"enabled"`
+	WebhookVersion  WebhooksDestinationsUpdateResponseWebhookVersion `json:"webhook_version"`
+	SecretSharedKey string                                           `json:"secret_shared_key"`
+
+	// Last four characters of the destination's current signing secret, so you can
+	// tell secrets apart. Not enough to verify a signature.
+	SecretLast4 string `json:"secret_last4"`
+
+	// Set for 24 hours after the destination's signing secret is rotated in the
+	// Business Console. Until this time, every delivery to the destination also
+	// carries `X-Signature-Previous`, `X-Signature-V2-Previous` and
+	// `X-Signature-Simple-Previous`, made with the replaced secret (see [Signature
+	// verification](/integration/webhooks#signature-verification)). `null` when no
+	// rotation happened in the last 24 hours.
+	PreviousSecretExpiresAt time.Time      `json:"previous_secret_expires_at"`
+	SubscribedEvents        []WebhookEvent `json:"subscribed_events"`
+
+	// Email of the Business Console member who created the destination. `null` for
+	// a destination created with an API key.
+	CreatedByEmail string `json:"created_by_email"`
+
+	// Name of the Business Console member who created the destination. `null` for a
+	// destination created with an API key.
+	CreatedByName string    `json:"created_by_name"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+
+	// Delivery health. `failing`: 3 or more consecutive events failed their first
+	// delivery attempt since the destination last answered successfully (see
+	// `failing_streak`). `degraded`: not failing, but a delivery attempt failed in
+	// the last 24 hours and no later attempt has delivered that event; a retry or
+	// resend that delivers it clears this. `healthy`: neither. Independent of
+	// `enabled`. A failed attempt is one answered with HTTP 400 or above, or not
+	// answered at all.
+	HealthStatus WebhooksDestinationsUpdateResponseHealthStatus `json:"health_status"`
+
+	// How many consecutive events failed their first delivery attempt since the
+	// destination last answered successfully, within the last 30 days. Retries are
+	// not counted, and any successful attempt, including a retry or a resend, ends
+	// the streak. `0` when no event has failed since the last success.
+	FailingStreak int64 `json:"failing_streak"`
+
+	// When the first failed attempt of the current `failing_streak` was made.
+	// `null` when `failing_streak` is `0`.
+	FailingSince time.Time `json:"failing_since"`
+
+	// When the destination last answered a delivery with an HTTP status under 400,
+	// within the last 30 days. `null` if it has not in that window.
+	LastSuccessAt time.Time `json:"last_success_at"`
+
+	// Environment of the application that owns the destination.
+	Environment WebhooksDestinationsUpdateResponseEnvironment `json:"environment"`
+
+	// Delivery metrics for the last `metrics_window_days` (30) days.
+	// `last_delivery_at` is the most recent attempt, whenever it was made.
+	Summary WebhooksDestinationsUpdateResponseSummary `json:"summary"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -434,7 +1394,41 @@ const (
 	WebhooksDestinationsUpdateResponseWebhookVersionV3 WebhooksDestinationsUpdateResponseWebhookVersion = "v3"
 )
 
-// WebhooksDestinationsUpdateResponseSummary is a response object.
+// WebhooksDestinationsUpdateResponseHealthStatus: Delivery health. `failing`: 3
+// or more consecutive events failed their first delivery attempt since the
+// destination last answered successfully (see `failing_streak`). `degraded`:
+// not failing, but a delivery attempt failed in the last 24 hours and no later
+// attempt has delivered that event; a retry or resend that delivers it clears
+// this. `healthy`: neither. Independent of `enabled`. A failed attempt is one
+// answered with HTTP 400 or above, or not answered at all.
+//
+// WebhooksDestinationsUpdateResponseHealthStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type WebhooksDestinationsUpdateResponseHealthStatus string
+
+// Known values of WebhooksDestinationsUpdateResponseHealthStatus.
+const (
+	WebhooksDestinationsUpdateResponseHealthStatusHealthy  WebhooksDestinationsUpdateResponseHealthStatus = "healthy"
+	WebhooksDestinationsUpdateResponseHealthStatusDegraded WebhooksDestinationsUpdateResponseHealthStatus = "degraded"
+	WebhooksDestinationsUpdateResponseHealthStatusFailing  WebhooksDestinationsUpdateResponseHealthStatus = "failing"
+)
+
+// WebhooksDestinationsUpdateResponseEnvironment: Environment of the application
+// that owns the destination.
+//
+// WebhooksDestinationsUpdateResponseEnvironment is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type WebhooksDestinationsUpdateResponseEnvironment string
+
+// Known values of WebhooksDestinationsUpdateResponseEnvironment.
+const (
+	WebhooksDestinationsUpdateResponseEnvironmentLive    WebhooksDestinationsUpdateResponseEnvironment = "live"
+	WebhooksDestinationsUpdateResponseEnvironmentSandbox WebhooksDestinationsUpdateResponseEnvironment = "sandbox"
+)
+
+// WebhooksDestinationsUpdateResponseSummary: Delivery metrics for the last
+// `metrics_window_days` (30) days. `last_delivery_at` is the most recent
+// attempt, whenever it was made.
 type WebhooksDestinationsUpdateResponseSummary struct {
 	TotalDeliveries     int64     `json:"total_deliveries"`
 	FailedDeliveries    int64     `json:"failed_deliveries"`
@@ -443,6 +1437,9 @@ type WebhooksDestinationsUpdateResponseSummary struct {
 	AvgResponseTimeMs   int64     `json:"avg_response_time_ms"`
 	MaxResponseTimeMs   int64     `json:"max_response_time_ms"`
 	LastDeliveryAt      time.Time `json:"last_delivery_at"`
+
+	// Length in days of the window the other summary metrics cover. Always `30`.
+	MetricsWindowDays int64 `json:"metrics_window_days"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.

@@ -123,12 +123,16 @@ type EnumValue struct {
 
 // Gen holds the generator state.
 type Gen struct {
-	spec     *Spec
-	decls    []*Decl
-	byName   map[string]*Decl
-	comps    map[string]*GoType
-	compUse  map[string]uint8
-	reserved map[string]string
+	spec   *Spec
+	decls  []*Decl
+	byName map[string]*Decl
+	comps  map[string]*GoType
+	// compSchemas maps the Go name of a component being declared to its schema.
+	compSchemas map[string]*Node
+	// compNames is the Go name of every component of both documents.
+	compNames map[string]bool
+	compUse   map[string]uint8
+	reserved  map[string]string
 	// paramPrefixes maps the request-side name of a component used on both
 	// sides to its response-side name, so their enums are shared.
 	paramPrefixes map[string]string
@@ -350,7 +354,7 @@ func (g *Gen) typeOf(doc *Doc, s *Node, name string, side Side) (*GoType, error)
 	}
 	if enum := s.Get("enum"); enum != nil && len(enum.Arr) > 0 {
 		if schemaType(doc, s) == "string" {
-			return g.enumType(g.enumName(name), side, s.Get("description").Text(), [][]*Node{enum.Arr})
+			return g.enumType(g.enumName(g.enumTypeName(name, s)), side, s.Get("description").Text(), [][]*Node{enum.Arr})
 		}
 		return &GoType{Kind: TAny}, nil
 	}
@@ -424,6 +428,10 @@ func (g *Gen) component(doc *Doc, ref string, side Side) (*GoType, error) {
 	}
 	placeholder := &GoType{Kind: TNamed, Name: goName}
 	g.comps[key] = placeholder
+	if g.compSchemas == nil {
+		g.compSchemas = map[string]*Node{}
+	}
+	g.compSchemas[goName] = s
 	t, err := g.typeOf(doc, s, goName, side)
 	if err != nil {
 		return nil, err
@@ -617,6 +625,27 @@ func (g *Gen) mergedType(doc *Doc, nodes []*Node, name string, side Side) (*GoTy
 		return &GoType{Kind: TFloat}, nil
 	}
 	return &GoType{Kind: TAny}, nil
+}
+
+// enumTypeName is the name of the enum declared for the inline enum s under name. When a component has
+// that name (TravelRuleCounterpartyScreening.status and the TravelRuleCounterpartyScreeningStatus
+// component) the enum takes a Value suffix; a component that is itself an enum keeps its name.
+func (g *Gen) enumTypeName(name string, s *Node) string {
+	if g.compNames == nil {
+		g.compNames = map[string]bool{}
+		for _, doc := range []*Doc{g.spec.Verification, g.spec.Account} {
+			if doc == nil {
+				continue
+			}
+			for _, key := range doc.Root.Path("components", "schemas").ObjKeys() {
+				g.compNames[naming.Pascal(key)] = true
+			}
+		}
+	}
+	if g.compNames[name] && g.compSchemas[name] != s {
+		return name + "Value"
+	}
+	return name
 }
 
 // unionType handles oneOf/anyOf.

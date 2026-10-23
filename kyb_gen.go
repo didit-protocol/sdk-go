@@ -49,7 +49,7 @@ type KYBService struct {
 // request.
 //
 //	POST /v3/kyb/shareholders/
-func (r *KYBService) ListShareholders(ctx context.Context, params KYBListShareholdersParams, opts ...option.RequestOption) (*KYBListShareholdersResponse, error) {
+func (r *KYBService) ListShareholders(ctx context.Context, params KYBRegistryCandidateRequest, opts ...option.RequestOption) (*KYBListShareholdersResponse, error) {
 	res := new(KYBListShareholdersResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/kyb/shareholders/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func (r *KYBService) ListShareholders(ctx context.Context, params KYBListShareho
 // request.
 //
 //	POST /v3/kyb/ubo/
-func (r *KYBService) ListUBOs(ctx context.Context, params KYBListUBOsParams, opts ...option.RequestOption) (*KYBListUBOsResponse, error) {
+func (r *KYBService) ListUBOs(ctx context.Context, params KYBRegistryCandidateRequest, opts ...option.RequestOption) (*KYBListUBOsResponse, error) {
 	res := new(KYBListUBOsResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/kyb/ubo/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
@@ -121,6 +121,22 @@ func (r *KYBService) ListUBOs(ctx context.Context, params KYBListUBOsParams, opt
 // **`kyb_response_id` is ephemeral.** It is a per-search handle, not a stable
 // company id. Select promptly after searching and re-search to get a fresh
 // handle instead of storing it.
+//
+// **`tier` picks the provider chain.** `tier` names the registry tier the
+// search runs on: `basic` (the default, the Lite chain), `shareholders` or
+// `ubo`. The search uses the provider chain that serves that tier, and it is
+// not always the same chain the Lite search reads, so an empty Lite search is
+// not proof that the registry does not hold the company - search again at the
+// tier you need. A country that does not offer the tier you name is searched at
+// the highest tier it offers up to that one. Retrieve the candidate from the
+// endpoint that sells that tier: `POST /v3/kyb/select/` (Lite), `POST
+// /v3/kyb/shareholders/` or `POST /v3/kyb/ubo/`.
+//
+// **Authentication.** `POST /v3/kyb/search/` (and `/v2/`) takes your
+// application's API key in the `x-api-key` header. The hosted `POST
+// /v1/kyb/search/` is the session-authenticated route a hosted verification
+// flow calls: it answers `403` to an API key and takes no `tier` - the
+// workflow's KYB registry configuration picks the chain.
 //
 // **Two modes.**
 //   - *Synchronous (default):* the API polls the registry until the search
@@ -176,7 +192,7 @@ func (r *KYBService) Search(ctx context.Context, params KYBSearchParams, opts ..
 // (the default) - sending `false` returns `400`.
 //
 //	POST /v3/kyb/select/
-func (r *KYBService) Select(ctx context.Context, params KYBSelectParams, opts ...option.RequestOption) (*KYBSelectResponse, error) {
+func (r *KYBService) Select(ctx context.Context, params KYBRegistryCandidateRequest, opts ...option.RequestOption) (*KYBSelectResponse, error) {
 	res := new(KYBSelectResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/kyb/select/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
@@ -184,9 +200,8 @@ func (r *KYBService) Select(ctx context.Context, params KYBSelectParams, opts ..
 	return res, nil
 }
 
-// KYBListShareholdersParams holds the parameters of
-// Client.KYB.ListShareholders.
-type KYBListShareholdersParams struct {
+// KYBRegistryCandidateRequest is a request object.
+type KYBRegistryCandidateRequest struct {
 	// Candidate handle from `POST /v3/kyb/search/`
 	// (`kyb_registry.companies[].kyb_response_id`). Ephemeral - use it shortly
 	// after the search that produced it. Required.
@@ -205,7 +220,7 @@ type KYBListShareholdersParams struct {
 }
 
 // MarshalJSON encodes the fields that are set.
-func (r KYBListShareholdersParams) MarshalJSON() ([]byte, error) {
+func (r KYBRegistryCandidateRequest) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
@@ -766,30 +781,6 @@ const (
 	KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatusUnavailable  KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus = "unavailable"
 	KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatusPending      KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus = "pending"
 )
-
-// KYBListUBOsParams holds the parameters of Client.KYB.ListUBOs.
-type KYBListUBOsParams struct {
-	// Candidate handle from `POST /v3/kyb/search/`
-	// (`kyb_registry.companies[].kyb_response_id`). Ephemeral - use it shortly
-	// after the search that produced it. Required.
-	KYBResponseID string `json:"kyb_response_id"`
-
-	// Your identifier for this company; echoed back and stored with the business
-	// session.
-	VendorData Opt[string] `json:"vendor_data"`
-
-	// Free-form JSON stored with the business session and echoed back.
-	Metadata Opt[map[string]any] `json:"metadata"`
-
-	// Must be `true` (the default). KYB registry selects are always persisted so
-	// billing and retrieval can be tracked; `false` returns `400`.
-	SaveAPIRequest Opt[bool] `json:"save_api_request"`
-}
-
-// MarshalJSON encodes the fields that are set.
-func (r KYBListUBOsParams) MarshalJSON() ([]byte, error) {
-	return marshalParams(r)
-}
 
 // KYBListUBOsResponse is a response object.
 type KYBListUBOsResponse struct {
@@ -1363,7 +1354,20 @@ type KYBSearchParams struct {
 	// `registration_number` is required.
 	RegistrationNumber Opt[string] `json:"registration_number"`
 
-	// Name-matching strategy applied by the registry search.
+	// Registry tier whose provider chain this search runs on. `basic` (default)
+	// searches the country's Lite chain; `shareholders` and `ubo` search that
+	// tier's ownership chain, which can be a different source, so an empty Lite
+	// search does not prove the registry lacks the company. A country that does not
+	// offer the named tier is searched at the highest tier it offers up to that
+	// one. Retrieve the candidate from the endpoint that sells the tier you
+	// searched: `POST /v3/kyb/select/` (Lite), `POST /v3/kyb/shareholders/` or
+	// `POST /v3/kyb/ubo/`.
+	Tier Opt[KYBSearchParamsTier] `json:"tier"`
+
+	// Name-matching strategy applied by the registry search. `contains` is the only
+	// accepted value: no registry source behind the search offers a prefix or fuzzy
+	// mode, so `start_with` and `fuzzy` are rejected with `400` (`not a valid
+	// choice`).
 	SearchType Opt[KYBSearchParamsSearchType] `json:"search_type"`
 
 	// Your identifier for this lookup; echoed back and included in the webhook
@@ -1384,8 +1388,30 @@ func (r KYBSearchParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
+// KYBSearchParamsTier: Registry tier whose provider chain this search runs on.
+// `basic` (default) searches the country's Lite chain; `shareholders` and `ubo`
+// search that tier's ownership chain, which can be a different source, so an
+// empty Lite search does not prove the registry lacks the company. A country
+// that does not offer the named tier is searched at the highest tier it offers
+// up to that one. Retrieve the candidate from the endpoint that sells the tier
+// you searched: `POST /v3/kyb/select/` (Lite), `POST /v3/kyb/shareholders/` or
+// `POST /v3/kyb/ubo/`.
+//
+// KYBSearchParamsTier is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type KYBSearchParamsTier string
+
+// Known values of KYBSearchParamsTier.
+const (
+	KYBSearchParamsTierBasic        KYBSearchParamsTier = "basic"
+	KYBSearchParamsTierShareholders KYBSearchParamsTier = "shareholders"
+	KYBSearchParamsTierUBO          KYBSearchParamsTier = "ubo"
+)
+
 // KYBSearchParamsSearchType: Name-matching strategy applied by the registry
-// search.
+// search. `contains` is the only accepted value: no registry source behind the
+// search offers a prefix or fuzzy mode, so `start_with` and `fuzzy` are
+// rejected with `400` (`not a valid choice`).
 //
 // KYBSearchParamsSearchType is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -1393,9 +1419,7 @@ type KYBSearchParamsSearchType string
 
 // Known values of KYBSearchParamsSearchType.
 const (
-	KYBSearchParamsSearchTypeContains  KYBSearchParamsSearchType = "contains"
-	KYBSearchParamsSearchTypeStartWith KYBSearchParamsSearchType = "start_with"
-	KYBSearchParamsSearchTypeFuzzy     KYBSearchParamsSearchType = "fuzzy"
+	KYBSearchParamsSearchTypeContains KYBSearchParamsSearchType = "contains"
 )
 
 // KYBSearchResponse is a response object.
@@ -1403,8 +1427,8 @@ type KYBSearchResponse struct {
 	// With `webhook_url`: the persisted search-request id, echoed as `request_id`
 	// in the `kyb.registry_search.resolved` callback. Without `webhook_url`: a
 	// transient correlation UUID (the search is not stored).
-	RequestID   string                       `json:"request_id"`
-	KYBRegistry KYBSearchResponseKYBRegistry `json:"kyb_registry"`
+	RequestID   string                   `json:"request_id"`
+	KYBRegistry KYBRegistrySearchResults `json:"kyb_registry"`
 
 	// Echo of the `vendor_data` you sent.
 	VendorData string `json:"vendor_data"`
@@ -1423,15 +1447,15 @@ func (r *KYBSearchResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// KYBSearchResponseKYBRegistry is a response object.
-type KYBSearchResponseKYBRegistry struct {
+// KYBRegistrySearchResults is a response object.
+type KYBRegistrySearchResults struct {
 	// Deduplicated candidate list. Empty while `search_resolved=false` (webhook
 	// mode) or when nothing matched.
-	Companies  []KYBSearchResponseKYBRegistryCompanies `json:"companies"`
-	Pagination KYBSearchResponseKYBRegistryPagination  `json:"pagination"`
+	Companies  []KYBRegistrySearchResultsCompanies `json:"companies"`
+	Pagination KYBRegistrySearchResultsPagination  `json:"pagination"`
 
 	// Registry search lifecycle status.
-	SearchStatus KYBSearchResponseKYBRegistrySearchStatus `json:"search_status"`
+	SearchStatus KYBRegistrySearchResultsSearchStatus `json:"search_status"`
 
 	// `true` once the candidate list is final.
 	SearchResolved bool `json:"search_resolved"`
@@ -1441,13 +1465,13 @@ type KYBSearchResponseKYBRegistry struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes KYBSearchResponseKYBRegistry leniently.
-func (r *KYBSearchResponseKYBRegistry) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes KYBRegistrySearchResults leniently.
+func (r *KYBRegistrySearchResults) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// KYBSearchResponseKYBRegistryCompanies is a response object.
-type KYBSearchResponseKYBRegistryCompanies struct {
+// KYBRegistrySearchResultsCompanies is a response object.
+type KYBRegistrySearchResultsCompanies struct {
 	// Handle for this candidate - pass it to `POST /v3/kyb/select/` to retrieve the
 	// full profile. Ephemeral and scoped to this search: do not store it long-term;
 	// re-search to get a fresh one.
@@ -1466,6 +1490,12 @@ type KYBSearchResponseKYBRegistryCompanies struct {
 	// Legal form as reported by the registry.
 	Type string `json:"type"`
 
+	// Registered address of the candidate, when the registry returns one. Use it,
+	// with the registration number, to tell same-named companies apart: in the
+	// United States a candidate can be listed under the state where the company
+	// operates rather than the state you searched.
+	RegisteredAddress string `json:"registered_address"`
+
 	// Registry-reported risk level, when available. Usually `null` at search time.
 	RiskLevel string `json:"risk_level"`
 
@@ -1478,13 +1508,13 @@ type KYBSearchResponseKYBRegistryCompanies struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes KYBSearchResponseKYBRegistryCompanies leniently.
-func (r *KYBSearchResponseKYBRegistryCompanies) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes KYBRegistrySearchResultsCompanies leniently.
+func (r *KYBRegistrySearchResultsCompanies) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// KYBSearchResponseKYBRegistryPagination is a response object.
-type KYBSearchResponseKYBRegistryPagination struct {
+// KYBRegistrySearchResultsPagination is a response object.
+type KYBRegistrySearchResultsPagination struct {
 	// Number of candidates returned.
 	Total   int64 `json:"total"`
 	Page    int64 `json:"page"`
@@ -1495,46 +1525,22 @@ type KYBSearchResponseKYBRegistryPagination struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes KYBSearchResponseKYBRegistryPagination leniently.
-func (r *KYBSearchResponseKYBRegistryPagination) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes KYBRegistrySearchResultsPagination leniently.
+func (r *KYBRegistrySearchResultsPagination) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// KYBSearchResponseKYBRegistrySearchStatus: Registry search lifecycle status.
+// KYBRegistrySearchResultsSearchStatus: Registry search lifecycle status.
 //
-// KYBSearchResponseKYBRegistrySearchStatus is a string with known values below.
-// The set is open: other values may appear and never cause an error.
-type KYBSearchResponseKYBRegistrySearchStatus string
+// KYBRegistrySearchResultsSearchStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type KYBRegistrySearchResultsSearchStatus string
 
-// Known values of KYBSearchResponseKYBRegistrySearchStatus.
+// Known values of KYBRegistrySearchResultsSearchStatus.
 const (
-	KYBSearchResponseKYBRegistrySearchStatusPending  KYBSearchResponseKYBRegistrySearchStatus = "pending"
-	KYBSearchResponseKYBRegistrySearchStatusResolved KYBSearchResponseKYBRegistrySearchStatus = "resolved"
+	KYBRegistrySearchResultsSearchStatusPending  KYBRegistrySearchResultsSearchStatus = "pending"
+	KYBRegistrySearchResultsSearchStatusResolved KYBRegistrySearchResultsSearchStatus = "resolved"
 )
-
-// KYBSelectParams holds the parameters of Client.KYB.Select.
-type KYBSelectParams struct {
-	// Candidate handle from `POST /v3/kyb/search/`
-	// (`kyb_registry.companies[].kyb_response_id`). Ephemeral - use it shortly
-	// after the search that produced it. Required.
-	KYBResponseID string `json:"kyb_response_id"`
-
-	// Your identifier for this company; echoed back and stored with the business
-	// session.
-	VendorData Opt[string] `json:"vendor_data"`
-
-	// Free-form JSON stored with the business session and echoed back.
-	Metadata Opt[map[string]any] `json:"metadata"`
-
-	// Must be `true` (the default). KYB registry selects are always persisted so
-	// billing and retrieval can be tracked; `false` returns `400`.
-	SaveAPIRequest Opt[bool] `json:"save_api_request"`
-}
-
-// MarshalJSON encodes the fields that are set.
-func (r KYBSelectParams) MarshalJSON() ([]byte, error) {
-	return marshalParams(r)
-}
 
 // KYBSelectResponse is a response object.
 type KYBSelectResponse struct {

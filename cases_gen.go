@@ -47,8 +47,10 @@ func (r *CasesService) ApplyEntityAction(ctx context.Context, caseUUID string, p
 
 // ApproveResolution: Approve staged resolution (4-eyes).
 //
-// Apply a resolution staged by resolve on a maker blueprint. The caller must be
-// a different user than the one who submitted it, otherwise 403.
+// Apply a resolution staged by resolve on a four-eyes blueprint. The caller
+// must be a different officer than the one who submitted it, otherwise 403.
+// When the resolution names a checker (the case's `checker`), only that member
+// can approve it: any other caller, including an API key, gets 403.
 //
 // The organization and application ids come from the client options.
 //
@@ -87,8 +89,8 @@ func (r *CasesService) Assign(ctx context.Context, caseUUID string, params Cases
 // The organization and application ids come from the client options.
 //
 //	POST /v3/organization/{organization_id}/application/{application_id}/cases/bulk/assign/
-func (r *CasesService) BulkAssign(ctx context.Context, params CasesBulkAssignParams, opts ...option.RequestOption) (*CasesBulkAssignResponse, error) {
-	res := new(CasesBulkAssignResponse)
+func (r *CasesService) BulkAssign(ctx context.Context, params CasesBulkAssignParams, opts ...option.RequestOption) (*CaseBulkUpdateResult, error) {
+	res := new(CaseBulkUpdateResult)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/organization/{organization_id}/application/{application_id}/cases/bulk/assign/", appScope: true, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
@@ -105,8 +107,8 @@ func (r *CasesService) BulkAssign(ctx context.Context, params CasesBulkAssignPar
 // The organization and application ids come from the client options.
 //
 //	POST /v3/organization/{organization_id}/application/{application_id}/cases/bulk/status/
-func (r *CasesService) BulkUpdateStatus(ctx context.Context, params CasesBulkUpdateStatusParams, opts ...option.RequestOption) (*CasesBulkUpdateStatusResponse, error) {
-	res := new(CasesBulkUpdateStatusResponse)
+func (r *CasesService) BulkUpdateStatus(ctx context.Context, params CasesBulkUpdateStatusParams, opts ...option.RequestOption) (*CaseBulkUpdateResult, error) {
+	res := new(CaseBulkUpdateResult)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/organization/{organization_id}/application/{application_id}/cases/bulk/status/", appScope: true, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
@@ -223,8 +225,8 @@ func (r *CasesService) ListActionReceipts(ctx context.Context, caseUUID string, 
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/cases/{case_uuid}/aml/
-func (r *CasesService) ListAMLHits(ctx context.Context, caseUUID string, opts ...option.RequestOption) ([]map[string]any, error) {
-	var res []map[string]any
+func (r *CasesService) ListAMLHits(ctx context.Context, caseUUID string, opts ...option.RequestOption) ([]AMLScreening, error) {
+	var res []AMLScreening
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/cases/{case_uuid}/aml/", pathParams: []string{"case_uuid", caseUUID}, appScope: true}, &res, opts); err != nil {
 		return nil, err
 	}
@@ -290,8 +292,10 @@ func (r *CasesService) Print(ctx context.Context, caseUUID string, opts ...optio
 // RejectResolution: Reject staged resolution (4-eyes).
 //
 // Reject a resolution staged by resolve and return the case to its maker
-// blueprint. The caller must be a different user than the one who submitted it,
-// otherwise 403.
+// blueprint. The caller must be a different officer than the one who submitted
+// it, otherwise 403. When the resolution names a checker (the case's
+// `checker`), only that member can reject it: any other caller, including an
+// API key, gets 403.
 //
 // The organization and application ids come from the client options.
 //
@@ -339,13 +343,21 @@ func (r *CasesService) RequestInfo(ctx context.Context, caseUUID string, opts ..
 
 // Resolve: Resolve case.
 //
-// Resolve the case as false_positive or valid_threat. Blocked with 400 if the
-// blueprint's checklist is not optional and items remain incomplete, or if the
-// blueprint requires a resolution note and none is given. When the case's
-// blueprint has a four_eyes_checker_blueprint configured, the resolution is
-// staged (case.pending_resolution) and the case moves to the checker blueprint
-// instead of resolving immediately; a different user must call approve or
-// reject-approval.
+// Resolve the case with one of five resolutions: FALSE_POSITIVE (no concern
+// found), VALID_THREAT (concern confirmed), INCONCLUSIVE, REQUIREMENTS_NOT_MET
+// or REQUIREMENTS_SATISFIED. Blocked with 400 if the blueprint's checklist is
+// not optional and items remain incomplete, or if the blueprint requires a
+// resolution note and none is given. When the case's blueprint has a four-eyes
+// checker step (four_eyes_checker_blueprint), the resolution is staged
+// (case.pending_resolution) and the case moves to the checker blueprint instead
+// of resolving immediately; a different officer must call approve or
+// reject-approval. Submit a four-eyes resolution as a console member: a
+// resolution an API key submits has no recorded maker, so approve and
+// reject-approval return 403 for every caller. On a four-eyes blueprint you can
+// name the member who must approve with `checker`: then only that member can
+// approve or reject the resolution, and the response's `checker` names them.
+// Without `checker`, the resolution waits on the checker blueprint's queue.
+// Sending `checker` for a blueprint without a checker step returns 400.
 //
 // The organization and application ids come from the client options.
 //
@@ -430,8 +442,15 @@ func (r *CasesService) Transfer(ctx context.Context, caseUUID string, params Cas
 
 // Update: Update case.
 //
-// Update the case's title, priority, due date, or tags. Logs
-// PRIORITY_CHANGED/DUE_DATE_CHANGED/TAG_ADDED/TAG_REMOVED events as applicable.
+// Update the case's title, priority, due date, tags, or owning review team.
+// Send only the fields you want to change; fields you omit keep their value.
+// `tags` replaces the whole tag list. `team` takes the uuid of an active review
+// team of this application (list them with `GET .../cases/teams/`), or null to
+// clear the team. Requires a full-access API key, or `write:cases` for a
+// console member: a key with restricted access gets 403. Logs PRIORITY_CHANGED,
+// DUE_DATE_CHANGED, TAG_ADDED, TAG_REMOVED and TEAM_CHANGED events as
+// applicable; a title change is saved without a timeline event. Returns the
+// updated case.
 //
 // The organization and application ids come from the client options.
 //
@@ -504,8 +523,8 @@ func (r *CasesBlueprintsService) DiscardDraft(ctx context.Context, blueprintUUID
 // The organization and application ids come from the client options.
 //
 //	POST /v3/organization/{organization_id}/application/{application_id}/cases/blueprints/presets/install/
-func (r *CasesBlueprintsService) InstallPresets(ctx context.Context, params CasesBlueprintsInstallPresetsParams, opts ...option.RequestOption) (*CasesBlueprintsInstallPresetsResponse, error) {
-	res := new(CasesBlueprintsInstallPresetsResponse)
+func (r *CasesBlueprintsService) InstallPresets(ctx context.Context, params CasesBlueprintsInstallPresetsParams, opts ...option.RequestOption) (*CaseBlueprintPresetInstallResult, error) {
+	res := new(CaseBlueprintPresetInstallResult)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/organization/{organization_id}/application/{application_id}/cases/blueprints/presets/install/", appScope: true, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
@@ -947,6 +966,31 @@ func (r *CasesRequestsService) Preview(ctx context.Context, caseUUID string, par
 	return res, nil
 }
 
+// Remind: Remind the customer of a request.
+//
+// Send a waiting customer request's email again, to the same verified
+// recipient, with the same content. You can remind a request at most once every
+// 24 hours. A reminder changes nothing else: the request keeps its deadline and
+// the case keeps its status. Each reminder is logged on the case as a
+// CUSTOMER_REQUEST event with action `reminded`. The response's
+// `delivery_status` is how this reminder's delivery ended: SENT, SIMULATED (the
+// email was not sent), or UNKNOWN (the email might have been accepted; it is
+// not sent again automatically). `next_reminder_at` is when you can remind this
+// request again. Returns 409 with a `reason` when the customer no longer has
+// the request to answer, and 429 with `retry_at` and a `Retry-After` header
+// when the request was reminded in the last 24 hours. Requires `write:cases`.
+//
+// The organization and application ids come from the client options.
+//
+//	POST /v3/organization/{organization_id}/application/{application_id}/cases/{case_uuid}/requests/{request_uuid}/remind/
+func (r *CasesRequestsService) Remind(ctx context.Context, caseUUID string, requestUUID string, opts ...option.RequestOption) (*CasesRequestsRemindResponse, error) {
+	res := new(CasesRequestsRemindResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/organization/{organization_id}/application/{application_id}/cases/{case_uuid}/requests/{request_uuid}/remind/", pathParams: []string{"case_uuid", caseUUID, "request_uuid", requestUUID}, appScope: true}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // RetrieveAttachment
 //
 // The response is a file (image/jpeg). Read it from the returned response's
@@ -1323,6 +1367,7 @@ type CaseDetail struct {
 	Subject         CaseSubject          `json:"subject"`
 	AssignedTo      CaseAssignee         `json:"assigned_to"`
 	AssignedAt      time.Time            `json:"assigned_at"`
+	Team            CaseTeamSummary      `json:"team"`
 	DueAt           time.Time            `json:"due_at"`
 	ResolvedAt      time.Time            `json:"resolved_at"`
 	ResolvedByEmail string               `json:"resolved_by_email"`
@@ -1330,6 +1375,7 @@ type CaseDetail struct {
 	// Set only while a 4-eyes resolution is staged on the checker blueprint,
 	// awaiting approve or reject-approval.
 	PendingResolution CaseDetailPendingResolution `json:"pending_resolution"`
+	Checker           CaseChecker                 `json:"checker"`
 	Metadata          map[string]any              `json:"metadata"`
 	Blueprint         CaseBlueprintDetail         `json:"blueprint"`
 
@@ -1372,8 +1418,11 @@ type CaseDetailResolution string
 
 // Known values of CaseDetailResolution.
 const (
-	CaseDetailResolutionFalsePositive CaseDetailResolution = "FALSE_POSITIVE"
-	CaseDetailResolutionValidThreat   CaseDetailResolution = "VALID_THREAT"
+	CaseDetailResolutionFalsePositive         CaseDetailResolution = "FALSE_POSITIVE"
+	CaseDetailResolutionValidThreat           CaseDetailResolution = "VALID_THREAT"
+	CaseDetailResolutionInconclusive          CaseDetailResolution = "INCONCLUSIVE"
+	CaseDetailResolutionRequirementsNotMet    CaseDetailResolution = "REQUIREMENTS_NOT_MET"
+	CaseDetailResolutionRequirementsSatisfied CaseDetailResolution = "REQUIREMENTS_SATISFIED"
 )
 
 // CaseDetailPriority is a string with known values below. The set is open:
@@ -1407,6 +1456,18 @@ type CaseSubject struct {
 
 	// The subject's vendor_data.
 	ExternalID string `json:"external_id"`
+
+	// Three-letter country code of the subject (ISO 3166-1 alpha-3), or null when
+	// it is not known. For a business, its country of incorporation. For a person,
+	// the issuing country of an identity document from their verifications; a
+	// person with documents from several countries shows one of them, and ICAO
+	// document codes such as `XXA` can appear.
+	Country string `json:"country"`
+
+	// Short-lived signed URL of the person's portrait image. Always null for a
+	// business, and null for a person without a portrait. The URL expires, so
+	// download the image when you read the case instead of storing the URL.
+	Portrait string `json:"portrait"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -1444,15 +1505,40 @@ func (r *CaseAssignee) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// CaseTeamSummary: The review team that owns the case, or null when no team
+// owns it. Routing sets it when a routing rule places the case with one of its
+// teams. Change or clear it with `PATCH .../cases/{case_uuid}/` (`team`).
+type CaseTeamSummary struct {
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes CaseTeamSummary leniently.
+func (r *CaseTeamSummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // CaseDetailPendingResolution: Set only while a 4-eyes resolution is staged on
 // the checker blueprint, awaiting approve or reject-approval.
 type CaseDetailPendingResolution struct {
-	Resolution       CaseDetailPendingResolutionResolution `json:"resolution"`
-	ResolutionNotes  string                                `json:"resolution_notes"`
-	MakerEmail       string                                `json:"maker_email"`
-	MakerName        string                                `json:"maker_name"`
-	MakerBlueprintID string                                `json:"maker_blueprint_id"`
-	StagedAt         time.Time                             `json:"staged_at"`
+	Resolution      CaseDetailPendingResolutionResolution `json:"resolution"`
+	ResolutionNotes string                                `json:"resolution_notes"`
+
+	// Email of the officer who submitted the resolution. Null when an API key
+	// submitted it: that resolution has no recorded maker, so approve and
+	// reject-approval return 403 for every caller.
+	MakerEmail string `json:"maker_email"`
+	MakerName  string `json:"maker_name"`
+
+	// Member user uuid of the officer who submitted the resolution. Null when an
+	// API key submitted it. That member cannot be named as `checker`.
+	MakerUserID      string    `json:"maker_user_id"`
+	MakerBlueprintID string    `json:"maker_blueprint_id"`
+	StagedAt         time.Time `json:"staged_at"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -1470,9 +1556,36 @@ type CaseDetailPendingResolutionResolution string
 
 // Known values of CaseDetailPendingResolutionResolution.
 const (
-	CaseDetailPendingResolutionResolutionFalsePositive CaseDetailPendingResolutionResolution = "FALSE_POSITIVE"
-	CaseDetailPendingResolutionResolutionValidThreat   CaseDetailPendingResolutionResolution = "VALID_THREAT"
+	CaseDetailPendingResolutionResolutionFalsePositive         CaseDetailPendingResolutionResolution = "FALSE_POSITIVE"
+	CaseDetailPendingResolutionResolutionValidThreat           CaseDetailPendingResolutionResolution = "VALID_THREAT"
+	CaseDetailPendingResolutionResolutionInconclusive          CaseDetailPendingResolutionResolution = "INCONCLUSIVE"
+	CaseDetailPendingResolutionResolutionRequirementsNotMet    CaseDetailPendingResolutionResolution = "REQUIREMENTS_NOT_MET"
+	CaseDetailPendingResolutionResolutionRequirementsSatisfied CaseDetailPendingResolutionResolution = "REQUIREMENTS_SATISFIED"
 )
+
+// CaseChecker: The member named to approve or reject the pending resolution.
+// Set only while a four-eyes resolution waits on a named checker. Null when
+// nothing is pending, while the pending resolution waits on the checker queue,
+// and once the resolution is approved, rejected, or returned for a new review
+// because the evidence changed.
+type CaseChecker struct {
+	// The member's user uuid: the value you pass as `checker` when you resolve the
+	// case.
+	MemberUUID string `json:"member_uuid"`
+
+	// The member's full name, or null when it is not known.
+	Name  string `json:"name"`
+	Email string `json:"email"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes CaseChecker leniently.
+func (r *CaseChecker) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // CaseBlueprintDetail is a response object.
 type CaseBlueprintDetail struct {
@@ -1779,6 +1892,8 @@ const (
 	CaseEventEventTypeLinkAdded            CaseEventEventType = "LINK_ADDED"
 	CaseEventEventTypeLinkRemoved          CaseEventEventType = "LINK_REMOVED"
 	CaseEventEventTypeNoteAdded            CaseEventEventType = "NOTE_ADDED"
+	CaseEventEventTypeNotePinned           CaseEventEventType = "NOTE_PINNED"
+	CaseEventEventTypeNoteUnpinned         CaseEventEventType = "NOTE_UNPINNED"
 	CaseEventEventTypePriorityChanged      CaseEventEventType = "PRIORITY_CHANGED"
 	CaseEventEventTypeDueDateChanged       CaseEventEventType = "DUE_DATE_CHANGED"
 	CaseEventEventTypeTagAdded             CaseEventEventType = "TAG_ADDED"
@@ -1793,6 +1908,11 @@ const (
 	CaseEventEventTypeApprovalRejected     CaseEventEventType = "APPROVAL_REJECTED"
 	CaseEventEventTypeEntityAction         CaseEventEventType = "ENTITY_ACTION"
 	CaseEventEventTypeApprovalInvalidated  CaseEventEventType = "APPROVAL_INVALIDATED"
+	CaseEventEventTypeCustomerRequest      CaseEventEventType = "CUSTOMER_REQUEST"
+	CaseEventEventTypeStageChanged         CaseEventEventType = "STAGE_CHANGED"
+	CaseEventEventTypeTeamChanged          CaseEventEventType = "TEAM_CHANGED"
+	CaseEventEventTypeCheckerAssigned      CaseEventEventType = "CHECKER_ASSIGNED"
+	CaseEventEventTypeCheckerUnassigned    CaseEventEventType = "CHECKER_UNASSIGNED"
 )
 
 // CaseEventPreviousStatus is a string with known values below. The set is open:
@@ -1897,23 +2017,23 @@ func (r CasesBulkAssignParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
-// CasesBulkAssignResponse is a response object.
-type CasesBulkAssignResponse struct {
-	Updated  int64                             `json:"updated"`
-	Failures []CasesBulkAssignResponseFailures `json:"failures"`
+// CaseBulkUpdateResult is a response object.
+type CaseBulkUpdateResult struct {
+	Updated  int64                          `json:"updated"`
+	Failures []CaseBulkUpdateResultFailures `json:"failures"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CasesBulkAssignResponse leniently.
-func (r *CasesBulkAssignResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseBulkUpdateResult leniently.
+func (r *CaseBulkUpdateResult) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// CasesBulkAssignResponseFailures is a response object.
-type CasesBulkAssignResponseFailures struct {
+// CaseBulkUpdateResultFailures is a response object.
+type CaseBulkUpdateResultFailures struct {
 	CaseUUID string `json:"case_uuid"`
 	Detail   string `json:"detail"`
 
@@ -1922,8 +2042,8 @@ type CasesBulkAssignResponseFailures struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CasesBulkAssignResponseFailures leniently.
-func (r *CasesBulkAssignResponseFailures) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseBulkUpdateResultFailures leniently.
+func (r *CaseBulkUpdateResultFailures) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -1965,39 +2085,12 @@ type CasesBulkUpdateStatusParamsResolution string
 
 // Known values of CasesBulkUpdateStatusParamsResolution.
 const (
-	CasesBulkUpdateStatusParamsResolutionFalsePositive CasesBulkUpdateStatusParamsResolution = "FALSE_POSITIVE"
-	CasesBulkUpdateStatusParamsResolutionValidThreat   CasesBulkUpdateStatusParamsResolution = "VALID_THREAT"
+	CasesBulkUpdateStatusParamsResolutionFalsePositive         CasesBulkUpdateStatusParamsResolution = "FALSE_POSITIVE"
+	CasesBulkUpdateStatusParamsResolutionValidThreat           CasesBulkUpdateStatusParamsResolution = "VALID_THREAT"
+	CasesBulkUpdateStatusParamsResolutionInconclusive          CasesBulkUpdateStatusParamsResolution = "INCONCLUSIVE"
+	CasesBulkUpdateStatusParamsResolutionRequirementsNotMet    CasesBulkUpdateStatusParamsResolution = "REQUIREMENTS_NOT_MET"
+	CasesBulkUpdateStatusParamsResolutionRequirementsSatisfied CasesBulkUpdateStatusParamsResolution = "REQUIREMENTS_SATISFIED"
 )
-
-// CasesBulkUpdateStatusResponse is a response object.
-type CasesBulkUpdateStatusResponse struct {
-	Updated  int64                                   `json:"updated"`
-	Failures []CasesBulkUpdateStatusResponseFailures `json:"failures"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CasesBulkUpdateStatusResponse leniently.
-func (r *CasesBulkUpdateStatusResponse) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// CasesBulkUpdateStatusResponseFailures is a response object.
-type CasesBulkUpdateStatusResponseFailures struct {
-	CaseUUID string `json:"case_uuid"`
-	Detail   string `json:"detail"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CasesBulkUpdateStatusResponseFailures leniently.
-func (r *CasesBulkUpdateStatusResponseFailures) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
 
 // CasesCreateParams holds the parameters of Client.Cases.Create.
 type CasesCreateParams struct {
@@ -2289,29 +2382,35 @@ type CaseListItem struct {
 	UUID string `json:"uuid"`
 
 	// Auto-assigned, e.g. CS-0001.
-	CaseNumber       string                 `json:"case_number"`
-	Title            string                 `json:"title"`
-	Status           CaseListItemStatus     `json:"status"`
-	Resolution       CaseListItemResolution `json:"resolution"`
-	Priority         CaseListItemPriority   `json:"priority"`
-	Source           CaseListItemSource     `json:"source"`
-	Tags             []string               `json:"tags"`
-	Subject          CaseSubject            `json:"subject"`
-	AssignedTo       CaseAssignee           `json:"assigned_to"`
-	AssignedAt       time.Time              `json:"assigned_at"`
-	DueAt            time.Time              `json:"due_at"`
-	ResolvedAt       time.Time              `json:"resolved_at"`
-	CreatedByEmail   string                 `json:"created_by_email"`
-	CreatedByName    string                 `json:"created_by_name"`
-	Blueprint        CaseBlueprintSummary   `json:"blueprint"`
-	LinksCount       int64                  `json:"links_count"`
-	NotesCount       int64                  `json:"notes_count"`
-	CreatedAt        time.Time              `json:"created_at"`
-	UpdatedAt        time.Time              `json:"updated_at"`
-	ApplicationID    string                 `json:"application_id"`
-	ApplicationName  string                 `json:"application_name"`
-	OrganizationID   string                 `json:"organization_id"`
-	OrganizationName string                 `json:"organization_name"`
+	CaseNumber string                 `json:"case_number"`
+	Title      string                 `json:"title"`
+	Status     CaseListItemStatus     `json:"status"`
+	Resolution CaseListItemResolution `json:"resolution"`
+
+	// Set only while a 4-eyes resolution is staged on the checker blueprint,
+	// awaiting approve or reject-approval.
+	PendingResolution CaseListItemPendingResolution `json:"pending_resolution"`
+	Checker           CaseChecker                   `json:"checker"`
+	Priority          CaseListItemPriority          `json:"priority"`
+	Source            CaseListItemSource            `json:"source"`
+	Tags              []string                      `json:"tags"`
+	Subject           CaseSubject                   `json:"subject"`
+	AssignedTo        CaseAssignee                  `json:"assigned_to"`
+	AssignedAt        time.Time                     `json:"assigned_at"`
+	Team              CaseTeamSummary               `json:"team"`
+	DueAt             time.Time                     `json:"due_at"`
+	ResolvedAt        time.Time                     `json:"resolved_at"`
+	CreatedByEmail    string                        `json:"created_by_email"`
+	CreatedByName     string                        `json:"created_by_name"`
+	Blueprint         CaseBlueprintSummary          `json:"blueprint"`
+	LinksCount        int64                         `json:"links_count"`
+	NotesCount        int64                         `json:"notes_count"`
+	CreatedAt         time.Time                     `json:"created_at"`
+	UpdatedAt         time.Time                     `json:"updated_at"`
+	ApplicationID     string                        `json:"application_id"`
+	ApplicationName   string                        `json:"application_name"`
+	OrganizationID    string                        `json:"organization_id"`
+	OrganizationName  string                        `json:"organization_name"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -2340,8 +2439,52 @@ type CaseListItemResolution string
 
 // Known values of CaseListItemResolution.
 const (
-	CaseListItemResolutionFalsePositive CaseListItemResolution = "FALSE_POSITIVE"
-	CaseListItemResolutionValidThreat   CaseListItemResolution = "VALID_THREAT"
+	CaseListItemResolutionFalsePositive         CaseListItemResolution = "FALSE_POSITIVE"
+	CaseListItemResolutionValidThreat           CaseListItemResolution = "VALID_THREAT"
+	CaseListItemResolutionInconclusive          CaseListItemResolution = "INCONCLUSIVE"
+	CaseListItemResolutionRequirementsNotMet    CaseListItemResolution = "REQUIREMENTS_NOT_MET"
+	CaseListItemResolutionRequirementsSatisfied CaseListItemResolution = "REQUIREMENTS_SATISFIED"
+)
+
+// CaseListItemPendingResolution: Set only while a 4-eyes resolution is staged
+// on the checker blueprint, awaiting approve or reject-approval.
+type CaseListItemPendingResolution struct {
+	Resolution      CaseListItemPendingResolutionResolution `json:"resolution"`
+	ResolutionNotes string                                  `json:"resolution_notes"`
+
+	// Email of the officer who submitted the resolution. Null when an API key
+	// submitted it: that resolution has no recorded maker, so approve and
+	// reject-approval return 403 for every caller.
+	MakerEmail string `json:"maker_email"`
+	MakerName  string `json:"maker_name"`
+
+	// Member user uuid of the officer who submitted the resolution. Null when an
+	// API key submitted it. That member cannot be named as `checker`.
+	MakerUserID      string    `json:"maker_user_id"`
+	MakerBlueprintID string    `json:"maker_blueprint_id"`
+	StagedAt         time.Time `json:"staged_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes CaseListItemPendingResolution leniently.
+func (r *CaseListItemPendingResolution) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// CaseListItemPendingResolutionResolution is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type CaseListItemPendingResolutionResolution string
+
+// Known values of CaseListItemPendingResolutionResolution.
+const (
+	CaseListItemPendingResolutionResolutionFalsePositive         CaseListItemPendingResolutionResolution = "FALSE_POSITIVE"
+	CaseListItemPendingResolutionResolutionValidThreat           CaseListItemPendingResolutionResolution = "VALID_THREAT"
+	CaseListItemPendingResolutionResolutionInconclusive          CaseListItemPendingResolutionResolution = "INCONCLUSIVE"
+	CaseListItemPendingResolutionResolutionRequirementsNotMet    CaseListItemPendingResolutionResolution = "REQUIREMENTS_NOT_MET"
+	CaseListItemPendingResolutionResolutionRequirementsSatisfied CaseListItemPendingResolutionResolution = "REQUIREMENTS_SATISFIED"
 )
 
 // CaseListItemPriority is a string with known values below. The set is open:
@@ -2485,6 +2628,13 @@ type CasesResolveParams struct {
 
 	// Required when the blueprint sets require_resolution_note.
 	Note Opt[string] `json:"note"`
+
+	// Four-eyes blueprints only. The user uuid of the member who must approve this
+	// resolution (the same id as `assigned_to.uuid` on a case, or
+	// `members[].user_id` on a review team). The member must have case access to
+	// this application and cannot be the officer who submits the resolution. Omit
+	// it or send null to leave the resolution to the checker queue.
+	Checker Opt[string] `json:"checker"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -2498,8 +2648,11 @@ type CasesResolveParamsResolution string
 
 // Known values of CasesResolveParamsResolution.
 const (
-	CasesResolveParamsResolutionFalsePositive CasesResolveParamsResolution = "FALSE_POSITIVE"
-	CasesResolveParamsResolutionValidThreat   CasesResolveParamsResolution = "VALID_THREAT"
+	CasesResolveParamsResolutionFalsePositive         CasesResolveParamsResolution = "FALSE_POSITIVE"
+	CasesResolveParamsResolutionValidThreat           CasesResolveParamsResolution = "VALID_THREAT"
+	CasesResolveParamsResolutionInconclusive          CasesResolveParamsResolution = "INCONCLUSIVE"
+	CasesResolveParamsResolutionRequirementsNotMet    CasesResolveParamsResolution = "REQUIREMENTS_NOT_MET"
+	CasesResolveParamsResolutionRequirementsSatisfied CasesResolveParamsResolution = "REQUIREMENTS_SATISFIED"
 )
 
 // CasesRetrieveStatisticsParams holds the parameters of
@@ -2779,10 +2932,19 @@ func (r CasesTransferParams) MarshalJSON() ([]byte, error) {
 
 // CasesUpdateParams holds the parameters of Client.Cases.Update.
 type CasesUpdateParams struct {
+	// New case title.
 	Title    Opt[string]                    `json:"title"`
 	Priority Opt[CasesUpdateParamsPriority] `json:"priority"`
-	DueAt    Opt[time.Time]                 `json:"due_at"`
-	Tags     Opt[[]string]                  `json:"tags"`
+
+	// New deadline. Send null to clear it.
+	DueAt Opt[time.Time] `json:"due_at"`
+
+	// The complete tag list. It replaces the current tags.
+	Tags Opt[[]string] `json:"tags"`
+
+	// UUID of the review team that owns the case. It must be an active team of this
+	// application. Send null to clear the team.
+	Team Opt[string] `json:"team"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -2985,8 +3147,8 @@ func (r CasesBlueprintsInstallPresetsParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
-// CasesBlueprintsInstallPresetsResponse is a response object.
-type CasesBlueprintsInstallPresetsResponse struct {
+// CaseBlueprintPresetInstallResult is a response object.
+type CaseBlueprintPresetInstallResult struct {
 	Created []string `json:"created"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -2994,8 +3156,8 @@ type CasesBlueprintsInstallPresetsResponse struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CasesBlueprintsInstallPresetsResponse leniently.
-func (r *CasesBlueprintsInstallPresetsResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseBlueprintPresetInstallResult leniently.
+func (r *CaseBlueprintPresetInstallResult) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -3831,6 +3993,46 @@ type CustomerMessagingCaseRequestPreviewResponse struct {
 func (r *CustomerMessagingCaseRequestPreviewResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// CasesRequestsRemindResponse is a response object.
+type CasesRequestsRemindResponse struct {
+	Request CustomerMessagingCaseRequest `json:"request"`
+
+	// When this reminder was recorded.
+	RemindedAt time.Time `json:"reminded_at"`
+
+	// How this reminder's delivery ended. SIMULATED: the email was not sent.
+	// UNKNOWN: the email might have been accepted; it is not sent again
+	// automatically.
+	DeliveryStatus CasesRequestsRemindResponseDeliveryStatus `json:"delivery_status"`
+
+	// When you can remind this request again: `reminded_at` plus 24 hours.
+	NextReminderAt time.Time `json:"next_reminder_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes CasesRequestsRemindResponse leniently.
+func (r *CasesRequestsRemindResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// CasesRequestsRemindResponseDeliveryStatus: How this reminder's delivery
+// ended. SIMULATED: the email was not sent. UNKNOWN: the email might have been
+// accepted; it is not sent again automatically.
+//
+// CasesRequestsRemindResponseDeliveryStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type CasesRequestsRemindResponseDeliveryStatus string
+
+// Known values of CasesRequestsRemindResponseDeliveryStatus.
+const (
+	CasesRequestsRemindResponseDeliveryStatusSent      CasesRequestsRemindResponseDeliveryStatus = "SENT"
+	CasesRequestsRemindResponseDeliveryStatusSimulated CasesRequestsRemindResponseDeliveryStatus = "SIMULATED"
+	CasesRequestsRemindResponseDeliveryStatusUnknown   CasesRequestsRemindResponseDeliveryStatus = "UNKNOWN"
+)
 
 // CustomerMessagingCaseRequestOptions is a response object.
 type CustomerMessagingCaseRequestOptions struct {

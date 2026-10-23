@@ -18,6 +18,26 @@ type NetworksService struct {
 	Notes *NetworksNotesService
 }
 
+// AddTag: Add a tag to a network.
+//
+// Put one of your application's tags on the network. Returns the network
+// detail, whose `tags` lists your application's tags on the network, with `201`
+// when the tag was added and `200` when it was already on the network. A tag
+// that belongs to another application, or does not exist, returns 404 `Tag not
+// found.`. Requires a full-access API key, or `write:networks` for a console
+// member.
+//
+// The organization and application ids come from the client options.
+//
+//	POST /v3/organization/{organization_id}/application/{application_id}/networks/{network_uuid}/tags/add/
+func (r *NetworksService) AddTag(ctx context.Context, networkUUID string, params NetworkTagRequest, opts ...option.RequestOption) (*NetworkDetailResponse, error) {
+	res := new(NetworkDetailResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/organization/{organization_id}/application/{application_id}/networks/{network_uuid}/tags/add/", pathParams: []string{"network_uuid", networkUUID}, appScope: true, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // DownloadReport: Download a network evidence report.
 //
 // Download a PDF of the current organization network, its observed account
@@ -39,10 +59,16 @@ func (r *NetworksService) DownloadReport(ctx context.Context, networkUUID string
 
 // List: List networks.
 //
-// List fraud networks detected within this application's organization, newest
-// activity first by default. By default dismissed networks are excluded; pass
-// status to include them. Sandbox applications never have networks - clustering
-// excludes sandbox data entirely.
+// List fraud networks detected within this application's organization, highest
+// risk first by default. By default dismissed networks are excluded; pass
+// status to include them. Sandbox applications never have networks: clustering
+// excludes sandbox data entirely. Every response carries the organization's
+// `sharing_mode` and whether cross-organization signals apply to it
+// (`cross_org_available`, `cross_org_unavailable_reason`). `kpis` aggregate the
+// networks that match your filters and `counts` aggregate every network the
+// application can see; pass `summary=false` to skip both when you only need the
+// page. Requires a full-access API key, or `list:networks` for a console
+// member.
 //
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
@@ -93,16 +119,37 @@ func (r *NetworksService) ListSignals(ctx context.Context, networkUUID string, o
 	return res, nil
 }
 
+// RemoveTag: Remove a tag from a network.
+//
+// Remove one of your application's tags from the network. Returns the network
+// detail. 404 when the tag is not on the network, or does not belong to your
+// application. Requires a full-access API key, or `write:networks` for a
+// console member.
+//
+// The organization and application ids come from the client options.
+//
+//	POST /v3/organization/{organization_id}/application/{application_id}/networks/{network_uuid}/tags/remove/
+func (r *NetworksService) RemoveTag(ctx context.Context, networkUUID string, params NetworkTagRequest, opts ...option.RequestOption) (*NetworkDetailResponse, error) {
+	res := new(NetworkDetailResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/organization/{organization_id}/application/{application_id}/networks/{network_uuid}/tags/remove/", pathParams: []string{"network_uuid", networkUUID}, appScope: true, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // Retrieve: Get network.
 //
-// Retrieve a single network's full detail, including stats, fraud tags, and
-// risk signals.
+// Retrieve a single network's full detail: stats, fraud tags and risk signals,
+// plus the organization's `sharing_mode` and cross-organization availability,
+// your application's `tags` on the network, member `outcomes` and pattern
+// scores (`patterns`). Requires a full-access API key, or `read:networks` for a
+// console member.
 //
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/networks/{network_uuid}/
-func (r *NetworksService) Retrieve(ctx context.Context, networkUUID string, opts ...option.RequestOption) (*NetworkDetail, error) {
-	res := new(NetworkDetail)
+func (r *NetworksService) Retrieve(ctx context.Context, networkUUID string, opts ...option.RequestOption) (*NetworkDetailResponse, error) {
+	res := new(NetworkDetailResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/networks/{network_uuid}/", pathParams: []string{"network_uuid", networkUUID}, appScope: true}, res, opts); err != nil {
 		return nil, err
 	}
@@ -146,15 +193,21 @@ func (r *NetworksService) RetrieveMap(ctx context.Context, networkUUID string, o
 
 // RetrieveTimeline: Get network timeline.
 //
-// Chronological events for this network: detection, each signal's observation,
-// and lifecycle status changes.
+// Without `contract`: the network's own events (detection, each signal's latest
+// observation and its review), oldest first and not paginated. `limit`,
+// `cursor` and `event_type` are ignored. With `contract=2`: the typed timeline,
+// newest first and paginated by cursor. It adds what the member accounts did
+// (verification attempts, transactions, sign-ins you post through the events
+// API and the live rules they hit) and the cases opened for the network.
+// `note_added` events are returned to console members only, never to an API
+// key. Requires a full-access API key, or `read:networks` for a console member.
 //
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/networks/{network_uuid}/timeline/
-func (r *NetworksService) RetrieveTimeline(ctx context.Context, networkUUID string, opts ...option.RequestOption) (*NetworksRetrieveTimelineResponse, error) {
+func (r *NetworksService) RetrieveTimeline(ctx context.Context, networkUUID string, params NetworksRetrieveTimelineParams, opts ...option.RequestOption) (*NetworksRetrieveTimelineResponse, error) {
 	res := new(NetworksRetrieveTimelineResponse)
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/networks/{network_uuid}/timeline/", pathParams: []string{"network_uuid", networkUUID}, appScope: true}, res, opts); err != nil {
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/networks/{network_uuid}/timeline/", pathParams: []string{"network_uuid", networkUUID}, appScope: true, params: params}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -221,6 +274,312 @@ func (r *NetworksNotesService) ListAutoPaging(ctx context.Context, networkUUID s
 	})
 }
 
+// NetworkTagRequest is a request object.
+type NetworkTagRequest struct {
+	// UUID of one of your application's tags. Required.
+	TagUUID string `json:"tag_uuid"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r NetworkTagRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// NetworkDetailResponse: The network detail, plus the organization's sharing
+// mode, whether cross-organization signals apply to it, your application's tags
+// on the network, member outcomes and pattern scores.
+type NetworkDetailResponse struct {
+	UUID string `json:"uuid"`
+
+	// Human-readable per-organization sequential id, e.g. N-0001.
+	NetworkID string `json:"network_id"`
+	Name      string `json:"name"`
+
+	// Network lifecycle status. Distinct from the per-applicant outcome_status
+	// inside a network (approved/in_review/declined/not_completed).
+	Status NetworkDetailResponseStatus `json:"status"`
+	Risk   NetworkRiskDisplay          `json:"risk"`
+
+	// The clustering patterns detected in this network.
+	PatternTypes []NetworkDetailResponsePatternTypes `json:"pattern_types"`
+
+	// The distinct signal types present in this network.
+	SignalTypes []NetworkDetailResponseSignalTypes `json:"signal_types"`
+
+	// Counts of members by category (e.g. total, per outcome_status).
+	MemberCounts map[string]any `json:"member_counts"`
+
+	// Breakdown of members by outcome_status.
+	MemberStatus map[string]any `json:"member_status"`
+
+	// Per signal_type coverage of this network's members.
+	SignalCoverage  map[string]any `json:"signal_coverage"`
+	FirstActivityAt time.Time      `json:"first_activity_at"`
+	LastActivityAt  time.Time      `json:"last_activity_at"`
+
+	// Aggregate stats for the network (e.g. member totals).
+	Stats map[string]any `json:"stats"`
+
+	// Fraud-pattern tags surfaced on the network.
+	FraudTags []map[string]any `json:"fraud_tags"`
+
+	// Risk-signal summaries: residential_proxy_reuse, email_intelligence,
+	// phone_intelligence.
+	RiskSignals  map[string]any `json:"risk_signals"`
+	ReviewedAt   time.Time      `json:"reviewed_at"`
+	ReviewedBy   string         `json:"reviewed_by"`
+	ReviewReason string         `json:"review_reason"`
+
+	// Number of private analyst notes in this investigation.
+	NotesCount int64 `json:"notes_count"`
+
+	// The organization's cross-organization sharing mode. Only `global` compares
+	// networks across organizations; `private` and `off` keep them to the
+	// organization's own history.
+	SharingMode NetworkDetailResponseSharingMode `json:"sharing_mode"`
+
+	// Whether cross-organization signals apply to this organization. They need both
+	// the Identity Enterprise plan and the `global` sharing mode.
+	CrossOrgAvailable bool `json:"cross_org_available"`
+
+	// Why cross-organization signals do not apply, checked in this order. `plan`:
+	// the organization's Identity plan does not include the cross-organization
+	// fraud network (it needs Identity Enterprise), whatever the sharing mode.
+	// `sharing_mode`: the plan includes it, but the sharing mode is `private` or
+	// `off`. Null when `cross_org_available` is `true`.
+	CrossOrgUnavailableReason NetworkDetailResponseCrossOrgUnavailableReason `json:"cross_org_unavailable_reason"`
+
+	// Your application's tags on the network, oldest first. Each application sees
+	// only its own tags. `fraud_tags` is separate and unchanged: the tags the
+	// network's members carry.
+	Tags     []NetworkTag    `json:"tags"`
+	Outcomes NetworkOutcomes `json:"outcomes"`
+
+	// Pattern scores over the whole network. Today one item, `background`.
+	Patterns []NetworkPatternScore `json:"patterns"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkDetailResponse leniently.
+func (r *NetworkDetailResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkDetailResponseStatus: Network lifecycle status. Distinct from the
+// per-applicant outcome_status inside a network
+// (approved/in_review/declined/not_completed).
+//
+// NetworkDetailResponseStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type NetworkDetailResponseStatus string
+
+// Known values of NetworkDetailResponseStatus.
+const (
+	NetworkDetailResponseStatusActive    NetworkDetailResponseStatus = "active"
+	NetworkDetailResponseStatusInReview  NetworkDetailResponseStatus = "in_review"
+	NetworkDetailResponseStatusResolved  NetworkDetailResponseStatus = "resolved"
+	NetworkDetailResponseStatusDismissed NetworkDetailResponseStatus = "dismissed"
+)
+
+// NetworkDetailResponsePatternTypes is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type NetworkDetailResponsePatternTypes string
+
+// Known values of NetworkDetailResponsePatternTypes.
+const (
+	NetworkDetailResponsePatternTypesExactSameDevice          NetworkDetailResponsePatternTypes = "exact_same_device"
+	NetworkDetailResponsePatternTypesSimilarDevice            NetworkDetailResponsePatternTypes = "similar_device"
+	NetworkDetailResponsePatternTypesSameIPAddress            NetworkDetailResponsePatternTypes = "same_ip_address"
+	NetworkDetailResponsePatternTypesSameAddress              NetworkDetailResponsePatternTypes = "same_address"
+	NetworkDetailResponsePatternTypesSimilarSelfieBackgrounds NetworkDetailResponsePatternTypes = "similar_selfie_backgrounds"
+	NetworkDetailResponsePatternTypesSimilarPOADocuments      NetworkDetailResponsePatternTypes = "similar_poa_documents"
+	NetworkDetailResponsePatternTypesSameDocumentNumber       NetworkDetailResponsePatternTypes = "same_document_number"
+	NetworkDetailResponsePatternTypesSamePhoneNumber          NetworkDetailResponsePatternTypes = "same_phone_number"
+	NetworkDetailResponsePatternTypesSameEmail                NetworkDetailResponsePatternTypes = "same_email"
+)
+
+// NetworkDetailResponseSignalTypes is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type NetworkDetailResponseSignalTypes string
+
+// Known values of NetworkDetailResponseSignalTypes.
+const (
+	NetworkDetailResponseSignalTypesIPAddress      NetworkDetailResponseSignalTypes = "ip_address"
+	NetworkDetailResponseSignalTypesDevice         NetworkDetailResponseSignalTypes = "device"
+	NetworkDetailResponseSignalTypesFace           NetworkDetailResponseSignalTypes = "face"
+	NetworkDetailResponseSignalTypesDocumentNumber NetworkDetailResponseSignalTypes = "document_number"
+	NetworkDetailResponseSignalTypesPhone          NetworkDetailResponseSignalTypes = "phone"
+	NetworkDetailResponseSignalTypesEmail          NetworkDetailResponseSignalTypes = "email"
+	NetworkDetailResponseSignalTypesAddress        NetworkDetailResponseSignalTypes = "address"
+)
+
+// NetworkDetailResponseSharingMode: The organization's cross-organization
+// sharing mode. Only `global` compares networks across organizations; `private`
+// and `off` keep them to the organization's own history.
+//
+// NetworkDetailResponseSharingMode is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type NetworkDetailResponseSharingMode string
+
+// Known values of NetworkDetailResponseSharingMode.
+const (
+	NetworkDetailResponseSharingModeOff     NetworkDetailResponseSharingMode = "off"
+	NetworkDetailResponseSharingModePrivate NetworkDetailResponseSharingMode = "private"
+	NetworkDetailResponseSharingModeGlobal  NetworkDetailResponseSharingMode = "global"
+)
+
+// NetworkDetailResponseCrossOrgUnavailableReason: Why cross-organization
+// signals do not apply, checked in this order. `plan`: the organization's
+// Identity plan does not include the cross-organization fraud network (it needs
+// Identity Enterprise), whatever the sharing mode. `sharing_mode`: the plan
+// includes it, but the sharing mode is `private` or `off`. Null when
+// `cross_org_available` is `true`.
+//
+// NetworkDetailResponseCrossOrgUnavailableReason is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type NetworkDetailResponseCrossOrgUnavailableReason string
+
+// Known values of NetworkDetailResponseCrossOrgUnavailableReason.
+const (
+	NetworkDetailResponseCrossOrgUnavailableReasonPlan        NetworkDetailResponseCrossOrgUnavailableReason = "plan"
+	NetworkDetailResponseCrossOrgUnavailableReasonSharingMode NetworkDetailResponseCrossOrgUnavailableReason = "sharing_mode"
+)
+
+// NetworkTag: One of your application's tags on the network.
+type NetworkTag struct {
+	// The tag's UUID, the same value you pass as `tag_uuid`.
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
+
+	// Hex color, for example `#6366F1`.
+	Color string `json:"color"`
+
+	// `didit` for a Didit preset tag, `custom` for a tag your team created.
+	Source NetworkTagSource `json:"source"`
+
+	// Email of the console member who added the tag. Null when an API key added it.
+	AddedBy string    `json:"added_by"`
+	AddedAt time.Time `json:"added_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTag leniently.
+func (r *NetworkTag) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTagSource: `didit` for a Didit preset tag, `custom` for a tag your
+// team created.
+//
+// NetworkTagSource is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type NetworkTagSource string
+
+// Known values of NetworkTagSource.
+const (
+	NetworkTagSourceDidit  NetworkTagSource = "didit"
+	NetworkTagSourceCustom NetworkTagSource = "custom"
+)
+
+// NetworkOutcomes: Where the network's people and businesses stand. Each member
+// you may see counts once, by the status of their most recent verification that
+// reached a decision. Transaction parties are not counted.
+type NetworkOutcomes struct {
+	// Members whose most recent decided verification was approved.
+	Approved int64 `json:"approved"`
+
+	// Members whose most recent decided verification was declined.
+	Declined int64 `json:"declined"`
+
+	// Members whose most recent decided verification is in review.
+	InReview int64 `json:"in_review"`
+
+	// Members with at least one verification, decided or not. A member whose
+	// verifications are all undecided (not started, in progress, expired or
+	// abandoned) counts here and in no other key.
+	Total int64 `json:"total"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkOutcomes leniently.
+func (r *NetworkOutcomes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkPatternScore: How alike one kind of the members' data is across the
+// whole network. A pattern is not a signal: no shared value links the members.
+type NetworkPatternScore struct {
+	// `background`: the mean similarity of every pair of member selfie backgrounds,
+	// with the person masked out. It reads the newest selfie of each person, at
+	// most the 50 newest, and leaves out age assurance sessions. It covers the
+	// whole network, not only the members of your applications.
+	Type NetworkPatternScoreType `json:"type"`
+
+	// From 0 to 1, rounded to 4 decimals. Null when `reason` is set.
+	Score float64 `json:"score"`
+
+	// How many members' selfies the score compared. A selfie that cannot be read,
+	// or shows too little background, is not compared. Null while `computing`; 0 or
+	// 1 with `not_enough_selfies`.
+	Members int64 `json:"members"`
+
+	// Why there is no score. `computing`: the score for the current members is
+	// being computed; read the network again later. `not_enough_selfies`: fewer
+	// than two members have a usable selfie. Null when there is a score.
+	Reason NetworkPatternScoreReason `json:"reason"`
+
+	// When the score was computed. Null while `computing`.
+	ComputedAt time.Time `json:"computed_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkPatternScore leniently.
+func (r *NetworkPatternScore) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkPatternScoreType: `background`: the mean similarity of every pair of
+// member selfie backgrounds, with the person masked out. It reads the newest
+// selfie of each person, at most the 50 newest, and leaves out age assurance
+// sessions. It covers the whole network, not only the members of your
+// applications.
+//
+// NetworkPatternScoreType is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type NetworkPatternScoreType string
+
+// Known values of NetworkPatternScoreType.
+const (
+	NetworkPatternScoreTypeBackground NetworkPatternScoreType = "background"
+)
+
+// NetworkPatternScoreReason: Why there is no score. `computing`: the score for
+// the current members is being computed; read the network again later.
+// `not_enough_selfies`: fewer than two members have a usable selfie. Null when
+// there is a score.
+//
+// NetworkPatternScoreReason is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type NetworkPatternScoreReason string
+
+// Known values of NetworkPatternScoreReason.
+const (
+	NetworkPatternScoreReasonComputing        NetworkPatternScoreReason = "computing"
+	NetworkPatternScoreReasonNotEnoughSelfies NetworkPatternScoreReason = "not_enough_selfies"
+)
+
 // NetworksDownloadReportParams holds the parameters of
 // Client.Networks.DownloadReport.
 type NetworksDownloadReportParams struct {
@@ -239,6 +598,11 @@ type NetworksListParams struct {
 	// Omit to exclude dismissed.
 	Status Opt[string] `json:"-" query:"status"`
 
+	// `transactions` keeps networks whose members are all transaction parties;
+	// `identity` keeps every other network. Omit for both. It also narrows
+	// `counts.views` and `counts.facets`. Any other value returns 400.
+	Scope Opt[NetworksListParamsScope] `json:"-" query:"scope"`
+
 	// Comma-separated signal types:
 	// ip_address,device,face,document_number,phone,email,address.
 	SignalType Opt[string] `json:"-" query:"signal_type"`
@@ -254,6 +618,26 @@ type NetworksListParams struct {
 
 	// Maximum member count.
 	MaxSize Opt[int64] `json:"-" query:"max_size"`
+
+	// Comma-separated assignees: `unassigned`, member emails (matched
+	// case-insensitively), or `me` for the calling console member. A network
+	// matches any value. `me` needs a console member token: an API key gets 400
+	// `{"assignee": ["\"me\" needs a user token; an API key has no assignee
+	// identity."]}`.
+	Assignee Opt[string] `json:"-" query:"assignee"`
+
+	// Comma-separated priorities: `low`, `medium`, `high`, or `none` for networks
+	// without a priority. Any other value returns 400 `{"priority": "Unknown
+	// priority: <values>."}`.
+	Priority Opt[string] `json:"-" query:"priority"`
+
+	// Minimum risk score, a whole number from 0 to 100. A value that is not a whole
+	// number returns 400 `{"risk_min": "Use a whole number from 0 to 100."}`.
+	RiskMin Opt[int64] `json:"-" query:"risk_min"`
+
+	// `true` keeps the networks your application opened a case for, `false` the
+	// others. Any other value is ignored.
+	HasCase Opt[bool] `json:"-" query:"has_case"`
 
 	// Lower bound on last_activity_at (ISO 8601 date or datetime).
 	DateFrom Opt[string] `json:"-" query:"date_from"`
@@ -275,12 +659,26 @@ type NetworksListParams struct {
 
 	// Zero-based offset of the first record.
 	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// `false` returns the page and its `count` only, without `kpis` and `counts`.
+	// Defaults to `true`. Any value other than `true` or `false` returns 400.
+	Summary Opt[bool] `json:"-" query:"summary"`
 }
 
 // MarshalJSON encodes the fields that are set.
 func (r NetworksListParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
+
+// NetworksListParamsScope is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type NetworksListParamsScope string
+
+// Known values of NetworksListParamsScope.
+const (
+	NetworksListParamsScopeIdentity     NetworksListParamsScope = "identity"
+	NetworksListParamsScopeTransactions NetworksListParamsScope = "transactions"
+)
 
 // NetworksListMembersResponse is a response object.
 type NetworksListMembersResponse struct {
@@ -481,6 +879,72 @@ const (
 	NetworkSignalNodeStatusSignalGuarded NetworkSignalNodeStatus = "signal_guarded"
 )
 
+// NetworksRetrieveGraphParams holds the parameters of
+// Client.Networks.RetrieveGraph.
+type NetworksRetrieveGraphParams struct {
+	// Hops from the focus subject to include. Defaults to all (unbounded).
+	Depth Opt[NetworksRetrieveGraphParamsDepth] `json:"-" query:"depth"`
+
+	// Subject type to center the graph on. Must be supplied together with focus_id;
+	// defaults to an arbitrary member when depth is bounded and neither is
+	// supplied.
+	FocusKind Opt[NetworksRetrieveGraphParamsFocusKind] `json:"-" query:"focus_kind"`
+
+	// Subject UUID to center the graph on.
+	FocusID Opt[string] `json:"-" query:"focus_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r NetworksRetrieveGraphParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// NetworksRetrieveGraphParamsDepth is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type NetworksRetrieveGraphParamsDepth string
+
+// Known values of NetworksRetrieveGraphParamsDepth.
+const (
+	NetworksRetrieveGraphParamsDepth1   NetworksRetrieveGraphParamsDepth = "1"
+	NetworksRetrieveGraphParamsDepth2   NetworksRetrieveGraphParamsDepth = "2"
+	NetworksRetrieveGraphParamsDepth3   NetworksRetrieveGraphParamsDepth = "3"
+	NetworksRetrieveGraphParamsDepthAll NetworksRetrieveGraphParamsDepth = "all"
+)
+
+// NetworksRetrieveGraphParamsFocusKind is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type NetworksRetrieveGraphParamsFocusKind string
+
+// Known values of NetworksRetrieveGraphParamsFocusKind.
+const (
+	NetworksRetrieveGraphParamsFocusKindVendorUser       NetworksRetrieveGraphParamsFocusKind = "vendor_user"
+	NetworksRetrieveGraphParamsFocusKindVendorBusiness   NetworksRetrieveGraphParamsFocusKind = "vendor_business"
+	NetworksRetrieveGraphParamsFocusKindTransactionParty NetworksRetrieveGraphParamsFocusKind = "transaction_party"
+)
+
+// NetworkGraph is a response object.
+type NetworkGraph struct {
+	Network NetworkDetail `json:"network"`
+
+	// Effective depth applied, or null when unbounded (depth=all).
+	Depth int64 `json:"depth"`
+
+	// True if the neighborhood was cut off by depth.
+	Truncated bool                `json:"truncated"`
+	Nodes     []NetworkGraphNode  `json:"nodes"`
+	Edges     []NetworkGraphEdge  `json:"edges"`
+	Metrics   NetworkGraphMetrics `json:"metrics"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkGraph leniently.
+func (r *NetworkGraph) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // NetworkDetail is a response object.
 type NetworkDetail struct {
 	UUID string `json:"uuid"`
@@ -584,72 +1048,6 @@ const (
 	NetworkDetailSignalTypesEmail          NetworkDetailSignalTypes = "email"
 	NetworkDetailSignalTypesAddress        NetworkDetailSignalTypes = "address"
 )
-
-// NetworksRetrieveGraphParams holds the parameters of
-// Client.Networks.RetrieveGraph.
-type NetworksRetrieveGraphParams struct {
-	// Hops from the focus subject to include. Defaults to all (unbounded).
-	Depth Opt[NetworksRetrieveGraphParamsDepth] `json:"-" query:"depth"`
-
-	// Subject type to center the graph on. Must be supplied together with focus_id;
-	// defaults to an arbitrary member when depth is bounded and neither is
-	// supplied.
-	FocusKind Opt[NetworksRetrieveGraphParamsFocusKind] `json:"-" query:"focus_kind"`
-
-	// Subject UUID to center the graph on.
-	FocusID Opt[string] `json:"-" query:"focus_id"`
-}
-
-// MarshalJSON encodes the fields that are set.
-func (r NetworksRetrieveGraphParams) MarshalJSON() ([]byte, error) {
-	return marshalParams(r)
-}
-
-// NetworksRetrieveGraphParamsDepth is a string with known values below. The set
-// is open: other values may appear and never cause an error.
-type NetworksRetrieveGraphParamsDepth string
-
-// Known values of NetworksRetrieveGraphParamsDepth.
-const (
-	NetworksRetrieveGraphParamsDepth1   NetworksRetrieveGraphParamsDepth = "1"
-	NetworksRetrieveGraphParamsDepth2   NetworksRetrieveGraphParamsDepth = "2"
-	NetworksRetrieveGraphParamsDepth3   NetworksRetrieveGraphParamsDepth = "3"
-	NetworksRetrieveGraphParamsDepthAll NetworksRetrieveGraphParamsDepth = "all"
-)
-
-// NetworksRetrieveGraphParamsFocusKind is a string with known values below. The
-// set is open: other values may appear and never cause an error.
-type NetworksRetrieveGraphParamsFocusKind string
-
-// Known values of NetworksRetrieveGraphParamsFocusKind.
-const (
-	NetworksRetrieveGraphParamsFocusKindVendorUser       NetworksRetrieveGraphParamsFocusKind = "vendor_user"
-	NetworksRetrieveGraphParamsFocusKindVendorBusiness   NetworksRetrieveGraphParamsFocusKind = "vendor_business"
-	NetworksRetrieveGraphParamsFocusKindTransactionParty NetworksRetrieveGraphParamsFocusKind = "transaction_party"
-)
-
-// NetworkGraph is a response object.
-type NetworkGraph struct {
-	Network NetworkDetail `json:"network"`
-
-	// Effective depth applied, or null when unbounded (depth=all).
-	Depth int64 `json:"depth"`
-
-	// True if the neighborhood was cut off by depth.
-	Truncated bool                `json:"truncated"`
-	Nodes     []NetworkGraphNode  `json:"nodes"`
-	Edges     []NetworkGraphEdge  `json:"edges"`
-	Metrics   NetworkGraphMetrics `json:"metrics"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes NetworkGraph leniently.
-func (r *NetworkGraph) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
 
 // NetworkGraphNode: A subject node or a signal node, distinguished by kind.
 // Subject nodes (kind: vendor_user | vendor_business | transaction_party) carry
@@ -793,9 +1191,65 @@ func (r *NetworkMapPoints) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// NetworksRetrieveTimelineParams holds the parameters of
+// Client.Networks.RetrieveTimeline.
+type NetworksRetrieveTimelineParams struct {
+	// `2` returns the typed timeline. Omit it for the default timeline. Any other
+	// value returns 400.
+	Contract Opt[NetworksRetrieveTimelineParamsContract] `json:"-" query:"contract"`
+
+	// Typed timeline only. Events per page, 1 to 500. Defaults to 100.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Typed timeline only. The previous page's `next_cursor`. An invalid or empty
+	// cursor returns 400.
+	Cursor Opt[string] `json:"-" query:"cursor"`
+
+	// Typed timeline only. Event types to keep, repeated or comma-separated, at
+	// most 20 values. Defaults to every type.
+	EventType Opt[[]NetworksRetrieveTimelineParamsEventType] `json:"-" query:"event_type"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r NetworksRetrieveTimelineParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// NetworksRetrieveTimelineParamsContract is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type NetworksRetrieveTimelineParamsContract string
+
+// Known values of NetworksRetrieveTimelineParamsContract.
+const (
+	NetworksRetrieveTimelineParamsContract2 NetworksRetrieveTimelineParamsContract = "2"
+)
+
+// NetworksRetrieveTimelineParamsEventType is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type NetworksRetrieveTimelineParamsEventType string
+
+// Known values of NetworksRetrieveTimelineParamsEventType.
+const (
+	NetworksRetrieveTimelineParamsEventTypeNetworkDetected     NetworksRetrieveTimelineParamsEventType = "network_detected"
+	NetworksRetrieveTimelineParamsEventTypeSignalObserved      NetworksRetrieveTimelineParamsEventType = "signal_observed"
+	NetworksRetrieveTimelineParamsEventTypeNetworkActive       NetworksRetrieveTimelineParamsEventType = "network_active"
+	NetworksRetrieveTimelineParamsEventTypeNetworkInReview     NetworksRetrieveTimelineParamsEventType = "network_in_review"
+	NetworksRetrieveTimelineParamsEventTypeNetworkResolved     NetworksRetrieveTimelineParamsEventType = "network_resolved"
+	NetworksRetrieveTimelineParamsEventTypeNetworkDismissed    NetworksRetrieveTimelineParamsEventType = "network_dismissed"
+	NetworksRetrieveTimelineParamsEventTypeVerificationAttempt NetworksRetrieveTimelineParamsEventType = "verification_attempt"
+	NetworksRetrieveTimelineParamsEventTypeTransaction         NetworksRetrieveTimelineParamsEventType = "transaction"
+	NetworksRetrieveTimelineParamsEventTypeLogin               NetworksRetrieveTimelineParamsEventType = "login"
+	NetworksRetrieveTimelineParamsEventTypeRuleHit             NetworksRetrieveTimelineParamsEventType = "rule_hit"
+	NetworksRetrieveTimelineParamsEventTypeCaseLinked          NetworksRetrieveTimelineParamsEventType = "case_linked"
+	NetworksRetrieveTimelineParamsEventTypeNoteAdded           NetworksRetrieveTimelineParamsEventType = "note_added"
+)
+
 // NetworksRetrieveTimelineResponse is a response object.
 type NetworksRetrieveTimelineResponse struct {
-	Results []NetworkTimelineEvent `json:"results"`
+	Results []NetworksRetrieveTimelineResponseResults `json:"results"`
+
+	// Pass as `cursor` to read the next page. Null on the last page.
+	NextCursor string `json:"next_cursor"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -807,22 +1261,400 @@ func (r *NetworksRetrieveTimelineResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// NetworkTimelineEvent is a response object.
-type NetworkTimelineEvent struct {
+// NetworksRetrieveTimelineResponseResults is a response object.
+type NetworksRetrieveTimelineResponseResults struct {
 	// e.g. network_detected, signal_observed, network_in_review, network_resolved,
 	// network_dismissed.
-	EventType  string         `json:"event_type"`
-	OccurredAt time.Time      `json:"occurred_at"`
-	Label      string         `json:"label"`
-	Metadata   map[string]any `json:"metadata"`
+	EventType  string    `json:"event_type"`
+	OccurredAt time.Time `json:"occurred_at"`
+	Label      string    `json:"label"`
+	Metadata   any       `json:"metadata"`
+
+	// `<source>:<uuid>`, unique within the timeline.
+	ID string `json:"id"`
+
+	// When Didit stored it.
+	IngestedAt time.Time `json:"ingested_at"`
+
+	// The member account. Null for the network's own events, `case_linked` and
+	// `note_added`.
+	Account NetworkTimelineAccount `json:"account"`
+
+	// The source record. Null for the network's own events and `note_added`.
+	SourceRef NetworkTimelineSourceRef `json:"source_ref"`
+
+	// Set on `verification_attempt` events.
+	VerificationAttempt NetworkTimelineAttempt `json:"verification_attempt"`
+
+	// Set on `transaction` events.
+	Transaction NetworkTimelineTransaction `json:"transaction"`
+
+	// Set on `login` events.
+	Login NetworkTimelineLogin `json:"login"`
+
+	// Set on `rule_hit` events.
+	RuleHit NetworkTimelineRuleHit `json:"rule_hit"`
+
+	// Set on `case_linked` events.
+	CaseLinked NetworkTimelineCaseLinked `json:"case_linked"`
+
+	// Set on `note_added` events. Never returned to an API key.
+	NoteAdded NetworkTimelineNoteAdded `json:"note_added"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes NetworkTimelineEvent leniently.
-func (r *NetworkTimelineEvent) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes NetworksRetrieveTimelineResponseResults leniently.
+func (r *NetworksRetrieveTimelineResponseResults) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineAccount: The member account the event belongs to.
+type NetworkTimelineAccount struct {
+	// `<kind>:<uuid>`, where kind is `vendor_user`, `vendor_business` or
+	// `transaction_party`.
+	NodeID      string                         `json:"node_id"`
+	NodeType    NetworkTimelineAccountNodeType `json:"node_type"`
+	UUID        string                         `json:"uuid"`
+	VendorData  string                         `json:"vendor_data"`
+	DisplayName string                         `json:"display_name"`
+
+	// `owned` when the record belongs to the application you called (for a console
+	// member, to an application they were granted). `organization` when it belongs
+	// to another application of your organization.
+	Ownership NetworkTimelineAccountOwnership `json:"ownership"`
+	Route     NetworkTimelineRoute            `json:"route"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineAccount leniently.
+func (r *NetworkTimelineAccount) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineAccountNodeType is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type NetworkTimelineAccountNodeType string
+
+// Known values of NetworkTimelineAccountNodeType.
+const (
+	NetworkTimelineAccountNodeTypeAccount          NetworkTimelineAccountNodeType = "account"
+	NetworkTimelineAccountNodeTypeBusinessAccount  NetworkTimelineAccountNodeType = "business_account"
+	NetworkTimelineAccountNodeTypeTransactionParty NetworkTimelineAccountNodeType = "transaction_party"
+)
+
+// NetworkTimelineAccountOwnership: `owned` when the record belongs to the
+// application you called (for a console member, to an application they were
+// granted). `organization` when it belongs to another application of your
+// organization.
+//
+// NetworkTimelineAccountOwnership is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type NetworkTimelineAccountOwnership string
+
+// Known values of NetworkTimelineAccountOwnership.
+const (
+	NetworkTimelineAccountOwnershipOwned        NetworkTimelineAccountOwnership = "owned"
+	NetworkTimelineAccountOwnershipOrganization NetworkTimelineAccountOwnership = "organization"
+)
+
+// NetworkTimelineRoute: Where the record opens: its kind, its UUID and the
+// application it belongs to.
+type NetworkTimelineRoute struct {
+	// `user`, `business` or `transaction_party` for an account; `session`,
+	// `business_session` or `transaction` for a source record.
+	Kind          string `json:"kind"`
+	ID            string `json:"id"`
+	ApplicationID string `json:"application_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineRoute leniently.
+func (r *NetworkTimelineRoute) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineSourceRef: The record the event was read from.
+type NetworkTimelineSourceRef struct {
+	Kind NetworkTimelineSourceRefKind `json:"kind"`
+	ID   string                       `json:"id"`
+
+	// `owned` when the record belongs to the application you called (for a console
+	// member, to an application they were granted). `organization` when it belongs
+	// to another application of your organization.
+	Ownership NetworkTimelineSourceRefOwnership `json:"ownership"`
+
+	// Absent for `monitoring_event` and `case`.
+	Route NetworkTimelineRoute `json:"route"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineSourceRef leniently.
+func (r *NetworkTimelineSourceRef) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineSourceRefKind is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type NetworkTimelineSourceRefKind string
+
+// Known values of NetworkTimelineSourceRefKind.
+const (
+	NetworkTimelineSourceRefKindSession         NetworkTimelineSourceRefKind = "session"
+	NetworkTimelineSourceRefKindBusinessSession NetworkTimelineSourceRefKind = "business_session"
+	NetworkTimelineSourceRefKindTransaction     NetworkTimelineSourceRefKind = "transaction"
+	NetworkTimelineSourceRefKindMonitoringEvent NetworkTimelineSourceRefKind = "monitoring_event"
+	NetworkTimelineSourceRefKindCase            NetworkTimelineSourceRefKind = "case"
+)
+
+// NetworkTimelineSourceRefOwnership: `owned` when the record belongs to the
+// application you called (for a console member, to an application they were
+// granted). `organization` when it belongs to another application of your
+// organization.
+//
+// NetworkTimelineSourceRefOwnership is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type NetworkTimelineSourceRefOwnership string
+
+// Known values of NetworkTimelineSourceRefOwnership.
+const (
+	NetworkTimelineSourceRefOwnershipOwned        NetworkTimelineSourceRefOwnership = "owned"
+	NetworkTimelineSourceRefOwnershipOrganization NetworkTimelineSourceRefOwnership = "organization"
+)
+
+// NetworkTimelineAttempt: One verification session of the account.
+type NetworkTimelineAttempt struct {
+	// The session UUID, or the business session UUID for a company.
+	SessionID     string `json:"session_id"`
+	SessionNumber int64  `json:"session_number"`
+
+	// This session's position among the account's sessions, in creation order.
+	Attempt int64 `json:"attempt"`
+
+	// How many sessions the account has.
+	AttemptCount int64 `json:"attempt_count"`
+
+	// The session status, for example `Approved` or `Declined`.
+	Status          string    `json:"status"`
+	StatusChangedAt time.Time `json:"status_changed_at"`
+
+	// For a declined session only: its warnings, oldest first, once per warning.
+	// Empty otherwise.
+	DeclineReasons []NetworkTimelineDeclineReason `json:"decline_reasons"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineAttempt leniently.
+func (r *NetworkTimelineAttempt) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineDeclineReason is a response object.
+type NetworkTimelineDeclineReason struct {
+	// The warning code.
+	Risk string `json:"risk"`
+
+	// The feature that raised the warning.
+	Feature          string `json:"feature"`
+	ShortDescription string `json:"short_description"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineDeclineReason leniently.
+func (r *NetworkTimelineDeclineReason) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineTransaction: A transaction a member account took part in,
+// dated by its transaction date.
+type NetworkTimelineTransaction struct {
+	TransactionID     string `json:"transaction_id"`
+	TransactionNumber int64  `json:"transaction_number"`
+	TransactionType   string `json:"transaction_type"`
+	ActionType        string `json:"action_type"`
+
+	// Null when the transaction has no amount.
+	Amount              NetworkTimelineAmount `json:"amount"`
+	Status              string                `json:"status"`
+	DecisionReasonCode  string                `json:"decision_reason_code"`
+	DecisionReasonLabel string                `json:"decision_reason_label"`
+
+	// The account's role in the transaction: `APPLICANT`, `REMITTER`, `BENEFICIARY`
+	// or `COUNTERPARTY`.
+	PartyRole string `json:"party_role"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineTransaction leniently.
+func (r *NetworkTimelineTransaction) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineAmount is a response object.
+type NetworkTimelineAmount struct {
+	// Decimal amount as a string.
+	Value     string `json:"value"`
+	Currency  string `json:"currency"`
+	Direction string `json:"direction"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineAmount leniently.
+func (r *NetworkTimelineAmount) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineLogin: A sign-in event you posted for a person through the
+// events API.
+type NetworkTimelineLogin struct {
+	// `<event_category>.<action_type>`: `auth.login` or `security.login_succeeded`
+	// for a sign-in, `auth.login_failed` or `security.login_failed` for a failed
+	// one.
+	Action    string `json:"action"`
+	Succeeded bool   `json:"succeeded"`
+
+	// The event's status.
+	Status string `json:"status"`
+
+	// Null when the event has no IP address.
+	IP NetworkTimelineIP `json:"ip"`
+
+	// Null when the event has no device fingerprint or context.
+	Device NetworkTimelineDevice `json:"device"`
+
+	// The account's first successful sign-in on record.
+	IsFirstLogin bool `json:"is_first_login"`
+
+	// A successful sign-in from a device none of the account's earlier successful
+	// sign-ins came from. Never true on the first sign-in.
+	IsNewDevice bool `json:"is_new_device"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineLogin leniently.
+func (r *NetworkTimelineLogin) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineIP is a response object.
+type NetworkTimelineIP struct {
+	Address     string `json:"address"`
+	CountryCode string `json:"country_code"`
+	City        string `json:"city"`
+
+	// The connection type label for the address, as free text.
+	ConnectionType string `json:"connection_type"`
+	IsVpnOrTor     bool   `json:"is_vpn_or_tor"`
+	IsDataCenter   bool   `json:"is_data_center"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineIP leniently.
+func (r *NetworkTimelineIP) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineDevice is a response object.
+type NetworkTimelineDevice struct {
+	Fingerprint string `json:"fingerprint"`
+
+	// A readable device label built from the event's device context.
+	Label string `json:"label"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineDevice leniently.
+func (r *NetworkTimelineDevice) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineRuleHit: A live rule that matched a member's transaction or
+// event. Test-mode matches are not included.
+type NetworkTimelineRuleHit struct {
+	RuleID        string `json:"rule_id"`
+	RuleTitle     string `json:"rule_title"`
+	RuleCategory  string `json:"rule_category"`
+	RuleSource    string `json:"rule_source"`
+	Severity      string `json:"severity"`
+	ScoreDelta    int64  `json:"score_delta"`
+	StatusTarget  string `json:"status_target"`
+	ActionSummary string `json:"action_summary"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineRuleHit leniently.
+func (r *NetworkTimelineRuleHit) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineCaseLinked: A case opened for the network in your
+// organization. `source_ref.ownership` says whether it belongs to the
+// application you called.
+type NetworkTimelineCaseLinked struct {
+	CaseID      string `json:"case_id"`
+	CaseNumber  string `json:"case_number"`
+	Status      string `json:"status"`
+	AuthorEmail string `json:"author_email"`
+	AuthorName  string `json:"author_name"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineCaseLinked leniently.
+func (r *NetworkTimelineCaseLinked) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkTimelineNoteAdded: A note left on the network. The note text is not
+// included.
+type NetworkTimelineNoteAdded struct {
+	NoteID      string `json:"note_id"`
+	AuthorEmail string `json:"author_email"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkTimelineNoteAdded leniently.
+func (r *NetworkTimelineNoteAdded) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 

@@ -4,13 +4,14 @@ package didit_test
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/didit-protocol/sdk-go"
 )
 
 func TestTransactionsCreate(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"abcdef12-3456-4890-abcd-ef1234567890","environment":"live","transaction_number":4123,"txn_id":"your-txn-2026-05-17-001","txn_date":"2026-05-17T08:42:00Z","zone_id":"Europe/Madrid","transaction_type":"finance","action_type":"withdrawal","direction":"OUTBOUND","status":"APPROVED","source":"LIVE","amount":"1500","currency":"EUR","currency_type":"fiat","amount_in_default_currency":"1620.45","default_currency_code":"USD","preferred_currency_amount":"1620.45","preferred_currency_code":"USD","payment_details":"Withdrawal to crypto wallet","payment_txn_id":null,"score":0,"severity":null,"decision_reason_code":null,"decision_reason_label":null,"vendor_data":"user-12345","metadata":{"subject":{"entity_type":"individual","vendor_data":"user-12345","full_name":"Maria Garcia","address":{},"institution_details":{},"device_context":{}},"counterparty":{}},"props":{},"tags":[],"parties":[{"uuid":"b1111111-2222-4333-8444-555555555555","role":"APPLICANT","entity_type":"individual","kind":"USER","vendor_data":"user-12345","full_name":"Maria Garcia","first_name":null,"last_name":null,"country_code":null,"dob":null,"address":{},"institution_info":{},"device":{},"external_party_snapshot":null}],"payment_methods":[],"documents":[],"activities":[{"uuid":"d4e5f6a7-8901-4bcd-9ef0-123456789abc","activity_type":"TRANSACTION_CREATED","source":"TRANSACTION","status":"APPROVED","title":"withdrawal","description":"Transaction recorded.","metadata":{},"occurred_at":"2026-05-17T08:42:11Z"}],"alerts":[],"rule_runs":[],"provider_results":[],"travel_rule":null,"network_snapshot":null,"remediation":null,"cost_breakdown":null}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"abcdef12-3456-4890-abcd-ef1234567890","environment":"live","transaction_number":4123,"txn_id":"your-txn-2026-05-17-001","txn_date":"2026-05-17T08:42:00Z","zone_id":"Europe/Madrid","transaction_type":"finance","action_type":"withdrawal","direction":"OUTBOUND","status":"APPROVED","source":"LIVE","amount":"1500","currency":"EUR","currency_type":"fiat","amount_in_default_currency":"1620.45","default_currency_code":"USD","preferred_currency_amount":"1620.45","preferred_currency_code":"USD","payment_details":"Withdrawal to crypto wallet","payment_txn_id":null,"score":0,"severity":null,"decision_reason_code":null,"decision_reason_label":null,"vendor_data":"user-12345","metadata":{"subject":{"entity_type":"individual","vendor_data":"user-12345","full_name":"Maria Garcia","address":{},"institution_details":{},"device_context":{}},"counterparty":{}},"props":{},"tags":[],"parties":[{"uuid":"b1111111-2222-4333-8444-555555555555","role":"APPLICANT","entity_type":"individual","kind":"USER","vendor_data":"user-12345","full_name":"Maria Garcia","first_name":null,"last_name":null,"country_code":null,"dob":null,"address":{},"institution_info":{},"device":{},"external_party_snapshot":null}],"payment_methods":[],"documents":[],"activities":[{"uuid":"d4e5f6a7-8901-4bcd-9ef0-123456789abc","activity_type":"TRANSACTION_CREATED","source":"TRANSACTION","status":"APPROVED","title":"withdrawal","description":"Transaction recorded.","metadata":{},"occurred_at":"2026-05-17T08:42:11Z"}],"alerts":[],"rule_runs":[],"provider_results":[],"travel_rule":null,"network_snapshot":null,"remediation":null,"action_required":null,"cost_breakdown":null}`)
 	var params didit.TransactionsCreateParams
 	mustUnmarshal(t, `{"transaction_id":"your-txn-2026-05-17-001","transaction_category":"finance","transaction_details":{"direction":"outbound","amount":1500,"currency":"EUR","action_type":"withdrawal"},"subject":{"entity_type":"individual","vendor_data":"user-12345","full_name":"Maria Garcia"}}`, &params)
 	res, err := client.Transactions.Create(context.Background(), params)
@@ -39,11 +40,28 @@ func TestTransactionsCreateSDKToken(t *testing.T) {
 	expectFields(t, res.JSON, []string{"sdk_token", "expires_at"})
 }
 
+func TestTransactionsGeneratePDF(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/pdf", `binary-content`)
+	res, err := client.Transactions.GeneratePDF(context.Background(), "transaction-uuid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/organization/org-test/application/app-test/transactions/transaction-uuid-1/pdf/")
+	req.expectAPIKey(t)
+	defer func() { _ = res.Body.Close() }()
+	data, err := io.ReadAll(res.Body)
+	if err != nil || string(data) != "binary-content" {
+		t.Fatalf("file body = %q, %v", data, err)
+	}
+}
+
 func TestTransactionsList(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"total_transactions":1,"results":[{"uuid":"abcdef12-3456-4890-abcd-ef1234567890","transaction_number":4123,"txn_id":"your-txn-2026-05-17-001","transaction_type":"finance","action_type":"withdrawal","status":"IN_REVIEW","direction":"OUTBOUND","amount":"1500","currency":"EUR","preferred_currency_amount":"1620.45","preferred_currency_code":"USD","payment_details":"Withdrawal to crypto wallet","txn_date":"2026-05-17T08:42:00Z","created_at":"2026-05-17T08:42:11Z","score":78,"severity":"HIGH","decision_reason_code":"WALLET_HIGH_RISK","decision_reason_label":"Destination wallet flagged as high risk","tags":[{"uuid":"9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d","name":"Manual review","color":"#F59E0B","description":null,"source":"custom"}],"subject_name":"Maria Garcia","subject_vendor_data":"user-12345","counterparty_name":null,"counterparty_vendor_data":null,"counterparty_country":null,"subject_country":null,"assigned_to_name":"Alex Reviewer"}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"total_transactions":1,"results":[{"uuid":"abcdef12-3456-4890-abcd-ef1234567890","transaction_number":4123,"txn_id":"your-txn-2026-05-17-001","transaction_type":"finance","action_type":"withdrawal","status":"IN_REVIEW","direction":"OUTBOUND","amount":"1500","currency":"EUR","preferred_currency_amount":"1620.45","preferred_currency_code":"USD","payment_details":"Withdrawal to crypto wallet","txn_date":"2026-05-17T08:42:00Z","created_at":"2026-05-17T08:42:11Z","score":78,"severity":"HIGH","decision_reason_code":"WALLET_HIGH_RISK","decision_reason_label":"Destination wallet flagged as high risk","tags":[{"uuid":"9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d","name":"Manual review","color":"#F59E0B","description":null,"source":"custom"}],"subject_name":"Maria Garcia","subject_vendor_data":"user-12345","counterparty_name":null,"counterparty_vendor_data":null,"counterparty_country":null,"subject_country":null,"assigned_to_name":"Alex Reviewer","travel_rule_status":null,"travel_rule":null}]}`)
 	var params didit.TransactionsListParams
 	params.Limit = didit.Int(50)
 	params.Offset = didit.Int(0)
+	params.TravelRuleStatus = didit.String("value")
 	res, err := client.Transactions.List(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +69,7 @@ func TestTransactionsList(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/transactions/")
 	req.expectAPIKey(t)
-	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0"})
+	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0", "travel_rule_status": "value"})
 	if res == nil {
 		t.Fatal("nil page")
 	}
@@ -85,8 +103,30 @@ func TestTransactionsListPartyNetworks(t *testing.T) {
 	expectFields(t, res.JSON, []string{"results"})
 }
 
+func TestTransactionsListRelated(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"uuid":"abcdef99-3456-4890-abcd-ef1234567890","transaction_number":4087,"txn_id":"your-txn-2026-10-02-017","transaction_type":"finance","action_type":"deposit","status":"APPROVED","source":"LIVE","direction":"INBOUND","amount":"250","currency":"EUR","currency_type":"fiat","preferred_currency_amount":"270.08","preferred_currency_code":"USD","payment_details":"Card top-up","txn_date":"2026-10-02T14:10:00Z","created_at":"2026-10-02T14:10:03.512244Z","score":12,"severity":"LOW","decision_reason_code":null,"decision_reason_label":null,"tags":[],"subject_name":"Maria Garcia","subject_vendor_data":"user-12345","subject_type":"user","subject_uuid":"e1111111-2222-4333-8444-555555555555","counterparty_name":null,"counterparty_vendor_data":null,"counterparty_country":null,"subject_country":"ESP","assigned_to_name":null,"travel_rule_status":null,"application_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","application_name":"Production app","organization_id":"11111111-2222-3333-4444-555555555555","organization_name":"Example Org"}]}`)
+	var params didit.TransactionsListRelatedParams
+	params.Limit = didit.Int(50)
+	params.Offset = didit.Int(0)
+	res, err := client.Transactions.ListRelated(context.Background(), "transaction-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/transactions/transaction-id-1/related/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"uuid", "transaction_number", "txn_id", "transaction_type", "action_type", "status", "source", "direction", "amount", "currency", "currency_type", "preferred_currency_amount", "preferred_currency_code", "payment_details", "txn_date", "created_at", "score", "severity", "tags", "subject_name", "subject_vendor_data", "subject_type", "subject_uuid", "subject_country", "application_id", "application_name", "organization_id", "organization_name"})
+}
+
 func TestTransactionsRetrieve(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"abcdef12-3456-4890-abcd-ef1234567890","environment":"live","transaction_number":4123,"txn_id":"your-txn-2026-05-17-001","txn_date":"2026-05-17T08:42:00Z","zone_id":"Europe/Madrid","transaction_type":"finance","action_type":"withdrawal","direction":"OUTBOUND","status":"IN_REVIEW","source":"LIVE","amount":"1500","currency":"EUR","currency_type":"fiat","amount_in_default_currency":"1620.45","default_currency_code":"USD","preferred_currency_amount":"1620.45","preferred_currency_code":"USD","payment_details":"Withdrawal to crypto wallet","payment_txn_id":null,"score":78,"severity":"HIGH","decision_reason_code":"WALLET_HIGH_RISK","decision_reason_label":"Destination wallet flagged as high risk","vendor_data":"user-12345","metadata":{"subject":{"entity_type":"individual","vendor_data":"user-12345","full_name":"Maria Garcia","address":{},"institution_details":{},"device_context":{}},"counterparty":{}},"props":{"order_id":"ord-9988"},"tags":[],"parties":[{"uuid":"b1111111-2222-4333-8444-555555555555","role":"APPLICANT","entity_type":"individual","kind":"USER","vendor_data":"user-12345","full_name":"Maria Garcia","first_name":null,"last_name":null,"country_code":null,"dob":null,"address":{},"institution_info":{},"device":{},"external_party_snapshot":null}],"payment_methods":[],"documents":[],"activities":[],"alerts":[{"uuid":"a7b8c9d0-1234-4abc-9def-567890abcdef","title":"Destination wallet flagged as high risk","description":"Provider risk score exceeded the configured threshold.","severity":"HIGH","status":"OPEN","source":"RULE","metadata":{},"created_at":"2026-05-17T08:42:12Z","due_at":null}],"rule_runs":[],"provider_results":[],"travel_rule":null,"network_snapshot":null,"remediation":null,"cost_breakdown":null}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"abcdef12-3456-4890-abcd-ef1234567890","environment":"live","transaction_number":4123,"txn_id":"your-txn-2026-05-17-001","txn_date":"2026-05-17T08:42:00Z","zone_id":"Europe/Madrid","transaction_type":"finance","action_type":"withdrawal","direction":"OUTBOUND","status":"IN_REVIEW","source":"LIVE","amount":"1500","currency":"EUR","currency_type":"fiat","amount_in_default_currency":"1620.45","default_currency_code":"USD","preferred_currency_amount":"1620.45","preferred_currency_code":"USD","payment_details":"Withdrawal to crypto wallet","payment_txn_id":null,"score":78,"severity":"HIGH","decision_reason_code":"WALLET_HIGH_RISK","decision_reason_label":"Destination wallet flagged as high risk","vendor_data":"user-12345","metadata":{"subject":{"entity_type":"individual","vendor_data":"user-12345","full_name":"Maria Garcia","address":{},"institution_details":{},"device_context":{}},"counterparty":{}},"props":{"order_id":"ord-9988"},"tags":[],"parties":[{"uuid":"b1111111-2222-4333-8444-555555555555","role":"APPLICANT","entity_type":"individual","kind":"USER","vendor_data":"user-12345","full_name":"Maria Garcia","first_name":null,"last_name":null,"country_code":null,"dob":null,"address":{},"institution_info":{},"device":{},"external_party_snapshot":null}],"payment_methods":[],"documents":[],"activities":[],"alerts":[{"uuid":"a7b8c9d0-1234-4abc-9def-567890abcdef","title":"Destination wallet flagged as high risk","description":"Provider risk score exceeded the configured threshold.","severity":"HIGH","status":"OPEN","source":"RULE","metadata":{},"created_at":"2026-05-17T08:42:12Z","due_at":null}],"rule_runs":[],"provider_results":[],"travel_rule":null,"network_snapshot":null,"remediation":null,"action_required":null,"cost_breakdown":null}`)
 	res, err := client.Transactions.Retrieve(context.Background(), "transaction-id-1")
 	if err != nil {
 		t.Fatal(err)
@@ -95,6 +135,43 @@ func TestTransactionsRetrieve(t *testing.T) {
 	req.expect(t, "GET", "/v3/transactions/transaction-id-1/")
 	req.expectAPIKey(t)
 	expectFields(t, res.JSON, []string{"uuid", "environment", "transaction_number", "txn_id", "txn_date", "zone_id", "transaction_type", "action_type", "direction", "status", "source", "amount", "currency", "currency_type", "amount_in_default_currency", "default_currency_code", "preferred_currency_amount", "preferred_currency_code", "payment_details", "score", "severity", "decision_reason_code", "decision_reason_label", "vendor_data", "metadata", "props", "tags", "parties", "payment_methods", "documents", "activities", "alerts", "rule_runs", "provider_results"})
+}
+
+func TestTransactionsNotesCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"c1111111-2222-4333-8444-555555555555","note":"Customer confirmed the withdrawal by phone.","actor_email":null,"actor_name":null,"metadata":{"mentioned_emails":["analyst@example.com"]},"created_at":"2026-10-16T10:05:12.481203Z"}`)
+	var params didit.TransactionsNotesCreateParams
+	mustUnmarshal(t, `{"note":"Customer confirmed the withdrawal by phone.","mentioned_emails":["analyst@example.com"]}`, &params)
+	res, err := client.Transactions.Notes.Create(context.Background(), "transaction-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/transactions/transaction-id-1/notes/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"note":"Customer confirmed the withdrawal by phone.","mentioned_emails":["analyst@example.com"]}`)
+	expectFields(t, res.JSON, []string{"uuid", "note", "metadata", "created_at"})
+}
+
+func TestTransactionsNotesList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":3,"next":null,"previous":null,"results":[{"uuid":"c1111111-2222-4333-8444-555555555555","note":"Customer confirmed the withdrawal by phone.","actor_email":null,"actor_name":null,"metadata":{"mentioned_emails":["analyst@example.com"]},"created_at":"2026-10-16T10:05:12.481203Z"},{"uuid":"c2222222-3333-4444-8555-666666666666","note":"Status changed from IN_REVIEW to APPROVED. Reason: Source of funds verified","actor_email":"reviewer@example.com","actor_name":"Alex Reviewer","metadata":{"type":"status_change","previous_status":"IN_REVIEW","new_status":"APPROVED","reason_code":"SOF_VERIFIED","reason_label":"Source of funds verified"},"created_at":"2026-10-15T17:22:40.103911Z"},{"uuid":"c3333333-4444-4555-8666-777777777777","note":"Large withdrawal to a new wallet: check the source of funds.","actor_email":null,"actor_name":"Rule Engine","metadata":{"rule_uuid":"d1111111-2222-4333-8444-555555555555","source":"rule_action"},"created_at":"2026-10-15T08:42:12.004518Z"}]}`)
+	var params didit.TransactionsNotesListParams
+	params.Limit = didit.Int(50)
+	params.Offset = didit.Int(0)
+	res, err := client.Transactions.Notes.List(context.Background(), "transaction-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/transactions/transaction-id-1/notes/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"uuid", "note", "metadata", "created_at"})
 }
 
 func TestTransactionsRulesBacktest(t *testing.T) {
@@ -248,7 +325,7 @@ func TestTransactionsRulesUpdate(t *testing.T) {
 }
 
 func TestTransactionsTravelRuleConfirmOwnership(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","direction":"INBOUND","rail":"INTERNAL","protocol":"string","ivms_version":"ivms101.2023","required":true,"ownership_confirmed":true,"deadline_at":"2025-01-02T03:04:05Z","timeline":[{"status":"string","at":"2025-01-02T03:04:05Z","detail":"string"}],"counterparty_vasp":{"name":"string","lei":"string","dd_score":1},"originator_data":{"key":"value"},"beneficiary_data":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","direction":"INBOUND","rail":"INTERNAL","protocol":"string","ivms_version":"ivms101.2023","required":true,"ownership_confirmed":true,"deadline_at":"2025-01-02T03:04:05Z","timeline":[{"status":"string","at":"2025-01-02T03:04:05Z","detail":"string","name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"reason":"string"}],"counterparty_vasp":{"name":"string","lei":"string","dd_score":1,"dd_score_breakdown":{"key":{"points":1.5,"max":1,"reason":"string","detail":"string"}},"dd_assessed_at":"2025-01-02T03:04:05Z"},"originator_data":{"key":"value"},"beneficiary_data":{"key":"value"},"name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"data_match":{"matched":true,"mismatched_fields":["name"],"fields":{"key":{"result":"matched","strictness":"NONE"}}},"mismatched_fields":["string"],"data_unmasked":{"at":"2025-01-02T03:04:05Z","reason":"ownership_confirmed","actor":"string"},"data_masked":true,"created_at":"2025-01-02T03:04:05Z","delivery":{"kind":"SEND","status":"QUEUED","rail":"INTERNAL","attempts":0,"last_error":"email undeliverable","next_attempt_at":"2025-01-02T03:04:05Z","delivered_at":"2025-01-02T03:04:05Z"},"discovery":[{"step":"internal_address_book","outcome":"match","reason":"string","vasp":"3fa85f64-5717-4562-b3fc-2c963f66afa6","rail":"string","at":"2025-01-02T03:04:05Z"}],"reason":"string","next_actions":[{"action":"select_counterparty_vasp","url":"https://example.com/path"}],"chain_details":{"chain":"string","shape":"utxo","originator":{"address":"string","memo":"string","source":"declared"},"beneficiary":{"address":"string","memo":"string","source":"declared"},"utxo":{"inputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"outputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"change_output_indexes":[1],"beneficiary_output_index":1},"lightning":{"key":"value"},"warnings":["declared_originator_not_an_input"],"not_applicable_reason":"LIGHTNING_NO_PAYEE_IDENTIFIER"}}`)
 	var params didit.TravelRuleOwnershipConfirmRequest
 	mustUnmarshal(t, `{"confirmed":true}`, &params)
 	res, err := client.Transactions.TravelRule.ConfirmOwnership(context.Background(), "transaction-id-1", params)
@@ -259,11 +336,53 @@ func TestTransactionsTravelRuleConfirmOwnership(t *testing.T) {
 	req.expect(t, "POST", "/v3/transactions/transaction-id-1/travel-rule/ownership/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"confirmed":true}`)
-	expectFields(t, res.JSON, []string{"uuid", "status", "direction", "rail", "protocol", "ivms_version", "required", "ownership_confirmed", "deadline_at", "timeline", "counterparty_vasp", "originator_data", "beneficiary_data", "created_at"})
+	expectFields(t, res.JSON, []string{"uuid", "status", "direction", "rail", "protocol", "ivms_version", "required", "ownership_confirmed", "deadline_at", "timeline", "counterparty_vasp", "originator_data", "beneficiary_data", "name_match", "data_match", "mismatched_fields", "data_unmasked", "data_masked", "created_at", "delivery", "discovery", "reason", "next_actions", "chain_details"})
+}
+
+func TestTransactionsTravelRuleCreateMessage(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","kind":"MESSAGE","direction":"INBOUND","author":"string","body":"string","requested_documents":["string"],"reply_to":"3fa85f64-5717-4562-b3fc-2c963f66afa6","fulfilled_at":"2025-01-02T03:04:05Z","attachment":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","label":"string","note":"string","uploaded_by":"string","created_at":"2025-01-02T03:04:05Z","files":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","file_url":"string","original_filename":"string","file_size":1}]},"created_at":"2025-01-02T03:04:05Z"}`)
+	var params didit.TravelRuleMessageCreateRequest
+	mustUnmarshal(t, `{"kind":"DOCUMENT_REQUEST","body":"Please confirm the date of birth of the beneficiary.","requested_documents":["Proof of address"]}`, &params)
+	res, err := client.Transactions.TravelRule.CreateMessage(context.Background(), "transaction-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/transactions/transaction-id-1/travel-rule/messages/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"kind":"DOCUMENT_REQUEST","body":"Please confirm the date of birth of the beneficiary.","requested_documents":["Proof of address"]}`)
+	expectFields(t, res.JSON, []string{"id", "kind", "direction", "author", "body", "requested_documents", "reply_to", "fulfilled_at", "attachment", "created_at"})
+}
+
+func TestTransactionsTravelRuleListMessages(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","kind":"MESSAGE","direction":"INBOUND","author":"string","body":"string","requested_documents":["string"],"reply_to":"3fa85f64-5717-4562-b3fc-2c963f66afa6","fulfilled_at":"2025-01-02T03:04:05Z","attachment":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","label":"string","note":"string","uploaded_by":"string","created_at":"2025-01-02T03:04:05Z","files":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","file_url":"string","original_filename":"string","file_size":1}]},"created_at":"2025-01-02T03:04:05Z"}]`)
+	res, err := client.Transactions.TravelRule.ListMessages(context.Background(), "transaction-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/transactions/transaction-id-1/travel-rule/messages/")
+	req.expectAPIKey(t)
+	_ = res
+}
+
+func TestTransactionsTravelRuleTriggerTestVASPInbound(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"transaction_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","txn_id":"string","scenario":"string","travel_rule_status":"string","detail":"string","test_vasp":true,"travel_rule":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","direction":"INBOUND","rail":"INTERNAL","protocol":"string","ivms_version":"ivms101.2023","required":true,"ownership_confirmed":true,"deadline_at":"2025-01-02T03:04:05Z","timeline":[{"status":"string","at":"2025-01-02T03:04:05Z","detail":"string","name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"reason":"string"}],"counterparty_vasp":{"name":"string","lei":"string","dd_score":1,"dd_score_breakdown":{"key":{"points":1.5,"max":1,"reason":"string","detail":"string"}},"dd_assessed_at":"2025-01-02T03:04:05Z"},"originator_data":{"key":"value"},"beneficiary_data":{"key":"value"},"name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"data_match":{"matched":true,"mismatched_fields":["name"],"fields":{"key":{"result":"matched","strictness":"NONE"}}},"mismatched_fields":["string"],"data_unmasked":{"at":"2025-01-02T03:04:05Z","reason":"ownership_confirmed","actor":"string"},"data_masked":true,"created_at":"2025-01-02T03:04:05Z","delivery":{"kind":"SEND","status":"QUEUED","rail":"INTERNAL","attempts":0,"last_error":"email undeliverable","next_attempt_at":"2025-01-02T03:04:05Z","delivered_at":"2025-01-02T03:04:05Z"},"discovery":[{"step":"internal_address_book","outcome":"match","reason":"string","vasp":"3fa85f64-5717-4562-b3fc-2c963f66afa6","rail":"string","at":"2025-01-02T03:04:05Z"}],"reason":"string","next_actions":[{"action":"select_counterparty_vasp","url":"https://example.com/path"}],"chain_details":{"chain":"string","shape":"utxo","originator":{"address":"string","memo":"string","source":"declared"},"beneficiary":{"address":"string","memo":"string","source":"declared"},"utxo":{"inputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"outputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"change_output_indexes":[1],"beneficiary_output_index":1},"lightning":{"key":"value"},"warnings":["declared_originator_not_an_input"],"not_applicable_reason":"LIGHTNING_NO_PAYEE_IDENTIFIER"}}}`)
+	var params didit.TravelRuleTestVASPInboundRequest
+	mustUnmarshal(t, `{"beneficiary_wallet_address":"0xYourSandboxWallet","scenario":"accept","amount":"1","reference":"demo-001"}`, &params)
+	res, err := client.Transactions.TravelRule.TriggerTestVASPInbound(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/test-vasp/inbound/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"beneficiary_wallet_address":"0xYourSandboxWallet","scenario":"accept","amount":"1","reference":"demo-001"}`)
+	expectFields(t, res.JSON, []string{"transaction_id", "txn_id", "scenario", "travel_rule_status", "detail", "test_vasp", "travel_rule"})
 }
 
 func TestTransactionsTravelRuleUpdateTransfer(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","direction":"INBOUND","rail":"INTERNAL","protocol":"string","ivms_version":"ivms101.2023","required":true,"ownership_confirmed":true,"deadline_at":"2025-01-02T03:04:05Z","timeline":[{"status":"string","at":"2025-01-02T03:04:05Z","detail":"string"}],"counterparty_vasp":{"name":"string","lei":"string","dd_score":1},"originator_data":{"key":"value"},"beneficiary_data":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","direction":"INBOUND","rail":"INTERNAL","protocol":"string","ivms_version":"ivms101.2023","required":true,"ownership_confirmed":true,"deadline_at":"2025-01-02T03:04:05Z","timeline":[{"status":"string","at":"2025-01-02T03:04:05Z","detail":"string","name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"reason":"string"}],"counterparty_vasp":{"name":"string","lei":"string","dd_score":1,"dd_score_breakdown":{"key":{"points":1.5,"max":1,"reason":"string","detail":"string"}},"dd_assessed_at":"2025-01-02T03:04:05Z"},"originator_data":{"key":"value"},"beneficiary_data":{"key":"value"},"name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"data_match":{"matched":true,"mismatched_fields":["name"],"fields":{"key":{"result":"matched","strictness":"NONE"}}},"mismatched_fields":["string"],"data_unmasked":{"at":"2025-01-02T03:04:05Z","reason":"ownership_confirmed","actor":"string"},"data_masked":true,"created_at":"2025-01-02T03:04:05Z","delivery":{"kind":"SEND","status":"QUEUED","rail":"INTERNAL","attempts":0,"last_error":"email undeliverable","next_attempt_at":"2025-01-02T03:04:05Z","delivered_at":"2025-01-02T03:04:05Z"},"discovery":[{"step":"internal_address_book","outcome":"match","reason":"string","vasp":"3fa85f64-5717-4562-b3fc-2c963f66afa6","rail":"string","at":"2025-01-02T03:04:05Z"}],"reason":"string","next_actions":[{"action":"select_counterparty_vasp","url":"https://example.com/path"}],"chain_details":{"chain":"string","shape":"utxo","originator":{"address":"string","memo":"string","source":"declared"},"beneficiary":{"address":"string","memo":"string","source":"declared"},"utxo":{"inputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"outputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"change_output_indexes":[1],"beneficiary_output_index":1},"lightning":{"key":"value"},"warnings":["declared_originator_not_an_input"],"not_applicable_reason":"LIGHTNING_NO_PAYEE_IDENTIFIER"}}`)
 	var params didit.TravelRuleTransferPatchRequest
 	mustUnmarshal(t, `{"payment_txn_id":"0xchainhash"}`, &params)
 	res, err := client.Transactions.TravelRule.UpdateTransfer(context.Background(), "transaction-id-1", params)
@@ -274,5 +393,5 @@ func TestTransactionsTravelRuleUpdateTransfer(t *testing.T) {
 	req.expect(t, "PATCH", "/v3/transactions/transaction-id-1/travel-rule/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"payment_txn_id":"0xchainhash"}`)
-	expectFields(t, res.JSON, []string{"uuid", "status", "direction", "rail", "protocol", "ivms_version", "required", "ownership_confirmed", "deadline_at", "timeline", "counterparty_vasp", "originator_data", "beneficiary_data", "created_at"})
+	expectFields(t, res.JSON, []string{"uuid", "status", "direction", "rail", "protocol", "ivms_version", "required", "ownership_confirmed", "deadline_at", "timeline", "counterparty_vasp", "originator_data", "beneficiary_data", "name_match", "data_match", "mismatched_fields", "data_unmasked", "data_masked", "created_at", "delivery", "discovery", "reason", "next_actions", "chain_details"})
 }

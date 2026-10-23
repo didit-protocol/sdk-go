@@ -9,8 +9,35 @@ import (
 	"github.com/didit-protocol/sdk-go"
 )
 
+func TestWebhooksRetrieveConfig(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"webhook_url":"https://yourapp.com/webhooks/didit","webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","capture_method":"MOBILE","data_retention_months":24,"face_retention_policy":"delete_with_session","face_retention_days":null,"available_events":[{"value":"status.updated","label":"Session status updated"},{"value":"data.updated","label":"Session data updated"},{"value":"user.status.updated","label":"User status updated"},{"value":"user.data.updated","label":"User data updated"},{"value":"business.status.updated","label":"Business status updated"},{"value":"business.data.updated","label":"Business data updated"},{"value":"activity.created","label":"Activity created"},{"value":"transaction.created","label":"Transaction created"},{"value":"transaction.status.updated","label":"Transaction status updated"},{"value":"travel_rule.status.updated","label":"Travel Rule Status Updated"},{"value":"workflow.compliance_changed","label":"Workflow Compliance Changed"}],"allowed_return_hosts":["shop.example.com"],"endpoints":[{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":true,"webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","subscribed_events":["status.updated","data.updated"],"created_at":"2026-01-04T08:00:00.000000Z","updated_at":"2026-04-22T14:09:11.523671Z"}]}`)
+	res, err := client.Webhooks.RetrieveConfig(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/webhook/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"webhook_url", "webhook_version", "secret_shared_key", "capture_method", "data_retention_months", "face_retention_policy", "available_events", "allowed_return_hosts", "endpoints"})
+}
+
+func TestWebhooksUpdateConfig(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"webhook_url":"https://yourapp.com/webhooks/didit","webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","capture_method":"MOBILE","data_retention_months":24,"face_retention_policy":"retain_until_user_deleted","face_retention_days":365,"available_events":[{"value":"status.updated","label":"Session status updated"},{"value":"data.updated","label":"Session data updated"},{"value":"user.status.updated","label":"User status updated"},{"value":"user.data.updated","label":"User data updated"},{"value":"business.status.updated","label":"Business status updated"},{"value":"business.data.updated","label":"Business data updated"},{"value":"activity.created","label":"Activity created"},{"value":"transaction.created","label":"Transaction created"},{"value":"transaction.status.updated","label":"Transaction status updated"},{"value":"travel_rule.status.updated","label":"Travel Rule Status Updated"},{"value":"workflow.compliance_changed","label":"Workflow Compliance Changed"}],"allowed_return_hosts":["shop.example.com"],"endpoints":[{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":true,"webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","subscribed_events":["status.updated","data.updated"],"created_at":"2026-01-04T08:00:00.000000Z","updated_at":"2026-04-22T14:09:11.523671Z"}]}`)
+	var params didit.WebhooksUpdateConfigParams
+	mustUnmarshal(t, `{"face_retention_policy":"retain_until_user_deleted","face_retention_days":365}`, &params)
+	res, err := client.Webhooks.UpdateConfig(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/webhook/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"face_retention_policy":"retain_until_user_deleted","face_retention_days":365}`)
+	expectFields(t, res.JSON, []string{"webhook_url", "webhook_version", "secret_shared_key", "capture_method", "data_retention_months", "face_retention_policy", "face_retention_days", "available_events", "allowed_return_hosts", "endpoints"})
+}
+
 func TestWebhooksDestinationsCreate(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":true,"webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","subscribed_events":["status.updated","data.updated"],"created_at":"2026-05-17T10:00:00Z","updated_at":"2026-05-17T10:00:00Z","summary":{"total_deliveries":0,"failed_deliveries":0,"error_rate_percentage":0,"min_response_time_ms":null,"avg_response_time_ms":null,"max_response_time_ms":null,"last_delivery_at":null}}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":true,"webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","secret_last4":"sample-secret-last4","previous_secret_expires_at":null,"subscribed_events":["status.updated","data.updated"],"created_by_email":null,"created_by_name":null,"created_at":"2026-05-17T10:00:00Z","updated_at":"2026-05-17T10:00:00Z","health_status":"healthy","failing_streak":0,"failing_since":null,"last_success_at":null,"environment":"live","summary":{"total_deliveries":0,"failed_deliveries":0,"error_rate_percentage":0,"min_response_time_ms":null,"avg_response_time_ms":null,"max_response_time_ms":null,"last_delivery_at":null,"metrics_window_days":30}}`)
 	var params didit.WebhooksDestinationsCreateParams
 	mustUnmarshal(t, `{"label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","webhook_version":"v3","subscribed_events":["status.updated","data.updated"]}`, &params)
 	res, err := client.Webhooks.Destinations.Create(context.Background(), params)
@@ -21,7 +48,7 @@ func TestWebhooksDestinationsCreate(t *testing.T) {
 	req.expect(t, "POST", "/v3/webhook/destinations/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","webhook_version":"v3","subscribed_events":["status.updated","data.updated"]}`)
-	expectFields(t, res.JSON, []string{"uuid", "label", "url", "enabled", "webhook_version", "secret_shared_key", "subscribed_events", "created_at", "updated_at", "summary"})
+	expectFields(t, res.JSON, []string{"uuid", "label", "url", "enabled", "webhook_version", "secret_shared_key", "secret_last4", "subscribed_events", "created_at", "updated_at", "health_status", "failing_streak", "environment", "summary"})
 }
 
 func TestWebhooksDestinationsDelete(t *testing.T) {
@@ -35,7 +62,7 @@ func TestWebhooksDestinationsDelete(t *testing.T) {
 }
 
 func TestWebhooksDestinationsList(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `[{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":true,"webhook_version":"v3","subscribed_events":["status.updated","data.updated"],"subscribed_events_count":2,"deliveries_count":12453,"failed_deliveries_count":14,"average_response_time_ms":187,"error_rate_percentage":0,"last_delivery_at":"2026-05-17T09:21:18Z","created_at":"2026-01-04T08:00:00Z","updated_at":"2026-04-22T14:09:11Z"},{"uuid":"22222222-3333-4444-5555-666666666666","label":"Staging mirror","url":"https://staging.yourapp.com/webhooks/didit","enabled":false,"webhook_version":"v3","subscribed_events":["status.updated"],"subscribed_events_count":1,"deliveries_count":0,"failed_deliveries_count":0,"average_response_time_ms":null,"error_rate_percentage":0,"last_delivery_at":null,"created_at":"2026-03-12T10:15:02Z","updated_at":"2026-03-12T10:15:02Z"}]`)
+	client, mock := newMockClient(t, 200, "application/json", `[{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":true,"webhook_version":"v3","subscribed_events":["status.updated","data.updated"],"subscribed_events_count":2,"deliveries_count":12453,"failed_deliveries_count":14,"average_response_time_ms":187,"error_rate_percentage":0,"last_delivery_at":"2026-05-17T09:21:18Z","metrics_window_days":30,"health_status":"healthy","failing_streak":0,"failing_since":null,"last_success_at":"2026-05-17T09:21:18Z","environment":"live","daily_points":[{"date":"2026-04-18","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-19","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-20","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-21","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-22","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-23","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-24","total_deliveries":415,"failed_deliveries":9},{"date":"2026-04-25","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-26","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-27","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-28","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-29","total_deliveries":415,"failed_deliveries":0},{"date":"2026-04-30","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-01","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-02","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-03","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-04","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-05","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-06","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-07","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-08","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-09","total_deliveries":415,"failed_deliveries":5},{"date":"2026-05-10","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-11","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-12","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-13","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-14","total_deliveries":415,"failed_deliveries":0},{"date":"2026-05-15","total_deliveries":416,"failed_deliveries":0},{"date":"2026-05-16","total_deliveries":416,"failed_deliveries":0},{"date":"2026-05-17","total_deliveries":416,"failed_deliveries":0}],"secret_last4":"sample-secret-last4","created_by_email":null,"created_by_name":null,"created_at":"2026-01-04T08:00:00Z","updated_at":"2026-04-22T14:09:11Z"},{"uuid":"22222222-3333-4444-5555-666666666666","label":"Staging mirror","url":"https://staging.yourapp.com/webhooks/didit","enabled":false,"webhook_version":"v3","subscribed_events":["status.updated"],"subscribed_events_count":1,"deliveries_count":0,"failed_deliveries_count":0,"average_response_time_ms":null,"error_rate_percentage":0,"last_delivery_at":null,"metrics_window_days":30,"health_status":"healthy","failing_streak":0,"failing_since":null,"last_success_at":null,"environment":"live","daily_points":[{"date":"2026-04-18","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-19","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-20","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-21","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-22","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-23","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-24","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-25","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-26","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-27","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-28","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-29","total_deliveries":0,"failed_deliveries":0},{"date":"2026-04-30","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-01","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-02","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-03","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-04","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-05","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-06","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-07","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-08","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-09","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-10","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-11","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-12","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-13","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-14","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-15","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-16","total_deliveries":0,"failed_deliveries":0},{"date":"2026-05-17","total_deliveries":0,"failed_deliveries":0}],"secret_last4":"sample-secret-last4","created_by_email":"reviewer@example.com","created_by_name":"Example Reviewer","created_at":"2026-03-12T10:15:02Z","updated_at":"2026-03-12T10:15:02Z"}]`)
 	res, err := client.Webhooks.Destinations.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -46,8 +73,44 @@ func TestWebhooksDestinationsList(t *testing.T) {
 	_ = res
 }
 
+func TestWebhooksDestinationsListDeliveries(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":3,"next":null,"previous":null,"results":[{"uuid":"66666666-7777-8888-9999-000000000003","session_id":null,"request_url":"https://yourapp.com/webhooks/didit","response_status":null,"response_time_ms":null,"status":"APPROVED","webhook_type":"transaction.created","created_at":"2026-10-15T09:23:02.871190Z"},{"uuid":"66666666-7777-8888-9999-000000000002","session_id":"22222222-3333-4444-5555-666666666666","request_url":"https://yourapp.com/webhooks/didit","response_status":200,"response_time_ms":143,"status":"In Progress","webhook_type":"status.updated","created_at":"2026-10-15T09:22:19.104233Z"},{"uuid":"66666666-7777-8888-9999-000000000001","session_id":"22222222-3333-4444-5555-666666666666","request_url":"https://yourapp.com/webhooks/didit","response_status":503,"response_time_ms":412,"status":"In Progress","webhook_type":"status.updated","created_at":"2026-10-15T09:21:18.412345Z"}]}`)
+	var params didit.WebhooksDestinationsListDeliveriesParams
+	params.Limit = didit.Int(50)
+	params.Offset = didit.Int(0)
+	params.DateFrom = didit.String("2026-10-01")
+	params.DateTo = didit.String("2026-10-16")
+	res, err := client.Webhooks.Destinations.ListDeliveries(context.Background(), "destination-uuid-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/webhook/destinations/destination-uuid-1/deliveries/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"date_from": "2026-10-01", "date_to": "2026-10-16", "limit": "50", "offset": "0"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"uuid", "request_url", "status", "webhook_type", "created_at"})
+}
+
+func TestWebhooksDestinationsResendDelivery(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"66666666-7777-8888-9999-000000000004","session_id":"22222222-3333-4444-5555-666666666666","request_url":"https://yourapp.com/webhooks/didit","response_status":200,"response_time_ms":151,"status":"In Progress","webhook_type":"status.updated","created_at":"2026-10-16T14:05:42.330981Z","request_header":"{\"Content-Type\": \"application/json\", \"X-Signature\": \"b8eb1e376517ee0cad8ba98ff7f8fd35fc72eca231000963a96a335f82328835\", \"X-Signature-V2\": \"9efd2ce9ed1303e1d05273ef9608a59363ed9789a05253db4748b3e8e50cb109\", \"X-Signature-Simple\": \"bf3a9dc04b2c20ab539203b0cd5cca2a10f630bf62d8feb6d68d82af80f64774\", \"X-Timestamp\": \"1792159542\", \"User-Agent\": \"DiditWebhook/2.0 +https://didit.me\"}","request_body":"{\"application_id\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"created_at\":1792056057,\"environment\":\"live\",\"event_id\":\"33333333-4444-5555-6666-777777777777\",\"sandbox_scenario\":null,\"session_id\":\"22222222-3333-4444-5555-666666666666\",\"status\":\"In Progress\",\"timestamp\":1792159542,\"vendor_data\":\"user-123\",\"webhook_type\":\"status.updated\",\"workflow_id\":\"44444444-5555-6666-7777-888888888888\",\"workflow_version\":3}"}`)
+	res, err := client.Webhooks.Destinations.ResendDelivery(context.Background(), "destination-uuid-1", "delivery-uuid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/webhook/destinations/destination-uuid-1/deliveries/delivery-uuid-1/resend/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"uuid", "session_id", "request_url", "response_status", "response_time_ms", "status", "webhook_type", "created_at", "request_header", "request_body"})
+}
+
 func TestWebhooksDestinationsRetrieve(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":true,"webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","subscribed_events":["status.updated","data.updated"],"created_at":"2026-01-04T08:00:00Z","updated_at":"2026-04-22T14:09:11Z","summary":{"total_deliveries":12453,"failed_deliveries":14,"error_rate_percentage":0,"min_response_time_ms":41,"avg_response_time_ms":187,"max_response_time_ms":2103,"last_delivery_at":"2026-05-17T09:21:18Z"}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":true,"webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","secret_last4":"sample-secret-last4","previous_secret_expires_at":null,"subscribed_events":["status.updated","data.updated"],"created_by_email":null,"created_by_name":null,"created_at":"2026-01-04T08:00:00Z","updated_at":"2026-04-22T14:09:11Z","health_status":"healthy","failing_streak":0,"failing_since":null,"last_success_at":"2026-05-17T09:21:18Z","environment":"live","summary":{"total_deliveries":12453,"failed_deliveries":14,"error_rate_percentage":0,"min_response_time_ms":41,"avg_response_time_ms":187,"max_response_time_ms":2103,"last_delivery_at":"2026-05-17T09:21:18Z","metrics_window_days":30}}`)
 	res, err := client.Webhooks.Destinations.Retrieve(context.Background(), "destination-uuid-1")
 	if err != nil {
 		t.Fatal(err)
@@ -55,11 +118,39 @@ func TestWebhooksDestinationsRetrieve(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/webhook/destinations/destination-uuid-1/")
 	req.expectAPIKey(t)
-	expectFields(t, res.JSON, []string{"uuid", "label", "url", "enabled", "webhook_version", "secret_shared_key", "subscribed_events", "created_at", "updated_at", "summary"})
+	expectFields(t, res.JSON, []string{"uuid", "label", "url", "enabled", "webhook_version", "secret_shared_key", "secret_last4", "subscribed_events", "created_at", "updated_at", "health_status", "failing_streak", "last_success_at", "environment", "summary"})
+}
+
+func TestWebhooksDestinationsRetrieveAnalytics(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"summary":{"total_deliveries":1250,"failed_deliveries":12,"min_response_time_ms":38,"avg_response_time_ms":164,"max_response_time_ms":5004,"error_rate_percentage":1},"points":[{"date":"2026-10-14","total_deliveries":410,"failed_deliveries":0,"min_response_time_ms":38,"avg_response_time_ms":152,"max_response_time_ms":911},{"date":"2026-10-15","total_deliveries":395,"failed_deliveries":12,"min_response_time_ms":41,"avg_response_time_ms":190,"max_response_time_ms":5004},{"date":"2026-10-16","total_deliveries":445,"failed_deliveries":0,"min_response_time_ms":40,"avg_response_time_ms":151,"max_response_time_ms":1220}]}`)
+	var params didit.WebhooksDestinationsRetrieveAnalyticsParams
+	params.DateFrom = didit.String("2026-10-01")
+	params.DateTo = didit.String("2026-10-16")
+	res, err := client.Webhooks.Destinations.RetrieveAnalytics(context.Background(), "destination-uuid-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/webhook/destinations/destination-uuid-1/analytics/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"date_from": "2026-10-01", "date_to": "2026-10-16"})
+	expectFields(t, res.JSON, []string{"summary", "points"})
+}
+
+func TestWebhooksDestinationsRetrieveDelivery(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"66666666-7777-8888-9999-000000000001","session_id":"22222222-3333-4444-5555-666666666666","request_url":"https://yourapp.com/webhooks/didit","response_status":503,"response_time_ms":412,"status":"In Progress","webhook_type":"status.updated","created_at":"2026-10-15T09:21:18.412345Z","request_header":"{\"Content-Type\": \"application/json\", \"X-Signature\": \"a5e02a03404e1337a0198e6be15d34abbd053c658a0e51e5d0e78554213ef29b\", \"X-Signature-V2\": \"927e7cb770c94ce745939bff73f04aa200015f3bc64795ba46c2aaf78a6cedc5\", \"X-Signature-Simple\": \"e37b0d4c716c72bb5ae7127b9cc455d28ab4686e9e22312b4ec2327409a73302\", \"X-Timestamp\": \"1792056078\", \"User-Agent\": \"DiditWebhook/2.0 +https://didit.me\"}","request_body":"{\"application_id\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"created_at\":1792056057,\"environment\":\"live\",\"event_id\":\"33333333-4444-5555-6666-777777777777\",\"sandbox_scenario\":null,\"session_id\":\"22222222-3333-4444-5555-666666666666\",\"status\":\"In Progress\",\"timestamp\":1792056078,\"vendor_data\":\"user-123\",\"webhook_type\":\"status.updated\",\"workflow_id\":\"44444444-5555-6666-7777-888888888888\",\"workflow_version\":3}"}`)
+	res, err := client.Webhooks.Destinations.RetrieveDelivery(context.Background(), "destination-uuid-1", "delivery-uuid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/webhook/destinations/destination-uuid-1/deliveries/delivery-uuid-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"uuid", "session_id", "request_url", "response_status", "response_time_ms", "status", "webhook_type", "created_at", "request_header", "request_body"})
 }
 
 func TestWebhooksDestinationsUpdate(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":false,"webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","subscribed_events":["status.updated","data.updated"],"created_at":"2026-01-04T08:00:00Z","updated_at":"2026-05-17T11:02:55Z","summary":{"total_deliveries":12453,"failed_deliveries":14,"error_rate_percentage":0,"min_response_time_ms":41,"avg_response_time_ms":187,"max_response_time_ms":2103,"last_delivery_at":"2026-05-17T09:21:18Z"}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":false,"webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","secret_last4":"sample-secret-last4","previous_secret_expires_at":null,"subscribed_events":["status.updated","data.updated"],"created_by_email":null,"created_by_name":null,"created_at":"2026-01-04T08:00:00Z","updated_at":"2026-05-17T11:02:55Z","health_status":"healthy","failing_streak":0,"failing_since":null,"last_success_at":"2026-05-17T09:21:18Z","environment":"live","summary":{"total_deliveries":12453,"failed_deliveries":14,"error_rate_percentage":0,"min_response_time_ms":41,"avg_response_time_ms":187,"max_response_time_ms":2103,"last_delivery_at":"2026-05-17T09:21:18Z","metrics_window_days":30}}`)
 	var params didit.WebhooksDestinationsUpdateParams
 	mustUnmarshal(t, `{"enabled":false}`, &params)
 	res, err := client.Webhooks.Destinations.Update(context.Background(), "destination-uuid-1", params)
@@ -70,5 +161,5 @@ func TestWebhooksDestinationsUpdate(t *testing.T) {
 	req.expect(t, "PATCH", "/v3/webhook/destinations/destination-uuid-1/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"enabled":false}`)
-	expectFields(t, res.JSON, []string{"uuid", "label", "url", "enabled", "webhook_version", "secret_shared_key", "subscribed_events", "created_at", "updated_at", "summary"})
+	expectFields(t, res.JSON, []string{"uuid", "label", "url", "enabled", "webhook_version", "secret_shared_key", "secret_last4", "subscribed_events", "created_at", "updated_at", "health_status", "failing_streak", "last_success_at", "environment", "summary"})
 }

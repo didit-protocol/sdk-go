@@ -48,6 +48,35 @@ func (r *BusinessesService) Create(ctx context.Context, params BusinessesCreateP
 	return res, nil
 }
 
+// GenerateSessionPDF: Download a business session PDF report.
+//
+// Render the PDF report of one Business Verification (KYB) session: company
+// registry data, key people and beneficial owners, documents, AML results and
+// the other workflow features, plus the session's tags and review activity.
+// With white-label customization on, the report carries your logo and privacy
+// policy URL. The body is the PDF itself (`application/pdf`), not JSON.
+//
+// The session must be `Approved`, `Declined` or `In Review`; any other status
+// returns `403`, so wait for the `status.updated`
+// [webhook](https://docs.didit.me/integration/webhooks) first. The report is
+// rendered on every call and nothing is billed, so store the file instead of
+// fetching it repeatedly. `GET /v3/session/{sessionId}/generate-pdf/` renders
+// the same kind of report by session ID alone.
+//
+// A PDF report counts as media: a scoped API key needs `businesses: read` and
+// `media: read`, and a key limited to some workflows or to approved sessions
+// cannot call it.
+//
+// The response is a file (application/pdf). Read it from the returned
+// response's body and close it.
+//
+// The organization and application ids come from the client options.
+//
+//	GET /v3/organization/{organization_id}/application/{application_id}/businesses/{business_session_id}/pdf/
+func (r *BusinessesService) GenerateSessionPDF(ctx context.Context, businessSessionID string, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/businesses/{business_session_id}/pdf/", pathParams: []string{"business_session_id", businessSessionID}, appScope: true, binary: true, accept: "application/pdf"}, nil, opts)
+}
+
 // List: List businesses.
 //
 // List [businesses](/entities/businesses) Didit assembles from KYB sessions
@@ -78,8 +107,8 @@ func (r *BusinessesService) ListAutoPaging(ctx context.Context, params Businesse
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/businesses/{vendor_business_uuid}/networks/
-func (r *BusinessesService) ListNetworks(ctx context.Context, vendorBusinessUUID string, opts ...option.RequestOption) (*BusinessesListNetworksResponse, error) {
-	res := new(BusinessesListNetworksResponse)
+func (r *BusinessesService) ListNetworks(ctx context.Context, vendorBusinessUUID string, opts ...option.RequestOption) (*EntityNetworkMembershipList, error) {
+	res := new(EntityNetworkMembershipList)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/businesses/{vendor_business_uuid}/networks/", pathParams: []string{"vendor_business_uuid", vendorBusinessUUID}, appScope: true}, res, opts); err != nil {
 		return nil, err
 	}
@@ -109,8 +138,8 @@ func (r *BusinessesService) Retrieve(ctx context.Context, vendorData string, opt
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/vendor-businesses/toggle-ongoing-monitoring/{job_id}/
-func (r *BusinessesService) RetrieveOngoingMonitoringJob(ctx context.Context, jobID string, opts ...option.RequestOption) (*BusinessesRetrieveOngoingMonitoringJobResponse, error) {
-	res := new(BusinessesRetrieveOngoingMonitoringJobResponse)
+func (r *BusinessesService) RetrieveOngoingMonitoringJob(ctx context.Context, jobID string, opts ...option.RequestOption) (*OngoingMonitoringJob, error) {
+	res := new(OngoingMonitoringJob)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/vendor-businesses/toggle-ongoing-monitoring/{job_id}/", pathParams: []string{"job_id", jobID}, appScope: true}, res, opts); err != nil {
 		return nil, err
 	}
@@ -125,8 +154,8 @@ func (r *BusinessesService) RetrieveOngoingMonitoringJob(ctx context.Context, jo
 // The organization and application ids come from the client options.
 //
 //	GET /v3/organization/{organization_id}/application/{application_id}/businesses/toggle-ongoing-monitoring/{job_id}/
-func (r *BusinessesService) RetrieveSessionOngoingMonitoringJob(ctx context.Context, jobID string, opts ...option.RequestOption) (*BusinessesRetrieveSessionOngoingMonitoringJobResponse, error) {
-	res := new(BusinessesRetrieveSessionOngoingMonitoringJobResponse)
+func (r *BusinessesService) RetrieveSessionOngoingMonitoringJob(ctx context.Context, jobID string, opts ...option.RequestOption) (*OngoingMonitoringJob, error) {
+	res := new(OngoingMonitoringJob)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/businesses/toggle-ongoing-monitoring/{job_id}/", pathParams: []string{"job_id", jobID}, appScope: true}, res, opts); err != nil {
 		return nil, err
 	}
@@ -171,7 +200,7 @@ func (r *BusinessesService) SetAMLMonitoring(ctx context.Context, params Busines
 // The organization and application ids come from the client options.
 //
 //	PATCH /v3/organization/{organization_id}/application/{application_id}/vendor-businesses/toggle-ongoing-monitoring/
-func (r *BusinessesService) SetOngoingMonitoring(ctx context.Context, params BusinessesSetOngoingMonitoringParams, opts ...option.RequestOption) (*BusinessesSetOngoingMonitoringResponse, error) {
+func (r *BusinessesService) SetOngoingMonitoring(ctx context.Context, params OngoingMonitoringToggleRequest, opts ...option.RequestOption) (*BusinessesSetOngoingMonitoringResponse, error) {
 	res := new(BusinessesSetOngoingMonitoringResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/organization/{organization_id}/application/{application_id}/vendor-businesses/toggle-ongoing-monitoring/", appScope: true, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
@@ -204,7 +233,10 @@ func (r *BusinessesService) SetSessionOngoingMonitoring(ctx context.Context, par
 // Partial update of a business: `display_name`, `legal_name`,
 // `registration_number`, `country_code`, `status`, `metadata`. `metadata` fully
 // replaces. Setting `status` to `BLOCKED` adds the `vendor_data` to the system
-// blocklist; moving away from `BLOCKED` removes that entry.
+// blocklist; moving away from `BLOCKED` removes that entry. Every edit is
+// recorded in the company's activity: a status change with the optional
+// `reason`, and a change to `display_name`, `legal_name`,
+// `registration_number`, `country_code` or `metadata` as a profile update.
 //
 //	PATCH /v3/businesses/{vendor_data}/
 func (r *BusinessesService) Update(ctx context.Context, vendorData string, params BusinessesUpdateParams, opts ...option.RequestOption) (*BusinessDetailItem, error) {
@@ -217,9 +249,12 @@ func (r *BusinessesService) Update(ctx context.Context, vendorData string, param
 
 // UpdateStatus: Update business status.
 //
-// Flip only the lifecycle `status` of a business - VendorBusinessStatusChoices
-// (`ACTIVE`/`FLAGGED`/`BLOCKED`, NOT session statuses). `BLOCKED` adds
-// `vendor_data` to the system blocklist.
+// Flip only the lifecycle `status` of a business: `ACTIVE`, `FLAGGED` or
+// `BLOCKED` (not session statuses). `BLOCKED` adds the `vendor_data` to the
+// system blocklist; moving away from `BLOCKED` removes that entry. Each change
+// is recorded in the company's activity, with the optional `reason`. Sending
+// the current status changes nothing and records no `reason`. The
+// `business.status.updated` webhook does not carry `reason`.
 //
 //	PATCH /v3/businesses/{vendor_data}/update-status/
 func (r *BusinessesService) UpdateStatus(ctx context.Context, vendorData string, params BusinessesUpdateStatusParams, opts ...option.RequestOption) (*BusinessDetailItem, error) {
@@ -569,238 +604,6 @@ func (r *BusinessListItemTags) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// BusinessesListNetworksResponse is a response object.
-type BusinessesListNetworksResponse struct {
-	Results []EntityNetworkMembership `json:"results"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes BusinessesListNetworksResponse leniently.
-func (r *BusinessesListNetworksResponse) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// BusinessesRetrieveOngoingMonitoringJobResponse is a response object.
-type BusinessesRetrieveOngoingMonitoringJobResponse struct {
-	JobID     string                                               `json:"job_id"`
-	Status    BusinessesRetrieveOngoingMonitoringJobResponseStatus `json:"status"`
-	IsEnabled bool                                                 `json:"is_enabled"`
-	Total     int64                                                `json:"total"`
-	Processed int64                                                `json:"processed"`
-
-	// Per-entity outcome counters. Nothing is silently skipped: every requested
-	// entity resolves to exactly one counter.
-	Outcomes BusinessesRetrieveOngoingMonitoringJobResponseOutcomes `json:"outcomes"`
-	Error    string                                                 `json:"error"`
-
-	// Cost preview. Returned directly when estimate_only is true (no writes are
-	// performed).
-	Estimate BusinessesRetrieveOngoingMonitoringJobResponseEstimate `json:"estimate"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes BusinessesRetrieveOngoingMonitoringJobResponse leniently.
-func (r *BusinessesRetrieveOngoingMonitoringJobResponse) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// BusinessesRetrieveOngoingMonitoringJobResponseStatus is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type BusinessesRetrieveOngoingMonitoringJobResponseStatus string
-
-// Known values of BusinessesRetrieveOngoingMonitoringJobResponseStatus.
-const (
-	BusinessesRetrieveOngoingMonitoringJobResponseStatusPending    BusinessesRetrieveOngoingMonitoringJobResponseStatus = "PENDING"
-	BusinessesRetrieveOngoingMonitoringJobResponseStatusProcessing BusinessesRetrieveOngoingMonitoringJobResponseStatus = "PROCESSING"
-	BusinessesRetrieveOngoingMonitoringJobResponseStatusCompleted  BusinessesRetrieveOngoingMonitoringJobResponseStatus = "COMPLETED"
-	BusinessesRetrieveOngoingMonitoringJobResponseStatusFailed     BusinessesRetrieveOngoingMonitoringJobResponseStatus = "FAILED"
-)
-
-// BusinessesRetrieveOngoingMonitoringJobResponseOutcomes: Per-entity outcome
-// counters. Nothing is silently skipped: every requested entity resolves to
-// exactly one counter.
-type BusinessesRetrieveOngoingMonitoringJobResponseOutcomes struct {
-	// Monitoring enabled on an existing AML screening.
-	Enabled int64 `json:"enabled"`
-
-	// A new AML screening was created (billed) and monitoring enabled.
-	ScreenedAndEnabled int64 `json:"screened_and_enabled"`
-
-	// Monitoring was already active (legacy duplicate rows are consolidated).
-	AlreadyEnabled int64 `json:"already_enabled"`
-
-	// Monitoring disabled on every AML row of the entity.
-	Disabled int64 `json:"disabled"`
-
-	// Skipped: no full name + date of birth + country available to screen.
-	SkippedNoIdentityData int64 `json:"skipped_no_identity_data"`
-
-	// Skipped: the user is blocked.
-	SkippedBlocked int64 `json:"skipped_blocked"`
-
-	// Skipped: sandbox application.
-	SkippedSandbox int64 `json:"skipped_sandbox"`
-
-	// The screening provider call failed.
-	FailedProvider int64 `json:"failed_provider"`
-
-	// Balance ran out mid-job.
-	FailedInsufficientBalance int64 `json:"failed_insufficient_balance"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes BusinessesRetrieveOngoingMonitoringJobResponseOutcomes leniently.
-func (r *BusinessesRetrieveOngoingMonitoringJobResponseOutcomes) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// BusinessesRetrieveOngoingMonitoringJobResponseEstimate: Cost preview.
-// Returned directly when estimate_only is true (no writes are performed).
-type BusinessesRetrieveOngoingMonitoringJobResponseEstimate struct {
-	// Entities in the selection.
-	UsersTotal     int64 `json:"users_total"`
-	AlreadyEnabled int64 `json:"already_enabled"`
-
-	// Entities whose existing AML screening will be switched to monitored.
-	WithExistingAML int64 `json:"with_existing_aml"`
-
-	// Entities without any AML screening that will be screened first (billed).
-	NeedingScreening                 int64   `json:"needing_screening"`
-	SkippedNoIdentityData            int64   `json:"skipped_no_identity_data"`
-	SkippedBlocked                   int64   `json:"skipped_blocked"`
-	EstimatedScreeningCostUsd        float64 `json:"estimated_screening_cost_usd"`
-	EstimatedAnnualMonitoringCostUsd float64 `json:"estimated_annual_monitoring_cost_usd"`
-	BalanceSufficient                bool    `json:"balance_sufficient"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes BusinessesRetrieveOngoingMonitoringJobResponseEstimate leniently.
-func (r *BusinessesRetrieveOngoingMonitoringJobResponseEstimate) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// BusinessesRetrieveSessionOngoingMonitoringJobResponse is a response object.
-type BusinessesRetrieveSessionOngoingMonitoringJobResponse struct {
-	JobID     string                                                      `json:"job_id"`
-	Status    BusinessesRetrieveSessionOngoingMonitoringJobResponseStatus `json:"status"`
-	IsEnabled bool                                                        `json:"is_enabled"`
-	Total     int64                                                       `json:"total"`
-	Processed int64                                                       `json:"processed"`
-
-	// Per-entity outcome counters. Nothing is silently skipped: every requested
-	// entity resolves to exactly one counter.
-	Outcomes BusinessesRetrieveSessionOngoingMonitoringJobResponseOutcomes `json:"outcomes"`
-	Error    string                                                        `json:"error"`
-
-	// Cost preview. Returned directly when estimate_only is true (no writes are
-	// performed).
-	Estimate BusinessesRetrieveSessionOngoingMonitoringJobResponseEstimate `json:"estimate"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes BusinessesRetrieveSessionOngoingMonitoringJobResponse leniently.
-func (r *BusinessesRetrieveSessionOngoingMonitoringJobResponse) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// BusinessesRetrieveSessionOngoingMonitoringJobResponseStatus is a string with
-// known values below. The set is open: other values may appear and never cause
-// an error.
-type BusinessesRetrieveSessionOngoingMonitoringJobResponseStatus string
-
-// Known values of BusinessesRetrieveSessionOngoingMonitoringJobResponseStatus.
-const (
-	BusinessesRetrieveSessionOngoingMonitoringJobResponseStatusPending    BusinessesRetrieveSessionOngoingMonitoringJobResponseStatus = "PENDING"
-	BusinessesRetrieveSessionOngoingMonitoringJobResponseStatusProcessing BusinessesRetrieveSessionOngoingMonitoringJobResponseStatus = "PROCESSING"
-	BusinessesRetrieveSessionOngoingMonitoringJobResponseStatusCompleted  BusinessesRetrieveSessionOngoingMonitoringJobResponseStatus = "COMPLETED"
-	BusinessesRetrieveSessionOngoingMonitoringJobResponseStatusFailed     BusinessesRetrieveSessionOngoingMonitoringJobResponseStatus = "FAILED"
-)
-
-// BusinessesRetrieveSessionOngoingMonitoringJobResponseOutcomes: Per-entity
-// outcome counters. Nothing is silently skipped: every requested entity
-// resolves to exactly one counter.
-type BusinessesRetrieveSessionOngoingMonitoringJobResponseOutcomes struct {
-	// Monitoring enabled on an existing AML screening.
-	Enabled int64 `json:"enabled"`
-
-	// A new AML screening was created (billed) and monitoring enabled.
-	ScreenedAndEnabled int64 `json:"screened_and_enabled"`
-
-	// Monitoring was already active (legacy duplicate rows are consolidated).
-	AlreadyEnabled int64 `json:"already_enabled"`
-
-	// Monitoring disabled on every AML row of the entity.
-	Disabled int64 `json:"disabled"`
-
-	// Skipped: no full name + date of birth + country available to screen.
-	SkippedNoIdentityData int64 `json:"skipped_no_identity_data"`
-
-	// Skipped: the user is blocked.
-	SkippedBlocked int64 `json:"skipped_blocked"`
-
-	// Skipped: sandbox application.
-	SkippedSandbox int64 `json:"skipped_sandbox"`
-
-	// The screening provider call failed.
-	FailedProvider int64 `json:"failed_provider"`
-
-	// Balance ran out mid-job.
-	FailedInsufficientBalance int64 `json:"failed_insufficient_balance"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes BusinessesRetrieveSessionOngoingMonitoringJobResponseOutcomes leniently.
-func (r *BusinessesRetrieveSessionOngoingMonitoringJobResponseOutcomes) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// BusinessesRetrieveSessionOngoingMonitoringJobResponseEstimate: Cost preview.
-// Returned directly when estimate_only is true (no writes are performed).
-type BusinessesRetrieveSessionOngoingMonitoringJobResponseEstimate struct {
-	// Entities in the selection.
-	UsersTotal     int64 `json:"users_total"`
-	AlreadyEnabled int64 `json:"already_enabled"`
-
-	// Entities whose existing AML screening will be switched to monitored.
-	WithExistingAML int64 `json:"with_existing_aml"`
-
-	// Entities without any AML screening that will be screened first (billed).
-	NeedingScreening                 int64   `json:"needing_screening"`
-	SkippedNoIdentityData            int64   `json:"skipped_no_identity_data"`
-	SkippedBlocked                   int64   `json:"skipped_blocked"`
-	EstimatedScreeningCostUsd        float64 `json:"estimated_screening_cost_usd"`
-	EstimatedAnnualMonitoringCostUsd float64 `json:"estimated_annual_monitoring_cost_usd"`
-	BalanceSufficient                bool    `json:"balance_sufficient"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes BusinessesRetrieveSessionOngoingMonitoringJobResponseEstimate leniently.
-func (r *BusinessesRetrieveSessionOngoingMonitoringJobResponseEstimate) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
 // BusinessesSetAMLMonitoringParams holds the parameters of
 // Client.Businesses.SetAMLMonitoring.
 type BusinessesSetAMLMonitoringParams struct {
@@ -1020,33 +823,6 @@ type BusinessesSetAMLMonitoringResponseEstimate struct {
 // UnmarshalJSON decodes BusinessesSetAMLMonitoringResponseEstimate leniently.
 func (r *BusinessesSetAMLMonitoringResponseEstimate) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// BusinessesSetOngoingMonitoringParams holds the parameters of
-// Client.Businesses.SetOngoingMonitoring.
-type BusinessesSetOngoingMonitoringParams struct {
-	// true to enable monitoring, false to disable it. Required.
-	IsEnabled bool `json:"is_enabled"`
-
-	// When true, returns the cost estimate and performs no writes.
-	EstimateOnly Opt[bool] `json:"estimate_only"`
-
-	// Apply to every entity of the application (scoped by the filter_* params when
-	// present).
-	UpdateAll      Opt[bool]     `json:"update_all"`
-	FilterSearch   Opt[string]   `json:"filter_search"`
-	FilterStatus   Opt[[]string] `json:"filter_status"`
-	FilterCountry  Opt[string]   `json:"filter_country"`
-	FilterDateFrom Opt[string]   `json:"filter_date_from"`
-	FilterDateTo   Opt[string]   `json:"filter_date_to"`
-
-	// Entities to toggle. Required unless update_all is true.
-	DiditInternalIDList Opt[[]string] `json:"didit_internal_id_list"`
-}
-
-// MarshalJSON encodes the fields that are set.
-func (r BusinessesSetOngoingMonitoringParams) MarshalJSON() ([]byte, error) {
-	return marshalParams(r)
 }
 
 // BusinessesSetOngoingMonitoringResponse is a response object.
@@ -1321,6 +1097,11 @@ type BusinessesUpdateParams struct {
 	// Arbitrary JSON object you attach to the business. **Fully replaces** the
 	// existing metadata on update - merge client-side if you only want to add keys.
 	Metadata Opt[map[string]any] `json:"metadata"`
+
+	// Why the status changed. Recorded on the status-change entry of the company's
+	// **Activity** in the Business Console, only when the status actually changes.
+	// Webhooks do not carry it.
+	Reason Opt[string] `json:"reason"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -1349,6 +1130,11 @@ type BusinessesUpdateStatusParams struct {
 	// New lifecycle status. `BLOCKED` also adds the `vendor_data` to the system
 	// blocklist. Required.
 	Status BusinessesUpdateStatusParamsStatus `json:"status"`
+
+	// Why the status changed. Recorded on the status-change entry of the company's
+	// **Activity** in the Business Console, only when the status actually changes.
+	// Webhooks do not carry it.
+	Reason Opt[string] `json:"reason"`
 }
 
 // MarshalJSON encodes the fields that are set.

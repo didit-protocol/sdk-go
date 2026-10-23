@@ -25,9 +25,9 @@ type WorkflowsService struct {
 // Maximum 50 workflows per application.
 //
 //	POST /v3/workflows/
-func (r *WorkflowsService) Create(ctx context.Context, params SimpleWorkflowRequest, opts ...option.RequestOption) (map[string]any, error) {
-	var res map[string]any
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/workflows/", params: params, body: bodyJSON}, &res, opts); err != nil {
+func (r *WorkflowsService) Create(ctx context.Context, params SimpleWorkflowRequest, opts ...option.RequestOption) (*WorkflowDetail, error) {
+	res := new(WorkflowDetail)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/workflows/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -74,9 +74,9 @@ func (r *WorkflowsService) ListAutoPaging(ctx context.Context, params WorkflowsL
 // pricing.
 //
 //	GET /v3/workflows/{settings_uuid}/
-func (r *WorkflowsService) Retrieve(ctx context.Context, settingsUUID string, opts ...option.RequestOption) (map[string]any, error) {
-	var res map[string]any
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/workflows/{settings_uuid}/", pathParams: []string{"settings_uuid", settingsUUID}}, &res, opts); err != nil {
+func (r *WorkflowsService) Retrieve(ctx context.Context, settingsUUID string, opts ...option.RequestOption) (*WorkflowDetail, error) {
+	res := new(WorkflowDetail)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/workflows/{settings_uuid}/", pathParams: []string{"settings_uuid", settingsUUID}}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -97,9 +97,9 @@ func (r *WorkflowsService) Retrieve(ctx context.Context, settingsUUID string, op
 // with 400.
 //
 //	PATCH /v3/workflows/{settings_uuid}/
-func (r *WorkflowsService) Update(ctx context.Context, settingsUUID string, params SimpleWorkflowUpdateRequest, opts ...option.RequestOption) (map[string]any, error) {
-	var res map[string]any
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/workflows/{settings_uuid}/", pathParams: []string{"settings_uuid", settingsUUID}, params: params, body: bodyJSON}, &res, opts); err != nil {
+func (r *WorkflowsService) Update(ctx context.Context, settingsUUID string, params SimpleWorkflowUpdateRequest, opts ...option.RequestOption) (*WorkflowDetail, error) {
+	res := new(WorkflowDetail)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/workflows/{settings_uuid}/", pathParams: []string{"settings_uuid", settingsUUID}, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -184,7 +184,11 @@ type SimpleWorkflowFeature struct {
 	// For `OCR`, `methods` selects which ID Verification methods each country may
 	// use (document capture, non-doc lookup against a government or other
 	// authoritative source, and digital identity wallets); omit it and every
-	// country is document capture only.
+	// country is document capture only. For `SIGNATURE`, see [Electronic Signature
+	// settings](/management-api/workflows/feature-configs#electronic-signature):
+	// `signature_level` accepts `aes` only for now, and workflow documents and
+	// their fields are managed in the console, so through the API send documents
+	// and fields per session with `signature_documents_source: "session"`.
 	Config Opt[map[string]any] `json:"config"`
 
 	// Optional internal label for this workflow node.
@@ -221,6 +225,129 @@ const (
 	SimpleWorkflowFeatureFeatureKYBRegistry        SimpleWorkflowFeatureFeature = "KYB_REGISTRY"
 	SimpleWorkflowFeatureFeatureKYBDocuments       SimpleWorkflowFeatureFeature = "KYB_DOCUMENTS"
 	SimpleWorkflowFeatureFeatureKYBKeyPeople       SimpleWorkflowFeatureFeature = "KYB_KEY_PEOPLE"
+	SimpleWorkflowFeatureFeatureSignature          SimpleWorkflowFeatureFeature = "SIGNATURE"
+)
+
+// WorkflowDetail: The fields below are typed; the object also carries every
+// other column of the workflow configuration (feature toggles, thresholds,
+// warning actions, allowed documents, callbacks) as additional properties.
+// Fields that do not apply to the `workflow_type` are `null`.
+type WorkflowDetail struct {
+	// Per-version identifier (`settings_uuid`). Every version of a workflow has its
+	// own.
+	UUID string `json:"uuid"`
+
+	// Stable identifier shared by every version of the workflow. Sessions created
+	// with it use the latest published version.
+	WorkflowID string `json:"workflow_id"`
+
+	// Display name of the workflow.
+	WorkflowLabel string `json:"workflow_label"`
+
+	// Workflow template. `null` for graph workflows created without a template.
+	WorkflowType WorkflowDetailWorkflowType `json:"workflow_type"`
+
+	// Whether this is the application's default workflow.
+	IsDefault bool `json:"is_default"`
+
+	// Archived workflows cannot start new sessions.
+	IsArchived bool `json:"is_archived"`
+
+	// Version number within the workflow.
+	Version int64 `json:"version"`
+
+	// Draft versions are editable; published versions are immutable and used for
+	// new sessions.
+	Status WorkflowDetailStatus `json:"status"`
+
+	// When this version was published. `null` for drafts.
+	PublishedAt time.Time `json:"published_at"`
+
+	// `true` when the workflow has no custom `workflow_graph`.
+	IsSimpleWorkflow bool `json:"is_simple_workflow"`
+
+	// `true` only for `draft` versions.
+	IsEditable bool `json:"is_editable"`
+
+	// Public URL that starts a session with this workflow.
+	WorkflowURL string `json:"workflow_url"`
+
+	// Graph structure of the workflow (nodes and edges). `null` for simple
+	// workflows.
+	WorkflowGraph map[string]any `json:"workflow_graph"`
+
+	// Enabled features joined with `" + "`, for example `"OCR + LIVENESS"`.
+	Features string `json:"features"`
+
+	// Price per session; for graph workflows the most expensive path.
+	TotalPrice float64 `json:"total_price"`
+
+	// Price of the cheapest path through the workflow.
+	MinPrice float64 `json:"min_price"`
+
+	// Price of the most expensive path through the workflow.
+	MaxPrice float64 `json:"max_price"`
+
+	// Organization-specific add-on prices, or `null` when none are set.
+	SpecialAddOnPrices map[string]any `json:"special_add_on_prices"`
+
+	// Retries allowed after a declined verification.
+	MaxRetryAttempts int64 `json:"max_retry_attempts"`
+
+	// Days during which the retries are allowed.
+	RetryWindowDays int64 `json:"retry_window_days"`
+
+	// Seconds before an unfinished session expires.
+	SessionExpirationTime int64 `json:"session_expiration_time"`
+
+	// The questionnaire attached to the workflow, or `null`.
+	Questionnaire map[string]any `json:"questionnaire"`
+
+	// Per-role verification settings for KYB key people.
+	KYBRoleSettings []map[string]any `json:"kyb_role_settings"`
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WorkflowDetail leniently.
+func (r *WorkflowDetail) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WorkflowDetailWorkflowType: Workflow template. `null` for graph workflows
+// created without a template.
+//
+// WorkflowDetailWorkflowType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type WorkflowDetailWorkflowType string
+
+// Known values of WorkflowDetailWorkflowType.
+const (
+	WorkflowDetailWorkflowTypeKYC                       WorkflowDetailWorkflowType = "kyc"
+	WorkflowDetailWorkflowTypeKYB                       WorkflowDetailWorkflowType = "kyb"
+	WorkflowDetailWorkflowTypeAdaptiveAgeVerification   WorkflowDetailWorkflowType = "adaptive_age_verification"
+	WorkflowDetailWorkflowTypeBiometricAuthentication   WorkflowDetailWorkflowType = "biometric_authentication"
+	WorkflowDetailWorkflowTypeAddressVerification       WorkflowDetailWorkflowType = "address_verification"
+	WorkflowDetailWorkflowTypeQuestionnaireVerification WorkflowDetailWorkflowType = "questionnaire_verification"
+	WorkflowDetailWorkflowTypeEmailVerification         WorkflowDetailWorkflowType = "email_verification"
+	WorkflowDetailWorkflowTypePhoneVerification         WorkflowDetailWorkflowType = "phone_verification"
+)
+
+// WorkflowDetailStatus: Draft versions are editable; published versions are
+// immutable and used for new sessions.
+//
+// WorkflowDetailStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type WorkflowDetailStatus string
+
+// Known values of WorkflowDetailStatus.
+const (
+	WorkflowDetailStatusDraft     WorkflowDetailStatus = "draft"
+	WorkflowDetailStatusPublished WorkflowDetailStatus = "published"
 )
 
 // WorkflowsListParams holds the parameters of Client.Workflows.List.

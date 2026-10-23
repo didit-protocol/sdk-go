@@ -267,17 +267,27 @@ func (g *Gen) buildParams(op *Operation, m *Method, prefix string, params []*Nod
 		if formSchema != nil {
 			parts = append(parts, formSchema)
 		}
-		if !allObjects(op.Doc, parts) {
-			return fmt.Errorf("request body is not an object")
-		}
-		// A field required by only one of JSON and multipart is optional.
-		bt, err := g.structType(op.Doc, name, Request, parts, len(parts) > 1, "")
-		if err != nil {
-			return err
-		}
-		d = bt.Decl
-		for _, f := range d.Fields {
-			used[f.GoName] = true
+		switch {
+		case !allObjects(op.Doc, parts):
+			// A JSON body that is not an object (a oneOf with an array, or an array): the params
+			// carry it whole in Body, next to the file fields of the multipart alternative.
+			if jsonSchema == nil {
+				return fmt.Errorf("request body is not an object")
+			}
+			var err error
+			if d, err = g.wholeBodyParams(op.Doc, name, jsonSchema, formSchema, used); err != nil {
+				return err
+			}
+		default:
+			// A field required by only one of JSON and multipart is optional.
+			bt, err := g.structType(op.Doc, name, Request, parts, len(parts) > 1, "")
+			if err != nil {
+				return err
+			}
+			d = bt.Decl
+			for _, f := range d.Fields {
+				used[f.GoName] = true
+			}
 		}
 	} else {
 		d = &Decl{Name: name, Kind: DStruct, Side: Request}
@@ -478,4 +488,41 @@ func mediaExample(media *Node) *Node {
 		return exs.Get(exs.Keys[0]).Get("value")
 	}
 	return nil
+}
+
+// wholeBodyParams declares the params struct of an operation whose JSON body is not an object: Body holds
+// it whole, and the file fields of the multipart alternative (when there is one) sit beside it. Exactly one
+// of Body and the files is sent.
+func (g *Gen) wholeBodyParams(doc *Doc, name string, jsonSchema, formSchema *Node, used map[string]bool) (*Decl, error) {
+	d := &Decl{Name: name, Kind: DStruct, Side: Request}
+	if _, err := g.addDecl(d); err != nil {
+		return nil, err
+	}
+	t, err := g.typeOf(doc, jsonSchema, name+"Body", Request)
+	if err != nil {
+		return nil, err
+	}
+	hasForm := formSchema != nil
+	d.Fields = append(d.Fields, &Field{
+		GoName: uniqueName("Body", used), Name: "json", Type: t, Tag: "body", Required: !hasForm,
+		Doc: "Body is the JSON request body: an object or an array. Leave it nil to send File instead.",
+	})
+	if !hasForm {
+		return d, nil
+	}
+	props, order, _ := g.collectProps(doc, []*Node{formSchema})
+	for _, pn := range order {
+		ft, err := g.typeOf(doc, props[pn].schemas[0], name+fieldName(pn), Request)
+		if err != nil {
+			return nil, err
+		}
+		if ft.Kind != TFile {
+			return nil, fmt.Errorf("request body is not an object and its multipart field %s is not a file", pn)
+		}
+		d.Fields = append(d.Fields, &Field{
+			GoName: uniqueName(fieldName(pn), used), Name: pn, Type: ft, Tag: "form", Opt: true,
+			Doc: propDoc(props[pn].schemas[0]),
+		})
+	}
+	return d, nil
 }

@@ -22,7 +22,7 @@ func TestBillingRetrieveBalance(t *testing.T) {
 }
 
 func TestBillingTopUp(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"checkout_session_id":"cs_test_a1B2c3D4e5F6g7H8i9J0","checkout_session_url":"https://checkout.stripe.com/c/pay/cs_test_a1B2c3D4e5F6g7H8i9J0"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"checkout_session_id":"cs_test_a1B2c3D4e5F6g7H8i9J0","checkout_session_url":"https://checkout.example.com/c/pay/cs_test_a1B2c3D4e5F6g7H8i9J0"}`)
 	var params didit.BillingTopUpParams
 	mustUnmarshal(t, `{"amount_in_dollars":50}`, &params)
 	res, err := client.Billing.TopUp(context.Background(), params)

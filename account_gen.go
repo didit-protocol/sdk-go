@@ -4,7 +4,6 @@ package didit
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -59,9 +58,9 @@ func (r *AccountService) Register(ctx context.Context, params RegisterRequest, o
 // with `Retry-After`), and the same 5-per-IP-per-hour budget as registration.
 //
 //	POST /programmatic/resend-otp/
-func (r *AccountService) ResendOTP(ctx context.Context, params AccountResendOTPParams, opts ...option.RequestOption) (map[string]any, error) {
-	var res map[string]any
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/programmatic/resend-otp/", api: apiAccount, auth: authNone, params: params, body: bodyJSON}, &res, opts); err != nil {
+func (r *AccountService) ResendOTP(ctx context.Context, params AccountResendOTPParams, opts ...option.RequestOption) (*AccountResendOTPResponse, error) {
+	res := new(AccountResendOTPResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/programmatic/resend-otp/", api: apiAccount, auth: authNone, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -103,21 +102,24 @@ func (r *AccountApplicationsService) Create(ctx context.Context, orgID string, p
 
 // List: List the organization's applications.
 //
-// List every application in the organization. Use this to discover `app_id`
-// values when recovering credentials from a new machine - follow with `GET
-// /organizations/me/{org_id}/applications/{app_id}/` for the API key. Requires
-// an owner or admin Bearer token.
+// List the organization's applications, 50 per page by default. Use this to
+// discover `app_id` values when recovering credentials from a new machine, then
+// call `GET /organizations/me/{org_id}/applications/{app_id}/` for the API key.
+// Requires an owner or admin Bearer token.
 //
-// The API reference declares no schema for the response, so it is returned as
-// raw JSON (nil when the body is empty).
+// It returns one page; ListAutoPaging iterates over every item of every page.
 //
 //	GET /organizations/me/{org_id}/applications/
-func (r *AccountApplicationsService) List(ctx context.Context, orgID string, opts ...option.RequestOption) (json.RawMessage, error) {
-	var res json.RawMessage
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/organizations/me/{org_id}/applications/", pathParams: []string{"org_id", orgID}, api: apiAccount, auth: authAccountToken}, &res, opts); err != nil {
-		return nil, err
-	}
-	return res, nil
+func (r *AccountApplicationsService) List(ctx context.Context, orgID string, params AccountApplicationsListParams, opts ...option.RequestOption) (*Page[Application], error) {
+	return getPage[Application](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/organizations/me/{org_id}/applications/", pathParams: []string{"org_id", orgID}, api: apiAccount, auth: authAccountToken, params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *AccountApplicationsService) ListAutoPaging(ctx context.Context, orgID string, params AccountApplicationsListParams, opts ...option.RequestOption) *PageIterator[Application] {
+	return newPageIterator(ctx, func() (*Page[Application], error) {
+		return r.List(ctx, orgID, params, opts...)
+	})
 }
 
 // Retrieve: Get Application Credentials.
@@ -137,7 +139,8 @@ func (r *AccountApplicationsService) Retrieve(ctx context.Context, orgID string,
 // Update: Update Application.
 //
 // Update application metadata (name, URLs, redirect URIs). `api_key` and
-// `client_id` are never rotated. Requires owner/admin JWT.
+// `client_id` are never rotated. `products` is read-only: a `products` key in
+// the body is ignored. Requires owner/admin JWT.
 //
 //	PATCH /organizations/me/{org_id}/applications/{app_id}/
 func (r *AccountApplicationsService) Update(ctx context.Context, orgID string, appID string, params ApplicationUpdateRequest, opts ...option.RequestOption) (*Application, error) {
@@ -159,13 +162,19 @@ type AccountOrganizationsService struct {
 // List organizations the authenticated user belongs to. Each entry's `uuid` is
 // the `org_id` used on the application endpoints.
 //
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
 //	GET /organizations/me/
-func (r *AccountOrganizationsService) List(ctx context.Context, opts ...option.RequestOption) ([]Organization, error) {
-	var res []Organization
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/organizations/me/", api: apiAccount, auth: authAccountToken}, &res, opts); err != nil {
-		return nil, err
-	}
-	return res, nil
+func (r *AccountOrganizationsService) List(ctx context.Context, params AccountOrganizationsListParams, opts ...option.RequestOption) (*Page[Organization], error) {
+	return getPage[Organization](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/organizations/me/", api: apiAccount, auth: authAccountToken, params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *AccountOrganizationsService) ListAutoPaging(ctx context.Context, params AccountOrganizationsListParams, opts ...option.RequestOption) *PageIterator[Organization] {
+	return newPageIterator(ctx, func() (*Page[Organization], error) {
+		return r.List(ctx, params, opts...)
+	})
 }
 
 // LoginRequest is a request object.
@@ -253,6 +262,26 @@ func (r AccountResendOTPParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
+// AccountResendOTPResponse is a response object.
+type AccountResendOTPResponse struct {
+	// Always `A new verification code has been sent to your email.`
+	Message string `json:"message"`
+
+	// The address the code was sent to, normalized: lowercased, with any `+tag`
+	// removed from the local part (`Dev+test@Example.com` becomes
+	// `dev@example.com`).
+	Email string `json:"email"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AccountResendOTPResponse leniently.
+func (r *AccountResendOTPResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // VerifyEmailRequest is a request object.
 type VerifyEmailRequest struct {
 	// Email used during `POST /programmatic/register/`. Required.
@@ -315,7 +344,10 @@ type ApplicationCredentialsSummary struct {
 	Name     string `json:"name"`
 	ClientID string `json:"client_id"`
 
-	// Use this as `x-api-key` on every verification API call.
+	// Use this as `x-api-key` on every verification API call. New keys start with
+	// `sk_live_` (live application) or `sk_test_` (sandbox application), followed
+	// by 43 URL-safe characters (letters, digits, `-` and `_`). Keys created before
+	// this format have no prefix and keep working unchanged.
 	APIKey string `json:"api_key"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -369,7 +401,11 @@ type Application struct {
 
 	// Long-lived secret (also called `client_secret`). Use as the `x-api-key`
 	// header for every call to `https://verification.didit.me/v3/...` (sessions,
-	// workflows, AML, etc.). Treat as a credential; never expose client-side.
+	// workflows, AML, etc.). Treat as a credential; never expose client-side. New
+	// keys start with `sk_live_` (live application) or `sk_test_` (sandbox
+	// application), followed by 43 URL-safe characters (letters, digits, `-` and
+	// `_`). Keys created before this format have no prefix and keep working
+	// unchanged.
 	APIKey string `json:"api_key"`
 
 	// Website or app URL associated with this application.
@@ -388,6 +424,12 @@ type Application struct {
 	Description string    `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
 
+	// The application's products. Always all three, in this order: `identity`,
+	// `transactions`, `authentication`. A new application has `identity` enabled
+	// with every module on, and `transactions` and `authentication` disabled.
+	// Read-only: a `products` key in a create or update body is ignored.
+	Products []ApplicationProduct `json:"products"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -398,9 +440,82 @@ func (r *Application) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// ApplicationProduct: One product of an application and its state. Read-only:
+// the application endpoints return it and ignore it in a request body.
+type ApplicationProduct struct {
+	// `identity` (Identity verification), `transactions` (Transaction monitoring)
+	// or `authentication` (Authentication).
+	Product ApplicationProductProduct `json:"product"`
+
+	// Whether the product is on for this application. `early_access` applies only
+	// to `authentication`, which Didit turns on for you.
+	Status ApplicationProductStatus `json:"status"`
+
+	// Module switches of the product, each `true` or `false`. `identity` has
+	// `user_verification`, `business_verification` and `case_management`.
+	// `transactions` has `travel_rule` and `case_management`. `authentication` has
+	// none (`{}`). `case_management` is one setting shown under both `identity` and
+	// `transactions`, so it has the same value on both.
+	Modules map[string]bool `json:"modules"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ApplicationProduct leniently.
+func (r *ApplicationProduct) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ApplicationProductProduct: `identity` (Identity verification), `transactions`
+// (Transaction monitoring) or `authentication` (Authentication).
+//
+// ApplicationProductProduct is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type ApplicationProductProduct string
+
+// Known values of ApplicationProductProduct.
+const (
+	ApplicationProductProductIdentity       ApplicationProductProduct = "identity"
+	ApplicationProductProductTransactions   ApplicationProductProduct = "transactions"
+	ApplicationProductProductAuthentication ApplicationProductProduct = "authentication"
+)
+
+// ApplicationProductStatus: Whether the product is on for this application.
+// `early_access` applies only to `authentication`, which Didit turns on for
+// you.
+//
+// ApplicationProductStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type ApplicationProductStatus string
+
+// Known values of ApplicationProductStatus.
+const (
+	ApplicationProductStatusEnabled     ApplicationProductStatus = "enabled"
+	ApplicationProductStatusEarlyAccess ApplicationProductStatus = "early_access"
+	ApplicationProductStatusDisabled    ApplicationProductStatus = "disabled"
+)
+
+// AccountApplicationsListParams holds the parameters of
+// Client.Account.Applications.List.
+type AccountApplicationsListParams struct {
+	// Page size. Defaults to 50.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Zero-based offset of the first result.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r AccountApplicationsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
 // ApplicationUpdateRequest: PATCH body for application metadata. Send only the
 // fields you want to change; omitted fields are preserved. `uuid`, `client_id`,
-// and `api_key` cannot be updated.
+// and `api_key` cannot be updated. `products` is read-only: a `products` key in
+// the body is ignored.
 type ApplicationUpdateRequest struct {
 	// Application display name.
 	Name Opt[string] `json:"name"`
@@ -423,6 +538,21 @@ type ApplicationUpdateRequest struct {
 
 // MarshalJSON encodes the fields that are set.
 func (r ApplicationUpdateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// AccountOrganizationsListParams holds the parameters of
+// Client.Account.Organizations.List.
+type AccountOrganizationsListParams struct {
+	// Page size. Defaults to 50.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Zero-based offset of the first result.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r AccountOrganizationsListParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
