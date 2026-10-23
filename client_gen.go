@@ -16,6 +16,7 @@ type Client struct {
 	AML                *AMLService
 	AMLMonitoring      *AMLMonitoringService
 	Analytics          *AnalyticsService
+	Bank               *BankService
 	Billing            *BillingService
 	BiometricTemplates *BiometricTemplatesService
 	Blocklist          *BlocklistService
@@ -60,6 +61,7 @@ func (c *Client) init() {
 	c.AML = &AMLService{client: c}
 	c.AMLMonitoring = &AMLMonitoringService{client: c}
 	c.Analytics = &AnalyticsService{client: c}
+	c.Bank = &BankService{client: c}
 	c.Billing = &BillingService{client: c}
 	c.BiometricTemplates = &BiometricTemplatesService{client: c}
 	c.Blocklist = &BlocklistService{client: c}
