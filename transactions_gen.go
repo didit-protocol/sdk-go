@@ -1132,11 +1132,16 @@ type TransactionsCreateParamsTravelRuleDetails struct {
 	// names the originator wallet's memo or tag.
 	OriginatorData Opt[map[string]any] `json:"originator_data"`
 
-	// Beneficiary party, as flat fields or one IVMS 101 person. An empty
-	// `wallet_address` is filled from `counterparty.payment_method.account_id`. It
-	// must be an object: anything else is a `400`. On a memo network `memo` names
-	// the beneficiary wallet's memo or tag; `wallet_address` and `memo` win over
-	// the counterparty's payment method.
+	// Beneficiary party, as flat fields or one IVMS 101 person. It must be an
+	// object: anything else is a `400`. To route the transfer, Didit reads
+	// `wallet_address` (an empty one is filled from
+	// `counterparty.payment_method.account_id`), `chain` (filled from
+	// `transaction_details.crypto_params.crypto_chain` or the `currency` when that
+	// names a supported chain), `name` (falling back to `counterparty.full_name`),
+	// `travel_address`, `counterparty_vasp_name`, `counterparty_vasp_lei` and
+	// `counterparty_vasp_email`. On a memo network `memo` names the beneficiary
+	// wallet's memo or tag; `wallet_address` and `memo` win over the counterparty's
+	// payment method.
 	BeneficiaryData Opt[map[string]any] `json:"beneficiary_data"`
 	Metadata        Opt[map[string]any] `json:"metadata"`
 
