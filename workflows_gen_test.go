@@ -69,7 +69,7 @@ func TestWorkflowsRetrieve(t *testing.T) {
 }
 
 func TestWorkflowsUpdate(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","workflow_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","workflow_label":"string","workflow_type":"kyc","is_default":true,"is_archived":true,"version":1,"status":"draft","published_at":"2025-01-02T03:04:05Z","is_simple_workflow":true,"is_editable":true,"workflow_url":"https://example.com/path","workflow_graph":{"key":"value"},"features":"string","total_price":1.5,"min_price":1.5,"max_price":1.5,"special_add_on_prices":{"key":"value"},"max_retry_attempts":1,"retry_window_days":1,"session_expiration_time":1,"questionnaire":{"key":"value"},"kyb_role_settings":[{"key":"value"}],"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","workflow_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","workflow_label":"string","workflow_type":"kyc","is_default":true,"is_archived":true,"version":1,"status":"draft","published_at":"2025-01-02T03:04:05Z","is_simple_workflow":true,"is_editable":true,"workflow_url":"https://example.com/path","workflow_graph":{"key":"value"},"features":"string","total_price":1.5,"min_price":1.5,"max_price":1.5,"special_add_on_prices":{"key":"value"},"max_retry_attempts":1,"retry_window_days":1,"session_expiration_time":1,"questionnaire":{"key":"value"},"kyb_role_settings":[{"key":"value"}],"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","is_bank_verification_enabled":true,"bank_verification_config":{},"is_geolocation_enabled":true,"geolocation_config":{}}`)
 	var params didit.SimpleWorkflowUpdateRequest
 	mustUnmarshal(t, `{"features":[{"feature":"OCR"},{"feature":"AML"}]}`, &params)
 	res, err := client.Workflows.Update(context.Background(), "settings-uuid-1", params)
@@ -80,5 +80,5 @@ func TestWorkflowsUpdate(t *testing.T) {
 	req.expect(t, "PATCH", "/v3/workflows/settings-uuid-1/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"features":[{"feature":"OCR"},{"feature":"AML"}]}`)
-	expectFields(t, res.JSON, []string{"uuid", "workflow_id", "workflow_label", "workflow_type", "is_default", "is_archived", "version", "status", "published_at", "is_simple_workflow", "is_editable", "workflow_url", "workflow_graph", "features", "total_price", "min_price", "max_price", "special_add_on_prices", "max_retry_attempts", "retry_window_days", "session_expiration_time", "questionnaire", "kyb_role_settings", "created_at", "updated_at"})
+	expectFields(t, res.JSON, []string{"uuid", "workflow_id", "workflow_label", "workflow_type", "is_default", "is_archived", "version", "status", "published_at", "is_simple_workflow", "is_editable", "workflow_url", "workflow_graph", "features", "total_price", "min_price", "max_price", "special_add_on_prices", "max_retry_attempts", "retry_window_days", "session_expiration_time", "questionnaire", "kyb_role_settings", "created_at", "updated_at", "is_bank_verification_enabled", "bank_verification_config", "is_geolocation_enabled", "geolocation_config"})
 }

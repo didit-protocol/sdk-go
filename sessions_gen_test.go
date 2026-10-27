@@ -505,6 +505,33 @@ func TestSessionsUpdateStatus(t *testing.T) {
 	expectFields(t, res.JSON, []string{"session_id"})
 }
 
+func TestSessionsImportsCancel(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"PENDING","import_type":"user_verification","source_format":"csv","source_filename":"string","total_rows":1,"processed_rows":1,"checkpoint_row":1,"created_count":1,"updated_count":1,"skipped_count":1,"failed_count":1,"total_media_bytes":1,"last_error":"string","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","started_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z","state":"ready","source":"file","provider":"string","provider_options":{"key":"value"},"credential_hint":"sample-credential-hint","credentials_expires_at":"sample-credentials-expires-at","resumes_at":"2025-01-02T03:04:05Z","status_mapping":{"key":"string"},"is_dry_run":true,"dry_run_summary":{"key":"value"},"face_templates_enabled":true,"lawful_basis_confirmed_at":"2025-01-02T03:04:05Z","not_finished_count":1,"same_person_count":1,"face_templates_count":1,"face_duplicates_count":1,"face_blocklist_hits_count":1,"created_by_name":"string","created_by_email":"string"}`)
+	res, err := client.Sessions.Imports.Cancel(context.Background(), "importId-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/session/imports/importId-1/cancel/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"uuid", "status", "import_type", "source_format", "source_filename", "total_rows", "processed_rows", "checkpoint_row", "created_count", "updated_count", "skipped_count", "failed_count", "total_media_bytes", "last_error", "created_at", "updated_at", "started_at", "completed_at", "state", "source", "provider", "provider_options", "credential_hint", "credentials_expires_at", "resumes_at", "status_mapping", "is_dry_run", "dry_run_summary", "face_templates_enabled", "lawful_basis_confirmed_at", "not_finished_count", "same_person_count", "face_templates_count", "face_duplicates_count", "face_blocklist_hits_count", "created_by_name", "created_by_email"})
+}
+
+func TestSessionsImportsCheckProvider(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"ok":true,"provider":"string","credential_hint":"sample-credential-hint"}`)
+	var params didit.SessionsImportsCheckProviderParams
+	mustUnmarshal(t, `{"provider":"sumsub","credentials":{"key":"string"},"options":{"region":"string"},"record_ids":["string"]}`, &params)
+	res, err := client.Sessions.Imports.CheckProvider(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/session/imports/providers/check/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"provider":"sumsub","credentials":{"key":"string"},"options":{"region":"string"},"record_ids":["string"]}`)
+	expectFields(t, res.JSON, []string{"ok", "provider", "credential_hint"})
+}
+
 func TestSessionsImportsCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3f9c1a2b-4d5e-4f60-8a7b-9c0d1e2f3a4b","status":"PENDING","import_type":"user_verification","source_format":"ndjson","source_filename":"sessions.ndjson","total_rows":0,"processed_rows":0,"checkpoint_row":0,"created_count":0,"updated_count":0,"skipped_count":0,"failed_count":0,"total_media_bytes":0,"last_error":null,"created_at":"2026-05-17T08:42:11Z","updated_at":"2026-05-17T08:42:11Z","started_at":null,"completed_at":null}`)
 	var params didit.SessionsImportsCreateParams
@@ -518,6 +545,18 @@ func TestSessionsImportsCreate(t *testing.T) {
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"import_type":"user_verification","workflow_id":"9f9b1234-aaaa-bbbb-cccc-1234567890ab","source_file_url":"https://files.example.com/exports/sessions.ndjson"}`)
 	expectFields(t, res.JSON, []string{"uuid", "status", "import_type", "source_format", "source_filename", "total_rows", "processed_rows", "checkpoint_row", "created_count", "updated_count", "skipped_count", "failed_count", "total_media_bytes", "created_at", "updated_at"})
+}
+
+func TestSessionsImportsListActiveJobs(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"results":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","kind":"sessions","source":"file","provider":"string","provider_name":"string","filename":"string","state":"ready","status":"string","is_dry_run":true,"credential_hint":"sample-credential-hint","resumes_at":"2025-01-02T03:04:05Z","last_error":"string","started_by":{"name":"string","email":"string"},"progress":{"total":1,"processed":1,"imported":1,"updated":1,"already_in_didit":1,"failed":1,"not_finished":1,"same_person":1},"face_templates":{"enabled":true,"built":1,"duplicates":1,"blocklisted":1},"eta_seconds":1,"created_at":"2025-01-02T03:04:05Z","started_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z"}],"running":1}`)
+	res, err := client.Sessions.Imports.ListActiveJobs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/import-jobs/active/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"results", "running"})
 }
 
 func TestSessionsImportsListErrors(t *testing.T) {
@@ -542,8 +581,60 @@ func TestSessionsImportsListErrors(t *testing.T) {
 	expectFields(t, res.Results[0].JSON, []string{"uuid", "row_number", "external_id", "error", "raw_row", "created_at"})
 }
 
+func TestSessionsImportsListJobs(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"results":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","kind":"sessions","source":"file","provider":"string","provider_name":"string","filename":"string","state":"ready","status":"string","is_dry_run":true,"credential_hint":"sample-credential-hint","resumes_at":"2025-01-02T03:04:05Z","last_error":"string","started_by":{"name":"string","email":"string"},"progress":{"total":1,"processed":1,"imported":1,"updated":1,"already_in_didit":1,"failed":1,"not_finished":1,"same_person":1},"face_templates":{"enabled":true,"built":1,"duplicates":1,"blocklisted":1},"eta_seconds":1,"created_at":"2025-01-02T03:04:05Z","started_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z"}],"counts":{"all":1,"running_and_waiting":1,"needs_attention":1,"done":1}}`)
+	var params didit.SessionsImportsListJobsParams
+	params.Scope = didit.Some(didit.SessionsImportsListJobsParamsScopeAll)
+	params.Limit = didit.Int(50)
+	res, err := client.Sessions.Imports.ListJobs(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/import-jobs/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"limit": "50", "scope": "all"})
+	expectFields(t, res.JSON, []string{"results", "counts"})
+}
+
+func TestSessionsImportsListProviders(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"providers":[{"key":"sumsub","name":"string","mode":"api_list","record_noun":"string","credential_fields":[{"name":"string","label":"string","secret":true}],"regions":["string"],"required_permissions":["string"],"docs_url":"string","status_mapping":{"key":"Approved"}}],"mapping_targets":["string"],"skipped_statuses":["string"]}`)
+	res, err := client.Sessions.Imports.ListProviders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/session/imports/providers/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"providers", "mapping_targets", "skipped_statuses"})
+}
+
+func TestSessionsImportsPause(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"PENDING","import_type":"user_verification","source_format":"csv","source_filename":"string","total_rows":1,"processed_rows":1,"checkpoint_row":1,"created_count":1,"updated_count":1,"skipped_count":1,"failed_count":1,"total_media_bytes":1,"last_error":"string","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","started_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z","state":"ready","source":"file","provider":"string","provider_options":{"key":"value"},"credential_hint":"sample-credential-hint","credentials_expires_at":"sample-credentials-expires-at","resumes_at":"2025-01-02T03:04:05Z","status_mapping":{"key":"string"},"is_dry_run":true,"dry_run_summary":{"key":"value"},"face_templates_enabled":true,"lawful_basis_confirmed_at":"2025-01-02T03:04:05Z","not_finished_count":1,"same_person_count":1,"face_templates_count":1,"face_duplicates_count":1,"face_blocklist_hits_count":1,"created_by_name":"string","created_by_email":"string"}`)
+	res, err := client.Sessions.Imports.Pause(context.Background(), "importId-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/session/imports/importId-1/pause/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"uuid", "status", "import_type", "source_format", "source_filename", "total_rows", "processed_rows", "checkpoint_row", "created_count", "updated_count", "skipped_count", "failed_count", "total_media_bytes", "last_error", "created_at", "updated_at", "started_at", "completed_at", "state", "source", "provider", "provider_options", "credential_hint", "credentials_expires_at", "resumes_at", "status_mapping", "is_dry_run", "dry_run_summary", "face_templates_enabled", "lawful_basis_confirmed_at", "not_finished_count", "same_person_count", "face_templates_count", "face_duplicates_count", "face_blocklist_hits_count", "created_by_name", "created_by_email"})
+}
+
+func TestSessionsImportsResume(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"PENDING","import_type":"user_verification","source_format":"csv","source_filename":"string","total_rows":1,"processed_rows":1,"checkpoint_row":1,"created_count":1,"updated_count":1,"skipped_count":1,"failed_count":1,"total_media_bytes":1,"last_error":"string","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","started_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z","state":"ready","source":"file","provider":"string","provider_options":{"key":"value"},"credential_hint":"sample-credential-hint","credentials_expires_at":"sample-credentials-expires-at","resumes_at":"2025-01-02T03:04:05Z","status_mapping":{"key":"string"},"is_dry_run":true,"dry_run_summary":{"key":"value"},"face_templates_enabled":true,"lawful_basis_confirmed_at":"2025-01-02T03:04:05Z","not_finished_count":1,"same_person_count":1,"face_templates_count":1,"face_duplicates_count":1,"face_blocklist_hits_count":1,"created_by_name":"string","created_by_email":"string"}`)
+	res, err := client.Sessions.Imports.Resume(context.Background(), "importId-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/session/imports/importId-1/resume/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"uuid", "status", "import_type", "source_format", "source_filename", "total_rows", "processed_rows", "checkpoint_row", "created_count", "updated_count", "skipped_count", "failed_count", "total_media_bytes", "last_error", "created_at", "updated_at", "started_at", "completed_at", "state", "source", "provider", "provider_options", "credential_hint", "credentials_expires_at", "resumes_at", "status_mapping", "is_dry_run", "dry_run_summary", "face_templates_enabled", "lawful_basis_confirmed_at", "not_finished_count", "same_person_count", "face_templates_count", "face_duplicates_count", "face_blocklist_hits_count", "created_by_name", "created_by_email"})
+}
+
 func TestSessionsImportsRetrieve(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"PENDING","import_type":"user_verification","source_format":"csv","source_filename":"string","total_rows":1,"processed_rows":1,"checkpoint_row":1,"created_count":1,"updated_count":1,"skipped_count":1,"failed_count":1,"total_media_bytes":1,"last_error":"string","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","started_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"PENDING","import_type":"user_verification","source_format":"csv","source_filename":"string","total_rows":1,"processed_rows":1,"checkpoint_row":1,"created_count":1,"updated_count":1,"skipped_count":1,"failed_count":1,"total_media_bytes":1,"last_error":"string","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","started_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z","state":"ready","source":"file","provider":"string","provider_options":{"key":"value"},"credential_hint":"sample-credential-hint","credentials_expires_at":"sample-credentials-expires-at","resumes_at":"2025-01-02T03:04:05Z","status_mapping":{"key":"string"},"is_dry_run":true,"dry_run_summary":{"key":"value"},"face_templates_enabled":true,"lawful_basis_confirmed_at":"2025-01-02T03:04:05Z","not_finished_count":1,"same_person_count":1,"face_templates_count":1,"face_duplicates_count":1,"face_blocklist_hits_count":1,"created_by_name":"string","created_by_email":"string"}`)
 	res, err := client.Sessions.Imports.Retrieve(context.Background(), "importId-1")
 	if err != nil {
 		t.Fatal(err)
@@ -551,7 +642,7 @@ func TestSessionsImportsRetrieve(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/session/imports/importId-1/")
 	req.expectAPIKey(t)
-	expectFields(t, res.JSON, []string{"uuid", "status", "import_type", "source_format", "source_filename", "total_rows", "processed_rows", "checkpoint_row", "created_count", "updated_count", "skipped_count", "failed_count", "total_media_bytes", "last_error", "created_at", "updated_at", "started_at", "completed_at"})
+	expectFields(t, res.JSON, []string{"uuid", "status", "import_type", "source_format", "source_filename", "total_rows", "processed_rows", "checkpoint_row", "created_count", "updated_count", "skipped_count", "failed_count", "total_media_bytes", "last_error", "created_at", "updated_at", "started_at", "completed_at", "state", "source", "provider", "provider_options", "credential_hint", "credentials_expires_at", "resumes_at", "status_mapping", "is_dry_run", "dry_run_summary", "face_templates_enabled", "lawful_basis_confirmed_at", "not_finished_count", "same_person_count", "face_templates_count", "face_duplicates_count", "face_blocklist_hits_count", "created_by_name", "created_by_email"})
 }
 
 func TestSessionsImportsRetrieveTemplate(t *testing.T) {
@@ -571,6 +662,37 @@ func TestSessionsImportsRetrieveTemplate(t *testing.T) {
 	if err != nil || string(data) != "binary-content" {
 		t.Fatalf("file body = %q, %v", data, err)
 	}
+}
+
+func TestSessionsImportsRetry(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"PENDING","import_type":"user_verification","source_format":"csv","source_filename":"string","total_rows":1,"processed_rows":1,"checkpoint_row":1,"created_count":1,"updated_count":1,"skipped_count":1,"failed_count":1,"total_media_bytes":1,"last_error":"string","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","started_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z","state":"ready","source":"file","provider":"string","provider_options":{"key":"value"},"credential_hint":"sample-credential-hint","credentials_expires_at":"sample-credentials-expires-at","resumes_at":"2025-01-02T03:04:05Z","status_mapping":{"key":"string"},"is_dry_run":true,"dry_run_summary":{"key":"value"},"face_templates_enabled":true,"lawful_basis_confirmed_at":"2025-01-02T03:04:05Z","not_finished_count":1,"same_person_count":1,"face_templates_count":1,"face_duplicates_count":1,"face_blocklist_hits_count":1,"created_by_name":"string","created_by_email":"string"}`)
+	var params didit.SessionsImportsRetryParams
+	mustUnmarshal(t, `{"credentials":{"key":"string"}}`, &params)
+	params.File = didit.Some(didit.FileFromBytes("file.png", []byte("file-content")))
+	res, err := client.Sessions.Imports.Retry(context.Background(), "importId-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/session/imports/importId-1/retry/")
+	req.expectAPIKey(t)
+	req.expectMultipart(t, []string{"credentials"}, []string{"file"})
+	expectFields(t, res.JSON, []string{"uuid", "status", "import_type", "source_format", "source_filename", "total_rows", "processed_rows", "checkpoint_row", "created_count", "updated_count", "skipped_count", "failed_count", "total_media_bytes", "last_error", "created_at", "updated_at", "started_at", "completed_at", "state", "source", "provider", "provider_options", "credential_hint", "credentials_expires_at", "resumes_at", "status_mapping", "is_dry_run", "dry_run_summary", "face_templates_enabled", "lawful_basis_confirmed_at", "not_finished_count", "same_person_count", "face_templates_count", "face_duplicates_count", "face_blocklist_hits_count", "created_by_name", "created_by_email"})
+}
+
+func TestSessionsImportsStart(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"PENDING","import_type":"user_verification","source_format":"csv","source_filename":"string","total_rows":1,"processed_rows":1,"checkpoint_row":1,"created_count":1,"updated_count":1,"skipped_count":1,"failed_count":1,"total_media_bytes":1,"last_error":"string","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","started_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z","state":"ready","source":"file","provider":"string","provider_options":{"key":"value"},"credential_hint":"sample-credential-hint","credentials_expires_at":"sample-credentials-expires-at","resumes_at":"2025-01-02T03:04:05Z","status_mapping":{"key":"string"},"is_dry_run":true,"dry_run_summary":{"key":"value"},"face_templates_enabled":true,"lawful_basis_confirmed_at":"2025-01-02T03:04:05Z","not_finished_count":1,"same_person_count":1,"face_templates_count":1,"face_duplicates_count":1,"face_blocklist_hits_count":1,"created_by_name":"string","created_by_email":"string"}`)
+	var params didit.SessionsImportsStartParams
+	mustUnmarshal(t, `{"status_mapping":{"key":"Approved"},"face_templates":true,"lawful_basis_confirmed":true}`, &params)
+	res, err := client.Sessions.Imports.Start(context.Background(), "importId-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/session/imports/importId-1/start/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"status_mapping":{"key":"Approved"},"face_templates":true,"lawful_basis_confirmed":true}`)
+	expectFields(t, res.JSON, []string{"uuid", "status", "import_type", "source_format", "source_filename", "total_rows", "processed_rows", "checkpoint_row", "created_count", "updated_count", "skipped_count", "failed_count", "total_media_bytes", "last_error", "created_at", "updated_at", "started_at", "completed_at", "state", "source", "provider", "provider_options", "credential_hint", "credentials_expires_at", "resumes_at", "status_mapping", "is_dry_run", "dry_run_summary", "face_templates_enabled", "lawful_basis_confirmed_at", "not_finished_count", "same_person_count", "face_templates_count", "face_duplicates_count", "face_blocklist_hits_count", "created_by_name", "created_by_email"})
 }
 
 func TestSessionsReviewsCreate(t *testing.T) {
