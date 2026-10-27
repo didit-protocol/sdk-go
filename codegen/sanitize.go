@@ -12,6 +12,7 @@ var (
 	sensitiveKey = regexp.MustCompile(`(?i)(token|secret|api_?key|password|passwd|private_?key|credential|signature)`)
 	jwtLike      = regexp.MustCompile(`^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)
 	keyLike      = regexp.MustCompile(`^(sk|pk|rk|whsec)_(live|test)_`)
+	timestamp    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)
 	nonAlnum     = regexp.MustCompile(`[^A-Za-z0-9]+`)
 )
 
@@ -26,7 +27,7 @@ func sanitize(n *Node, key string) *Node {
 	}
 	switch n.Kind {
 	case String:
-		if (key != "" && sensitiveKey.MatchString(key) && n.Str != "") || jwtLike.MatchString(n.Str) || keyLike.MatchString(n.Str) {
+		if (key != "" && sensitiveKey.MatchString(key) && n.Str != "" && !timestamp.MatchString(n.Str)) || jwtLike.MatchString(n.Str) || keyLike.MatchString(n.Str) {
 			name := strings.ToLower(strings.Trim(nonAlnum.ReplaceAllString(key, "-"), "-"))
 			if name == "" {
 				name = "value"

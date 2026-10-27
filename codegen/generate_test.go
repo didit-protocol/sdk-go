@@ -207,6 +207,18 @@ func TestSanitize(t *testing.T) {
 	}
 }
 
+func TestSanitizeKeepsTimestamps(t *testing.T) {
+	n, err := ParseNode([]byte(`{"credentials_expires_at":"2026-10-27T10:00:00Z","token_date":"2026-10-27","api_key_at":"2026-10-27T10:00","password":"2026-10-27-secret"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := sanitizeExample(n).JSON()
+	want := `{"credentials_expires_at":"2026-10-27T10:00:00Z","token_date":"sample-token-date","api_key_at":"sample-api-key-at","password":"sample-password"}`
+	if got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+}
+
 func TestTemplateParams(t *testing.T) {
 	got := templateParams("/v3/organization/{organization_id}/x/{id}/y/{")
 	if strings.Join(got, ",") != "organization_id,id" {

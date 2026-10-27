@@ -40,6 +40,7 @@ type Client struct {
 	Networks           *NetworksService
 	PassiveLiveness    *PassiveLivenessService
 	Phone              *PhoneService
+	Pricing            *PricingService
 	ProofOfAddress     *ProofOfAddressService
 	Questionnaires     *QuestionnairesService
 	RegulatoryReports  *RegulatoryReportsService
@@ -95,6 +96,7 @@ func (c *Client) init() {
 	c.Networks.Notes = &NetworksNotesService{client: c}
 	c.PassiveLiveness = &PassiveLivenessService{client: c}
 	c.Phone = &PhoneService{client: c}
+	c.Pricing = &PricingService{client: c}
 	c.ProofOfAddress = &ProofOfAddressService{client: c}
 	c.Questionnaires = &QuestionnairesService{client: c}
 	c.RegulatoryReports = &RegulatoryReportsService{client: c}

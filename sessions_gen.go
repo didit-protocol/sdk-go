@@ -1287,20 +1287,63 @@ type SessionsImportsService struct {
 	client *Client
 }
 
+// Cancel: Cancel an import job.
+//
+// Cancel an import. What was imported stays; the uploaded file and the key are
+// erased.
+//
+//	POST /v3/session/imports/{importId}/cancel/
+func (r *SessionsImportsService) Cancel(ctx context.Context, importID string, opts ...option.RequestOption) (*SessionImportJob, error) {
+	res := new(SessionImportJob)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/{importId}/cancel/", pathParams: []string{"importId", importID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// CheckProvider: Check a provider key.
+//
+// Read the provider with your key before creating a migration. Nothing is
+// stored.
+//
+//	POST /v3/session/imports/providers/check/
+func (r *SessionsImportsService) CheckProvider(ctx context.Context, params SessionsImportsCheckProviderParams, opts ...option.RequestOption) (*SessionsImportsCheckProviderResponse, error) {
+	res := new(SessionsImportsCheckProviderResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/providers/check/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // Create: Create a verification import job.
 //
 // Create an asynchronous import job for historical User Verification sessions,
 // Business Verification sessions, transaction monitoring records, or workflow
-// custom status rules. Use this to migrate from providers such as Sumsub,
-// MetaMap, Veriff, Onfido, Persona, Trulioo, Jumio, Incode, iDenfy, or any
-// other provider after transforming the export into Didit's canonical
-// CSV/NDJSON format. Imports are disabled by default and must be enabled per
+// custom status rules. Set `source=provider` to migrate from another provider:
+// Didit reads Sumsub, Onfido, Persona and ComplyCube with your read-only key,
+// reads Veriff, iDenfy and MetaMap records by the IDs you upload in `file`, and
+// imports an export file in Didit's format for the other providers. Record IDs
+// are namespaced by provider (`sumsub:<id>`) so a re-run skips everything
+// already in Didit. Imports are disabled by default and must be enabled per
 // organization by Didit.
 //
 //	POST /v3/session/imports/
 func (r *SessionsImportsService) Create(ctx context.Context, params SessionsImportsCreateParams, opts ...option.RequestOption) (*SessionImportJob, error) {
 	res := new(SessionImportJob)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/", params: params, body: bodyJSONOrMultipart}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ListActiveJobs: List active import jobs.
+//
+// What is running or waiting, plus what just ended, for a progress indicator.
+//
+//	GET /v3/import-jobs/active/
+func (r *SessionsImportsService) ListActiveJobs(ctx context.Context, opts ...option.RequestOption) (*SessionsImportsListActiveJobsResponse, error) {
+	res := new(SessionsImportsListActiveJobsResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/import-jobs/active/"}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -1326,6 +1369,62 @@ func (r *SessionsImportsService) ListErrorsAutoPaging(ctx context.Context, impor
 	return newPageIterator(ctx, func() (*Page[SessionImportError], error) {
 		return r.ListErrors(ctx, importID, params, opts...)
 	})
+}
+
+// ListJobs: List import jobs.
+//
+// Every import of the application in one shape: verification imports and
+// migrations, people and businesses.
+//
+//	GET /v3/import-jobs/
+func (r *SessionsImportsService) ListJobs(ctx context.Context, params SessionsImportsListJobsParams, opts ...option.RequestOption) (*SessionsImportsListJobsResponse, error) {
+	res := new(SessionsImportsListJobsResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/import-jobs/", params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ListProviders: List migration providers.
+//
+// The 15 providers you can migrate verifications from: what each needs to
+// connect, whether its API can list records, the permissions its key needs and
+// its default status mapping.
+//
+//	GET /v3/session/imports/providers/
+func (r *SessionsImportsService) ListProviders(ctx context.Context, opts ...option.RequestOption) (*SessionsImportsListProvidersResponse, error) {
+	res := new(SessionsImportsListProvidersResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/imports/providers/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Pause: Pause an import job.
+//
+// Pause a queued or running import.
+//
+//	POST /v3/session/imports/{importId}/pause/
+func (r *SessionsImportsService) Pause(ctx context.Context, importID string, opts ...option.RequestOption) (*SessionImportJob, error) {
+	res := new(SessionImportJob)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/{importId}/pause/", pathParams: []string{"importId", importID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Resume: Resume an import job.
+//
+// Resume an import you paused. A job paused by the provider's rate limit
+// resumes by itself.
+//
+//	POST /v3/session/imports/{importId}/resume/
+func (r *SessionsImportsService) Resume(ctx context.Context, importID string, opts ...option.RequestOption) (*SessionImportJob, error) {
+	res := new(SessionImportJob)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/{importId}/resume/", pathParams: []string{"importId", importID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // Retrieve: Retrieve a verification import job.
@@ -1355,6 +1454,35 @@ func (r *SessionsImportsService) Retrieve(ctx context.Context, importID string, 
 //	GET /v3/session/imports/template/
 func (r *SessionsImportsService) RetrieveTemplate(ctx context.Context, params SessionsImportsRetrieveTemplateParams, opts ...option.RequestOption) (*http.Response, error) {
 	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/imports/template/", params: params, binary: true, accept: "text/csv"}, nil, opts)
+}
+
+// Retry: Retry a migration.
+//
+// Run a migration that ended again as a new job, with a new key (the old one
+// was erased). It keeps the provider, workflow, region, status mapping and face
+// templates choice; everything already in Didit is skipped.
+//
+//	POST /v3/session/imports/{importId}/retry/
+func (r *SessionsImportsService) Retry(ctx context.Context, importID string, params SessionsImportsRetryParams, opts ...option.RequestOption) (*SessionImportJob, error) {
+	res := new(SessionImportJob)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/{importId}/retry/", pathParams: []string{"importId", importID}, params: params, body: bodyMultipart}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Start: Start a dry run.
+//
+// Start a migration whose dry run finished (`READY`): the same job imports for
+// real, with the status mapping and face templates choice as sent now.
+//
+//	POST /v3/session/imports/{importId}/start/
+func (r *SessionsImportsService) Start(ctx context.Context, importID string, params SessionsImportsStartParams, opts ...option.RequestOption) (*SessionImportJob, error) {
+	res := new(SessionImportJob)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/{importId}/start/", pathParams: []string{"importId", importID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // SessionsReviewsService holds the sessions reviews operations. Use it through
@@ -3373,8 +3501,9 @@ type SessionDecision struct {
 	// Bank Verification results, one item per Bank Verification step, for User and
 	// Business Verification. `null` until a step produces one. Each item's `method`
 	// says how the account was verified: `open_banking` (bank sign-in) or
-	// `account_lookup` (account check), or a `microdeposits` or `statement`
-	// fallback. See [Bank verification
+	// `account_lookup` (account check), or a `statement` or `microdeposits`
+	// fallback, and `none` when the person continued without a bank before any
+	// attempt was evaluated (`continued_without_bank`). See [Bank verification
 	// methods](/core-technology/bank-verification/verification-methods).
 	BankVerifications []BankVerificationResult `json:"bank_verifications"`
 
@@ -7058,9 +7187,13 @@ func (r *SessionDecisionQuestionnaireResponsesSectionsItemsAnswer) UnmarshalJSON
 }
 
 // BankVerificationResult: One Bank Verification step's result, for User and
-// Business Verification. `method` says how the account was verified. See [Bank
-// verification
-// methods](/core-technology/bank-verification/verification-methods).
+// Business Verification. `method` says how the account was verified, and `none`
+// that the person continued without a bank before any attempt was evaluated.
+// `continued_without_bank` says the person continued without a bank, also after
+// an evaluated attempt. See [Bank verification
+// methods](/core-technology/bank-verification/verification-methods) and [When
+// the person cannot verify their
+// bank](/core-technology/bank-verification/fallbacks).
 type BankVerificationResult struct {
 	// Version of this result shape. `1` today.
 	SchemaVersion int64 `json:"schema_version"`
@@ -7081,7 +7214,10 @@ type BankVerificationResult struct {
 	// How the account was verified: `open_banking` (bank sign-in: the person signed
 	// in at their bank), `account_lookup` (account check: the person typed the
 	// account details and the bank confirmed the name), `microdeposits` or
-	// `statement` (a statement upload). `null` until an account is evaluated.
+	// `statement` (a statement upload). `none` when the person continued without a
+	// bank before any attempt was evaluated, so no account was verified. After an
+	// evaluated attempt, it stays the method of that attempt. `null` until an
+	// account is evaluated, and when the workflow narrows the data it returns.
 	// Workflow rules read the same value as `bank.method`.
 	Method BankVerificationResultMethod `json:"method"`
 
@@ -7119,8 +7255,23 @@ type BankVerificationResult struct {
 	// Whether the step ended without a match after the person left at their bank.
 	ConnectionAbandoned bool `json:"connection_abandoned"`
 
-	// Whether the person's bank or country could not be reached on this step.
+	// Whether the person's bank or country could not be reached on this step. Also
+	// `true` when the person continued without a bank because no method could
+	// verify their country or bank.
 	NotCovered bool `json:"not_covered"`
+
+	// Whether the person left the step with **Continue without your bank**.
+	// `continuation` then says why. `method` is `none` when no attempt was
+	// evaluated before they continued. After an evaluated attempt, such as a holder
+	// that does not match, `method` stays the method of that attempt and its
+	// verdict and reason codes stand. Returned even when the workflow narrows the
+	// data it returns.
+	ContinuedWithoutBank bool `json:"continued_without_bank"`
+
+	// How the person continued without a bank. `null` when they did not. When the
+	// workflow narrows the data it returns, `reason` is still returned and every
+	// other key is `null`.
+	Continuation BankVerificationResultContinuation `json:"continuation"`
 
 	// When the bank evidence was deleted under `bank_evidence_retention_days`.
 	// `null` otherwise.
@@ -7131,7 +7282,10 @@ type BankVerificationResult struct {
 	Warnings []string `json:"warnings"`
 
 	// Why the verdict came out the way it did, for example `OWNER_NAME_PARTIAL`.
-	// Several may apply.
+	// Several may apply. `NOT_COVERED`: the person continued without a bank because
+	// no method could verify their country or bank. `SKIPPED`: the person chose to
+	// continue without a bank while a way to verify was there. Neither is added
+	// when an evaluated attempt already decided the step.
 	ReasonCodes []string  `json:"reason_codes"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -7165,8 +7319,11 @@ const (
 // BankVerificationResultMethod: How the account was verified: `open_banking`
 // (bank sign-in: the person signed in at their bank), `account_lookup` (account
 // check: the person typed the account details and the bank confirmed the name),
-// `microdeposits` or `statement` (a statement upload). `null` until an account
-// is evaluated. Workflow rules read the same value as `bank.method`.
+// `microdeposits` or `statement` (a statement upload). `none` when the person
+// continued without a bank before any attempt was evaluated, so no account was
+// verified. After an evaluated attempt, it stays the method of that attempt.
+// `null` until an account is evaluated, and when the workflow narrows the data
+// it returns. Workflow rules read the same value as `bank.method`.
 //
 // BankVerificationResultMethod is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -7178,6 +7335,7 @@ const (
 	BankVerificationResultMethodAccountLookup BankVerificationResultMethod = "account_lookup"
 	BankVerificationResultMethodMicrodeposits BankVerificationResultMethod = "microdeposits"
 	BankVerificationResultMethodStatement     BankVerificationResultMethod = "statement"
+	BankVerificationResultMethodNone          BankVerificationResultMethod = "none"
 )
 
 // BankVerificationResultCredentialSource: `native`: Didit's own route, billed
@@ -7526,7 +7684,10 @@ type BankVerificationResultBilling struct {
 	// The marketplace platform fee charged, for `byok`.
 	MarketplaceFee string `json:"marketplace_fee"`
 
-	// The usage line the charge was booked on.
+	// The usage line the charge was booked on: `bank_verification` for a bank
+	// sign-in or an account check, `bank_statement_upload` for a statement upload
+	// with no charged bank attempt before it, and `bank_byok_fee` for the
+	// marketplace fee on your own provider. `null` when nothing was billed.
 	UsageType string `json:"usage_type"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -7547,6 +7708,88 @@ type BankVerificationResultBillingRoute string
 const (
 	BankVerificationResultBillingRouteNative BankVerificationResultBillingRoute = "native"
 	BankVerificationResultBillingRouteByok   BankVerificationResultBillingRoute = "byok"
+)
+
+// BankVerificationResultContinuation: How the person continued without a bank.
+// `null` when they did not. When the workflow narrows the data it returns,
+// `reason` is still returned and every other key is `null`.
+type BankVerificationResultContinuation struct {
+	// Why, as Didit worked it out when the person continued: `no_route` (no bank
+	// sign-in or account check serves their country), `institution_unsupported`
+	// (the bank they picked cannot be used on this step), `attempts_exhausted`
+	// (every attempt was already spent and none was in progress), or
+	// `person_choice` (a way to verify was there and they chose to continue, also
+	// when their bank could not be reached right now). `no_route` and
+	// `institution_unsupported` follow `bank_unsupported_action`,
+	// `attempts_exhausted` follows `bank_attempts_exhausted_action`, and
+	// `person_choice` follows `bank_skipped_action`, unless an evaluated attempt
+	// already decided the step.
+	Reason BankVerificationResultContinuationReason `json:"reason"`
+
+	// The country the person was verifying in, ISO 3166-1 alpha-3. `null` when they
+	// continued before picking one.
+	Country string `json:"country"`
+
+	// The other ways to verify that country offered the person when they continued,
+	// in the order it offered them: `statement` (a statement upload), then
+	// `microdeposits`. Empty when it offered none.
+	Offered []BankVerificationResultContinuationOffered `json:"offered"`
+
+	// For `institution_unsupported`, the ID of the bank the person could not use:
+	// the bank they picked, or the bank their last attempt ended on. Didit takes it
+	// from its own list of banks, never from the person's device, so a bank that
+	// list does not have is `null`. `null` for every other reason.
+	InstitutionID string `json:"institution_id"`
+
+	// For `institution_unsupported`, the name of that bank, from the same list as
+	// `institution_id`. `null` when that list does not have the bank, and for every
+	// other reason.
+	InstitutionName string `json:"institution_name"`
+
+	// When the person continued.
+	ContinuedAt time.Time `json:"continued_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationResultContinuation leniently.
+func (r *BankVerificationResultContinuation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationResultContinuationReason: Why, as Didit worked it out when
+// the person continued: `no_route` (no bank sign-in or account check serves
+// their country), `institution_unsupported` (the bank they picked cannot be
+// used on this step), `attempts_exhausted` (every attempt was already spent and
+// none was in progress), or `person_choice` (a way to verify was there and they
+// chose to continue, also when their bank could not be reached right now).
+// `no_route` and `institution_unsupported` follow `bank_unsupported_action`,
+// `attempts_exhausted` follows `bank_attempts_exhausted_action`, and
+// `person_choice` follows `bank_skipped_action`, unless an evaluated attempt
+// already decided the step.
+//
+// BankVerificationResultContinuationReason is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type BankVerificationResultContinuationReason string
+
+// Known values of BankVerificationResultContinuationReason.
+const (
+	BankVerificationResultContinuationReasonNoRoute                BankVerificationResultContinuationReason = "no_route"
+	BankVerificationResultContinuationReasonInstitutionUnsupported BankVerificationResultContinuationReason = "institution_unsupported"
+	BankVerificationResultContinuationReasonAttemptsExhausted      BankVerificationResultContinuationReason = "attempts_exhausted"
+	BankVerificationResultContinuationReasonPersonChoice           BankVerificationResultContinuationReason = "person_choice"
+)
+
+// BankVerificationResultContinuationOffered is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type BankVerificationResultContinuationOffered string
+
+// Known values of BankVerificationResultContinuationOffered.
+const (
+	BankVerificationResultContinuationOfferedStatement     BankVerificationResultContinuationOffered = "statement"
+	BankVerificationResultContinuationOfferedMicrodeposits BankVerificationResultContinuationOffered = "microdeposits"
 )
 
 // SignatureResult: One signer's result for one Electronic Signature step. See
@@ -14009,6 +14252,212 @@ func (r *SessionsUpdateStatusResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SessionImportJob is a response object.
+type SessionImportJob struct {
+	// Import job id. Use this value to poll progress and fetch row errors.
+	UUID            string                       `json:"uuid"`
+	Status          SessionImportJobStatus       `json:"status"`
+	ImportType      SessionImportJobImportType   `json:"import_type"`
+	SourceFormat    SessionImportJobSourceFormat `json:"source_format"`
+	SourceFilename  string                       `json:"source_filename"`
+	TotalRows       int64                        `json:"total_rows"`
+	ProcessedRows   int64                        `json:"processed_rows"`
+	CheckpointRow   int64                        `json:"checkpoint_row"`
+	CreatedCount    int64                        `json:"created_count"`
+	UpdatedCount    int64                        `json:"updated_count"`
+	SkippedCount    int64                        `json:"skipped_count"`
+	FailedCount     int64                        `json:"failed_count"`
+	TotalMediaBytes int64                        `json:"total_media_bytes"`
+	LastError       string                       `json:"last_error"`
+	CreatedAt       time.Time                    `json:"created_at"`
+	UpdatedAt       time.Time                    `json:"updated_at"`
+	StartedAt       time.Time                    `json:"started_at"`
+	CompletedAt     time.Time                    `json:"completed_at"`
+
+	// The job's state as the console shows it; `errors` is a completed job with
+	// rejected rows.
+	State  SessionImportJobState  `json:"state"`
+	Source SessionImportJobSource `json:"source"`
+
+	// Migration source; empty for a file or API import.
+	Provider        string         `json:"provider"`
+	ProviderOptions map[string]any `json:"provider_options"`
+
+	// The first characters of the key the migration holds. The key itself is never
+	// returned.
+	CredentialHint       string    `json:"credential_hint"`
+	CredentialsExpiresAt time.Time `json:"credentials_expires_at"`
+
+	// When a job paused by the provider's rate limit resumes by itself.
+	ResumesAt     time.Time         `json:"resumes_at"`
+	StatusMapping map[string]string `json:"status_mapping"`
+	IsDryRun      bool              `json:"is_dry_run"`
+
+	// What a dry run found: `total`, `by_status`, `already_in_didit`,
+	// `same_person`, `not_finished`, `failed`, `unmapped_statuses`.
+	DryRunSummary          map[string]any `json:"dry_run_summary"`
+	FaceTemplatesEnabled   bool           `json:"face_templates_enabled"`
+	LawfulBasisConfirmedAt time.Time      `json:"lawful_basis_confirmed_at"`
+	NotFinishedCount       int64          `json:"not_finished_count"`
+	SamePersonCount        int64          `json:"same_person_count"`
+	FaceTemplatesCount     int64          `json:"face_templates_count"`
+	FaceDuplicatesCount    int64          `json:"face_duplicates_count"`
+	FaceBlocklistHitsCount int64          `json:"face_blocklist_hits_count"`
+	CreatedByName          string         `json:"created_by_name"`
+	CreatedByEmail         string         `json:"created_by_email"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionImportJob leniently.
+func (r *SessionImportJob) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionImportJobStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SessionImportJobStatus string
+
+// Known values of SessionImportJobStatus.
+const (
+	SessionImportJobStatusPending    SessionImportJobStatus = "PENDING"
+	SessionImportJobStatusProcessing SessionImportJobStatus = "PROCESSING"
+	SessionImportJobStatusCompleted  SessionImportJobStatus = "COMPLETED"
+	SessionImportJobStatusFailed     SessionImportJobStatus = "FAILED"
+	SessionImportJobStatusPaused     SessionImportJobStatus = "PAUSED"
+	SessionImportJobStatusCancelled  SessionImportJobStatus = "CANCELLED"
+	SessionImportJobStatusReady      SessionImportJobStatus = "READY"
+)
+
+// SessionImportJobImportType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SessionImportJobImportType string
+
+// Known values of SessionImportJobImportType.
+const (
+	SessionImportJobImportTypeUserVerification     SessionImportJobImportType = "user_verification"
+	SessionImportJobImportTypeBusinessVerification SessionImportJobImportType = "business_verification"
+	SessionImportJobImportTypeStatusRules          SessionImportJobImportType = "status_rules"
+	SessionImportJobImportTypeTransactions         SessionImportJobImportType = "transactions"
+)
+
+// SessionImportJobSourceFormat is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SessionImportJobSourceFormat string
+
+// Known values of SessionImportJobSourceFormat.
+const (
+	SessionImportJobSourceFormatCSV    SessionImportJobSourceFormat = "csv"
+	SessionImportJobSourceFormatNdjson SessionImportJobSourceFormat = "ndjson"
+)
+
+// SessionImportJobState: The job's state as the console shows it; `errors` is a
+// completed job with rejected rows.
+//
+// SessionImportJobState is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SessionImportJobState string
+
+// Known values of SessionImportJobState.
+const (
+	SessionImportJobStateReady     SessionImportJobState = "ready"
+	SessionImportJobStateQueued    SessionImportJobState = "queued"
+	SessionImportJobStateRunning   SessionImportJobState = "running"
+	SessionImportJobStatePaused    SessionImportJobState = "paused"
+	SessionImportJobStateCompleted SessionImportJobState = "completed"
+	SessionImportJobStateErrors    SessionImportJobState = "errors"
+	SessionImportJobStateFailed    SessionImportJobState = "failed"
+	SessionImportJobStateCancelled SessionImportJobState = "cancelled"
+)
+
+// SessionImportJobSource is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type SessionImportJobSource string
+
+// Known values of SessionImportJobSource.
+const (
+	SessionImportJobSourceFile     SessionImportJobSource = "file"
+	SessionImportJobSourceAPI      SessionImportJobSource = "api"
+	SessionImportJobSourceProvider SessionImportJobSource = "provider"
+)
+
+// SessionsImportsCheckProviderParams holds the parameters of
+// Client.Sessions.Imports.CheckProvider.
+type SessionsImportsCheckProviderParams struct {
+	// Migration source, from `GET /v3/session/imports/providers/`. Required when
+	// `source` is `provider`. Required.
+	Provider SessionsImportsCheckProviderParamsProvider `json:"provider"`
+
+	// The provider's read-only key, with the field names `credential_fields` lists.
+	// Encrypted at rest, never returned, and erased when the import ends. Send it
+	// as a JSON string in multipart. Required.
+	Credentials map[string]string                              `json:"credentials"`
+	Options     Opt[SessionsImportsCheckProviderParamsOptions] `json:"options"`
+
+	// For `api_ids` providers: the first record ID of your export.
+	RecordIDs Opt[[]string] `json:"record_ids"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsImportsCheckProviderParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsImportsCheckProviderParamsProvider: Migration source, from `GET
+// /v3/session/imports/providers/`. Required when `source` is `provider`.
+//
+// SessionsImportsCheckProviderParamsProvider is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsImportsCheckProviderParamsProvider string
+
+// Known values of SessionsImportsCheckProviderParamsProvider.
+const (
+	SessionsImportsCheckProviderParamsProviderSumsub     SessionsImportsCheckProviderParamsProvider = "sumsub"
+	SessionsImportsCheckProviderParamsProviderJumio      SessionsImportsCheckProviderParamsProvider = "jumio"
+	SessionsImportsCheckProviderParamsProviderVeriff     SessionsImportsCheckProviderParamsProvider = "veriff"
+	SessionsImportsCheckProviderParamsProviderOnfido     SessionsImportsCheckProviderParamsProvider = "onfido"
+	SessionsImportsCheckProviderParamsProviderPersona    SessionsImportsCheckProviderParamsProvider = "persona"
+	SessionsImportsCheckProviderParamsProviderMetamap    SessionsImportsCheckProviderParamsProvider = "metamap"
+	SessionsImportsCheckProviderParamsProviderSocure     SessionsImportsCheckProviderParamsProvider = "socure"
+	SessionsImportsCheckProviderParamsProviderIdnow      SessionsImportsCheckProviderParamsProvider = "idnow"
+	SessionsImportsCheckProviderParamsProviderShufti     SessionsImportsCheckProviderParamsProvider = "shufti"
+	SessionsImportsCheckProviderParamsProviderIdenfy     SessionsImportsCheckProviderParamsProvider = "idenfy"
+	SessionsImportsCheckProviderParamsProviderOndato     SessionsImportsCheckProviderParamsProvider = "ondato"
+	SessionsImportsCheckProviderParamsProviderTrulioo    SessionsImportsCheckProviderParamsProvider = "trulioo"
+	SessionsImportsCheckProviderParamsProviderAu10tix    SessionsImportsCheckProviderParamsProvider = "au10tix"
+	SessionsImportsCheckProviderParamsProviderComplycube SessionsImportsCheckProviderParamsProvider = "complycube"
+	SessionsImportsCheckProviderParamsProviderOther      SessionsImportsCheckProviderParamsProvider = "other"
+)
+
+// SessionsImportsCheckProviderParamsOptions is a request object.
+type SessionsImportsCheckProviderParamsOptions struct {
+	// The provider region, one of its `regions` (Onfido: `eu`, `us`, `ca`).
+	Region Opt[string] `json:"region"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsImportsCheckProviderParamsOptions) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsImportsCheckProviderResponse is a response object.
+type SessionsImportsCheckProviderResponse struct {
+	Ok             bool   `json:"ok"`
+	Provider       string `json:"provider"`
+	CredentialHint string `json:"credential_hint"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsImportsCheckProviderResponse leniently.
+func (r *SessionsImportsCheckProviderResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // SessionsImportsCreateParams holds the parameters of
 // Client.Sessions.Imports.Create.
 type SessionsImportsCreateParams struct {
@@ -14029,6 +14478,39 @@ type SessionsImportsCreateParams struct {
 	// address (private/loopback networks are rejected). Mutually exclusive with
 	// `file`.
 	SourceFileURL Opt[string] `json:"source_file_url"`
+
+	// `provider` makes this a migration from another identity verification
+	// provider. Omit for a file import.
+	Source Opt[SessionsImportsCreateParamsSource] `json:"source"`
+
+	// Migration source, from `GET /v3/session/imports/providers/`. Required when
+	// `source` is `provider`.
+	Provider Opt[SessionsImportsCreateParamsProvider] `json:"provider"`
+
+	// The provider's read-only key, with the field names `credential_fields` lists.
+	// Encrypted at rest, never returned, and erased when the import ends. Send it
+	// as a JSON string in multipart.
+	Credentials Opt[map[string]string]                  `json:"credentials"`
+	Options     Opt[SessionsImportsCreateParamsOptions] `json:"options"`
+
+	// Edits to the provider's default status mapping: source status to Didit
+	// status. `Not Finished` and `Abandoned` are skipped and counted, never
+	// imported.
+	StatusMapping Opt[map[string]SessionsImportsCreateParamsStatusMapping] `json:"status_mapping"`
+
+	// Count what the migration would import (by status, already in Didit, same
+	// person, not finished) and write nothing. The job ends `READY`; start it with
+	// `POST /v3/session/imports/{importId}/start/`.
+	DryRun Opt[bool] `json:"dry_run"`
+
+	// Build face templates from the imported selfies and search them against the
+	// application's faces and blocklist. Matches are flagged for review only.
+	// Requires `lawful_basis_confirmed`.
+	FaceTemplates Opt[bool] `json:"face_templates"`
+
+	// Confirms you have a lawful basis to share these selfies with Didit as
+	// processor.
+	LawfulBasisConfirmed Opt[bool] `json:"lawful_basis_confirmed"`
 
 	// Canonical CSV or NDJSON file. Use NDJSON for large imports. Maximum upload
 	// size 25 MB (use `source_file_url` for bigger files). Mutually exclusive with
@@ -14067,73 +14549,216 @@ const (
 	SessionsImportsCreateParamsSourceFormatNdjson SessionsImportsCreateParamsSourceFormat = "ndjson"
 )
 
-// SessionImportJob is a response object.
-type SessionImportJob struct {
-	// Import job id. Use this value to poll progress and fetch row errors.
-	UUID            string                       `json:"uuid"`
-	Status          SessionImportJobStatus       `json:"status"`
-	ImportType      SessionImportJobImportType   `json:"import_type"`
-	SourceFormat    SessionImportJobSourceFormat `json:"source_format"`
-	SourceFilename  string                       `json:"source_filename"`
-	TotalRows       int64                        `json:"total_rows"`
-	ProcessedRows   int64                        `json:"processed_rows"`
-	CheckpointRow   int64                        `json:"checkpoint_row"`
-	CreatedCount    int64                        `json:"created_count"`
-	UpdatedCount    int64                        `json:"updated_count"`
-	SkippedCount    int64                        `json:"skipped_count"`
-	FailedCount     int64                        `json:"failed_count"`
-	TotalMediaBytes int64                        `json:"total_media_bytes"`
-	LastError       string                       `json:"last_error"`
-	CreatedAt       time.Time                    `json:"created_at"`
-	UpdatedAt       time.Time                    `json:"updated_at"`
-	StartedAt       time.Time                    `json:"started_at"`
-	CompletedAt     time.Time                    `json:"completed_at"`
+// SessionsImportsCreateParamsSource: `provider` makes this a migration from
+// another identity verification provider. Omit for a file import.
+//
+// SessionsImportsCreateParamsSource is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SessionsImportsCreateParamsSource string
+
+// Known values of SessionsImportsCreateParamsSource.
+const (
+	SessionsImportsCreateParamsSourceFile     SessionsImportsCreateParamsSource = "file"
+	SessionsImportsCreateParamsSourceProvider SessionsImportsCreateParamsSource = "provider"
+)
+
+// SessionsImportsCreateParamsProvider: Migration source, from `GET
+// /v3/session/imports/providers/`. Required when `source` is `provider`.
+//
+// SessionsImportsCreateParamsProvider is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SessionsImportsCreateParamsProvider string
+
+// Known values of SessionsImportsCreateParamsProvider.
+const (
+	SessionsImportsCreateParamsProviderSumsub     SessionsImportsCreateParamsProvider = "sumsub"
+	SessionsImportsCreateParamsProviderJumio      SessionsImportsCreateParamsProvider = "jumio"
+	SessionsImportsCreateParamsProviderVeriff     SessionsImportsCreateParamsProvider = "veriff"
+	SessionsImportsCreateParamsProviderOnfido     SessionsImportsCreateParamsProvider = "onfido"
+	SessionsImportsCreateParamsProviderPersona    SessionsImportsCreateParamsProvider = "persona"
+	SessionsImportsCreateParamsProviderMetamap    SessionsImportsCreateParamsProvider = "metamap"
+	SessionsImportsCreateParamsProviderSocure     SessionsImportsCreateParamsProvider = "socure"
+	SessionsImportsCreateParamsProviderIdnow      SessionsImportsCreateParamsProvider = "idnow"
+	SessionsImportsCreateParamsProviderShufti     SessionsImportsCreateParamsProvider = "shufti"
+	SessionsImportsCreateParamsProviderIdenfy     SessionsImportsCreateParamsProvider = "idenfy"
+	SessionsImportsCreateParamsProviderOndato     SessionsImportsCreateParamsProvider = "ondato"
+	SessionsImportsCreateParamsProviderTrulioo    SessionsImportsCreateParamsProvider = "trulioo"
+	SessionsImportsCreateParamsProviderAu10tix    SessionsImportsCreateParamsProvider = "au10tix"
+	SessionsImportsCreateParamsProviderComplycube SessionsImportsCreateParamsProvider = "complycube"
+	SessionsImportsCreateParamsProviderOther      SessionsImportsCreateParamsProvider = "other"
+)
+
+// SessionsImportsCreateParamsOptions is a request object.
+type SessionsImportsCreateParamsOptions struct {
+	// The provider region, one of its `regions` (Onfido: `eu`, `us`, `ca`).
+	Region Opt[string] `json:"region"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsImportsCreateParamsOptions) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsImportsCreateParamsStatusMapping is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsImportsCreateParamsStatusMapping string
+
+// Known values of SessionsImportsCreateParamsStatusMapping.
+const (
+	SessionsImportsCreateParamsStatusMappingApproved    SessionsImportsCreateParamsStatusMapping = "Approved"
+	SessionsImportsCreateParamsStatusMappingDeclined    SessionsImportsCreateParamsStatusMapping = "Declined"
+	SessionsImportsCreateParamsStatusMappingInReview    SessionsImportsCreateParamsStatusMapping = "In Review"
+	SessionsImportsCreateParamsStatusMappingExpired     SessionsImportsCreateParamsStatusMapping = "Expired"
+	SessionsImportsCreateParamsStatusMappingNotFinished SessionsImportsCreateParamsStatusMapping = "Not Finished"
+	SessionsImportsCreateParamsStatusMappingAbandoned   SessionsImportsCreateParamsStatusMapping = "Abandoned"
+)
+
+// SessionsImportsListActiveJobsResponse is a response object.
+type SessionsImportsListActiveJobsResponse struct {
+	Results []ImportJobSummary `json:"results"`
+	Running int64              `json:"running"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes SessionImportJob leniently.
-func (r *SessionImportJob) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes SessionsImportsListActiveJobsResponse leniently.
+func (r *SessionsImportsListActiveJobsResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SessionImportJobStatus is a string with known values below. The set is open:
+// ImportJobSummary: One import job of any kind, in the shape the console's
+// Import jobs drawer reads.
+type ImportJobSummary struct {
+	ID           string                 `json:"id"`
+	Kind         ImportJobSummaryKind   `json:"kind"`
+	Source       ImportJobSummarySource `json:"source"`
+	Provider     string                 `json:"provider"`
+	ProviderName string                 `json:"provider_name"`
+	Filename     string                 `json:"filename"`
+
+	// The job's state as the console shows it; `errors` is a completed job with
+	// rejected rows.
+	State          ImportJobSummaryState         `json:"state"`
+	Status         string                        `json:"status"`
+	IsDryRun       bool                          `json:"is_dry_run"`
+	CredentialHint string                        `json:"credential_hint"`
+	ResumesAt      time.Time                     `json:"resumes_at"`
+	LastError      string                        `json:"last_error"`
+	StartedBy      ImportJobSummaryStartedBy     `json:"started_by"`
+	Progress       ImportJobSummaryProgress      `json:"progress"`
+	FaceTemplates  ImportJobSummaryFaceTemplates `json:"face_templates"`
+	EtaSeconds     int64                         `json:"eta_seconds"`
+	CreatedAt      time.Time                     `json:"created_at"`
+	StartedAt      time.Time                     `json:"started_at"`
+	CompletedAt    time.Time                     `json:"completed_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportJobSummary leniently.
+func (r *ImportJobSummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportJobSummaryKind is a string with known values below. The set is open:
 // other values may appear and never cause an error.
-type SessionImportJobStatus string
+type ImportJobSummaryKind string
 
-// Known values of SessionImportJobStatus.
+// Known values of ImportJobSummaryKind.
 const (
-	SessionImportJobStatusPending    SessionImportJobStatus = "PENDING"
-	SessionImportJobStatusProcessing SessionImportJobStatus = "PROCESSING"
-	SessionImportJobStatusCompleted  SessionImportJobStatus = "COMPLETED"
-	SessionImportJobStatusFailed     SessionImportJobStatus = "FAILED"
-	SessionImportJobStatusPaused     SessionImportJobStatus = "PAUSED"
-	SessionImportJobStatusCancelled  SessionImportJobStatus = "CANCELLED"
+	ImportJobSummaryKindSessions     ImportJobSummaryKind = "sessions"
+	ImportJobSummaryKindBusinesses   ImportJobSummaryKind = "businesses"
+	ImportJobSummaryKindUsers        ImportJobSummaryKind = "users"
+	ImportJobSummaryKindStatusRules  ImportJobSummaryKind = "status_rules"
+	ImportJobSummaryKindTransactions ImportJobSummaryKind = "transactions"
 )
 
-// SessionImportJobImportType is a string with known values below. The set is
-// open: other values may appear and never cause an error.
-type SessionImportJobImportType string
+// ImportJobSummarySource is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type ImportJobSummarySource string
 
-// Known values of SessionImportJobImportType.
+// Known values of ImportJobSummarySource.
 const (
-	SessionImportJobImportTypeUserVerification     SessionImportJobImportType = "user_verification"
-	SessionImportJobImportTypeBusinessVerification SessionImportJobImportType = "business_verification"
-	SessionImportJobImportTypeStatusRules          SessionImportJobImportType = "status_rules"
-	SessionImportJobImportTypeTransactions         SessionImportJobImportType = "transactions"
+	ImportJobSummarySourceFile     ImportJobSummarySource = "file"
+	ImportJobSummarySourceAPI      ImportJobSummarySource = "api"
+	ImportJobSummarySourceProvider ImportJobSummarySource = "provider"
 )
 
-// SessionImportJobSourceFormat is a string with known values below. The set is
-// open: other values may appear and never cause an error.
-type SessionImportJobSourceFormat string
+// ImportJobSummaryState: The job's state as the console shows it; `errors` is a
+// completed job with rejected rows.
+//
+// ImportJobSummaryState is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type ImportJobSummaryState string
 
-// Known values of SessionImportJobSourceFormat.
+// Known values of ImportJobSummaryState.
 const (
-	SessionImportJobSourceFormatCSV    SessionImportJobSourceFormat = "csv"
-	SessionImportJobSourceFormatNdjson SessionImportJobSourceFormat = "ndjson"
+	ImportJobSummaryStateReady     ImportJobSummaryState = "ready"
+	ImportJobSummaryStateQueued    ImportJobSummaryState = "queued"
+	ImportJobSummaryStateRunning   ImportJobSummaryState = "running"
+	ImportJobSummaryStatePaused    ImportJobSummaryState = "paused"
+	ImportJobSummaryStateCompleted ImportJobSummaryState = "completed"
+	ImportJobSummaryStateErrors    ImportJobSummaryState = "errors"
+	ImportJobSummaryStateFailed    ImportJobSummaryState = "failed"
+	ImportJobSummaryStateCancelled ImportJobSummaryState = "cancelled"
 )
+
+// ImportJobSummaryStartedBy is a response object.
+type ImportJobSummaryStartedBy struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportJobSummaryStartedBy leniently.
+func (r *ImportJobSummaryStartedBy) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportJobSummaryProgress is a response object.
+type ImportJobSummaryProgress struct {
+	Total          int64 `json:"total"`
+	Processed      int64 `json:"processed"`
+	Imported       int64 `json:"imported"`
+	Updated        int64 `json:"updated"`
+	AlreadyInDidit int64 `json:"already_in_didit"`
+	Failed         int64 `json:"failed"`
+	NotFinished    int64 `json:"not_finished"`
+	SamePerson     int64 `json:"same_person"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportJobSummaryProgress leniently.
+func (r *ImportJobSummaryProgress) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportJobSummaryFaceTemplates is a response object.
+type ImportJobSummaryFaceTemplates struct {
+	Enabled     bool  `json:"enabled"`
+	Built       int64 `json:"built"`
+	Duplicates  int64 `json:"duplicates"`
+	Blocklisted int64 `json:"blocklisted"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportJobSummaryFaceTemplates leniently.
+func (r *ImportJobSummaryFaceTemplates) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // SessionsImportsListErrorsParams holds the parameters of
 // Client.Sessions.Imports.ListErrors.
@@ -14169,6 +14794,171 @@ func (r *SessionImportError) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SessionsImportsListJobsParams holds the parameters of
+// Client.Sessions.Imports.ListJobs.
+type SessionsImportsListJobsParams struct {
+	Scope Opt[SessionsImportsListJobsParamsScope] `json:"-" query:"scope"`
+	Limit Opt[int64]                              `json:"-" query:"limit"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsImportsListJobsParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsImportsListJobsParamsScope is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SessionsImportsListJobsParamsScope string
+
+// Known values of SessionsImportsListJobsParamsScope.
+const (
+	SessionsImportsListJobsParamsScopeAll        SessionsImportsListJobsParamsScope = "all"
+	SessionsImportsListJobsParamsScopeSessions   SessionsImportsListJobsParamsScope = "sessions"
+	SessionsImportsListJobsParamsScopeUsers      SessionsImportsListJobsParamsScope = "users"
+	SessionsImportsListJobsParamsScopeBusinesses SessionsImportsListJobsParamsScope = "businesses"
+)
+
+// SessionsImportsListJobsResponse is a response object.
+type SessionsImportsListJobsResponse struct {
+	Results []ImportJobSummary                    `json:"results"`
+	Counts  SessionsImportsListJobsResponseCounts `json:"counts"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsImportsListJobsResponse leniently.
+func (r *SessionsImportsListJobsResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsImportsListJobsResponseCounts is a response object.
+type SessionsImportsListJobsResponseCounts struct {
+	All               int64 `json:"all"`
+	RunningAndWaiting int64 `json:"running_and_waiting"`
+	NeedsAttention    int64 `json:"needs_attention"`
+	Done              int64 `json:"done"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsImportsListJobsResponseCounts leniently.
+func (r *SessionsImportsListJobsResponseCounts) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsImportsListProvidersResponse is a response object.
+type SessionsImportsListProvidersResponse struct {
+	Providers       []ImportProvider `json:"providers"`
+	MappingTargets  []string         `json:"mapping_targets"`
+	SkippedStatuses []string         `json:"skipped_statuses"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsImportsListProvidersResponse leniently.
+func (r *SessionsImportsListProvidersResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportProvider is a response object.
+type ImportProvider struct {
+	Key  ImportProviderKey `json:"key"`
+	Name string            `json:"name"`
+
+	// `api_list`: Didit lists records with the key. `api_ids`: upload the record
+	// IDs from an export. `export_file`: upload an export in Didit's format.
+	Mode                ImportProviderMode                     `json:"mode"`
+	RecordNoun          string                                 `json:"record_noun"`
+	CredentialFields    []ImportProviderCredentialFields       `json:"credential_fields"`
+	Regions             []string                               `json:"regions"`
+	RequiredPermissions []string                               `json:"required_permissions"`
+	DocsURL             string                                 `json:"docs_url"`
+	StatusMapping       map[string]ImportProviderStatusMapping `json:"status_mapping"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportProvider leniently.
+func (r *ImportProvider) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportProviderKey is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type ImportProviderKey string
+
+// Known values of ImportProviderKey.
+const (
+	ImportProviderKeySumsub     ImportProviderKey = "sumsub"
+	ImportProviderKeyJumio      ImportProviderKey = "jumio"
+	ImportProviderKeyVeriff     ImportProviderKey = "veriff"
+	ImportProviderKeyOnfido     ImportProviderKey = "onfido"
+	ImportProviderKeyPersona    ImportProviderKey = "persona"
+	ImportProviderKeyMetamap    ImportProviderKey = "metamap"
+	ImportProviderKeySocure     ImportProviderKey = "socure"
+	ImportProviderKeyIdnow      ImportProviderKey = "idnow"
+	ImportProviderKeyShufti     ImportProviderKey = "shufti"
+	ImportProviderKeyIdenfy     ImportProviderKey = "idenfy"
+	ImportProviderKeyOndato     ImportProviderKey = "ondato"
+	ImportProviderKeyTrulioo    ImportProviderKey = "trulioo"
+	ImportProviderKeyAu10tix    ImportProviderKey = "au10tix"
+	ImportProviderKeyComplycube ImportProviderKey = "complycube"
+	ImportProviderKeyOther      ImportProviderKey = "other"
+)
+
+// ImportProviderMode: `api_list`: Didit lists records with the key. `api_ids`:
+// upload the record IDs from an export. `export_file`: upload an export in
+// Didit's format.
+//
+// ImportProviderMode is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type ImportProviderMode string
+
+// Known values of ImportProviderMode.
+const (
+	ImportProviderModeAPIList    ImportProviderMode = "api_list"
+	ImportProviderModeAPIIDs     ImportProviderMode = "api_ids"
+	ImportProviderModeExportFile ImportProviderMode = "export_file"
+)
+
+// ImportProviderCredentialFields is a response object.
+type ImportProviderCredentialFields struct {
+	Name   string `json:"name"`
+	Label  string `json:"label"`
+	Secret bool   `json:"secret"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportProviderCredentialFields leniently.
+func (r *ImportProviderCredentialFields) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportProviderStatusMapping is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type ImportProviderStatusMapping string
+
+// Known values of ImportProviderStatusMapping.
+const (
+	ImportProviderStatusMappingApproved    ImportProviderStatusMapping = "Approved"
+	ImportProviderStatusMappingDeclined    ImportProviderStatusMapping = "Declined"
+	ImportProviderStatusMappingInReview    ImportProviderStatusMapping = "In Review"
+	ImportProviderStatusMappingExpired     ImportProviderStatusMapping = "Expired"
+	ImportProviderStatusMappingNotFinished ImportProviderStatusMapping = "Not Finished"
+	ImportProviderStatusMappingAbandoned   ImportProviderStatusMapping = "Abandoned"
+)
+
 // SessionsImportsRetrieveTemplateParams holds the parameters of
 // Client.Sessions.Imports.RetrieveTemplate.
 type SessionsImportsRetrieveTemplateParams struct {
@@ -14190,6 +14980,61 @@ const (
 	SessionsImportsRetrieveTemplateParamsImportTypeBusinessVerification SessionsImportsRetrieveTemplateParamsImportType = "business_verification"
 	SessionsImportsRetrieveTemplateParamsImportTypeStatusRules          SessionsImportsRetrieveTemplateParamsImportType = "status_rules"
 	SessionsImportsRetrieveTemplateParamsImportTypeTransactions         SessionsImportsRetrieveTemplateParamsImportType = "transactions"
+)
+
+// SessionsImportsRetryParams holds the parameters of
+// Client.Sessions.Imports.Retry.
+type SessionsImportsRetryParams struct {
+	// The provider's read-only key, with the field names `credential_fields` lists.
+	// Encrypted at rest, never returned, and erased when the import ends. Send it
+	// as a JSON string in multipart.
+	Credentials Opt[map[string]string] `json:"credentials"`
+
+	// The record IDs or export file again, for `api_ids` and `export_file`
+	// providers.
+	File Opt[File] `json:"-" form:"file"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsImportsRetryParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsImportsStartParams holds the parameters of
+// Client.Sessions.Imports.Start.
+type SessionsImportsStartParams struct {
+	// Edits to the provider's default status mapping: source status to Didit
+	// status. `Not Finished` and `Abandoned` are skipped and counted, never
+	// imported.
+	StatusMapping Opt[map[string]SessionsImportsStartParamsStatusMapping] `json:"status_mapping"`
+
+	// Build face templates from the imported selfies and search them against the
+	// application's faces and blocklist. Matches are flagged for review only.
+	// Requires `lawful_basis_confirmed`.
+	FaceTemplates Opt[bool] `json:"face_templates"`
+
+	// Confirms you have a lawful basis to share these selfies with Didit as
+	// processor.
+	LawfulBasisConfirmed Opt[bool] `json:"lawful_basis_confirmed"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsImportsStartParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsImportsStartParamsStatusMapping is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsImportsStartParamsStatusMapping string
+
+// Known values of SessionsImportsStartParamsStatusMapping.
+const (
+	SessionsImportsStartParamsStatusMappingApproved    SessionsImportsStartParamsStatusMapping = "Approved"
+	SessionsImportsStartParamsStatusMappingDeclined    SessionsImportsStartParamsStatusMapping = "Declined"
+	SessionsImportsStartParamsStatusMappingInReview    SessionsImportsStartParamsStatusMapping = "In Review"
+	SessionsImportsStartParamsStatusMappingExpired     SessionsImportsStartParamsStatusMapping = "Expired"
+	SessionsImportsStartParamsStatusMappingNotFinished SessionsImportsStartParamsStatusMapping = "Not Finished"
+	SessionsImportsStartParamsStatusMappingAbandoned   SessionsImportsStartParamsStatusMapping = "Abandoned"
 )
 
 // SessionsReviewsCreateParams holds the parameters of
