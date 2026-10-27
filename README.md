@@ -265,6 +265,14 @@ vasps := client.TravelRule.ListVASPsAutoPaging(ctx, didit.TravelRuleListVASPsPar
 
 Rules (`client.Transactions.Rules`), Travel Rule transfers (`client.Transactions.TravelRule`), Travel Rule settings and wallet addresses (`client.TravelRule`, `client.TravelRule.WalletAddresses`) are covered too; the webhooks `transaction.created`, `transaction.status.updated` and `travel_rule.status.updated` have typed events.
 
+## Bank verification prices
+
+The list prices of every Bank Verification method, by country, come from a public endpoint that needs no credentials:
+
+```go
+prices, err := client.Pricing.BankVerification(ctx)
+```
+
 ## Authentication
 
 The `authentication` package validates the tokens of [Didit Authentication](https://docs.didit.me/authentication) (customer sign-in for your application's users) in your backend. It talks to your application's issuer and never needs the API key.
