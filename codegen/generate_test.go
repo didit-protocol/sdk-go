@@ -208,12 +208,12 @@ func TestSanitize(t *testing.T) {
 }
 
 func TestSanitizeKeepsTimestamps(t *testing.T) {
-	n, err := ParseNode([]byte(`{"credentials_expires_at":"2026-10-27T10:00:00Z","token_date":"2026-10-27"}`))
+	n, err := ParseNode([]byte(`{"credentials_expires_at":"2026-10-27T10:00:00Z","token_date":"2026-10-27","password":"2026-10-27-secret"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := sanitizeExample(n).JSON()
-	want := `{"credentials_expires_at":"2026-10-27T10:00:00Z","token_date":"2026-10-27"}`
+	want := `{"credentials_expires_at":"2026-10-27T10:00:00Z","token_date":"2026-10-27","password":"sample-password"}`
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
