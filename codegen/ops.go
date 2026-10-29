@@ -45,7 +45,10 @@ type Method struct {
 	GoName   string
 	PathArgs []PathArg
 	// Params is the parameter type, nil when the method takes none.
-	Params   *GoType
+	Params *GoType
+	// ParamsMethod, when set, is the Go name of a companion method that takes
+	// Params; the method itself then takes none (openapi/compatibility.json).
+	ParamsMethod string
 	BodyKind string
 	Return   ReturnKind
 	// Result is the JSON result type (RetJSON) or the item type (RetPage).
@@ -97,6 +100,7 @@ func (g *Gen) buildServices() (*Service, error) {
 		return s
 	}
 	var problems []string
+	kept := map[string]bool{}
 	for _, op := range g.spec.ServerOps() {
 		s := get(op.Naming.Resource)
 		m, err := g.buildMethod(op, s)
@@ -104,7 +108,19 @@ func (g *Gen) buildServices() (*Service, error) {
 			problems = append(problems, fmt.Sprintf("%s: %v", op.Key, err))
 			continue
 		}
+		id := op.Naming.Resource + "." + op.Naming.Method
+		if companion, ok := g.spec.Compat.ParamsMethods[id]; ok {
+			kept[id] = true
+			if err := g.keepWithoutParams(m, companion); err != nil {
+				problems = append(problems, fmt.Sprintf("openapi/compatibility.json params_methods %s: %v", id, err))
+			}
+		}
 		s.Methods = append(s.Methods, m)
+	}
+	for _, id := range sortedKeys(g.spec.Compat.ParamsMethods) {
+		if !kept[id] {
+			problems = append(problems, fmt.Sprintf("openapi/compatibility.json params_methods %s: no server operation has this name; delete the entry", id))
+		}
 	}
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("generating operations:\n  %s", strings.Join(problems, "\n  "))
@@ -116,14 +132,19 @@ func (g *Gen) buildServices() (*Service, error) {
 			names[c.Field] = "sub-resource " + c.Path
 		}
 		for _, m := range s.Methods {
-			for _, n := range []string{m.GoName, m.GoName + "AutoPaging"} {
-				if prev, ok := names[n]; ok && (n == m.GoName || m.Return == RetPage) {
-					return fmt.Errorf("%s.%s: %s collides with %s", s.TypeName, n, m.Op.Key, prev)
+			for _, goName := range []string{m.GoName, m.ParamsMethod} {
+				if goName == "" {
+					continue
 				}
-			}
-			names[m.GoName] = m.Op.Key
-			if m.Return == RetPage {
-				names[m.GoName+"AutoPaging"] = m.Op.Key
+				for _, n := range []string{goName, goName + "AutoPaging"} {
+					if prev, ok := names[n]; ok && (n == goName || m.Return == RetPage) {
+						return fmt.Errorf("%s.%s: %s collides with %s", s.TypeName, n, m.Op.Key, prev)
+					}
+				}
+				names[goName] = m.Op.Key
+				if m.Return == RetPage {
+					names[goName+"AutoPaging"] = m.Op.Key
+				}
 			}
 		}
 		sort.Slice(s.Children, func(i, j int) bool { return s.Children[i].Path < s.Children[j].Path })
@@ -175,6 +196,30 @@ func (g *Gen) buildMethod(op *Operation, s *Service) (*Method, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+// keepWithoutParams keeps the released signature of a method that took no
+// parameters when the API added optional ones: the method still takes none,
+// and a companion method named by openapi/compatibility.json takes them. A
+// required parameter cannot be added that way: calls without it would fail,
+// so that change is a major version (docs/DESIGN.md section 13).
+func (g *Gen) keepWithoutParams(m *Method, companion string) error {
+	if m.Params == nil {
+		return fmt.Errorf("the method takes no parameters, so it needs no companion; delete the entry")
+	}
+	if d := g.byName[m.Params.Name]; d != nil {
+		for _, f := range d.Fields {
+			if f.Required {
+				return fmt.Errorf("%s.%s is required, so the method cannot keep a signature without parameters", m.Params.Name, f.GoName)
+			}
+		}
+	}
+	name := naming.Pascal(companion)
+	if name == "" || name == m.GoName {
+		return fmt.Errorf("companion method name %q must differ from %s", companion, m.GoName)
+	}
+	m.ParamsMethod = name
+	return nil
 }
 
 // templateParams returns the {names} of a path template in order.
