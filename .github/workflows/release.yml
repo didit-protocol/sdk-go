@@ -1,6 +1,5 @@
-# Runs when release-please publishes a GitHub release (vX.Y.Z tag), after a reviewer of the
-# `release` environment approved that release-please run. NOTHING MAY BE RELEASED before
-# Alex's explicit approval and the 2026-11-01 Didit release (docs/DESIGN.md section 13).
+# Runs when release-please creates a release (release-please.yml starts it with the vX.Y.Z tag) or
+# when a GitHub release is published by hand. Merging the release pull request is the approval.
 #
 # A Go module has no registry upload: the tag is the release. This workflow checks the
 # tagged code, attaches a source archive with a signed build provenance attestation (SLSA,

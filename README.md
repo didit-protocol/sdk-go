@@ -4,8 +4,6 @@ The official Didit Go library.
 
 Identity verification (KYC), business verification (KYB), AML screening, biometrics, transaction monitoring, Travel Rule and customer Authentication, from your Go backend. Every server API of [Didit](https://didit.me) is available with full types, webhooks are verified safely, and Authentication tokens are validated locally.
 
-> In development. Not released yet: the first release is planned with the 2026-11-01 Didit release.
-
 - API reference: [docs.didit.me](https://docs.didit.me)
 - Design contract shared by the seven Didit server SDKs: [docs/DESIGN.md](docs/DESIGN.md)
 

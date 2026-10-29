@@ -57,14 +57,14 @@ The SDK follows the API. Never edit generated files: change the generator, or th
 
 Use [conventional commits](https://www.conventionalcommits.org): `feat:`, `fix:`, `docs:`, `chore:`, and `feat!:` or a `BREAKING CHANGE:` footer for breaking changes. The type decides the next version.
 
-Releases are cut by release-please (`.github/workflows/release-please.yml`, started by hand): it opens a release pull request that bumps `internal/version/version.go` and generates `CHANGELOG.md` (never edit it by hand). Merging it and running the workflow again pushes the `vX.Y.Z` tag and the GitHub release, which starts `.github/workflows/release.yml` (tests, source archive with build provenance, Go proxy fetch). For a Go module the tag is the release, so every release-please run waits for a reviewer of the `release` environment, and `release.yml` waits for one again.
+Releases are cut by release-please (`.github/workflows/release-please.yml`, on every push to `main`): it keeps a release pull request that bumps `internal/version/version.go` and generates `CHANGELOG.md` (never edit it by hand). Merging the release pull request is the release approval (Alex, 2026-10-29); nobody tags or publishes by hand. The next run pushes the `vX.Y.Z` tag and the GitHub release and starts `.github/workflows/release.yml` (tests, source archive with build provenance, Go proxy fetch). For a Go module the tag is the release.
 
-Nothing is released before Alex's explicit approval and the 2026-11-01 Didit release; the version stays `0.x` until then, and the repository stays private.
+1.0.0 was released on 2026-10-29.
 
-### One-time setup before the first release
+### One-time setup (done for 1.0.0)
 
-1. Make the repository public (only with Alex's approval, after the full-history gitleaks scan passes).
-2. Create the `release` environment (Settings > Environments) with required reviewers and "Prevent self-review". Both release workflows run in it, so no tag is pushed before an approval.
+1. The repository is public (made public after a full-history gitleaks scan).
+2. `release.yml` runs in the `release` environment, which has no required reviewers: merging the release pull request is the approval.
 3. Releases need no stored token: release-please runs on GITHUB_TOKEN and starts `release.yml` for each new tag with `workflow_dispatch`.
 4. Add the `SPEC_SYNC_TOKEN` repository secret (same scopes as above) so the spec sync pull requests get CI. Without it the spec sync falls back to `GITHUB_TOKEN`, which needs "Allow GitHub Actions to create and approve pull requests" (Settings > Actions > General).
 5. Protect `main` (required checks: the CI jobs). If you add a tag ruleset that blocks creating `v*` tags, put the GitHub Actions app on its bypass list: release-please tags releases with `GITHUB_TOKEN`, which acts as that app, and every release run fails without it. Nobody else tags a release by hand.
