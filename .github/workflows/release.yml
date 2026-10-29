@@ -12,6 +12,12 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (for example v1.2.0); release-please starts this run
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -21,19 +27,17 @@ jobs:
     name: Verify, attest and announce to the Go proxy
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The `release` environment requires a reviewer (Settings > Environments), so a release
-    # made by hand is not attested or announced to the Go proxy without an approval either.
     environment: release
     permissions:
       contents: write # upload the archive to the release
       id-token: write # sign the attestation
       attestations: write
     env:
-      TAG: ${{ github.event.release.tag_name }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -56,7 +60,7 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: sdk-go-${{ github.event.release.tag_name }}.tar.gz
+          subject-path: sdk-go-${{ github.event.release.tag_name || inputs.tag }}.tar.gz
       - name: Upload the archive to the release
         env:
           GH_TOKEN: ${{ github.token }}

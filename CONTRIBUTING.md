@@ -65,8 +65,8 @@ Nothing is released before Alex's explicit approval and the 2026-11-01 Didit rel
 
 1. Make the repository public (only with Alex's approval, after the full-history gitleaks scan passes).
 2. Create the `release` environment (Settings > Environments) with required reviewers and "Prevent self-review". Both release workflows run in it, so no tag is pushed before an approval.
-3. Add the `RELEASE_PLEASE_TOKEN` secret to the `release` environment: a fine-grained token with Contents, Issues and Pull requests read and write on this repository only, so release-please's pull requests get CI and its releases start `release.yml`. The release-please workflow stops without it.
+3. Releases need no stored token: release-please runs on GITHUB_TOKEN and starts `release.yml` for each new tag with `workflow_dispatch`.
 4. Add the `SPEC_SYNC_TOKEN` repository secret (same scopes as above) so the spec sync pull requests get CI. Without it the spec sync falls back to `GITHUB_TOKEN`, which needs "Allow GitHub Actions to create and approve pull requests" (Settings > Actions > General).
-5. Protect `main` (required checks: the CI jobs) and add a tag ruleset that blocks creating `v*` tags, with only the repository admin role on its bypass list. The owner of `RELEASE_PLEASE_TOKEN` must be a repository admin; everyone else cannot tag a release by hand.
+5. Protect `main` (required checks: the CI jobs) and add a tag ruleset that blocks creating `v*` tags, with only the repository admin role on its bypass list. Releases are tagged only by release-please.
 6. Replace `@didit-protocol` in `.github/CODEOWNERS` with the SDK team.
 7. After the first tag, check `https://pkg.go.dev/github.com/didit-protocol/sdk-go` (the release workflow asks proxy.golang.org to fetch the version). Go has no registry account, namespace or trusted publisher to configure.
