@@ -47,8 +47,8 @@ type PassiveLivenessService struct {
 // (`FACE_IN_BLOCKLIST` screening is bypassed for same-`vendor_data` faces).
 //
 // **Billing.** Each `200` response consumes one Passive Liveness API credit
-// (standalone APIs have no free tier). Insufficient balance returns `403`
-// before any image processing.
+// (paid from your plan credit or top-up balance). Insufficient balance returns
+// `403` before any image processing.
 //
 // **Session persistence and face enrollment (`save_api_request`, default
 // `true`).** When `true`, the call is persisted as an API-type session
