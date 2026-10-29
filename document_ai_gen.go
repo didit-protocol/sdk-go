@@ -62,10 +62,10 @@ type DocumentAiService struct {
 // `document_ai.status` and `document_ai.warnings`, not just the HTTP code.
 //
 // **Billing.** Each `200` response consumes one Document AI API credit -
-// **$0.20 per document, no free tier** (standalone APIs never have one). When
-// the organization's balance cannot cover the call, the endpoint returns `403`
-// before any processing. Sandbox API keys return a deterministic mock response
-// and are not charged.
+// **$0.20 per document** at list, paid from your plan credit or top-up balance.
+// When the organization's balance cannot cover the call, the endpoint returns
+// `403` before any processing. Sandbox API keys return a deterministic mock
+// response and are not charged.
 //
 // **Persistence.** With `save_api_request=true` (default) the call is stored as
 // an API-type session: the document, the extracted values, the field

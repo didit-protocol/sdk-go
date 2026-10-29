@@ -19,9 +19,9 @@ type IDVerificationService struct {
 // Verify: ID Verification (document OCR + fraud checks).
 //
 // OCR an identity document and run document fraud checks in one call - returns
-// the extracted holder fields, the parsed MRZ, an `Approved`/`Declined`
-// `status`, and a `warnings` list explaining every issue found. Supports
-// 14,000+ document types from 220+ countries and territories.
+// the extracted holder fields, the parsed MRZ, an `Approved`/`Declined`/`In
+// Review` `status`, and a `warnings` list explaining every issue found.
+// Supports 14,000+ document types from 220+ countries and territories.
 //
 // **How it works.** Send the document's `front_image` (required) and, for
 // two-sided documents, the `back_image`. Upload uncropped photos with all four
@@ -46,16 +46,24 @@ type IDVerificationService struct {
 // `invalid_mrz_action`, `inconsistent_data_action`, and
 // `expiration_date_not_detected_action` (`DECLINE` or `NO_ACTION`). All other
 // warnings (e.g. `POSSIBLE_DUPLICATED_USER`) are informational and never
-// decline on their own. A document that cannot be processed at all returns
-// `400` with `{"error": "COULD_NOT_RECOGNIZE_DOCUMENT"}`; a readable but
-// problematic document returns `200` with `status: "Declined"` - always inspect
-// `id_verification.status` and `id_verification.warnings`, not just the HTTP
-// code.
+// decline on their own. When `perform_document_liveness=true` (the default) and
+// the forgery check returns no usable score - the provider failed, answered
+// non-200, or answered HTTP 200 with `status="ERR"` - the call returns `200`
+// with `status: "In Review"` and a `DOCUMENT_LIVENESS_NOT_COMPUTED` warning
+// (`log_type: "warning"`) instead of `Approved`: a check that did not run is
+// not evidence that the document is genuine. This escalation is not
+// configurable and never overrides a `Declined`; with
+// `perform_document_liveness=false` the check is skipped and the status follows
+// the remaining warnings as before. A document that cannot be processed at all
+// returns `400` with `{"error": "COULD_NOT_RECOGNIZE_DOCUMENT"}`; a readable
+// but problematic document returns `200` with `status: "Declined"` - always
+// inspect `id_verification.status` and `id_verification.warnings`, not just the
+// HTTP code.
 //
 // **Billing.** Each `200` response consumes one ID Verification API credit
-// (standalone APIs have no free tier). When the organization's balance cannot
-// cover the call, the endpoint returns `403` with the not-enough-credits error
-// before any image processing.
+// (paid from your plan credit or top-up balance). When the organization's
+// balance cannot cover the call, the endpoint returns `403` with the
+// not-enough-credits error before any image processing.
 //
 // **Session persistence (`save_api_request`, default `true`).** When `true`,
 // the call is persisted as an API-type session: it appears in the Business
@@ -118,7 +126,9 @@ type IDVerificationVerifyParams struct {
 	// (`SCREEN_CAPTURE_DETECTED`), printed copies (`PRINTED_COPY_DETECTED`), and
 	// portrait manipulation (`PORTRAIT_MANIPULATION_DETECTED`). Any of these
 	// auto-declines. Enabled by default; set to `false` to skip fraud screening and
-	// reduce latency.
+	// reduce latency. When enabled and the provider returns no usable score, the
+	// response is `In Review` with a `DOCUMENT_LIVENESS_NOT_COMPUTED` warning
+	// rather than `Approved`.
 	PerformDocumentLiveness Opt[bool] `json:"perform_document_liveness"`
 
 	// Accepted and validated (1-120) but **currently not applied** by this endpoint
@@ -322,8 +332,11 @@ func (r *IDVerificationVerifyResponse) UnmarshalJSON(data []byte) error {
 
 // IDVerificationVerifyResponseIDVerification is a response object.
 type IDVerificationVerifyResponseIDVerification struct {
-	// `Approved` when no warning resolves to a decline; `Declined` otherwise - the
-	// `warnings` list explains why.
+	// `Approved` when no warning resolves to a decline and the requested
+	// document-liveness check produced a usable result; `In Review` when that
+	// requested check produced no usable result (`DOCUMENT_LIVENESS_NOT_COMPUTED`);
+	// `Declined` when a warning resolves to a decline - the `warnings` list
+	// explains why.
 	Status IDVerificationVerifyResponseIDVerificationStatus `json:"status"`
 
 	// Detected document type display name: `Identity Card`, `Passport`, `Driver's
@@ -416,7 +429,9 @@ type IDVerificationVerifyResponseIDVerification struct {
 	ParsedAddress IDVerificationVerifyResponseIDVerificationParsedAddress `json:"parsed_address"`
 
 	// Empty on a clean approval. Every entry explains one detected risk; entries
-	// with `log_type: "error"` set `status` to `Declined`.
+	// with `log_type: "error"` set `status` to `Declined`, and
+	// `DOCUMENT_LIVENESS_NOT_COMPUTED` (`log_type: "warning"`) sets it to `In
+	// Review`.
 	Warnings []IDVerificationVerifyResponseIDVerificationWarnings `json:"warnings"`
 
 	// Barcodes decoded from the document (PDF417, QR, …). Empty when the document
@@ -434,8 +449,10 @@ func (r *IDVerificationVerifyResponseIDVerification) UnmarshalJSON(data []byte) 
 }
 
 // IDVerificationVerifyResponseIDVerificationStatus: `Approved` when no warning
-// resolves to a decline; `Declined` otherwise - the `warnings` list explains
-// why.
+// resolves to a decline and the requested document-liveness check produced a
+// usable result; `In Review` when that requested check produced no usable
+// result (`DOCUMENT_LIVENESS_NOT_COMPUTED`); `Declined` when a warning resolves
+// to a decline - the `warnings` list explains why.
 //
 // IDVerificationVerifyResponseIDVerificationStatus is a string with known
 // values below. The set is open: other values may appear and never cause an
@@ -446,6 +463,7 @@ type IDVerificationVerifyResponseIDVerificationStatus string
 const (
 	IDVerificationVerifyResponseIDVerificationStatusApproved IDVerificationVerifyResponseIDVerificationStatus = "Approved"
 	IDVerificationVerifyResponseIDVerificationStatusDeclined IDVerificationVerifyResponseIDVerificationStatus = "Declined"
+	IDVerificationVerifyResponseIDVerificationStatusInReview IDVerificationVerifyResponseIDVerificationStatus = "In Review"
 )
 
 // IDVerificationVerifyResponseIDVerificationFrontImageQualityScore:
@@ -654,6 +672,9 @@ type IDVerificationVerifyResponseIDVerificationWarnings struct {
 	// (`inconsistent_data_action`), `EXPIRATION_DATE_NOT_DETECTED`
 	// (`expiration_date_not_detected_action`). Other risks (e.g.
 	// `POSSIBLE_DUPLICATED_USER`) are informational.
+	// `DOCUMENT_LIVENESS_NOT_COMPUTED` is raised when
+	// `perform_document_liveness=true` but the forgery check returned no usable
+	// score; it sets `status` to `In Review`.
 	Risk string `json:"risk"`
 
 	// Feature that raised the warning. Always `ID_VERIFICATION` on this endpoint.
@@ -663,10 +684,10 @@ type IDVerificationVerifyResponseIDVerificationWarnings struct {
 	// `duplicated_session_id`); `null` for most.
 	AdditionalData map[string]any `json:"additional_data"`
 
-	// Severity. `error` warnings drive `status` to `Declined`; `information`
-	// entries are advisory and never decline on their own. (`warning` is not
-	// produced by this endpoint - its options only accept `DECLINE` or
-	// `NO_ACTION`.)
+	// Severity. `error` warnings drive `status` to `Declined`; `warning` (only
+	// `DOCUMENT_LIVENESS_NOT_COMPUTED`, when the requested forgery check produced
+	// no usable score) drives `status` to `In Review`; `information` entries are
+	// advisory and never change the status.
 	LogType IDVerificationVerifyResponseIDVerificationWarningsLogType `json:"log_type"`
 
 	// Human-readable one-line summary of the risk.
@@ -699,9 +720,10 @@ const (
 )
 
 // IDVerificationVerifyResponseIDVerificationWarningsLogType: Severity. `error`
-// warnings drive `status` to `Declined`; `information` entries are advisory and
-// never decline on their own. (`warning` is not produced by this endpoint - its
-// options only accept `DECLINE` or `NO_ACTION`.)
+// warnings drive `status` to `Declined`; `warning` (only
+// `DOCUMENT_LIVENESS_NOT_COMPUTED`, when the requested forgery check produced
+// no usable score) drives `status` to `In Review`; `information` entries are
+// advisory and never change the status.
 //
 // IDVerificationVerifyResponseIDVerificationWarningsLogType is a string with
 // known values below. The set is open: other values may appear and never cause
