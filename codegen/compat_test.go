@@ -17,8 +17,8 @@ func writeCompatSpec(t *testing.T, verification, overlay, compat string) string 
 	return dir
 }
 
-// generateCollapsed returns the generated files with whitespace collapsed
-// (gofmt aligns fields and constants).
+// generateCollapsed returns the generated files with all whitespace
+// collapsed (gofmt aligns fields and constants, and doc comments wrap).
 func generateCollapsed(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	files, err := Generate(dir)
@@ -27,7 +27,7 @@ func generateCollapsed(t *testing.T, dir string) map[string]string {
 	}
 	all := map[string]string{}
 	for _, f := range files {
-		all[f.Name] = strings.Join(strings.FieldsFunc(string(f.Content), func(r rune) bool { return r == ' ' || r == '\t' }), " ")
+		all[f.Name] = strings.Join(strings.Fields(string(f.Content)), " ")
 	}
 	return all
 }
@@ -147,7 +147,7 @@ func TestCompatTypeAliases(t *testing.T) {
 		"ThingsRetrieveResponseDetailMode":{"alias_of":"ThingMode","values":["own","gone"]}}}`)
 	code := generateCollapsed(t, dir)["things_gen.go"]
 	for _, want := range []string{
-		"// ThingsRetrieveResponseDetail is an alias of Thing, kept from an earlier release so that code that uses it still compiles. // // Deprecated: Use Thing. type ThingsRetrieveResponseDetail = Thing",
+		"// ThingsRetrieveResponseDetail is an alias of Thing, kept from an earlier // release so that code that uses it still compiles. // // Deprecated: Use Thing. type ThingsRetrieveResponseDetail = Thing",
 		"// Deprecated: Use ThingMode. type ThingsRetrieveResponseDetailMode = ThingMode",
 		"// Deprecated: Use ThingModeOwn. ThingsRetrieveResponseDetailModeOwn ThingsRetrieveResponseDetailMode = \"own\"",
 		"// Deprecated: Use a value of ThingMode. ThingsRetrieveResponseDetailModeGone ThingsRetrieveResponseDetailMode = \"gone\"",
