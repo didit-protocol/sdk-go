@@ -2333,30 +2333,27 @@ func (r *TravelRuleNetworkState) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// TravelRuleSettingsDetailNetworksGtr is the name of an earlier release for
-// what the API now describes as TravelRuleNetworkState, kept so that code
-// written against that release still compiles.
+// TravelRuleSettingsDetailNetworksGtr is an alias of TravelRuleNetworkState,
+// kept from an earlier release so that code that uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkState.
 type TravelRuleSettingsDetailNetworksGtr = TravelRuleNetworkState
 
-// TravelRuleSettingsDetailNetworksSygna is the name of an earlier release for
-// what the API now describes as TravelRuleNetworkState, kept so that code
-// written against that release still compiles.
+// TravelRuleSettingsDetailNetworksSygna is an alias of TravelRuleNetworkState,
+// kept from an earlier release so that code that uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkState.
 type TravelRuleSettingsDetailNetworksSygna = TravelRuleNetworkState
 
-// TravelRuleSettingsDetailNetworksTrust is the name of an earlier release for
-// what the API now describes as TravelRuleNetworkState, kept so that code
-// written against that release still compiles.
+// TravelRuleSettingsDetailNetworksTrust is an alias of TravelRuleNetworkState,
+// kept from an earlier release so that code that uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkState.
 type TravelRuleSettingsDetailNetworksTrust = TravelRuleNetworkState
 
-// TravelRuleSettingsDetailNetworksVerifyvasp is the name of an earlier release
-// for what the API now describes as TravelRuleNetworkState, kept so that code
-// written against that release still compiles.
+// TravelRuleSettingsDetailNetworksVerifyvasp is an alias of
+// TravelRuleNetworkState, kept from an earlier release so that code that uses
+// it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkState.
 type TravelRuleSettingsDetailNetworksVerifyvasp = TravelRuleNetworkState
@@ -2373,53 +2370,57 @@ const (
 	TravelRuleNetworkStateRailSygna      TravelRuleNetworkStateRail = "SYGNA"
 )
 
-// TravelRuleSettingsDetailNetworksGtrRail is the name of an earlier release for
-// what the API now describes as TravelRuleNetworkStateRail, kept so that code
-// written against that release still compiles.
+// TravelRuleSettingsDetailNetworksGtrRail is an alias of
+// TravelRuleNetworkStateRail, kept from an earlier release so that code that
+// uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkStateRail.
 type TravelRuleSettingsDetailNetworksGtrRail = TravelRuleNetworkStateRail
 
-// Known values of TravelRuleSettingsDetailNetworksGtrRail, kept from an earlier release.
+// Known values of TravelRuleSettingsDetailNetworksGtrRail, kept from an earlier
+// release.
 const (
 	// Deprecated: Use TravelRuleNetworkStateRailGtr.
 	TravelRuleSettingsDetailNetworksGtrRailGtr TravelRuleSettingsDetailNetworksGtrRail = "GTR"
 )
 
-// TravelRuleSettingsDetailNetworksSygnaRail is the name of an earlier release
-// for what the API now describes as TravelRuleNetworkStateRail, kept so that
-// code written against that release still compiles.
+// TravelRuleSettingsDetailNetworksSygnaRail is an alias of
+// TravelRuleNetworkStateRail, kept from an earlier release so that code that
+// uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkStateRail.
 type TravelRuleSettingsDetailNetworksSygnaRail = TravelRuleNetworkStateRail
 
-// Known values of TravelRuleSettingsDetailNetworksSygnaRail, kept from an earlier release.
+// Known values of TravelRuleSettingsDetailNetworksSygnaRail, kept from an
+// earlier release.
 const (
 	// Deprecated: Use TravelRuleNetworkStateRailSygna.
 	TravelRuleSettingsDetailNetworksSygnaRailSygna TravelRuleSettingsDetailNetworksSygnaRail = "SYGNA"
 )
 
-// TravelRuleSettingsDetailNetworksTrustRail is the name of an earlier release
-// for what the API now describes as TravelRuleNetworkStateRail, kept so that
-// code written against that release still compiles.
+// TravelRuleSettingsDetailNetworksTrustRail is an alias of
+// TravelRuleNetworkStateRail, kept from an earlier release so that code that
+// uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkStateRail.
 type TravelRuleSettingsDetailNetworksTrustRail = TravelRuleNetworkStateRail
 
-// Known values of TravelRuleSettingsDetailNetworksTrustRail, kept from an earlier release.
+// Known values of TravelRuleSettingsDetailNetworksTrustRail, kept from an
+// earlier release.
 const (
 	// Deprecated: Use TravelRuleNetworkStateRailTrust.
 	TravelRuleSettingsDetailNetworksTrustRailTrust TravelRuleSettingsDetailNetworksTrustRail = "TRUST"
 )
 
-// TravelRuleSettingsDetailNetworksVerifyvaspRail is the name of an earlier
-// release for what the API now describes as TravelRuleNetworkStateRail, kept so
-// that code written against that release still compiles.
+// TravelRuleSettingsDetailNetworksVerifyvaspRail is an alias of
+// TravelRuleNetworkStateRail, kept from an earlier release so that code that
+// uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkStateRail.
 type TravelRuleSettingsDetailNetworksVerifyvaspRail = TravelRuleNetworkStateRail
 
-// Known values of TravelRuleSettingsDetailNetworksVerifyvaspRail, kept from an earlier release.
+// Known values of TravelRuleSettingsDetailNetworksVerifyvaspRail, kept from an
+// earlier release.
 const (
 	// Deprecated: Use TravelRuleNetworkStateRailVerifyvasp.
 	TravelRuleSettingsDetailNetworksVerifyvaspRailVerifyvasp TravelRuleSettingsDetailNetworksVerifyvaspRail = "VERIFYVASP"
@@ -2443,14 +2444,15 @@ const (
 	TravelRuleNetworkStateModeUnavailable TravelRuleNetworkStateMode = "unavailable"
 )
 
-// TravelRuleSettingsDetailNetworksGtrMode is the name of an earlier release for
-// what the API now describes as TravelRuleNetworkStateMode, kept so that code
-// written against that release still compiles.
+// TravelRuleSettingsDetailNetworksGtrMode is an alias of
+// TravelRuleNetworkStateMode, kept from an earlier release so that code that
+// uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkStateMode.
 type TravelRuleSettingsDetailNetworksGtrMode = TravelRuleNetworkStateMode
 
-// Known values of TravelRuleSettingsDetailNetworksGtrMode, kept from an earlier release.
+// Known values of TravelRuleSettingsDetailNetworksGtrMode, kept from an earlier
+// release.
 const (
 	// Deprecated: Use TravelRuleNetworkStateModeOwn.
 	TravelRuleSettingsDetailNetworksGtrModeOwn TravelRuleSettingsDetailNetworksGtrMode = "own"
@@ -2462,14 +2464,15 @@ const (
 	TravelRuleSettingsDetailNetworksGtrModeUnavailable TravelRuleSettingsDetailNetworksGtrMode = "unavailable"
 )
 
-// TravelRuleSettingsDetailNetworksSygnaMode is the name of an earlier release
-// for what the API now describes as TravelRuleNetworkStateMode, kept so that
-// code written against that release still compiles.
+// TravelRuleSettingsDetailNetworksSygnaMode is an alias of
+// TravelRuleNetworkStateMode, kept from an earlier release so that code that
+// uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkStateMode.
 type TravelRuleSettingsDetailNetworksSygnaMode = TravelRuleNetworkStateMode
 
-// Known values of TravelRuleSettingsDetailNetworksSygnaMode, kept from an earlier release.
+// Known values of TravelRuleSettingsDetailNetworksSygnaMode, kept from an
+// earlier release.
 const (
 	// Deprecated: Use TravelRuleNetworkStateModeOwn.
 	TravelRuleSettingsDetailNetworksSygnaModeOwn TravelRuleSettingsDetailNetworksSygnaMode = "own"
@@ -2481,14 +2484,15 @@ const (
 	TravelRuleSettingsDetailNetworksSygnaModeUnavailable TravelRuleSettingsDetailNetworksSygnaMode = "unavailable"
 )
 
-// TravelRuleSettingsDetailNetworksTrustMode is the name of an earlier release
-// for what the API now describes as TravelRuleNetworkStateMode, kept so that
-// code written against that release still compiles.
+// TravelRuleSettingsDetailNetworksTrustMode is an alias of
+// TravelRuleNetworkStateMode, kept from an earlier release so that code that
+// uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkStateMode.
 type TravelRuleSettingsDetailNetworksTrustMode = TravelRuleNetworkStateMode
 
-// Known values of TravelRuleSettingsDetailNetworksTrustMode, kept from an earlier release.
+// Known values of TravelRuleSettingsDetailNetworksTrustMode, kept from an
+// earlier release.
 const (
 	// Deprecated: Use TravelRuleNetworkStateModeOwn.
 	TravelRuleSettingsDetailNetworksTrustModeOwn TravelRuleSettingsDetailNetworksTrustMode = "own"
@@ -2500,14 +2504,15 @@ const (
 	TravelRuleSettingsDetailNetworksTrustModeUnavailable TravelRuleSettingsDetailNetworksTrustMode = "unavailable"
 )
 
-// TravelRuleSettingsDetailNetworksVerifyvaspMode is the name of an earlier
-// release for what the API now describes as TravelRuleNetworkStateMode, kept so
-// that code written against that release still compiles.
+// TravelRuleSettingsDetailNetworksVerifyvaspMode is an alias of
+// TravelRuleNetworkStateMode, kept from an earlier release so that code that
+// uses it still compiles.
 //
 // Deprecated: Use TravelRuleNetworkStateMode.
 type TravelRuleSettingsDetailNetworksVerifyvaspMode = TravelRuleNetworkStateMode
 
-// Known values of TravelRuleSettingsDetailNetworksVerifyvaspMode, kept from an earlier release.
+// Known values of TravelRuleSettingsDetailNetworksVerifyvaspMode, kept from an
+// earlier release.
 const (
 	// Deprecated: Use TravelRuleNetworkStateModeOwn.
 	TravelRuleSettingsDetailNetworksVerifyvaspModeOwn TravelRuleSettingsDetailNetworksVerifyvaspMode = "own"
