@@ -261,7 +261,7 @@ pdf, err := client.WalletScreening.ScreenPDF(ctx, result) // read and close pdf.
 vasps := client.TravelRule.ListVASPsAutoPaging(ctx, didit.TravelRuleListVASPsParams{})
 ```
 
-Rules (`client.Transactions.Rules`), Travel Rule transfers (`client.Transactions.TravelRule`), Travel Rule settings and wallet addresses (`client.TravelRule`, `client.TravelRule.WalletAddresses`) are covered too; the webhooks `transaction.created`, `transaction.status.updated` and `travel_rule.status.updated` have typed events.
+Rules (`client.Transactions.Rules`), batch deletion (`client.Transactions.BatchDelete` with `TransactionUUIDs`, or `DeleteAll: didit.Bool(true)`), Travel Rule transfers (`client.Transactions.TravelRule`), Travel Rule settings, networks, wallet addresses and wallet ownership proofs (`client.TravelRule`, `client.TravelRule.Networks`, `client.TravelRule.WalletAddresses`, `client.TravelRule.WalletProofs`) are covered too; the webhooks `transaction.created`, `transaction.status.updated` and `travel_rule.status.updated` have typed events.
 
 ## Bank verification prices
 
