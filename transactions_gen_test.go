@@ -10,6 +10,19 @@ import (
 	"github.com/didit-protocol/sdk-go"
 )
 
+func TestTransactionsBatchDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	var params didit.TransactionsBatchDeleteParams
+	mustUnmarshal(t, `{"transaction_uuids":["abcdef12-3456-7890-abcd-ef1234567890","12345678-90ab-cdef-1234-567890abcdef"]}`, &params)
+	if err := client.Transactions.BatchDelete(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/organization/org-test/application/app-test/transactions/delete/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"transaction_uuids":["abcdef12-3456-7890-abcd-ef1234567890","12345678-90ab-cdef-1234-567890abcdef"]}`)
+}
+
 func TestTransactionsCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"abcdef12-3456-4890-abcd-ef1234567890","environment":"live","transaction_number":4123,"txn_id":"your-txn-2026-05-17-001","txn_date":"2026-05-17T08:42:00Z","zone_id":"Europe/Madrid","transaction_type":"finance","action_type":"withdrawal","direction":"OUTBOUND","status":"APPROVED","source":"LIVE","amount":"1500","currency":"EUR","currency_type":"fiat","amount_in_default_currency":"1620.45","default_currency_code":"USD","preferred_currency_amount":"1620.45","preferred_currency_code":"USD","payment_details":"Withdrawal to crypto wallet","payment_txn_id":null,"score":0,"severity":null,"decision_reason_code":null,"decision_reason_label":null,"vendor_data":"user-12345","metadata":{"subject":{"entity_type":"individual","vendor_data":"user-12345","full_name":"Maria Garcia","address":{},"institution_details":{},"device_context":{}},"counterparty":{}},"props":{},"tags":[],"parties":[{"uuid":"b1111111-2222-4333-8444-555555555555","role":"APPLICANT","entity_type":"individual","kind":"USER","vendor_data":"user-12345","full_name":"Maria Garcia","first_name":null,"last_name":null,"country_code":null,"dob":null,"address":{},"institution_info":{},"device":{},"external_party_snapshot":null}],"payment_methods":[],"documents":[],"activities":[{"uuid":"d4e5f6a7-8901-4bcd-9ef0-123456789abc","activity_type":"TRANSACTION_CREATED","source":"TRANSACTION","status":"APPROVED","title":"withdrawal","description":"Transaction recorded.","metadata":{},"occurred_at":"2026-05-17T08:42:11Z"}],"alerts":[],"rule_runs":[],"provider_results":[],"travel_rule":null,"network_snapshot":null,"remediation":null,"action_required":null,"cost_breakdown":null}`)
 	var params didit.TransactionsCreateParams
