@@ -16,8 +16,10 @@ type TravelRuleService struct {
 	client *Client
 
 	CounterpartyContacts *TravelRuleCounterpartyContactsService
+	Networks             *TravelRuleNetworksService
 	Transfers            *TravelRuleTransfersService
 	WalletAddresses      *TravelRuleWalletAddressesService
+	WalletProofs         *TravelRuleWalletProofsService
 	Workspace            *TravelRuleWorkspaceService
 }
 
@@ -314,6 +316,95 @@ func (r *TravelRuleCounterpartyContactsService) ListAutoPaging(ctx context.Conte
 	})
 }
 
+// TravelRuleNetworksService holds the travel_rule networks operations. Use it
+// through Client.TravelRule.Networks.
+type TravelRuleNetworksService struct {
+	client *Client
+}
+
+// RequestAccess: Request a Travel Rule network.
+//
+// Ask for this application's own participant on a network Didit's membership
+// carries (GTR or Sygna). Without an approved questionnaire the participant
+// waits for it (questionnaire_pending); with one it goes to the network's
+// onboarding (submitted_to_network) and becomes active once the network gives
+// it a code. Idempotent: a pending, onboarding or live participant is returned
+// unchanged. If the network refused the registration (last_error is set),
+// requesting again retries. TRUST and VerifyVASP are reachable only through
+// your own membership: TRUST admits members per VASP, and a VerifyVASP Enclave
+// serves one VASP id.
+//
+//	POST /v3/travel-rule/networks/{network}/request/
+func (r *TravelRuleNetworksService) RequestAccess(ctx context.Context, network string, opts ...option.RequestOption) (*TravelRuleNetworkParticipant, error) {
+	res := new(TravelRuleNetworkParticipant)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/networks/{network}/request/", pathParams: []string{"network", network}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Retrieve: Get Travel Rule networks.
+//
+// Read, for this application, every network's true state: whether it sends
+// through your own membership or through Didit's, and why it cannot yet. Also
+// returns the due-diligence questionnaire and your participants. Reading
+// creates nothing.
+//
+//	GET /v3/travel-rule/networks/
+func (r *TravelRuleNetworksService) Retrieve(ctx context.Context, opts ...option.RequestOption) (*TravelRuleNetworksOverview, error) {
+	res := new(TravelRuleNetworksOverview)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/networks/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// RetrieveQuestionnaire: Get the network questionnaire.
+//
+// Read Didit's network due-diligence questionnaire for this application, its
+// status and Didit's review note. An application that never saved one reads an
+// empty draft.
+//
+//	GET /v3/travel-rule/networks/questionnaire/
+func (r *TravelRuleNetworksService) RetrieveQuestionnaire(ctx context.Context, opts ...option.RequestOption) (*TravelRuleNetworkQuestionnaire, error) {
+	res := new(TravelRuleNetworkQuestionnaire)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/networks/questionnaire/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// SubmitQuestionnaire: Submit the network questionnaire.
+//
+// Send the saved questionnaire to Didit's review. The saved answers must be
+// complete: every field except lei and data_protection_contact_email, with the
+// three attestations true. Didit approves it, asks for changes (edit and submit
+// again) or rejects it. Networks you requested while it was pending are handed
+// to their onboarding when it is approved.
+//
+//	POST /v3/travel-rule/networks/questionnaire/submit/
+func (r *TravelRuleNetworksService) SubmitQuestionnaire(ctx context.Context, opts ...option.RequestOption) (*TravelRuleNetworkQuestionnaire, error) {
+	res := new(TravelRuleNetworkQuestionnaire)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/networks/questionnaire/submit/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// UpdateQuestionnaire: Save network questionnaire answers.
+//
+// Save answers to the questionnaire while it is draft or changes_requested.
+// Saves are partial: answers you do not send are kept.
+//
+//	PUT /v3/travel-rule/networks/questionnaire/
+func (r *TravelRuleNetworksService) UpdateQuestionnaire(ctx context.Context, params TravelRuleNetworkQuestionnaireAnswersParam, opts ...option.RequestOption) (*TravelRuleNetworkQuestionnaire, error) {
+	res := new(TravelRuleNetworkQuestionnaire)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPut, path: "/v3/travel-rule/networks/questionnaire/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // TravelRuleTransfersService holds the travel_rule transfers operations. Use it
 // through Client.TravelRule.Transfers.
 type TravelRuleTransfersService struct {
@@ -430,6 +521,57 @@ func (r *TravelRuleWalletAddressesService) Update(ctx context.Context, entryUUID
 		return nil, err
 	}
 	return res, nil
+}
+
+// TravelRuleWalletProofsService holds the travel_rule wallet_proofs operations.
+// Use it through Client.TravelRule.WalletProofs.
+type TravelRuleWalletProofsService struct {
+	client *Client
+}
+
+// Decide: Approve or reject a screenshot wallet proof.
+//
+// Decide a screenshot proof from your review queue. approve verifies the proof
+// and the address book entry and applies the ownership to the transfer the
+// widget session was minted for, exactly as a verified signature does. A
+// screenshot never confirms a transfer that another Didit customer sent over
+// the INTERNAL rail: that takes a signed message or a test deposit. reject
+// closes the proof as REJECTED with failure_reason REVIEW_REJECTED; the end
+// user can start a new proof from the widget. The note is kept with the proof.
+//
+//	POST /v3/travel-rule/wallet-proofs/{proof_uuid}/decision/
+func (r *TravelRuleWalletProofsService) Decide(ctx context.Context, proofUUID string, params TravelRuleWalletProofDecision, opts ...option.RequestOption) (*TravelRuleWalletProofReview, error) {
+	res := new(TravelRuleWalletProofReview)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/wallet-proofs/{proof_uuid}/decision/", pathParams: []string{"proof_uuid", proofUUID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// List: List screenshot wallet proofs to review.
+//
+// Your review queue for screenshot wallet-ownership proofs. A screenshot is the
+// one proof Didit cannot check itself: once the end user uploads it from the
+// widget it waits PENDING until you approve or reject it with POST
+// /v3/travel-rule/wallet-proofs/{proof_uuid}/decision/. Oldest first, so the
+// queue is worked from the proof that has waited longest. Only uploaded
+// screenshots appear, never a proof whose end user has not uploaded a file yet,
+// and never one on a wallet you deleted from your address book (Didit closes
+// those as OWNERSHIP_CHANGED).
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/travel-rule/wallet-proofs/
+func (r *TravelRuleWalletProofsService) List(ctx context.Context, params TravelRuleWalletProofsListParams, opts ...option.RequestOption) (*Page[TravelRuleWalletProofReview], error) {
+	return getPage[TravelRuleWalletProofReview](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/wallet-proofs/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *TravelRuleWalletProofsService) ListAutoPaging(ctx context.Context, params TravelRuleWalletProofsListParams, opts ...option.RequestOption) *PageIterator[TravelRuleWalletProofReview] {
+	return newPageIterator(ctx, func() (*Page[TravelRuleWalletProofReview], error) {
+		return r.List(ctx, params, opts...)
+	})
 }
 
 // TravelRuleWorkspaceService holds the travel_rule workspace operations. Use it
@@ -615,7 +757,8 @@ type TravelRuleWidgetSessionCreate struct {
 
 	// Chain token for the address, for example `ETH`, `BTC` or `SOL`. Use the same
 	// token as in your wallet address book. Message signing and the Satoshi test
-	// are offered only for a supported chain.
+	// are offered only for a supported chain. The address book entry the proof
+	// verifies stores it under its canonical identifier (ETH, BTC, SOL, TRX).
 	Chain Opt[string] `json:"chain"`
 
 	// Name of the wallet holder, used for the beneficiary name match.
@@ -1767,8 +1910,11 @@ type TravelRuleSettingsDetail struct {
 	// own memberships or provision unavailable networks.
 	DisabledNetworks []TravelRuleSettingsDetailDisabledNetworks `json:"disabled_networks"`
 
-	// Effective membership configuration for each network. No network, including
-	// GTR, is included by default. This is not a live health or delivery check.
+	// Per network, how this application would send and why it cannot. No network,
+	// including GTR, is included by default: a network is reachable through your
+	// own connected membership, or through Didit's membership once Didit's
+	// membership of that network is live and your own participant on it is active.
+	// Not a live health or delivery check.
 	Networks TravelRuleSettingsDetailNetworks `json:"networks"`
 
 	// Whether the Didit network lists your VASP profile, so other Didit customers
@@ -2112,14 +2258,16 @@ const (
 	TravelRuleSettingsDetailDisabledNetworksSygna      TravelRuleSettingsDetailDisabledNetworks = "SYGNA"
 )
 
-// TravelRuleSettingsDetailNetworks: Effective membership configuration for each
-// network. No network, including GTR, is included by default. This is not a
-// live health or delivery check.
+// TravelRuleSettingsDetailNetworks: Per network, how this application would
+// send and why it cannot. No network, including GTR, is included by default: a
+// network is reachable through your own connected membership, or through
+// Didit's membership once Didit's membership of that network is live and your
+// own participant on it is active. Not a live health or delivery check.
 type TravelRuleSettingsDetailNetworks struct {
-	Gtr        TravelRuleSettingsDetailNetworksGtr        `json:"gtr"`
-	Trust      TravelRuleSettingsDetailNetworksTrust      `json:"trust"`
-	Verifyvasp TravelRuleSettingsDetailNetworksVerifyvasp `json:"verifyvasp"`
-	Sygna      TravelRuleSettingsDetailNetworksSygna      `json:"sygna"`
+	Gtr        TravelRuleNetworkState `json:"gtr"`
+	Trust      TravelRuleNetworkState `json:"trust"`
+	Verifyvasp TravelRuleNetworkState `json:"verifyvasp"`
+	Sygna      TravelRuleNetworkState `json:"sygna"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -2131,212 +2279,215 @@ func (r *TravelRuleSettingsDetailNetworks) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// TravelRuleSettingsDetailNetworksGtr is a response object.
-type TravelRuleSettingsDetailNetworksGtr struct {
-	Rail TravelRuleSettingsDetailNetworksGtrRail `json:"rail"`
+// TravelRuleNetworkState: How Travel Rule messages on one network would be sent
+// for this application, and why they cannot be. Configuration status, not a
+// live health or delivery check.
+type TravelRuleNetworkState struct {
+	Rail TravelRuleNetworkStateRail `json:"rail"`
 
-	// own: connected customer membership takes precedence; didit: configured
-	// platform membership allowed; off: platform routing disabled with no own
-	// membership; unavailable: neither membership available.
-	Mode TravelRuleSettingsDetailNetworksGtrMode `json:"mode"`
+	// own: the application's connected membership is used; didit: Didit's
+	// membership carries the application as its own active participant; off:
+	// platform routing disabled in disabled_networks with no own membership;
+	// unavailable: nothing can send on this network yet (see state and reason).
+	Mode TravelRuleNetworkStateMode `json:"mode"`
 
-	// Whether platform membership is configured; not a live health check.
+	// own_membership: your connected membership sends; live_through_didit: your own
+	// participant on Didit's membership sends; off: you switched platform routing
+	// off; didit_onboarding: Didit's own membership of this network is not live
+	// yet, so it cannot carry anyone; questionnaire_needed /
+	// questionnaire_in_review: the due-diligence questionnaire must be submitted or
+	// is with Didit; request_access: the questionnaire is approved, request the
+	// network; request_sent: your participant is being onboarded; unavailable: see
+	// reason; error: see reason.
+	State TravelRuleNetworkStateState `json:"state"`
+
+	// Machine-readable detail of state. own_membership_only: Didit does not carry
+	// applications on this network (TRUST), connect your own membership;
+	// sandbox_application: sandbox transfers never reach a network;
+	// provisioning_failed: the network refused the registration, the participant's
+	// last_error says why and requesting the network again retries.
+	Reason TravelRuleNetworkStateReason `json:"reason"`
+
+	// Whether Didit's own membership of this network is configured; not a live
+	// health check.
 	PlatformAvailable bool `json:"platform_available"`
 
 	// Whether a connected customer membership exists. Credentials are validated
 	// locally; network validation occurs on a live exchange.
-	Connected bool `json:"connected"`
+	Connected   bool                                `json:"connected"`
+	Participant TravelRuleNetworkParticipantSummary `json:"participant"`
+
+	// Directory VASPs reachable on this network.
+	VASPsReachable int64 `json:"vasps_reachable"`
+
+	// This application's transfers carried on this network in the last 30 days.
+	Routed30d int64 `json:"routed_30d"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes TravelRuleSettingsDetailNetworksGtr leniently.
-func (r *TravelRuleSettingsDetailNetworksGtr) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes TravelRuleNetworkState leniently.
+func (r *TravelRuleNetworkState) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// TravelRuleSettingsDetailNetworksGtrRail is a string with known values below.
+// TravelRuleNetworkStateRail is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleNetworkStateRail string
+
+// Known values of TravelRuleNetworkStateRail.
+const (
+	TravelRuleNetworkStateRailGtr        TravelRuleNetworkStateRail = "GTR"
+	TravelRuleNetworkStateRailTrust      TravelRuleNetworkStateRail = "TRUST"
+	TravelRuleNetworkStateRailVerifyvasp TravelRuleNetworkStateRail = "VERIFYVASP"
+	TravelRuleNetworkStateRailSygna      TravelRuleNetworkStateRail = "SYGNA"
+)
+
+// TravelRuleNetworkStateMode: own: the application's connected membership is
+// used; didit: Didit's membership carries the application as its own active
+// participant; off: platform routing disabled in disabled_networks with no own
+// membership; unavailable: nothing can send on this network yet (see state and
+// reason).
+//
+// TravelRuleNetworkStateMode is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleNetworkStateMode string
+
+// Known values of TravelRuleNetworkStateMode.
+const (
+	TravelRuleNetworkStateModeOwn         TravelRuleNetworkStateMode = "own"
+	TravelRuleNetworkStateModeDidit       TravelRuleNetworkStateMode = "didit"
+	TravelRuleNetworkStateModeOff         TravelRuleNetworkStateMode = "off"
+	TravelRuleNetworkStateModeUnavailable TravelRuleNetworkStateMode = "unavailable"
+)
+
+// TravelRuleNetworkStateState: own_membership: your connected membership sends;
+// live_through_didit: your own participant on Didit's membership sends; off:
+// you switched platform routing off; didit_onboarding: Didit's own membership
+// of this network is not live yet, so it cannot carry anyone;
+// questionnaire_needed / questionnaire_in_review: the due-diligence
+// questionnaire must be submitted or is with Didit; request_access: the
+// questionnaire is approved, request the network; request_sent: your
+// participant is being onboarded; unavailable: see reason; error: see reason.
+//
+// TravelRuleNetworkStateState is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleNetworkStateState string
+
+// Known values of TravelRuleNetworkStateState.
+const (
+	TravelRuleNetworkStateStateOwnMembership         TravelRuleNetworkStateState = "own_membership"
+	TravelRuleNetworkStateStateLiveThroughDidit      TravelRuleNetworkStateState = "live_through_didit"
+	TravelRuleNetworkStateStateOff                   TravelRuleNetworkStateState = "off"
+	TravelRuleNetworkStateStateDiditOnboarding       TravelRuleNetworkStateState = "didit_onboarding"
+	TravelRuleNetworkStateStateQuestionnaireNeeded   TravelRuleNetworkStateState = "questionnaire_needed"
+	TravelRuleNetworkStateStateQuestionnaireInReview TravelRuleNetworkStateState = "questionnaire_in_review"
+	TravelRuleNetworkStateStateRequestAccess         TravelRuleNetworkStateState = "request_access"
+	TravelRuleNetworkStateStateRequestSent           TravelRuleNetworkStateState = "request_sent"
+	TravelRuleNetworkStateStateUnavailable           TravelRuleNetworkStateState = "unavailable"
+	TravelRuleNetworkStateStateError                 TravelRuleNetworkStateState = "error"
+)
+
+// TravelRuleNetworkStateReason: Machine-readable detail of state.
+// own_membership_only: Didit does not carry applications on this network
+// (TRUST), connect your own membership; sandbox_application: sandbox transfers
+// never reach a network; provisioning_failed: the network refused the
+// registration, the participant's last_error says why and requesting the
+// network again retries.
+//
+// TravelRuleNetworkStateReason is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleNetworkStateReason string
+
+// Known values of TravelRuleNetworkStateReason.
+const (
+	TravelRuleNetworkStateReasonOwnMembershipConnected        TravelRuleNetworkStateReason = "own_membership_connected"
+	TravelRuleNetworkStateReasonPlatformNetworkSwitchedOff    TravelRuleNetworkStateReason = "platform_network_switched_off"
+	TravelRuleNetworkStateReasonOwnMembershipOnly             TravelRuleNetworkStateReason = "own_membership_only"
+	TravelRuleNetworkStateReasonSandboxApplication            TravelRuleNetworkStateReason = "sandbox_application"
+	TravelRuleNetworkStateReasonDiditMembershipNotLive        TravelRuleNetworkStateReason = "didit_membership_not_live"
+	TravelRuleNetworkStateReasonParticipantSuspended          TravelRuleNetworkStateReason = "participant_suspended"
+	TravelRuleNetworkStateReasonParticipantRejected           TravelRuleNetworkStateReason = "participant_rejected"
+	TravelRuleNetworkStateReasonQuestionnaireNotSubmitted     TravelRuleNetworkStateReason = "questionnaire_not_submitted"
+	TravelRuleNetworkStateReasonQuestionnaireSubmitted        TravelRuleNetworkStateReason = "questionnaire_submitted"
+	TravelRuleNetworkStateReasonQuestionnaireChangesRequested TravelRuleNetworkStateReason = "questionnaire_changes_requested"
+	TravelRuleNetworkStateReasonQuestionnaireRejected         TravelRuleNetworkStateReason = "questionnaire_rejected"
+	TravelRuleNetworkStateReasonParticipantNotRequested       TravelRuleNetworkStateReason = "participant_not_requested"
+	TravelRuleNetworkStateReasonParticipantActive             TravelRuleNetworkStateReason = "participant_active"
+	TravelRuleNetworkStateReasonParticipantKeyMissing         TravelRuleNetworkStateReason = "participant_key_missing"
+	TravelRuleNetworkStateReasonParticipantKeyUnresolved      TravelRuleNetworkStateReason = "participant_key_unresolved"
+	TravelRuleNetworkStateReasonProvisioningFailed            TravelRuleNetworkStateReason = "provisioning_failed"
+	TravelRuleNetworkStateReasonQuestionnairePending          TravelRuleNetworkStateReason = "questionnaire_pending"
+	TravelRuleNetworkStateReasonSubmittedToNetwork            TravelRuleNetworkStateReason = "submitted_to_network"
+)
+
+// TravelRuleNetworkParticipantSummary: This application's own participant on
+// the network, or null when it has none.
+type TravelRuleNetworkParticipantSummary struct {
+	// platform: carried by Didit's membership; own: onboarded under the
+	// application's own membership.
+	Mode TravelRuleNetworkParticipantSummaryMode `json:"mode"`
+
+	// not_requested: never requested, or the network refused the first request (see
+	// last_error); questionnaire_pending: waiting for the due-diligence
+	// questionnaire to be approved; submitted_to_network: handed to the network's
+	// onboarding; active: the network gave this application its own participant
+	// code; suspended / rejected: Didit suspended or rejected it.
+	Status TravelRuleNetworkParticipantSummaryStatus `json:"status"`
+
+	// The code the network gave this application (for GTR, its VASP code). Outbound
+	// messages carry this code, never Didit's own.
+	ParticipantCode string    `json:"participant_code"`
+	RequestedAt     time.Time `json:"requested_at"`
+	ActivatedAt     time.Time `json:"activated_at"`
+
+	// The network's answer when it refused the registration; empty otherwise.
+	LastError string `json:"last_error"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworkParticipantSummary leniently.
+func (r *TravelRuleNetworkParticipantSummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworkParticipantSummaryMode: platform: carried by Didit's
+// membership; own: onboarded under the application's own membership.
+//
+// TravelRuleNetworkParticipantSummaryMode is a string with known values below.
 // The set is open: other values may appear and never cause an error.
-type TravelRuleSettingsDetailNetworksGtrRail string
+type TravelRuleNetworkParticipantSummaryMode string
 
-// Known values of TravelRuleSettingsDetailNetworksGtrRail.
+// Known values of TravelRuleNetworkParticipantSummaryMode.
 const (
-	TravelRuleSettingsDetailNetworksGtrRailGtr TravelRuleSettingsDetailNetworksGtrRail = "GTR"
+	TravelRuleNetworkParticipantSummaryModePlatform TravelRuleNetworkParticipantSummaryMode = "platform"
+	TravelRuleNetworkParticipantSummaryModeOwn      TravelRuleNetworkParticipantSummaryMode = "own"
 )
 
-// TravelRuleSettingsDetailNetworksGtrMode: own: connected customer membership
-// takes precedence; didit: configured platform membership allowed; off:
-// platform routing disabled with no own membership; unavailable: neither
-// membership available.
+// TravelRuleNetworkParticipantSummaryStatus: not_requested: never requested, or
+// the network refused the first request (see last_error);
+// questionnaire_pending: waiting for the due-diligence questionnaire to be
+// approved; submitted_to_network: handed to the network's onboarding; active:
+// the network gave this application its own participant code; suspended /
+// rejected: Didit suspended or rejected it.
 //
-// TravelRuleSettingsDetailNetworksGtrMode is a string with known values below.
-// The set is open: other values may appear and never cause an error.
-type TravelRuleSettingsDetailNetworksGtrMode string
-
-// Known values of TravelRuleSettingsDetailNetworksGtrMode.
-const (
-	TravelRuleSettingsDetailNetworksGtrModeOwn         TravelRuleSettingsDetailNetworksGtrMode = "own"
-	TravelRuleSettingsDetailNetworksGtrModeDidit       TravelRuleSettingsDetailNetworksGtrMode = "didit"
-	TravelRuleSettingsDetailNetworksGtrModeOff         TravelRuleSettingsDetailNetworksGtrMode = "off"
-	TravelRuleSettingsDetailNetworksGtrModeUnavailable TravelRuleSettingsDetailNetworksGtrMode = "unavailable"
-)
-
-// TravelRuleSettingsDetailNetworksTrust is a response object.
-type TravelRuleSettingsDetailNetworksTrust struct {
-	Rail TravelRuleSettingsDetailNetworksTrustRail `json:"rail"`
-
-	// own: connected customer membership takes precedence; didit: configured
-	// platform membership allowed; off: platform routing disabled with no own
-	// membership; unavailable: neither membership available.
-	Mode TravelRuleSettingsDetailNetworksTrustMode `json:"mode"`
-
-	// Whether platform membership is configured; not a live health check.
-	PlatformAvailable bool `json:"platform_available"`
-
-	// Whether a connected customer membership exists. Credentials are validated
-	// locally; network validation occurs on a live exchange.
-	Connected bool `json:"connected"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes TravelRuleSettingsDetailNetworksTrust leniently.
-func (r *TravelRuleSettingsDetailNetworksTrust) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// TravelRuleSettingsDetailNetworksTrustRail is a string with known values
+// TravelRuleNetworkParticipantSummaryStatus is a string with known values
 // below. The set is open: other values may appear and never cause an error.
-type TravelRuleSettingsDetailNetworksTrustRail string
+type TravelRuleNetworkParticipantSummaryStatus string
 
-// Known values of TravelRuleSettingsDetailNetworksTrustRail.
+// Known values of TravelRuleNetworkParticipantSummaryStatus.
 const (
-	TravelRuleSettingsDetailNetworksTrustRailTrust TravelRuleSettingsDetailNetworksTrustRail = "TRUST"
-)
-
-// TravelRuleSettingsDetailNetworksTrustMode: own: connected customer membership
-// takes precedence; didit: configured platform membership allowed; off:
-// platform routing disabled with no own membership; unavailable: neither
-// membership available.
-//
-// TravelRuleSettingsDetailNetworksTrustMode is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type TravelRuleSettingsDetailNetworksTrustMode string
-
-// Known values of TravelRuleSettingsDetailNetworksTrustMode.
-const (
-	TravelRuleSettingsDetailNetworksTrustModeOwn         TravelRuleSettingsDetailNetworksTrustMode = "own"
-	TravelRuleSettingsDetailNetworksTrustModeDidit       TravelRuleSettingsDetailNetworksTrustMode = "didit"
-	TravelRuleSettingsDetailNetworksTrustModeOff         TravelRuleSettingsDetailNetworksTrustMode = "off"
-	TravelRuleSettingsDetailNetworksTrustModeUnavailable TravelRuleSettingsDetailNetworksTrustMode = "unavailable"
-)
-
-// TravelRuleSettingsDetailNetworksVerifyvasp is a response object.
-type TravelRuleSettingsDetailNetworksVerifyvasp struct {
-	Rail TravelRuleSettingsDetailNetworksVerifyvaspRail `json:"rail"`
-
-	// own: connected customer membership takes precedence; didit: configured
-	// platform membership allowed; off: platform routing disabled with no own
-	// membership; unavailable: neither membership available.
-	Mode TravelRuleSettingsDetailNetworksVerifyvaspMode `json:"mode"`
-
-	// Whether platform membership is configured; not a live health check.
-	PlatformAvailable bool `json:"platform_available"`
-
-	// Whether a connected customer membership exists. Credentials are validated
-	// locally; network validation occurs on a live exchange.
-	Connected bool `json:"connected"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes TravelRuleSettingsDetailNetworksVerifyvasp leniently.
-func (r *TravelRuleSettingsDetailNetworksVerifyvasp) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// TravelRuleSettingsDetailNetworksVerifyvaspRail is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type TravelRuleSettingsDetailNetworksVerifyvaspRail string
-
-// Known values of TravelRuleSettingsDetailNetworksVerifyvaspRail.
-const (
-	TravelRuleSettingsDetailNetworksVerifyvaspRailVerifyvasp TravelRuleSettingsDetailNetworksVerifyvaspRail = "VERIFYVASP"
-)
-
-// TravelRuleSettingsDetailNetworksVerifyvaspMode: own: connected customer
-// membership takes precedence; didit: configured platform membership allowed;
-// off: platform routing disabled with no own membership; unavailable: neither
-// membership available.
-//
-// TravelRuleSettingsDetailNetworksVerifyvaspMode is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type TravelRuleSettingsDetailNetworksVerifyvaspMode string
-
-// Known values of TravelRuleSettingsDetailNetworksVerifyvaspMode.
-const (
-	TravelRuleSettingsDetailNetworksVerifyvaspModeOwn         TravelRuleSettingsDetailNetworksVerifyvaspMode = "own"
-	TravelRuleSettingsDetailNetworksVerifyvaspModeDidit       TravelRuleSettingsDetailNetworksVerifyvaspMode = "didit"
-	TravelRuleSettingsDetailNetworksVerifyvaspModeOff         TravelRuleSettingsDetailNetworksVerifyvaspMode = "off"
-	TravelRuleSettingsDetailNetworksVerifyvaspModeUnavailable TravelRuleSettingsDetailNetworksVerifyvaspMode = "unavailable"
-)
-
-// TravelRuleSettingsDetailNetworksSygna is a response object.
-type TravelRuleSettingsDetailNetworksSygna struct {
-	Rail TravelRuleSettingsDetailNetworksSygnaRail `json:"rail"`
-
-	// own: connected customer membership takes precedence; didit: configured
-	// platform membership allowed; off: platform routing disabled with no own
-	// membership; unavailable: neither membership available.
-	Mode TravelRuleSettingsDetailNetworksSygnaMode `json:"mode"`
-
-	// Whether platform membership is configured; not a live health check.
-	PlatformAvailable bool `json:"platform_available"`
-
-	// Whether a connected customer membership exists. Credentials are validated
-	// locally; network validation occurs on a live exchange.
-	Connected bool `json:"connected"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes TravelRuleSettingsDetailNetworksSygna leniently.
-func (r *TravelRuleSettingsDetailNetworksSygna) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// TravelRuleSettingsDetailNetworksSygnaRail is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type TravelRuleSettingsDetailNetworksSygnaRail string
-
-// Known values of TravelRuleSettingsDetailNetworksSygnaRail.
-const (
-	TravelRuleSettingsDetailNetworksSygnaRailSygna TravelRuleSettingsDetailNetworksSygnaRail = "SYGNA"
-)
-
-// TravelRuleSettingsDetailNetworksSygnaMode: own: connected customer membership
-// takes precedence; didit: configured platform membership allowed; off:
-// platform routing disabled with no own membership; unavailable: neither
-// membership available.
-//
-// TravelRuleSettingsDetailNetworksSygnaMode is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type TravelRuleSettingsDetailNetworksSygnaMode string
-
-// Known values of TravelRuleSettingsDetailNetworksSygnaMode.
-const (
-	TravelRuleSettingsDetailNetworksSygnaModeOwn         TravelRuleSettingsDetailNetworksSygnaMode = "own"
-	TravelRuleSettingsDetailNetworksSygnaModeDidit       TravelRuleSettingsDetailNetworksSygnaMode = "didit"
-	TravelRuleSettingsDetailNetworksSygnaModeOff         TravelRuleSettingsDetailNetworksSygnaMode = "off"
-	TravelRuleSettingsDetailNetworksSygnaModeUnavailable TravelRuleSettingsDetailNetworksSygnaMode = "unavailable"
+	TravelRuleNetworkParticipantSummaryStatusNotRequested         TravelRuleNetworkParticipantSummaryStatus = "not_requested"
+	TravelRuleNetworkParticipantSummaryStatusQuestionnairePending TravelRuleNetworkParticipantSummaryStatus = "questionnaire_pending"
+	TravelRuleNetworkParticipantSummaryStatusSubmittedToNetwork   TravelRuleNetworkParticipantSummaryStatus = "submitted_to_network"
+	TravelRuleNetworkParticipantSummaryStatusActive               TravelRuleNetworkParticipantSummaryStatus = "active"
+	TravelRuleNetworkParticipantSummaryStatusSuspended            TravelRuleNetworkParticipantSummaryStatus = "suspended"
+	TravelRuleNetworkParticipantSummaryStatusRejected             TravelRuleNetworkParticipantSummaryStatus = "rejected"
 )
 
 // TravelRuleSettingsDetailDiditNetwork: Whether the Didit network lists your
@@ -2864,6 +3015,359 @@ func (r TravelRuleCounterpartyContactsListParams) MarshalJSON() ([]byte, error) 
 	return marshalParams(r)
 }
 
+// TravelRuleNetworkParticipant: This application's own participant on one
+// network.
+type TravelRuleNetworkParticipant struct {
+	Network TravelRuleNetworkParticipantNetwork `json:"network"`
+	Rail    TravelRuleNetworkParticipantRail    `json:"rail"`
+	Mode    TravelRuleNetworkParticipantMode    `json:"mode"`
+
+	// not_requested: never requested, or the network refused the first request (see
+	// last_error); questionnaire_pending: waiting for the due-diligence
+	// questionnaire to be approved; submitted_to_network: handed to the network's
+	// onboarding; active: the network gave this application its own participant
+	// code; suspended / rejected: Didit suspended or rejected it.
+	Status          TravelRuleNetworkParticipantStatus `json:"status"`
+	ParticipantCode string                             `json:"participant_code"`
+	RequestedAt     time.Time                          `json:"requested_at"`
+	SubmittedAt     time.Time                          `json:"submitted_at"`
+	ActivatedAt     time.Time                          `json:"activated_at"`
+	SuspendedAt     time.Time                          `json:"suspended_at"`
+
+	// The network's answer when it refused the registration; empty otherwise.
+	LastError string `json:"last_error"`
+
+	// Every status change, oldest first.
+	History []TravelRuleNetworkParticipantHistory `json:"history"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworkParticipant leniently.
+func (r *TravelRuleNetworkParticipant) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworkParticipantNetwork is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleNetworkParticipantNetwork string
+
+// Known values of TravelRuleNetworkParticipantNetwork.
+const (
+	TravelRuleNetworkParticipantNetworkGtr        TravelRuleNetworkParticipantNetwork = "gtr"
+	TravelRuleNetworkParticipantNetworkTrust      TravelRuleNetworkParticipantNetwork = "trust"
+	TravelRuleNetworkParticipantNetworkVerifyvasp TravelRuleNetworkParticipantNetwork = "verifyvasp"
+	TravelRuleNetworkParticipantNetworkSygna      TravelRuleNetworkParticipantNetwork = "sygna"
+)
+
+// TravelRuleNetworkParticipantRail is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleNetworkParticipantRail string
+
+// Known values of TravelRuleNetworkParticipantRail.
+const (
+	TravelRuleNetworkParticipantRailGtr        TravelRuleNetworkParticipantRail = "GTR"
+	TravelRuleNetworkParticipantRailTrust      TravelRuleNetworkParticipantRail = "TRUST"
+	TravelRuleNetworkParticipantRailVerifyvasp TravelRuleNetworkParticipantRail = "VERIFYVASP"
+	TravelRuleNetworkParticipantRailSygna      TravelRuleNetworkParticipantRail = "SYGNA"
+)
+
+// TravelRuleNetworkParticipantMode is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleNetworkParticipantMode string
+
+// Known values of TravelRuleNetworkParticipantMode.
+const (
+	TravelRuleNetworkParticipantModePlatform TravelRuleNetworkParticipantMode = "platform"
+	TravelRuleNetworkParticipantModeOwn      TravelRuleNetworkParticipantMode = "own"
+)
+
+// TravelRuleNetworkParticipantStatus: not_requested: never requested, or the
+// network refused the first request (see last_error); questionnaire_pending:
+// waiting for the due-diligence questionnaire to be approved;
+// submitted_to_network: handed to the network's onboarding; active: the network
+// gave this application its own participant code; suspended / rejected: Didit
+// suspended or rejected it.
+//
+// TravelRuleNetworkParticipantStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleNetworkParticipantStatus string
+
+// Known values of TravelRuleNetworkParticipantStatus.
+const (
+	TravelRuleNetworkParticipantStatusNotRequested         TravelRuleNetworkParticipantStatus = "not_requested"
+	TravelRuleNetworkParticipantStatusQuestionnairePending TravelRuleNetworkParticipantStatus = "questionnaire_pending"
+	TravelRuleNetworkParticipantStatusSubmittedToNetwork   TravelRuleNetworkParticipantStatus = "submitted_to_network"
+	TravelRuleNetworkParticipantStatusActive               TravelRuleNetworkParticipantStatus = "active"
+	TravelRuleNetworkParticipantStatusSuspended            TravelRuleNetworkParticipantStatus = "suspended"
+	TravelRuleNetworkParticipantStatusRejected             TravelRuleNetworkParticipantStatus = "rejected"
+)
+
+// TravelRuleNetworkParticipantHistory is a response object.
+type TravelRuleNetworkParticipantHistory struct {
+	At   time.Time `json:"at"`
+	From string    `json:"from"`
+	To   string    `json:"to"`
+
+	// Review note or the network's answer, when there is one.
+	Note string `json:"note"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworkParticipantHistory leniently.
+func (r *TravelRuleNetworkParticipantHistory) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworksOverview is a response object.
+type TravelRuleNetworksOverview struct {
+	// Whether network access through Didit's membership is open. While false,
+	// questionnaire saves, submissions and network requests answer 403.
+	PlatformNetworksEnabled bool                           `json:"platform_networks_enabled"`
+	Questionnaire           TravelRuleNetworkQuestionnaire `json:"questionnaire"`
+	Participants            []TravelRuleNetworkParticipant `json:"participants"`
+
+	// Per network, how this application would send and why it cannot. No network,
+	// including GTR, is included by default: a network is reachable through your
+	// own connected membership, or through Didit's membership once Didit's
+	// membership of that network is live and your own participant on it is active.
+	// Not a live health or delivery check.
+	Networks TravelRuleNetworksOverviewNetworks `json:"networks"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworksOverview leniently.
+func (r *TravelRuleNetworksOverview) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworkQuestionnaire is a response object.
+type TravelRuleNetworkQuestionnaire struct {
+	// Answers can be saved while draft or changes_requested; submitted, approved
+	// and rejected are Didit's to move.
+	Status      TravelRuleNetworkQuestionnaireStatus  `json:"status"`
+	Answers     TravelRuleNetworkQuestionnaireAnswers `json:"answers"`
+	SubmittedAt time.Time                             `json:"submitted_at"`
+	ReviewedAt  time.Time                             `json:"reviewed_at"`
+
+	// Didit's note on its last decision, for example what to change.
+	ReviewNote string `json:"review_note"`
+
+	// Every status change, oldest first.
+	History   []TravelRuleNetworkQuestionnaireHistory `json:"history"`
+	UpdatedAt time.Time                               `json:"updated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworkQuestionnaire leniently.
+func (r *TravelRuleNetworkQuestionnaire) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworkQuestionnaireStatus: Answers can be saved while draft or
+// changes_requested; submitted, approved and rejected are Didit's to move.
+//
+// TravelRuleNetworkQuestionnaireStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleNetworkQuestionnaireStatus string
+
+// Known values of TravelRuleNetworkQuestionnaireStatus.
+const (
+	TravelRuleNetworkQuestionnaireStatusDraft            TravelRuleNetworkQuestionnaireStatus = "draft"
+	TravelRuleNetworkQuestionnaireStatusSubmitted        TravelRuleNetworkQuestionnaireStatus = "submitted"
+	TravelRuleNetworkQuestionnaireStatusChangesRequested TravelRuleNetworkQuestionnaireStatus = "changes_requested"
+	TravelRuleNetworkQuestionnaireStatusApproved         TravelRuleNetworkQuestionnaireStatus = "approved"
+	TravelRuleNetworkQuestionnaireStatusRejected         TravelRuleNetworkQuestionnaireStatus = "rejected"
+)
+
+// TravelRuleNetworkQuestionnaireAnswers: Didit's network due-diligence
+// questionnaire. Saves are partial: a save keeps every answer it does not name.
+// Submitting requires every field except lei and data_protection_contact_email,
+// and the three attestations true.
+type TravelRuleNetworkQuestionnaireAnswers struct {
+	LegalName          string `json:"legal_name"`
+	RegistrationNumber string `json:"registration_number"`
+
+	// ISO 3166-1 alpha-2 country code.
+	IncorporationCountry string `json:"incorporation_country"`
+	RegisteredAddress    string `json:"registered_address"`
+	Website              string `json:"website"`
+
+	// Optional. A valid ISO 17442 LEI when given.
+	Lei string `json:"lei"`
+
+	// Every licence or registration the VASP holds.
+	Licences               []TravelRuleNetworkQuestionnaireAnswersLicences `json:"licences"`
+	OperatingJurisdictions []string                                        `json:"operating_jurisdictions"`
+	ComplianceOfficerName  string                                          `json:"compliance_officer_name"`
+	ComplianceOfficerEmail string                                          `json:"compliance_officer_email"`
+
+	// Must be true to submit.
+	AMLCtfPolicyAttested bool `json:"aml_ctf_policy_attested"`
+
+	// Must be true to submit.
+	SanctionsScreeningAttested bool `json:"sanctions_screening_attested"`
+
+	// Must be true to submit.
+	DataProtectionAttested bool `json:"data_protection_attested"`
+
+	// Optional.
+	DataProtectionContactEmail string `json:"data_protection_contact_email"`
+	ExpectedMonthlyTransfers   int64  `json:"expected_monthly_transfers"`
+
+	// Expected monthly volume in USD, up to 2 decimal places. Returned as a string.
+	ExpectedMonthlyVolumeUsd string `json:"expected_monthly_volume_usd"`
+
+	// Asset tickers, stored upper-case, sorted and de-duplicated.
+	Assets []string `json:"assets"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworkQuestionnaireAnswers leniently.
+func (r *TravelRuleNetworkQuestionnaireAnswers) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworkQuestionnaireAnswersLicences is a response object.
+type TravelRuleNetworkQuestionnaireAnswersLicences struct {
+	Regulator string `json:"regulator"`
+
+	// ISO 3166-1 alpha-2 country code.
+	Jurisdiction  string `json:"jurisdiction"`
+	LicenceType   string `json:"licence_type"`
+	LicenceNumber string `json:"licence_number"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworkQuestionnaireAnswersLicences leniently.
+func (r *TravelRuleNetworkQuestionnaireAnswersLicences) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworkQuestionnaireHistory is a response object.
+type TravelRuleNetworkQuestionnaireHistory struct {
+	At   time.Time `json:"at"`
+	From string    `json:"from"`
+	To   string    `json:"to"`
+
+	// Review note or the network's answer, when there is one.
+	Note string `json:"note"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworkQuestionnaireHistory leniently.
+func (r *TravelRuleNetworkQuestionnaireHistory) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworksOverviewNetworks: Per network, how this application would
+// send and why it cannot. No network, including GTR, is included by default: a
+// network is reachable through your own connected membership, or through
+// Didit's membership once Didit's membership of that network is live and your
+// own participant on it is active. Not a live health or delivery check.
+type TravelRuleNetworksOverviewNetworks struct {
+	Gtr        TravelRuleNetworkState `json:"gtr"`
+	Trust      TravelRuleNetworkState `json:"trust"`
+	Verifyvasp TravelRuleNetworkState `json:"verifyvasp"`
+	Sygna      TravelRuleNetworkState `json:"sygna"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworksOverviewNetworks leniently.
+func (r *TravelRuleNetworksOverviewNetworks) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworkQuestionnaireAnswersParam: Didit's network due-diligence
+// questionnaire. Saves are partial: a save keeps every answer it does not name.
+// Submitting requires every field except lei and data_protection_contact_email,
+// and the three attestations true.
+type TravelRuleNetworkQuestionnaireAnswersParam struct {
+	LegalName          Opt[string] `json:"legal_name"`
+	RegistrationNumber Opt[string] `json:"registration_number"`
+
+	// ISO 3166-1 alpha-2 country code.
+	IncorporationCountry Opt[string] `json:"incorporation_country"`
+	RegisteredAddress    Opt[string] `json:"registered_address"`
+	Website              Opt[string] `json:"website"`
+
+	// Optional. A valid ISO 17442 LEI when given.
+	Lei Opt[string] `json:"lei"`
+
+	// Every licence or registration the VASP holds.
+	Licences               Opt[[]TravelRuleNetworkQuestionnaireAnswersParamLicences] `json:"licences"`
+	OperatingJurisdictions Opt[[]string]                                             `json:"operating_jurisdictions"`
+	ComplianceOfficerName  Opt[string]                                               `json:"compliance_officer_name"`
+	ComplianceOfficerEmail Opt[string]                                               `json:"compliance_officer_email"`
+
+	// Must be true to submit.
+	AMLCtfPolicyAttested Opt[bool] `json:"aml_ctf_policy_attested"`
+
+	// Must be true to submit.
+	SanctionsScreeningAttested Opt[bool] `json:"sanctions_screening_attested"`
+
+	// Must be true to submit.
+	DataProtectionAttested Opt[bool] `json:"data_protection_attested"`
+
+	// Optional.
+	DataProtectionContactEmail Opt[string] `json:"data_protection_contact_email"`
+	ExpectedMonthlyTransfers   Opt[int64]  `json:"expected_monthly_transfers"`
+
+	// Expected monthly volume in USD, up to 2 decimal places. Returned as a string.
+	ExpectedMonthlyVolumeUsd Opt[string] `json:"expected_monthly_volume_usd"`
+
+	// Asset tickers, stored upper-case, sorted and de-duplicated.
+	Assets Opt[[]string] `json:"assets"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleNetworkQuestionnaireAnswersParam) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleNetworkQuestionnaireAnswersParamLicences is a request object.
+type TravelRuleNetworkQuestionnaireAnswersParamLicences struct {
+	// Required.
+	Regulator string `json:"regulator"`
+
+	// ISO 3166-1 alpha-2 country code. Required.
+	Jurisdiction string `json:"jurisdiction"`
+
+	// Required.
+	LicenceType string `json:"licence_type"`
+
+	// Required.
+	LicenceNumber string `json:"licence_number"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleNetworkQuestionnaireAnswersParamLicences) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
 // TravelRuleTransfersListParams holds the parameters of
 // Client.TravelRule.Transfers.List.
 type TravelRuleTransfersListParams struct {
@@ -3168,7 +3672,10 @@ type WalletAddressEntryCreate struct {
 	// transfer's chain is `beneficiary_data.chain`, filled from the transaction's
 	// crypto chain or currency symbol (for example `ETH`) when you do not send it,
 	// or the `chain` of an after-deposit registration, so use the same token
-	// everywhere. An entry with an empty chain matches any chain.
+	// everywhere. An entry with an empty chain matches any chain. Known chains are
+	// stored under one canonical identifier whatever spelling you send: "ethereum",
+	// "Ethereum" and "ERC20" are all stored as ETH, "BNB Smart Chain" and "BEP20"
+	// as BNB, "tron" as TRX. An unknown chain name is kept as given.
 	Chain            Opt[string] `json:"chain"`
 	HolderVendorData Opt[string] `json:"holder_vendor_data"`
 	HolderName       Opt[string] `json:"holder_name"`
@@ -3216,7 +3723,10 @@ type WalletAddressEntry struct {
 	// or the `chain` of an after-deposit registration, so use the same token
 	// everywhere. An entry with an empty chain matches any chain. A Lightning payee
 	// (a node id or a Lightning Address) registered on bitcoin is stored lowercased
-	// on `LIGHTNING`, where Lightning transfers are matched.
+	// on `LIGHTNING`, where Lightning transfers are matched. Known chains are
+	// stored under one canonical identifier whatever spelling you send: "ethereum",
+	// "Ethereum" and "ERC20" are all stored as ETH, "BNB Smart Chain" and "BEP20"
+	// as BNB, "tron" as TRX. An unknown chain name is kept as given.
 	Chain string `json:"chain"`
 
 	// Your internal identifier for the holder.
@@ -3307,6 +3817,174 @@ type WalletAddressEntryUpdate struct {
 func (r *WalletAddressEntryUpdate) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// TravelRuleWalletProofDecision is a request object.
+type TravelRuleWalletProofDecision struct {
+	// Required.
+	Decision TravelRuleWalletProofDecisionDecision `json:"decision"`
+
+	// Optional. Kept with the proof and returned as review_note.
+	Note Opt[string] `json:"note"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleWalletProofDecision) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleWalletProofDecisionDecision is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleWalletProofDecisionDecision string
+
+// Known values of TravelRuleWalletProofDecisionDecision.
+const (
+	TravelRuleWalletProofDecisionDecisionApprove TravelRuleWalletProofDecisionDecision = "approve"
+	TravelRuleWalletProofDecisionDecisionReject  TravelRuleWalletProofDecisionDecision = "reject"
+)
+
+// TravelRuleWalletProofReview is a response object.
+type TravelRuleWalletProofReview struct {
+	ProofID       string                            `json:"proof_id"`
+	Method        TravelRuleWalletProofReviewMethod `json:"method"`
+	Status        TravelRuleWalletProofReviewStatus `json:"status"`
+	WalletAddress string                            `json:"wallet_address"`
+
+	// Canonical chain identifier, e.g. ETH, BTC, SOL, TRX.
+	Chain      string `json:"chain"`
+	HolderName string `json:"holder_name"`
+
+	// Whether the address book entry is ownership-verified, by this proof or
+	// another one.
+	IsOwnershipVerified bool `json:"is_ownership_verified"`
+
+	// The transaction whose Travel Rule transfer the widget session was minted for.
+	// Null for a session minted without a transaction_id.
+	TransactionID string `json:"transaction_id"`
+	FileName      string `json:"file_name"`
+	ContentType   string `json:"content_type"`
+
+	// Time-limited link to the uploaded screenshot. List the queue again for a
+	// fresh link.
+	ScreenshotURL string `json:"screenshot_url"`
+
+	// How many files the end user uploaded for this proof.
+	Attempts int64 `json:"attempts"`
+
+	// REVIEW_REJECTED after a rejection, OWNERSHIP_CHANGED when the wallet changed
+	// holder or was deleted before a decision. Empty otherwise.
+	FailureReason TravelRuleWalletProofFailureReason `json:"failure_reason"`
+
+	// When the end user picked the screenshot method.
+	MethodChosenAt time.Time `json:"method_chosen_at"`
+	DecidedAt      time.Time `json:"decided_at"`
+
+	// Who closed the proof: review:<user identifier> for a console reviewer, review
+	// for an API-key decision, widget or sweeper when Didit closed it
+	// automatically. Empty while PENDING.
+	DecidedBy string `json:"decided_by"`
+
+	// The note sent with the decision. Empty when none.
+	ReviewNote string    `json:"review_note"`
+	CreatedAt  time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWalletProofReview leniently.
+func (r *TravelRuleWalletProofReview) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWalletProofReviewMethod is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleWalletProofReviewMethod string
+
+// Known values of TravelRuleWalletProofReviewMethod.
+const (
+	TravelRuleWalletProofReviewMethodScreenshot TravelRuleWalletProofReviewMethod = "SCREENSHOT"
+)
+
+// TravelRuleWalletProofReviewStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleWalletProofReviewStatus string
+
+// Known values of TravelRuleWalletProofReviewStatus.
+const (
+	TravelRuleWalletProofReviewStatusPending  TravelRuleWalletProofReviewStatus = "PENDING"
+	TravelRuleWalletProofReviewStatusVerified TravelRuleWalletProofReviewStatus = "VERIFIED"
+	TravelRuleWalletProofReviewStatusRejected TravelRuleWalletProofReviewStatus = "REJECTED"
+	TravelRuleWalletProofReviewStatusExpired  TravelRuleWalletProofReviewStatus = "EXPIRED"
+)
+
+// TravelRuleWalletProofFailureReason: Why a wallet-ownership proof, or its last
+// attempt, fell short of VERIFIED. Empty when nothing failed. A PENDING proof
+// can carry one: the last attempt failed and the end user can try again.
+// DEPOSIT_MISMATCH, DEPOSIT_STALE, TXID_REUSED and REVIEW_REJECTED close the
+// proof as REJECTED. SIGNATURE_INVALID: the signature does not match the wallet
+// and challenge. SIGNATURE_UNSUPPORTED_SCHEME: the wallet signed in a format
+// Didit does not verify. DEPOSIT_NOT_FOUND, DEPOSIT_UNCONFIRMED,
+// DEPOSIT_LOOKUP_FAILED: the test deposit is not readable or not confirmed yet;
+// Didit keeps checking it until the test window closes. DEPOSIT_MISMATCH: the
+// transaction does not send the expected amount from the wallet to the deposit
+// address. DEPOSIT_STALE: the transaction predates the challenge. TXID_REUSED:
+// the transaction already proved another wallet. CHAIN_UNSUPPORTED: the method
+// is not available on this chain. WINDOW_EXPIRED: the test window closed.
+// OWNERSHIP_CHANGED: the wallet's holder changed, or the wallet was deleted
+// from your address book, after the widget session was minted. METHOD_SWITCHED:
+// the end user picked another method before finishing this one.
+// REVIEW_REJECTED: your reviewer rejected the screenshot. ABANDONED: the widget
+// session lapsed before the end user finished.
+//
+// TravelRuleWalletProofFailureReason is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleWalletProofFailureReason string
+
+// Known values of TravelRuleWalletProofFailureReason.
+const (
+	TravelRuleWalletProofFailureReasonEmpty                      TravelRuleWalletProofFailureReason = ""
+	TravelRuleWalletProofFailureReasonSignatureInvalid           TravelRuleWalletProofFailureReason = "SIGNATURE_INVALID"
+	TravelRuleWalletProofFailureReasonSignatureUnsupportedScheme TravelRuleWalletProofFailureReason = "SIGNATURE_UNSUPPORTED_SCHEME"
+	TravelRuleWalletProofFailureReasonDepositNotFound            TravelRuleWalletProofFailureReason = "DEPOSIT_NOT_FOUND"
+	TravelRuleWalletProofFailureReasonDepositUnconfirmed         TravelRuleWalletProofFailureReason = "DEPOSIT_UNCONFIRMED"
+	TravelRuleWalletProofFailureReasonDepositLookupFailed        TravelRuleWalletProofFailureReason = "DEPOSIT_LOOKUP_FAILED"
+	TravelRuleWalletProofFailureReasonDepositMismatch            TravelRuleWalletProofFailureReason = "DEPOSIT_MISMATCH"
+	TravelRuleWalletProofFailureReasonDepositStale               TravelRuleWalletProofFailureReason = "DEPOSIT_STALE"
+	TravelRuleWalletProofFailureReasonTxidReused                 TravelRuleWalletProofFailureReason = "TXID_REUSED"
+	TravelRuleWalletProofFailureReasonChainUnsupported           TravelRuleWalletProofFailureReason = "CHAIN_UNSUPPORTED"
+	TravelRuleWalletProofFailureReasonWindowExpired              TravelRuleWalletProofFailureReason = "WINDOW_EXPIRED"
+	TravelRuleWalletProofFailureReasonOwnershipChanged           TravelRuleWalletProofFailureReason = "OWNERSHIP_CHANGED"
+	TravelRuleWalletProofFailureReasonMethodSwitched             TravelRuleWalletProofFailureReason = "METHOD_SWITCHED"
+	TravelRuleWalletProofFailureReasonReviewRejected             TravelRuleWalletProofFailureReason = "REVIEW_REJECTED"
+	TravelRuleWalletProofFailureReasonAbandoned                  TravelRuleWalletProofFailureReason = "ABANDONED"
+)
+
+// TravelRuleWalletProofsListParams holds the parameters of
+// Client.TravelRule.WalletProofs.List.
+type TravelRuleWalletProofsListParams struct {
+	// Which proofs to list. Defaults to PENDING, the ones still to decide.
+	Status Opt[TravelRuleWalletProofsListParamsStatus] `json:"-" query:"status"`
+	Limit  Opt[int64]                                  `json:"-" query:"limit"`
+	Offset Opt[int64]                                  `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleWalletProofsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleWalletProofsListParamsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleWalletProofsListParamsStatus string
+
+// Known values of TravelRuleWalletProofsListParamsStatus.
+const (
+	TravelRuleWalletProofsListParamsStatusPending  TravelRuleWalletProofsListParamsStatus = "PENDING"
+	TravelRuleWalletProofsListParamsStatusVerified TravelRuleWalletProofsListParamsStatus = "VERIFIED"
+	TravelRuleWalletProofsListParamsStatusRejected TravelRuleWalletProofsListParamsStatus = "REJECTED"
+	TravelRuleWalletProofsListParamsStatusExpired  TravelRuleWalletProofsListParamsStatus = "EXPIRED"
+)
 
 // TravelRuleWorkspaceClaimRequest is a request object.
 type TravelRuleWorkspaceClaimRequest struct {
