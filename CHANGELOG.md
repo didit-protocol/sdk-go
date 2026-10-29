@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/didit-protocol/sdk-go/compare/v1.0.0...v1.0.1) (2026-10-29)
+
+
+### Miscellaneous Chores
+
+* release 1.0.1 ([e0fb65b](https://github.com/didit-protocol/sdk-go/commit/e0fb65bfd03fc388db8e55d4d7daccec69de141b))
+
 ## [1.0.0](https://github.com/didit-protocol/sdk-go/compare/v0.1.0...v1.0.0) (2026-10-29)
 
 
