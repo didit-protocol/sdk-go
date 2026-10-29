@@ -611,6 +611,12 @@ func (r *TransactionsTravelRuleService) UpdateTransfer(ctx context.Context, tran
 // TransactionsBatchDeleteParams holds the parameters of
 // Client.Transactions.BatchDelete.
 type TransactionsBatchDeleteParams struct {
+	// Didit transaction UUIDs to delete. Required unless `delete_all` is true.
+	TransactionUUIDs Opt[[]string] `json:"transaction_uuids"`
+
+	// Leave out or send `false` when you select transactions with
+	// `transaction_uuids`.
+	DeleteAll Opt[bool] `json:"delete_all"`
 }
 
 // MarshalJSON encodes the fields that are set.
