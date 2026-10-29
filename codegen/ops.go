@@ -49,8 +49,8 @@ type Method struct {
 	// ParamsMethod, when set, is the Go name of a companion method that takes
 	// Params; the method itself then takes none (openapi/compatibility.json).
 	ParamsMethod string
-	BodyKind string
-	Return   ReturnKind
+	BodyKind     string
+	Return       ReturnKind
 	// Result is the JSON result type (RetJSON) or the item type (RetPage).
 	Result *GoType
 	Accept string
@@ -207,7 +207,8 @@ func (g *Gen) keepWithoutParams(m *Method, companion string) error {
 	if m.Params == nil {
 		return fmt.Errorf("the method takes no parameters, so it needs no companion; delete the entry")
 	}
-	if d := g.byName[m.Params.Name]; d != nil {
+	d := g.byName[m.Params.Name]
+	if d != nil {
 		for _, f := range d.Fields {
 			if f.Required {
 				return fmt.Errorf("%s.%s is required, so the method cannot keep a signature without parameters", m.Params.Name, f.GoName)
@@ -219,6 +220,9 @@ func (g *Gen) keepWithoutParams(m *Method, companion string) error {
 		return fmt.Errorf("companion method name %q must differ from %s", companion, m.GoName)
 	}
 	m.ParamsMethod = name
+	if d != nil && d.Params && d.Origin == m.Op.Key {
+		d.Doc = fmt.Sprintf("%s holds the parameters of %s%s.", d.Name, strings.TrimSuffix(methodRef(m), m.GoName), name)
+	}
 	return nil
 }
 

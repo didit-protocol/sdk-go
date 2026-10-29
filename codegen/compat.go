@@ -76,12 +76,13 @@ func (g *Gen) compatAliases() (map[string][]compatAlias, error) {
 // emitAlias renders a released type name as a deprecated alias, followed by
 // the released constants of an enum.
 func emitAlias(b *bytes.Buffer, a compatAlias) {
-	writeDoc(b, "", fmt.Sprintf("%s is the name of an earlier release for what the API now describes as %s, kept so that code written against that release still compiles.\n\nDeprecated: Use %s.", a.Name, a.Target.Name, a.Target.Name))
+	writeDoc(b, "", fmt.Sprintf("%s is an alias of %s, kept from an earlier release so that code that uses it still compiles.\n\nDeprecated: Use %s.", a.Name, a.Target.Name, a.Target.Name))
 	fmt.Fprintf(b, "type %s = %s\n\n", a.Name, a.Target.Name)
 	if len(a.Values) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "// Known values of %s, kept from an earlier release.\nconst (\n", a.Name)
+	writeDoc(b, "", fmt.Sprintf("Known values of %s, kept from an earlier release.", a.Name))
+	b.WriteString("const (\n")
 	for _, v := range a.Values {
 		replacement := "a value of " + a.Target.Name
 		for _, tv := range a.Target.Values {
