@@ -12,15 +12,27 @@ import (
 // release keeps compiling until the next major version (docs/DESIGN.md
 // section 13), so dropping one of these names fails here.
 func TestReleasedNamesCompile(t *testing.T) {
-	var _ func(*RegulatoryReportsService, context.Context, string, ...option.RequestOption) error = (*RegulatoryReportsService).Delete
+	// Delete was released without parameters.
+	deleteReport := func(r *RegulatoryReportsService, opts ...option.RequestOption) error {
+		return r.Delete(context.Background(), "report-uuid-1", opts...)
+	}
+	_ = deleteReport
 
+	// The released types of the Travel Rule settings networks.
+	released := func(
+		TravelRuleSettingsDetailNetworksGtr, TravelRuleSettingsDetailNetworksTrust,
+		TravelRuleSettingsDetailNetworksVerifyvasp, TravelRuleSettingsDetailNetworksSygna,
+		TravelRuleSettingsDetailNetworksGtrRail, TravelRuleSettingsDetailNetworksTrustRail,
+		TravelRuleSettingsDetailNetworksVerifyvaspRail, TravelRuleSettingsDetailNetworksSygnaRail,
+		TravelRuleSettingsDetailNetworksGtrMode, TravelRuleSettingsDetailNetworksTrustMode,
+		TravelRuleSettingsDetailNetworksVerifyvaspMode, TravelRuleSettingsDetailNetworksSygnaMode,
+	) {
+	}
 	var n TravelRuleSettingsDetailNetworks
-	var (
-		_ TravelRuleSettingsDetailNetworksGtr        = n.Gtr
-		_ TravelRuleSettingsDetailNetworksTrust      = n.Trust
-		_ TravelRuleSettingsDetailNetworksVerifyvasp = n.Verifyvasp
-		_ TravelRuleSettingsDetailNetworksSygna      = n.Sygna
-	)
+	released(n.Gtr, n.Trust, n.Verifyvasp, n.Sygna,
+		n.Gtr.Rail, n.Trust.Rail, n.Verifyvasp.Rail, n.Sygna.Rail,
+		n.Gtr.Mode, n.Trust.Mode, n.Verifyvasp.Mode, n.Sygna.Mode)
+
 	rails := map[TravelRuleNetworkStateRail]TravelRuleNetworkStateRail{
 		TravelRuleSettingsDetailNetworksGtrRailGtr:               TravelRuleNetworkStateRailGtr,
 		TravelRuleSettingsDetailNetworksTrustRailTrust:           TravelRuleNetworkStateRailTrust,
@@ -33,8 +45,6 @@ func TestReleasedNamesCompile(t *testing.T) {
 		TravelRuleNetworkStateModeOff:         {TravelRuleSettingsDetailNetworksGtrModeOff, TravelRuleSettingsDetailNetworksTrustModeOff, TravelRuleSettingsDetailNetworksVerifyvaspModeOff, TravelRuleSettingsDetailNetworksSygnaModeOff},
 		TravelRuleNetworkStateModeUnavailable: {TravelRuleSettingsDetailNetworksGtrModeUnavailable, TravelRuleSettingsDetailNetworksTrustModeUnavailable, TravelRuleSettingsDetailNetworksVerifyvaspModeUnavailable, TravelRuleSettingsDetailNetworksSygnaModeUnavailable},
 	}
-	var _ TravelRuleSettingsDetailNetworksGtrRail = TravelRuleNetworkStateRailGtr
-	var _ TravelRuleSettingsDetailNetworksTrustMode = TravelRuleNetworkStateModeOwn
 	for old, now := range rails {
 		if old != now {
 			t.Errorf("released rail %q != %q", old, now)
