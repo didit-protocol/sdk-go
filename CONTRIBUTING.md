@@ -1,0 +1,74 @@
+# Contributing
+
+Thanks for helping. This repository is one of the seven Didit server SDKs. They share one design contract, [docs/DESIGN.md](docs/DESIGN.md), and one API contract, the OpenAPI documents in `openapi/`. Read both first.
+
+## Layout
+
+| Path | What | Edited by |
+|---|---|---|
+| `*_gen.go`, `*_gen_test.go` | Generated resources, types and one test per operation | `go run ./codegen` only |
+| `codegen/` | The generator (Go, standard library), and `codegen sync` for the spec sync | hand |
+| `openapi/verification.json`, `openapi/account.json`, `openapi/webhook-vectors.json` | Upstream copies | the spec sync workflow only |
+| `openapi/overlay.json` | SDK naming (`x-didit-sdk`) for operations upstream does not name yet | hand, identical in all seven SDKs |
+| `openapi/deprecated-operations.json` | Removed or renamed operations kept for one minor version | `codegen sync` |
+| `openapi/compatibility.json` | Released Go names kept after the API changed the schema behind them | hand |
+| `client.go`, `core.go`, `errors.go`, `opt.go`, `page.go`, `file.go`, `params.go`, `json.go`, `option/`, `internal/` | Hand-written core | hand |
+| `webhook/` | Webhook verification and typed events | hand |
+| `authentication/` | Authentication token verification and issuer calls | hand |
+| `examples/` | Runnable examples (a separate module) | hand |
+
+## Commands
+
+```sh
+go run ./codegen            # regenerate from openapi/
+go run ./codegen -check     # fail when the generated code is stale (CI)
+go test -race ./...         # unit, generated, contract, webhook vector and Authentication tests
+go vet ./...
+staticcheck ./...           # honnef.co/go/tools/cmd/staticcheck
+golangci-lint run           # v2, configured in .golangci.yml
+gofmt -l .                  # must print nothing
+(cd examples && go vet ./...)
+```
+
+Core coverage must stay at 90% or more:
+
+```sh
+go test -coverpkg=./... -coverprofile=coverage.out ./...
+go run ./internal/tools/corecover -min 90 coverage.out
+```
+
+Live smoke tests run only with a sandbox key and are never part of default CI:
+
+```sh
+DIDIT_SANDBOX_API_KEY=... DIDIT_SANDBOX_WORKFLOW_ID=... go test -run Live ./...
+```
+
+Unit tests never touch the network. Fixtures are synthetic: webhook secrets start with `whsec_test_` (the gitleaks allowlist relies on it), test keys are generated at test time, and no real customer data is ever committed.
+
+## Changing the API surface
+
+The SDK follows the API. Never edit generated files: change the generator, or the naming in `openapi/overlay.json`, then regenerate.
+
+- **The API changed.** The change belongs in the OpenAPI documents of mintlify-docs first. The daily spec sync (`.github/workflows/spec-sync.yml`, `go run ./codegen sync`) downloads them, regenerates, runs the tests and opens a `chore(spec): sync API spec YYYY-MM-DD` pull request listing added, removed and changed operations, with breaking changes called out.
+- **A new operation fails the generator** with a message naming it: add its `x-didit-sdk` entry to `openapi/overlay.json` in all seven SDK repositories (or upstream).
+- **Removed operations** are never deleted silently: the sync records them in `openapi/deprecated-operations.json` and the generator keeps the method, marked `Deprecated:`, for one minor version.
+- **Released Go code keeps compiling** within a major version (docs/DESIGN.md section 13). When a sync would break it, record the old names in `openapi/compatibility.json`: `type_aliases` keeps a released type name as a deprecated alias of the type that now describes the same schema, with the released constants of an enum, and `params_methods` keeps a method that was released without parameters as it was, with a companion method (`DeleteWithParams`) for the optional parameters the API added. The generator fails when an entry no longer applies, and `compat_test.go` uses every kept name.
+- **Core behaviour** that docs/DESIGN.md describes (options, errors, retries, pagination, webhooks, Authentication) changes in all seven SDKs, one pull request each, and docs/DESIGN.md changes in all seven in the same words.
+
+## Commits and releases
+
+Use [conventional commits](https://www.conventionalcommits.org): `feat:`, `fix:`, `docs:`, `chore:`, and `feat!:` or a `BREAKING CHANGE:` footer for breaking changes. The type decides the next version.
+
+Releases are cut by release-please (`.github/workflows/release-please.yml`, on every push to `main`): it keeps a release pull request that bumps `internal/version/version.go` and generates `CHANGELOG.md` (never edit it by hand). Merging the release pull request is the release approval (Alex, 2026-10-29); nobody tags or publishes by hand. The next run pushes the `vX.Y.Z` tag and the GitHub release and starts `.github/workflows/release.yml` (tests, source archive with build provenance, Go proxy fetch). For a Go module the tag is the release.
+
+1.0.0 was released on 2026-10-29.
+
+### One-time setup (done for 1.0.0)
+
+1. The repository is public (made public after a full-history gitleaks scan).
+2. `release.yml` runs in the `release` environment, which has no required reviewers: merging the release pull request is the approval.
+3. Releases need no stored token: release-please runs on GITHUB_TOKEN and starts `release.yml` for each new tag with `workflow_dispatch`.
+4. Add the `SPEC_SYNC_TOKEN` repository secret (same scopes as above) so the spec sync pull requests get CI. Without it the spec sync falls back to `GITHUB_TOKEN`, which needs "Allow GitHub Actions to create and approve pull requests" (Settings > Actions > General).
+5. Protect `main` (required checks: the CI jobs). If you add a tag ruleset that blocks creating `v*` tags, put the GitHub Actions app on its bypass list: release-please tags releases with `GITHUB_TOKEN`, which acts as that app, and every release run fails without it. Nobody else tags a release by hand.
+6. Replace `@didit-protocol` in `.github/CODEOWNERS` with the SDK team.
+7. After the first tag, check `https://pkg.go.dev/github.com/didit-protocol/sdk-go` (the release workflow asks proxy.golang.org to fetch the version). Go has no registry account, namespace or trusted publisher to configure.

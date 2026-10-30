@@ -1,0 +1,80 @@
+{
+ "description": "Go names of an earlier 1.x release that the generator keeps after the API contract changed the schema they came from, so that code written against that release still compiles (docs/DESIGN.md section 13: a breaking change is a major version). Edited by hand when a spec sync would break such code; the generator fails when an entry no longer applies. params_methods: \"resource.method\" of a method released without parameters to which the API added optional ones; the method keeps that signature and a companion method, named here in x-didit-sdk style, takes the parameters. type_aliases: a released type name that is now an alias (marked Deprecated) of alias_of, the type the generator produces for the same schema; values lists the released constants of an enum by value.",
+ "params_methods": {
+  "regulatory_reports.delete": "delete_with_params"
+ },
+ "type_aliases": {
+  "TravelRuleSettingsDetailNetworksGtr": {
+   "alias_of": "TravelRuleNetworkState"
+  },
+  "TravelRuleSettingsDetailNetworksGtrMode": {
+   "alias_of": "TravelRuleNetworkStateMode",
+   "values": [
+    "own",
+    "didit",
+    "off",
+    "unavailable"
+   ]
+  },
+  "TravelRuleSettingsDetailNetworksGtrRail": {
+   "alias_of": "TravelRuleNetworkStateRail",
+   "values": [
+    "GTR"
+   ]
+  },
+  "TravelRuleSettingsDetailNetworksSygna": {
+   "alias_of": "TravelRuleNetworkState"
+  },
+  "TravelRuleSettingsDetailNetworksSygnaMode": {
+   "alias_of": "TravelRuleNetworkStateMode",
+   "values": [
+    "own",
+    "didit",
+    "off",
+    "unavailable"
+   ]
+  },
+  "TravelRuleSettingsDetailNetworksSygnaRail": {
+   "alias_of": "TravelRuleNetworkStateRail",
+   "values": [
+    "SYGNA"
+   ]
+  },
+  "TravelRuleSettingsDetailNetworksTrust": {
+   "alias_of": "TravelRuleNetworkState"
+  },
+  "TravelRuleSettingsDetailNetworksTrustMode": {
+   "alias_of": "TravelRuleNetworkStateMode",
+   "values": [
+    "own",
+    "didit",
+    "off",
+    "unavailable"
+   ]
+  },
+  "TravelRuleSettingsDetailNetworksTrustRail": {
+   "alias_of": "TravelRuleNetworkStateRail",
+   "values": [
+    "TRUST"
+   ]
+  },
+  "TravelRuleSettingsDetailNetworksVerifyvasp": {
+   "alias_of": "TravelRuleNetworkState"
+  },
+  "TravelRuleSettingsDetailNetworksVerifyvaspMode": {
+   "alias_of": "TravelRuleNetworkStateMode",
+   "values": [
+    "own",
+    "didit",
+    "off",
+    "unavailable"
+   ]
+  },
+  "TravelRuleSettingsDetailNetworksVerifyvaspRail": {
+   "alias_of": "TravelRuleNetworkStateRail",
+   "values": [
+    "VERIFYVASP"
+   ]
+  }
+ }
+}
