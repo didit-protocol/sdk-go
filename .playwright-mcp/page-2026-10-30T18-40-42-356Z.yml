@@ -1,0 +1,8 @@
+- generic:
+  - generic:
+    - generic:
+      - generic [ref=e2]: Loading Didit
+      - status [ref=e9]:
+        - generic [ref=e10]: Loading Didit
+      - region "Notifications alt+T"
+  - alert [ref=e11]
