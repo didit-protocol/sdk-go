@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -97,6 +99,49 @@ type Spec struct {
 	Account      *Doc
 	Overlay      *Node
 	Ops          []*Operation
+	Compat       Compat
+}
+
+// Compat is openapi/compatibility.json: Go names of an earlier release that
+// the generator keeps after the API contract changed the schema they came
+// from, so that code written against that release still compiles
+// (docs/DESIGN.md section 13). The generator fails when an entry no longer
+// applies.
+type Compat struct {
+	Description string `json:"description"`
+	// ParamsMethods maps "resource.method" to the snake_case name of a
+	// companion method that takes the operation's parameters, so that the
+	// method itself keeps the signature without parameters it was released
+	// with.
+	ParamsMethods map[string]string `json:"params_methods"`
+	// TypeAliases maps a released type name to the generated type it is now
+	// an alias of.
+	TypeAliases map[string]TypeAlias `json:"type_aliases"`
+}
+
+// TypeAlias is a released type name kept as an alias. Values lists the
+// released constants of an enum, by value.
+type TypeAlias struct {
+	AliasOf string   `json:"alias_of"`
+	Values  []string `json:"values"`
+}
+
+// loadCompat reads openapi/compatibility.json; a missing file keeps nothing.
+func loadCompat(dir string) (Compat, error) {
+	var c Compat
+	data, err := os.ReadFile(filepath.Join(dir, "openapi", "compatibility.json"))
+	if os.IsNotExist(err) {
+		return c, nil
+	}
+	if err != nil {
+		return c, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&c); err != nil {
+		return c, fmt.Errorf("openapi/compatibility.json: %w", err)
+	}
+	return c, nil
 }
 
 var httpMethods = []string{"get", "post", "put", "patch", "delete"}
@@ -175,6 +220,9 @@ func LoadSpec(dir string) (*Spec, error) {
 		return nil, fmt.Errorf("openapi naming:\n  %s", strings.Join(problems, "\n  "))
 	}
 	if err := s.loadDeprecated(dir); err != nil {
+		return nil, err
+	}
+	if s.Compat, err = loadCompat(dir); err != nil {
 		return nil, err
 	}
 	seen := map[string]string{}

@@ -14,7 +14,9 @@ import (
 
 // TestContract checks that every server operation of openapi/ has exactly one
 // SDK method, and that the SDK has no other method (docs/DESIGN.md section
-// 11). It reads the spec itself, so it needs no update when the API grows.
+// 11), besides the deprecated and companion methods that keep released
+// signatures. It reads the spec itself, so it needs no update when the API
+// grows.
 func TestContract(t *testing.T) {
 	want := map[string]string{} // "Sessions.Imports.Create" -> operation
 	overlay := readJSON(t, "openapi/overlay.json")["operations"].(map[string]any)
@@ -72,6 +74,26 @@ func TestContract(t *testing.T) {
 		}
 	}
 
+	// openapi/compatibility.json: a method released without parameters keeps
+	// that signature, and a companion method takes the parameters.
+	companions := map[string]bool{}
+	if data, err := os.ReadFile("openapi/compatibility.json"); err == nil {
+		var compat struct {
+			ParamsMethods map[string]string `json:"params_methods"`
+		}
+		if err := json.Unmarshal(data, &compat); err != nil {
+			t.Fatal(err)
+		}
+		for name, companion := range compat.ParamsMethods {
+			var parts []string
+			for _, seg := range strings.Split(name, ".") {
+				parts = append(parts, naming.Pascal(seg))
+			}
+			parts[len(parts)-1] = naming.Pascal(companion)
+			companions[strings.Join(parts, ".")] = true
+		}
+	}
+
 	got := map[string]bool{}
 	var walk func(v reflect.Value, prefix string)
 	walk = func(v reflect.Value, prefix string) {
@@ -107,8 +129,13 @@ func TestContract(t *testing.T) {
 		}
 	}
 	for name := range got {
-		if _, ok := want[name]; !ok && !deprecated[name] {
+		if _, ok := want[name]; !ok && !deprecated[name] && !companions[name] {
 			extra = append(extra, name)
+		}
+	}
+	for name := range companions {
+		if !got[name] {
+			missing = append(missing, name+" (openapi/compatibility.json)")
 		}
 	}
 	sort.Strings(missing)

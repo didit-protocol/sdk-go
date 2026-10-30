@@ -219,6 +219,14 @@ func (r recordedRequest) expectJSON(t *testing.T, want string) {
 	}
 }
 
+// expectNoBody checks that the request has no body.
+func (r recordedRequest) expectNoBody(t *testing.T) {
+	t.Helper()
+	if len(r.Body) != 0 || r.Header.Get("Content-Type") != "" {
+		t.Errorf("body = %q (Content-Type %q), want none", r.Body, r.Header.Get("Content-Type"))
+	}
+}
+
 // expectMultipart checks a multipart/form-data body: every field and every
 // file in the lists is present.
 func (r recordedRequest) expectMultipart(t *testing.T, fields, files []string) {

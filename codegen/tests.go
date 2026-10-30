@@ -86,8 +86,22 @@ func goString(s string) string {
 }
 
 func (g *Gen) emitTest(b *bytes.Buffer, m *Method) error {
+	if m.ParamsMethod == "" {
+		return g.emitTestAs(b, m, m.GoName, m.Params)
+	}
+	// openapi/compatibility.json: the method without parameters, then the
+	// companion method with them.
+	if err := g.emitTestAs(b, m, m.GoName, nil); err != nil {
+		return err
+	}
+	return g.emitTestAs(b, m, m.ParamsMethod, m.Params)
+}
+
+// emitTestAs renders the test of method name of m, called with params when
+// not nil.
+func (g *Gen) emitTestAs(b *bytes.Buffer, m *Method, name string, params *GoType) error {
 	op := m.Op
-	testName := "Test" + naming.Resource(op.Naming.Resource) + m.GoName
+	testName := "Test" + naming.Resource(op.Naming.Resource) + name
 	reqB := &exampleBuilder{doc: op.Doc, side: Request}
 	respB := &exampleBuilder{doc: op.Doc, side: Response}
 
@@ -172,13 +186,13 @@ func (g *Gen) emitTest(b *bytes.Buffer, m *Method) error {
 	var wantBody string
 	var wantForm []string
 	var wantFiles []string
-	multipart := m.BodyKind == "bodyMultipart"
-	if m.Params != nil {
-		d := g.byName[m.Params.Name]
+	multipart := params != nil && m.BodyKind == "bodyMultipart"
+	if params != nil {
+		d := g.byName[params.Name]
 		if d == nil {
-			return fmt.Errorf("params type %s not declared", m.Params.Name)
+			return fmt.Errorf("params type %s not declared", params.Name)
 		}
-		fmt.Fprintf(b, "\tvar params didit.%s\n", m.Params.Name)
+		fmt.Fprintf(b, "\tvar params didit.%s\n", params.Name)
 		// Body from the example.
 		if m.RequestSchema != nil {
 			var bodyField *Field
@@ -240,7 +254,7 @@ func (g *Gen) emitTest(b *bytes.Buffer, m *Method) error {
 		args = append(args, "params")
 	}
 
-	call := fmt.Sprintf("client.%s(%s)", strings.TrimPrefix(methodRef(m), "Client."), strings.Join(args, ", "))
+	call := fmt.Sprintf("client.%s.%s(%s)", clientPath(m.Service), name, strings.Join(args, ", "))
 	switch m.Return {
 	case RetNone:
 		fmt.Fprintf(b, "\tif err := %s; err != nil {\n\t\tt.Fatal(err)\n\t}\n", call)
@@ -267,6 +281,9 @@ func (g *Gen) emitTest(b *bytes.Buffer, m *Method) error {
 	}
 	if wantBody != "" {
 		fmt.Fprintf(b, "\treq.expectJSON(t, %s)\n", goString(wantBody))
+	}
+	if params == nil && m.Params != nil && m.BodyKind != "bodyNone" {
+		b.WriteString("\treq.expectNoBody(t)\n")
 	}
 	if multipart {
 		fmt.Fprintf(b, "\treq.expectMultipart(t, %s, %s)\n", sliceLiteral(wantForm), sliceLiteral(wantFiles))
@@ -407,7 +424,7 @@ func paramLiteral(op *Operation, f *Field) (string, string) {
 	return "", ""
 }
 
-func sortedKeys(m map[string]string) []string {
+func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

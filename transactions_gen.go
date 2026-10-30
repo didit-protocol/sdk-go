@@ -20,6 +20,33 @@ type TransactionsService struct {
 	TravelRule *TransactionsTravelRuleService
 }
 
+// BatchDelete: Batch delete transactions.
+//
+// Delete one or more transactions permanently. Select them with
+// `transaction_uuids`, or delete every transaction in the application with
+// `delete_all: true`.
+//
+// A deleted transaction goes with the records that are only its own: its
+// parties, tags, notes, payment method links, documents and every stored
+// version of their files, rule runs, alerts, provider results, network snapshot
+// and Travel Rule data. Cases, people and companies stay; their link to the
+// deleted transaction is cleared. Draft regulatory reports stop listing it and
+// are rebuilt without it. Deletion is permanent and irreversible; there is no
+// undo endpoint.
+//
+// If any selected transaction is listed in a finalized regulatory report, the
+// whole request is refused with `409` and nothing is deleted. The body uses
+// `code: in_filed_report` and names each transaction and the reports that list
+// it. Delete those reports, then repeat the request.
+//
+// The organization and application ids come from the client options.
+//
+//	DELETE /v3/organization/{organization_id}/application/{application_id}/transactions/delete/
+func (r *TransactionsService) BatchDelete(ctx context.Context, params TransactionsBatchDeleteParams, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/organization/{organization_id}/application/{application_id}/transactions/delete/", appScope: true, params: params, body: bodyJSON}, nil, opts)
+	return err
+}
+
 // Create: Create transaction.
 //
 // Submit a transaction for synchronous AML/risk monitoring. The transaction is
@@ -565,7 +592,12 @@ func (r *TransactionsTravelRuleService) TriggerTestVASPInbound(ctx context.Conte
 // sent to the counterparty again and the status stays. The originator becomes
 // `chain_details.originator` with `source: updated`, the change is added to the
 // `timeline` with the previous and the new wallet, and the INTERNAL-rail
-// counterpart of the transfer is updated the same way.
+// counterpart of the transfer is updated the same way. `{"action":
+// "beneficiary_vasp", "beneficiary_vasp": "<directory VASP id>"}` names the
+// counterparty yourself when discovery could not, on an outbound transfer in
+// COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE or
+// NOT_ENOUGH_COUNTERPARTY_DATA: the transfer is routed to that VASP and sent
+// again.
 //
 //	PATCH /v3/transactions/{transaction_id}/travel-rule/
 func (r *TransactionsTravelRuleService) UpdateTransfer(ctx context.Context, transactionID string, params TravelRuleTransferPatchRequest, opts ...option.RequestOption) (*TravelRuleTransferDetail, error) {
@@ -574,6 +606,22 @@ func (r *TransactionsTravelRuleService) UpdateTransfer(ctx context.Context, tran
 		return nil, err
 	}
 	return res, nil
+}
+
+// TransactionsBatchDeleteParams holds the parameters of
+// Client.Transactions.BatchDelete.
+type TransactionsBatchDeleteParams struct {
+	// Didit transaction UUIDs to delete. Required unless `delete_all` is true.
+	TransactionUUIDs Opt[[]string] `json:"transaction_uuids"`
+
+	// Leave out or send `false` when you select transactions with
+	// `transaction_uuids`.
+	DeleteAll Opt[bool] `json:"delete_all"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TransactionsBatchDeleteParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
 }
 
 // TransactionsCreateParams holds the parameters of Client.Transactions.Create.
@@ -4059,7 +4107,8 @@ func (r *TravelRuleTestVASPInboundResponse) UnmarshalJSON(data []byte) error {
 
 // TravelRuleTransferPatchRequest: Provide exactly one of: payment_txn_id
 // (finish), action=cancel, action=resend, action=update_compliance_email with
-// compliance_email, or action=update_originator_wallet with wallet_address.
+// compliance_email, action=update_originator_wallet with wallet_address, or
+// action=beneficiary_vasp with beneficiary_vasp.
 type TravelRuleTransferPatchRequest struct {
 	// The on-chain transaction hash. Requires the transfer to be an outbound
 	// transfer in COMPLETED status.
@@ -4071,7 +4120,9 @@ type TravelRuleTransferPatchRequest struct {
 	// "update_compliance_email" replaces the compliance email the request goes to,
 	// on an outbound transfer in one of those three statuses; send "resend"
 	// afterwards. "update_originator_wallet" records the wallet the funds actually
-	// left from (`wallet_address`, `memo`).
+	// left from (`wallet_address`, `memo`). "beneficiary_vasp" names the
+	// counterparty VASP yourself (requires `beneficiary_vasp`) for an outbound
+	// transfer in one of those statuses: it is routed to that VASP and sent again.
 	Action Opt[TravelRuleTransferPatchRequestAction] `json:"action"`
 
 	// Required with `action: update_compliance_email`. Kept as this transfer's
@@ -4086,6 +4137,11 @@ type TravelRuleTransferPatchRequest struct {
 	// With `action: update_originator_wallet`: the wallet's memo or tag on a memo
 	// network. Optional.
 	Memo Opt[string] `json:"memo"`
+
+	// Required with action=beneficiary_vasp: the `id` of a directory VASP, from
+	// `GET /v3/travel-rule/vasps/`. Your choice outranks every automatic discovery
+	// step, which never overrides it.
+	BeneficiaryVASP Opt[string] `json:"beneficiary_vasp"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -4100,6 +4156,9 @@ func (r TravelRuleTransferPatchRequest) MarshalJSON() ([]byte, error) {
 // compliance email the request goes to, on an outbound transfer in one of those
 // three statuses; send "resend" afterwards. "update_originator_wallet" records
 // the wallet the funds actually left from (`wallet_address`, `memo`).
+// "beneficiary_vasp" names the counterparty VASP yourself (requires
+// `beneficiary_vasp`) for an outbound transfer in one of those statuses: it is
+// routed to that VASP and sent again.
 //
 // TravelRuleTransferPatchRequestAction is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -4111,4 +4170,5 @@ const (
 	TravelRuleTransferPatchRequestActionResend                 TravelRuleTransferPatchRequestAction = "resend"
 	TravelRuleTransferPatchRequestActionUpdateComplianceEmail  TravelRuleTransferPatchRequestAction = "update_compliance_email"
 	TravelRuleTransferPatchRequestActionUpdateOriginatorWallet TravelRuleTransferPatchRequestAction = "update_originator_wallet"
+	TravelRuleTransferPatchRequestActionBeneficiaryVASP        TravelRuleTransferPatchRequestAction = "beneficiary_vasp"
 )

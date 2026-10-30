@@ -124,6 +124,10 @@ func fileOf(d *Decl) string {
 func (g *Gen) emit(root *Service) ([]File, error) {
 	g.assignOwners(root)
 	g.assignPointers()
+	aliases, err := g.compatAliases()
+	if err != nil {
+		return nil, err
+	}
 
 	bodies := map[string]*bytes.Buffer{}
 	buf := func(name string) *bytes.Buffer {
@@ -155,6 +159,9 @@ func (g *Gen) emit(root *Service) ([]File, error) {
 			continue
 		}
 		emitDecl(buf(fileOf(d)), d)
+		for _, a := range aliases[d.Name] {
+			emitAlias(buf(fileOf(d)), a)
+		}
 	}
 
 	var files []File
@@ -269,12 +276,14 @@ func clientPath(s *Service) string {
 	return strings.Join(parts, ".")
 }
 
-func methodDoc(m *Method) string {
+// methodDoc returns the doc comment of method name of m; note, when not
+// empty, is a paragraph of its own before the scope and deprecation ones.
+func methodDoc(m *Method, name, note string) string {
 	op := m.Op.Node
 	var parts []string
 	summary := strings.TrimSpace(op.Get("summary").Text())
 	desc := strings.TrimSpace(op.Get("description").Text())
-	first := m.GoName
+	first := name
 	if summary != "" {
 		first += ": " + strings.TrimSuffix(summary, ".") + "."
 	}
@@ -286,11 +295,14 @@ func methodDoc(m *Method) string {
 	case RetBinary:
 		parts = append(parts, fmt.Sprintf("The response is a file (%s). Read it from the returned response's body and close it.", m.BinaryType))
 	case RetPage:
-		parts = append(parts, fmt.Sprintf("It returns one page; %sAutoPaging iterates over every item of every page.", m.GoName))
+		parts = append(parts, fmt.Sprintf("It returns one page; %sAutoPaging iterates over every item of every page.", name))
 	case RetJSON:
 		if m.Result.Kind == TRaw {
 			parts = append(parts, "The API reference declares no schema for the response, so it is returned as raw JSON (nil when the body is empty).")
 		}
+	}
+	if note != "" {
+		parts = append(parts, note)
 	}
 	if m.Op.Naming.Scope == "application" {
 		parts = append(parts, "The organization and application ids come from the client options.")
@@ -314,14 +326,28 @@ func deprecationNotice(m *Method) string {
 }
 
 func emitMethod(b *bytes.Buffer, s *Service, m *Method) {
-	writeDoc(b, "", methodDoc(m))
+	if m.ParamsMethod == "" {
+		emitMethodAs(b, s, m, m.GoName, m.Params, methodDoc(m, m.GoName, ""))
+		return
+	}
+	// openapi/compatibility.json: the method keeps its released signature
+	// without parameters, and the companion method takes them.
+	emitMethodAs(b, s, m, m.GoName, nil, methodDoc(m, m.GoName, fmt.Sprintf(
+		"%s sends no parameters; %s sends %s. Both call the same operation.", m.GoName, m.ParamsMethod, m.Params.Go())))
+	emitMethodAs(b, s, m, m.ParamsMethod, m.Params, methodDoc(m, m.ParamsMethod, fmt.Sprintf(
+		"%s is %s with %s. %s keeps the signature without parameters it was released with.", m.ParamsMethod, m.GoName, m.Params.Go(), m.GoName)))
+}
+
+// emitMethodAs renders method name of m, which takes params when not nil.
+func emitMethodAs(b *bytes.Buffer, s *Service, m *Method, name string, params *GoType, doc string) {
+	writeDoc(b, "", doc)
 	fmt.Fprintf(b, "//\n//\t%s %s\n", m.Op.HTTPMethod, m.Op.Path)
 	args := []string{"ctx context.Context"}
 	for _, a := range m.PathArgs {
 		args = append(args, a.Arg+" string")
 	}
-	if m.Params != nil {
-		args = append(args, "params "+m.Params.Go())
+	if params != nil {
+		args = append(args, "params "+params.Go())
 	}
 	args = append(args, "opts ...option.RequestOption")
 	var ret string
@@ -335,8 +361,8 @@ func emitMethod(b *bytes.Buffer, s *Service, m *Method) {
 	case RetJSON:
 		ret = fmt.Sprintf("(%s, error)", resultType(m.Result))
 	}
-	fmt.Fprintf(b, "func (r *%s) %s(%s) %s {\n", s.TypeName, m.GoName, strings.Join(args, ", "), ret)
-	req := requestLiteral(m)
+	fmt.Fprintf(b, "func (r *%s) %s(%s) %s {\n", s.TypeName, name, strings.Join(args, ", "), ret)
+	req := requestLiteral(m, params != nil)
 	switch m.Return {
 	case RetNone:
 		fmt.Fprintf(b, "\t_, err := r.client.do(ctx, %s, nil, opts)\n\treturn err\n", req)
@@ -353,22 +379,22 @@ func emitMethod(b *bytes.Buffer, s *Service, m *Method) {
 	}
 	b.WriteString("}\n\n")
 	if m.Return == RetPage {
-		doc := fmt.Sprintf("%sAutoPaging iterates over every item of every page of %s, fetching pages as needed.", m.GoName, m.GoName)
+		doc := fmt.Sprintf("%sAutoPaging iterates over every item of every page of %s, fetching pages as needed.", name, name)
 		if notice := deprecationNotice(m); notice != "" {
 			doc += "\n\n" + notice
 		}
 		writeDoc(b, "", doc)
-		fmt.Fprintf(b, "func (r *%s) %sAutoPaging(%s) *PageIterator[%s] {\n", s.TypeName, m.GoName, strings.Join(args, ", "), m.Result.Go())
+		fmt.Fprintf(b, "func (r *%s) %sAutoPaging(%s) *PageIterator[%s] {\n", s.TypeName, name, strings.Join(args, ", "), m.Result.Go())
 		var callArgs []string
 		callArgs = append(callArgs, "ctx")
 		for _, a := range m.PathArgs {
 			callArgs = append(callArgs, a.Arg)
 		}
-		if m.Params != nil {
+		if params != nil {
 			callArgs = append(callArgs, "params")
 		}
 		callArgs = append(callArgs, "opts...")
-		fmt.Fprintf(b, "\treturn newPageIterator(ctx, func() (*Page[%s], error) {\n\t\treturn r.%s(%s)\n\t})\n}\n\n", m.Result.Go(), m.GoName, strings.Join(callArgs, ", "))
+		fmt.Fprintf(b, "\treturn newPageIterator(ctx, func() (*Page[%s], error) {\n\t\treturn r.%s(%s)\n\t})\n}\n\n", m.Result.Go(), name, strings.Join(callArgs, ", "))
 	}
 }
 
@@ -379,7 +405,9 @@ func resultType(t *GoType) string {
 	return t.Go()
 }
 
-func requestLiteral(m *Method) string {
+// requestLiteral returns the apiRequest of m; withParams sends its
+// parameters.
+func requestLiteral(m *Method, withParams bool) string {
 	var fields []string
 	fields = append(fields, "method: http.Method"+methodConst(m.Op.HTTPMethod))
 	fields = append(fields, "path: "+strconv.Quote(m.Op.Path))
@@ -402,7 +430,7 @@ func requestLiteral(m *Method) string {
 	if m.Op.Naming.Scope == "application" {
 		fields = append(fields, "appScope: true")
 	}
-	if m.Params != nil {
+	if withParams {
 		fields = append(fields, "params: params")
 		if m.BodyKind != "bodyNone" {
 			fields = append(fields, "body: "+m.BodyKind)

@@ -31,8 +31,11 @@ func (r *BillingService) RetrieveBalance(ctx context.Context, opts ...option.Req
 
 // TopUp: Top up credits.
 //
-// Add credits via a hosted checkout session (**$50 minimum**); not available on
-// annual plans. Redirect the customer to the returned `checkout_session_url`.
+// Add credits via a hosted Stripe Checkout session (**\$50 to \$10,000** per
+// top-up). Top-ups are available on the Free, Growth and Scale plans, added at
+// face value with no discount or bonus, and last 12 months; Enterprise annual
+// contracts cannot top up. Redirect the customer to the returned
+// `checkout_session_url`.
 //
 //	POST /v3/billing/top-up/
 func (r *BillingService) TopUp(ctx context.Context, params BillingTopUpParams, opts ...option.RequestOption) (*BillingTopUpResponse, error) {
@@ -54,8 +57,9 @@ type BillingRetrieveBalanceResponse struct {
 	// Console → Billing.
 	AutoRefillEnabled bool `json:"auto_refill_enabled"`
 
-	// USD amount that will be charged on each auto-refill. `null` when auto-refill
-	// is disabled or unset.
+	// USD amount that will be charged and added to the balance on each auto-refill,
+	// at face value. Set from \$50 to \$10,000 in Console → Billing. `null` when
+	// auto-refill is disabled or unset.
 	AutoRefillAmount string `json:"auto_refill_amount"`
 
 	// Trigger threshold in USD. Auto-refill fires when `balance` falls below this
@@ -74,8 +78,9 @@ func (r *BillingRetrieveBalanceResponse) UnmarshalJSON(data []byte) error {
 
 // BillingTopUpParams holds the parameters of Client.Billing.TopUp.
 type BillingTopUpParams struct {
-	// Amount to charge, in USD. **Must be at least 50.** Tax is added automatically
-	// at checkout based on the customer's billing address. Required.
+	// Amount to charge, in USD. **Must be from 50 to 10,000.** The balance receives
+	// the same amount, with no discount or bonus. Tax is added automatically at
+	// checkout based on the customer's billing address. Required.
 	AmountInDollars float64 `json:"amount_in_dollars"`
 
 	// URL the hosted checkout redirects the customer to after a successful payment.
