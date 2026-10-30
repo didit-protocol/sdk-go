@@ -320,6 +320,76 @@ type DatabaseValidationValidateParams struct {
 	// Bank card number (CHN bank-card verification).
 	BankCardNumber Opt[string] `json:"bank_card_number"`
 
+	// Company registration number as issued by the companies register: the CNPJ in
+	// Brazil (e.g. `11222333000181`), the registration number in South Africa (e.g.
+	// `1936/007721/06`). Required by the company registry and company directors
+	// services (`bra_company_registry`, `bra_company_directors`,
+	// `zaf_company_registry`, `zaf_company_directors`).
+	CompanyRegistrationNumber Opt[string] `json:"company_registration_number"`
+
+	// Registered company name, cross-checked against the register entry. Optional
+	// for `zaf_company_registry`.
+	CompanyName Opt[string] `json:"company_name"`
+
+	// The person's initials as printed on the document. Required by
+	// `zaf_drivers_license`; accepted by `zaf_bank_account_holder`.
+	Initials Opt[string] `json:"initials"`
+
+	// Driving licence number as printed on the card, for `zaf_drivers_license`.
+	// When omitted, `document_number` is used.
+	LicenceNumber Opt[string] `json:"licence_number"`
+
+	// Refugee file number issued by South Africa's Department of Home Affairs.
+	// Required by `zaf_refugee`.
+	RefugeeFileNumber Opt[string] `json:"refugee_file_number"`
+
+	// Name of the bank that holds the account. Required by
+	// `zaf_bank_account_holder`.
+	BankName Opt[string] `json:"bank_name"`
+
+	// Bank account number. Required by `zaf_bank_account_holder`; accepted by
+	// `zaf_fraud_prevention`.
+	BankAccountNumber Opt[string] `json:"bank_account_number"`
+
+	// Bank account type for `zaf_bank_account_holder`: `current`, `savings`,
+	// `transmission`, `subscriptionShare` or `notKnown`, case-insensitive. Any
+	// other value returns `400`. Omit it when you do not know the type: the
+	// account-type cross-check is then reported as not confirmed.
+	AccountType Opt[string] `json:"account_type"`
+
+	// Contact mobile number, for the services that cross-check contactability
+	// (`zaf_bank_account_holder`, `zaf_fraud_prevention`, `zaf_refugee`).
+	PhoneNumber Opt[string] `json:"phone_number"`
+
+	// Base64-encoded right thumb fingerprint for `zaf_dha_fingerprint_match`, with
+	// `left_thumb` or on its own.
+	RightThumb Opt[string] `json:"right_thumb"`
+
+	// Base64-encoded left thumb fingerprint for `zaf_dha_fingerprint_match`, with
+	// `right_thumb` or on its own.
+	LeftThumb Opt[string] `json:"left_thumb"`
+
+	// Minimum biometric score level for `zaf_criminal_face_screening`. Defaults to
+	// `3`.
+	ScoreLevel Opt[int64] `json:"score_level"`
+
+	// Maximum number of candidate matches `zaf_criminal_face_screening` returns.
+	// Defaults to `1`.
+	MaxMatches Opt[int64] `json:"max_matches"`
+
+	// Vehicle register number. Required, with `vehicle_licence_plate` and `vin`, by
+	// `zaf_vehicle_ownership`.
+	VehicleRegisterNumber Opt[string] `json:"vehicle_register_number"`
+
+	// Vehicle licence plate number. Required, with `vehicle_register_number` and
+	// `vin`, by `zaf_vehicle_ownership`.
+	VehicleLicencePlate Opt[string] `json:"vehicle_licence_plate"`
+
+	// Vehicle Identification Number (VIN or chassis number). Required, with
+	// `vehicle_register_number` and `vehicle_licence_plate`, by
+	// `zaf_vehicle_ownership`.
+	Vin Opt[string] `json:"vin"`
+
 	// Social Security Number (USA).
 	SSN Opt[string] `json:"ssn"`
 
