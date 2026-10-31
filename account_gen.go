@@ -36,7 +36,10 @@ func (r *AccountService) Login(ctx context.Context, params LoginRequest, opts ..
 // Register: Register Account.
 //
 // Step 1 of programmatic onboarding. Creates a pending account and emails a
-// 6-char code (10 min TTL). Rate limit: 5/IP/hour.
+// 6-char code (10 min TTL). The address is checked before any account is
+// created: one that cannot receive the code returns 400 `email_undeliverable`.
+// Rate limits: 5/IP/hour, plus a shared hourly budget per network (/24 for
+// IPv4, /64 for IPv6).
 //
 //	POST /programmatic/register/
 func (r *AccountService) Register(ctx context.Context, params RegisterRequest, opts ...option.RequestOption) (*RegisterResponse, error) {
@@ -55,7 +58,8 @@ func (r *AccountService) Register(ctx context.Context, params RegisterRequest, o
 // previous one and is valid for 10 minutes.
 //
 // Rate limits: a per-email cooldown of 60 seconds between resends (HTTP 429
-// with `Retry-After`), and the same 5-per-IP-per-hour budget as registration.
+// with `Retry-After`), and the same 5-per-IP-per-hour and per-network hourly
+// budgets as registration.
 //
 //	POST /programmatic/resend-otp/
 func (r *AccountService) ResendOTP(ctx context.Context, params AccountResendOTPParams, opts ...option.RequestOption) (*AccountResendOTPResponse, error) {
@@ -405,7 +409,8 @@ type Application struct {
 	// keys start with `sk_live_` (live application) or `sk_test_` (sandbox
 	// application), followed by 43 URL-safe characters (letters, digits, `-` and
 	// `_`). Keys created before this format have no prefix and keep working
-	// unchanged.
+	// unchanged. For 72 hours after you recovered your account, list, retrieve and
+	// update return an empty string here instead of the key.
 	APIKey string `json:"api_key"`
 
 	// Website or app URL associated with this application.

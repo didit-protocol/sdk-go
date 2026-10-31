@@ -144,7 +144,7 @@ func TestBusinessesSetAMLMonitoring(t *testing.T) {
 func TestBusinessesSetOngoingMonitoring(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"users_total":1,"already_enabled":1,"with_existing_aml":1,"needing_screening":1,"skipped_no_identity_data":1,"skipped_blocked":1,"estimated_screening_cost_usd":0.2,"estimated_annual_monitoring_cost_usd":0.07,"balance_sufficient":true,"job_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"PENDING","is_enabled":true,"total":1,"processed":1,"outcomes":{"enabled":1,"screened_and_enabled":1,"already_enabled":1,"disabled":1,"skipped_no_identity_data":1,"skipped_blocked":1,"skipped_sandbox":1,"failed_provider":1,"failed_insufficient_balance":1},"error":"string","estimate":{"users_total":1,"already_enabled":1,"with_existing_aml":1,"needing_screening":1,"skipped_no_identity_data":1,"skipped_blocked":1,"estimated_screening_cost_usd":0.2,"estimated_annual_monitoring_cost_usd":0.07,"balance_sufficient":true}}`)
 	var params didit.OngoingMonitoringToggleRequest
-	mustUnmarshal(t, `{"is_enabled":true,"estimate_only":true,"update_all":true,"filter_search":"string","filter_status":["string"],"filter_country":"string","filter_date_from":"2025-01-02","filter_date_to":"2025-01-02","didit_internal_id_list":["3fa85f64-5717-4562-b3fc-2c963f66afa6"]}`, &params)
+	mustUnmarshal(t, `{"is_enabled":true,"didit_internal_id_list":["b0000000-0000-4000-8000-0000000000b1"]}`, &params)
 	res, err := client.Businesses.SetOngoingMonitoring(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -152,14 +152,14 @@ func TestBusinessesSetOngoingMonitoring(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "PATCH", "/v3/organization/org-test/application/app-test/vendor-businesses/toggle-ongoing-monitoring/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"is_enabled":true,"estimate_only":true,"update_all":true,"filter_search":"string","filter_status":["string"],"filter_country":"string","filter_date_from":"2025-01-02","filter_date_to":"2025-01-02","didit_internal_id_list":["3fa85f64-5717-4562-b3fc-2c963f66afa6"]}`)
+	req.expectJSON(t, `{"is_enabled":true,"didit_internal_id_list":["b0000000-0000-4000-8000-0000000000b1"]}`)
 	expectFields(t, res.JSON, []string{"job_id", "status", "is_enabled", "total", "processed", "outcomes", "error", "estimate"})
 }
 
 func TestBusinessesSetSessionOngoingMonitoring(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"users_total":1,"already_enabled":1,"with_existing_aml":1,"needing_screening":1,"skipped_no_identity_data":1,"skipped_blocked":1,"estimated_screening_cost_usd":0.2,"estimated_annual_monitoring_cost_usd":0.07,"balance_sufficient":true,"job_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"PENDING","is_enabled":true,"total":1,"processed":1,"outcomes":{"enabled":1,"screened_and_enabled":1,"already_enabled":1,"disabled":1,"skipped_no_identity_data":1,"skipped_blocked":1,"skipped_sandbox":1,"failed_provider":1,"failed_insufficient_balance":1},"error":"string","estimate":{"users_total":1,"already_enabled":1,"with_existing_aml":1,"needing_screening":1,"skipped_no_identity_data":1,"skipped_blocked":1,"estimated_screening_cost_usd":0.2,"estimated_annual_monitoring_cost_usd":0.07,"balance_sufficient":true}}`)
 	var params didit.BusinessesSetSessionOngoingMonitoringParams
-	mustUnmarshal(t, `{"is_enabled":true,"estimate_only":true,"update_all":true,"filter_search":"string","filter_status":["string"],"filter_country":"string","filter_date_from":"2025-01-02","filter_date_to":"2025-01-02","session_numbers":["string"],"toggle_all":true,"filter_workflow_id":"string"}`, &params)
+	mustUnmarshal(t, `{"is_enabled":true,"session_numbers":["1001","1002"]}`, &params)
 	res, err := client.Businesses.SetSessionOngoingMonitoring(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestBusinessesSetSessionOngoingMonitoring(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "PATCH", "/v3/organization/org-test/application/app-test/businesses/toggle-ongoing-monitoring/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"is_enabled":true,"estimate_only":true,"update_all":true,"filter_search":"string","filter_status":["string"],"filter_country":"string","filter_date_from":"2025-01-02","filter_date_to":"2025-01-02","session_numbers":["string"],"toggle_all":true,"filter_workflow_id":"string"}`)
+	req.expectJSON(t, `{"is_enabled":true,"session_numbers":["1001","1002"]}`)
 	expectFields(t, res.JSON, []string{"job_id", "status", "is_enabled", "total", "processed", "outcomes", "error", "estimate"})
 }
 
