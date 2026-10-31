@@ -24,7 +24,7 @@ func TestAMLRetrieveDatasetFreshness(t *testing.T) {
 func TestAMLScreen(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"d27c5509-7a66-45a9-b05e-d69d9f4c336a","aml":{"status":"Approved","total_hits":0,"entity_type":"person","hits":[],"score":0,"screened_data":{"full_name":"Maximilian Mustermann-Doe","date_of_birth":"1992-03-14","nationality":"DE","document_number":null},"warnings":[]},"vendor_data":"user-1234","metadata":{"internal_ref":"abc-123"},"created_at":"2026-06-11T10:21:07.013938+00:00"}`)
 	var params didit.AMLScreenParams
-	mustUnmarshal(t, `{"full_name":"Antonio Ejemplo Modelo","entity_type":"person","date_of_birth":"1972-02-29","nationality":"ES","document_number":"string","aml_score_approve_threshold":1.5,"aml_score_review_threshold":1.5,"aml_name_weight":0,"aml_dob_weight":0,"aml_country_weight":0,"aml_match_score_threshold":0,"include_adverse_media":true,"include_ongoing_monitoring":true,"save_api_request":true,"vendor_data":"string","metadata":{"key":"value"},"sandbox_scenario":"decline_aml_hit"}`, &params)
+	mustUnmarshal(t, `{"full_name":"Antonio Ejemplo Modelo","entity_type":"person","date_of_birth":"1972-02-29","nationality":"ES","include_adverse_media":false,"vendor_data":"user-1234"}`, &params)
 	params.IdempotencyKey = didit.String("value")
 	res, err := client.AML.Screen(context.Background(), params)
 	if err != nil {
@@ -34,6 +34,6 @@ func TestAMLScreen(t *testing.T) {
 	req.expect(t, "POST", "/v3/aml/")
 	req.expectAPIKey(t)
 	req.expectHeader(t, "Idempotency-Key", "value")
-	req.expectJSON(t, `{"full_name":"Antonio Ejemplo Modelo","entity_type":"person","date_of_birth":"1972-02-29","nationality":"ES","document_number":"string","aml_score_approve_threshold":1.5,"aml_score_review_threshold":1.5,"aml_name_weight":0,"aml_dob_weight":0,"aml_country_weight":0,"aml_match_score_threshold":0,"include_adverse_media":true,"include_ongoing_monitoring":true,"save_api_request":true,"vendor_data":"string","metadata":{"key":"value"},"sandbox_scenario":"decline_aml_hit"}`)
+	req.expectJSON(t, `{"full_name":"Antonio Ejemplo Modelo","entity_type":"person","date_of_birth":"1972-02-29","nationality":"ES","include_adverse_media":false,"vendor_data":"user-1234"}`)
 	expectFields(t, res.JSON, []string{"request_id", "aml", "vendor_data", "metadata", "created_at"})
 }

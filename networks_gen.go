@@ -339,14 +339,14 @@ type NetworkDetailResponse struct {
 	SharingMode NetworkDetailResponseSharingMode `json:"sharing_mode"`
 
 	// Whether cross-organization signals apply to this organization. They need both
-	// the Identity Enterprise plan and the `global` sharing mode.
+	// the Enterprise plan and the `global` sharing mode.
 	CrossOrgAvailable bool `json:"cross_org_available"`
 
 	// Why cross-organization signals do not apply, checked in this order. `plan`:
-	// the organization's Identity plan does not include the cross-organization
-	// fraud network (it needs Identity Enterprise), whatever the sharing mode.
-	// `sharing_mode`: the plan includes it, but the sharing mode is `private` or
-	// `off`. Null when `cross_org_available` is `true`.
+	// the organization's plan does not include the cross-organization fraud network
+	// (it needs the Enterprise plan), whatever the sharing mode. `sharing_mode`:
+	// the plan includes it, but the sharing mode is `private` or `off`. Null when
+	// `cross_org_available` is `true`.
 	CrossOrgUnavailableReason NetworkDetailResponseCrossOrgUnavailableReason `json:"cross_org_unavailable_reason"`
 
 	// Your application's tags on the network, oldest first. Each application sees
@@ -432,9 +432,9 @@ const (
 )
 
 // NetworkDetailResponseCrossOrgUnavailableReason: Why cross-organization
-// signals do not apply, checked in this order. `plan`: the organization's
-// Identity plan does not include the cross-organization fraud network (it needs
-// Identity Enterprise), whatever the sharing mode. `sharing_mode`: the plan
+// signals do not apply, checked in this order. `plan`: the organization's plan
+// does not include the cross-organization fraud network (it needs the
+// Enterprise plan), whatever the sharing mode. `sharing_mode`: the plan
 // includes it, but the sharing mode is `private` or `off`. Null when
 // `cross_org_available` is `true`.
 //
