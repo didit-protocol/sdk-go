@@ -35,14 +35,49 @@ func (r *RegulatoryReportsService) Create(ctx context.Context, params Regulatory
 
 // Delete: Delete report.
 //
-// Delete a draft or validated report. Finalized reports cannot be deleted
-// (409).
+// Delete a regulatory report permanently. The report, its copied narrative and
+// reasons, its transaction links, and its generated goAML XML and PDF are
+// erased, including every stored version of those files. The report disappears
+// from lists and download URLs stop working. Other records, including the case,
+// transactions, people and companies, are not deleted. There is no undo.
+//
+// A draft or validated report can be deleted without a request body. Deleting a
+// finalized report requires `confirm_delete: true` in the request body. If the
+// report is missing, the request returns `404`; if a finalized report is sent
+// without confirmation, it returns `400` and nothing is deleted.
+//
+// Delete sends no parameters; DeleteWithParams sends
+// RegulatoryReportsDeleteParams. Both call the same operation.
 //
 // The organization and application ids come from the client options.
 //
 //	DELETE /v3/organization/{organization_id}/application/{application_id}/regulatory-reports/{report_uuid}/
 func (r *RegulatoryReportsService) Delete(ctx context.Context, reportUUID string, opts ...option.RequestOption) error {
 	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/organization/{organization_id}/application/{application_id}/regulatory-reports/{report_uuid}/", pathParams: []string{"report_uuid", reportUUID}, appScope: true}, nil, opts)
+	return err
+}
+
+// DeleteWithParams: Delete report.
+//
+// Delete a regulatory report permanently. The report, its copied narrative and
+// reasons, its transaction links, and its generated goAML XML and PDF are
+// erased, including every stored version of those files. The report disappears
+// from lists and download URLs stop working. Other records, including the case,
+// transactions, people and companies, are not deleted. There is no undo.
+//
+// A draft or validated report can be deleted without a request body. Deleting a
+// finalized report requires `confirm_delete: true` in the request body. If the
+// report is missing, the request returns `404`; if a finalized report is sent
+// without confirmation, it returns `400` and nothing is deleted.
+//
+// DeleteWithParams is Delete with RegulatoryReportsDeleteParams. Delete keeps
+// the signature without parameters it was released with.
+//
+// The organization and application ids come from the client options.
+//
+//	DELETE /v3/organization/{organization_id}/application/{application_id}/regulatory-reports/{report_uuid}/
+func (r *RegulatoryReportsService) DeleteWithParams(ctx context.Context, reportUUID string, params RegulatoryReportsDeleteParams, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/organization/{organization_id}/application/{application_id}/regulatory-reports/{report_uuid}/", pathParams: []string{"report_uuid", reportUUID}, appScope: true, params: params, body: bodyJSON}, nil, opts)
 	return err
 }
 
@@ -232,6 +267,19 @@ type RegulatoryReportsCreateParamsNarrative struct {
 
 // MarshalJSON encodes the fields that are set.
 func (r RegulatoryReportsCreateParamsNarrative) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// RegulatoryReportsDeleteParams holds the parameters of
+// Client.RegulatoryReports.DeleteWithParams.
+type RegulatoryReportsDeleteParams struct {
+	// Set to true to confirm that a finalized report and its generated files are
+	// deleted permanently.
+	ConfirmDelete Opt[bool] `json:"confirm_delete"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r RegulatoryReportsDeleteParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 

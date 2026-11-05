@@ -309,26 +309,28 @@ type WorkflowDetail struct {
 	UpdatedAt       time.Time        `json:"updated_at"`
 
 	// Whether a simple KYC or KYB workflow runs Bank verification. It runs after
-	// the contact steps and before database validation, AML and IP analysis. Set in
-	// the console.
+	// the contact steps (and Location verification) and before database validation,
+	// AML and IP analysis. Bank verification is not generally available yet:
+	// turning it on is refused wherever it is not enabled.
 	IsBankVerificationEnabled bool `json:"is_bank_verification_enabled"`
 
 	// Bank verification settings of a simple workflow, with the same keys a
 	// `BANK_VERIFICATION` node takes (for example `bank_countries` and
-	// `bank_method_order`). Every key is optional and an absent key keeps its
-	// default, so `{}` means all defaults. See [Bank verification
+	// `bank_method_order`). Unknown keys are dropped. Every key is optional and an
+	// absent key keeps its default, so `{}` means all defaults. See [Bank
+	// verification
 	// settings](/management-api/workflows/feature-configs#bank-verification).
 	BankVerificationConfig map[string]any `json:"bank_verification_config"`
 
 	// Whether a simple KYC workflow runs Location verification. It runs after the
-	// contact steps and before Bank verification. Never on KYB workflows. Set in
-	// the console.
+	// contact steps and before Bank verification and database validation. Business
+	// (KYB) workflows cannot run it.
 	IsGeolocationEnabled bool `json:"is_geolocation_enabled"`
 
 	// Location verification settings of a simple workflow, with the same keys a
 	// `GEOLOCATION` node takes (for example `is_geolocation_geofencing_enabled` and
-	// `geolocation_max_attempts`). Every key is optional and an absent key keeps
-	// its default, so `{}` means all defaults.
+	// `geolocation_max_attempts`). Unknown keys are dropped. Every key is optional
+	// and an absent key keeps its default, so `{}` means all defaults.
 	GeolocationConfig map[string]any `json:"geolocation_config"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown

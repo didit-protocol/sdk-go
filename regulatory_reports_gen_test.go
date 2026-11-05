@@ -32,6 +32,20 @@ func TestRegulatoryReportsDelete(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "DELETE", "/v3/organization/org-test/application/app-test/regulatory-reports/report-uuid-1/")
 	req.expectAPIKey(t)
+	req.expectNoBody(t)
+}
+
+func TestRegulatoryReportsDeleteWithParams(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	var params didit.RegulatoryReportsDeleteParams
+	mustUnmarshal(t, `{"confirm_delete":true}`, &params)
+	if err := client.RegulatoryReports.DeleteWithParams(context.Background(), "report-uuid-1", params); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/organization/org-test/application/app-test/regulatory-reports/report-uuid-1/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"confirm_delete":true}`)
 }
 
 func TestRegulatoryReportsFinalize(t *testing.T) {

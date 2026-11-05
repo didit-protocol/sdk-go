@@ -46,8 +46,8 @@ type FaceSearchService struct {
 // passive-liveness analysis also runs internally and is stored with the
 // persisted session, but its result is not part of this response.
 //
-// **Billing.** Each `200` response consumes one Face Search API credit
-// (standalone APIs have no free tier). Insufficient balance returns `403`
+// **Billing.** Each `200` response consumes one Face Search API credit (paid
+// from your plan credit or top-up balance). Insufficient balance returns `403`
 // before any image processing.
 //
 // **Session persistence and face enrollment (`save_api_request`, default

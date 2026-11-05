@@ -55,9 +55,9 @@ type ProofOfAddressService struct {
 // inspect `poa.status` and `poa.warnings`, not just the HTTP code.
 //
 // **Billing.** Each `200` response consumes one Proof of Address API credit
-// (standalone APIs have no free tier). When the organization's balance cannot
-// cover the call, the endpoint returns `403` with the not-enough-credits error
-// before any document processing.
+// (paid from your plan credit or top-up balance). When the organization's
+// balance cannot cover the call, the endpoint returns `403` with the
+// not-enough-credits error before any document processing.
 //
 // **Session persistence (`save_api_request`, default `true`).** When `true`,
 // the call is persisted as an API-type session: it appears in the Business

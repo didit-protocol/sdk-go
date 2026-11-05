@@ -261,7 +261,7 @@ pdf, err := client.WalletScreening.ScreenPDF(ctx, result) // read and close pdf.
 vasps := client.TravelRule.ListVASPsAutoPaging(ctx, didit.TravelRuleListVASPsParams{})
 ```
 
-Rules (`client.Transactions.Rules`), Travel Rule transfers (`client.Transactions.TravelRule`), Travel Rule settings and wallet addresses (`client.TravelRule`, `client.TravelRule.WalletAddresses`) are covered too; the webhooks `transaction.created`, `transaction.status.updated` and `travel_rule.status.updated` have typed events.
+Rules (`client.Transactions.Rules`), batch deletion (`client.Transactions.BatchDelete` with `TransactionUUIDs`, or `DeleteAll: didit.Bool(true)`), Travel Rule transfers (`client.Transactions.TravelRule`), Travel Rule settings, networks, wallet addresses and wallet ownership proofs (`client.TravelRule`, `client.TravelRule.Networks`, `client.TravelRule.WalletAddresses`, `client.TravelRule.WalletProofs`) are covered too; the webhooks `transaction.created`, `transaction.status.updated` and `travel_rule.status.updated` have typed events.
 
 ## Bank verification prices
 
@@ -313,6 +313,8 @@ Go 1.22 and later. CI tests Go 1.22 to 1.27 on Linux, and the newest Go on macOS
 ## Versioning
 
 Semantic versioning. Releases are cut by release-please from conventional commits; [CHANGELOG.md](CHANGELOG.md) is generated. Until the first public release the version stays `0.x`. A future major version follows Go's semantic import versioning (`github.com/didit-protocol/sdk-go/v2`).
+
+Code that compiles against a 1.x release keeps compiling on later 1.x releases. When the API changes the schema behind a released name, the old name stays as an alias marked `Deprecated:`. A method released without parameters keeps that signature, and a `WithParams` companion takes the optional parameters the API added later: `client.RegulatoryReports.Delete(ctx, reportUUID)` deletes a draft or validated report, and `DeleteWithParams` with `ConfirmDelete: didit.Bool(true)` deletes a finalized one.
 
 The SDK is generated from Didit's OpenAPI documents (`openapi/`), and a daily job opens a pull request when the API changes. Removed operations stay available, marked deprecated, for one minor version.
 

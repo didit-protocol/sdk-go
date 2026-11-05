@@ -296,6 +296,16 @@ type WebhookConfig struct {
 	// `retain_until_user_deleted`. Required when that policy is set.
 	FaceRetentionDays int64 `json:"face_retention_days"`
 
+	// When the hosted flow and the native SDKs ask the person for explicit
+	// biometric consent before a face capture. `auto` (default) asks only where a
+	// trigger applies: a declared state, the person's IP, or the identity
+	// document's issuer is in Illinois, Texas or Colorado, or the person looks to
+	// be in the US without a known state. `always` asks every person whose workflow
+	// captures a face. `never` never shows the step, and you collect consent
+	// yourself before the selfie. Each change is recorded in the audit log. See
+	// [Biometric consent](https://docs.didit.me/getting-started/biometric-consent).
+	BiometricConsentMode WebhookConfigBiometricConsentMode `json:"biometric_consent_mode"`
+
 	// Every event type a destination can subscribe to, with a display label.
 	AvailableEvents []WebhookConfigAvailableEvents `json:"available_events"`
 
@@ -362,6 +372,27 @@ type WebhookConfigFaceRetentionPolicy string
 const (
 	WebhookConfigFaceRetentionPolicyDeleteWithSession      WebhookConfigFaceRetentionPolicy = "delete_with_session"
 	WebhookConfigFaceRetentionPolicyRetainUntilUserDeleted WebhookConfigFaceRetentionPolicy = "retain_until_user_deleted"
+)
+
+// WebhookConfigBiometricConsentMode: When the hosted flow and the native SDKs
+// ask the person for explicit biometric consent before a face capture. `auto`
+// (default) asks only where a trigger applies: a declared state, the person's
+// IP, or the identity document's issuer is in Illinois, Texas or Colorado, or
+// the person looks to be in the US without a known state. `always` asks every
+// person whose workflow captures a face. `never` never shows the step, and you
+// collect consent yourself before the selfie. Each change is recorded in the
+// audit log. See [Biometric
+// consent](https://docs.didit.me/getting-started/biometric-consent).
+//
+// WebhookConfigBiometricConsentMode is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type WebhookConfigBiometricConsentMode string
+
+// Known values of WebhookConfigBiometricConsentMode.
+const (
+	WebhookConfigBiometricConsentModeAuto   WebhookConfigBiometricConsentMode = "auto"
+	WebhookConfigBiometricConsentModeAlways WebhookConfigBiometricConsentMode = "always"
+	WebhookConfigBiometricConsentModeNever  WebhookConfigBiometricConsentMode = "never"
 )
 
 // WebhookConfigAvailableEvents is a response object.
@@ -474,6 +505,16 @@ type WebhooksUpdateConfigParams struct {
 	// `retain_until_user_deleted`.
 	FaceRetentionDays Opt[int64] `json:"face_retention_days"`
 
+	// When the hosted flow and the native SDKs ask the person for explicit
+	// biometric consent before a face capture. `auto` (default) asks only where a
+	// trigger applies: a declared state, the person's IP, or the identity
+	// document's issuer is in Illinois, Texas or Colorado, or the person looks to
+	// be in the US without a known state. `always` asks every person whose workflow
+	// captures a face. `never` never shows the step, and you collect consent
+	// yourself before the selfie. Each change is recorded in the audit log. See
+	// [Biometric consent](https://docs.didit.me/getting-started/biometric-consent).
+	BiometricConsentMode Opt[WebhooksUpdateConfigParamsBiometricConsentMode] `json:"biometric_consent_mode"`
+
 	// Replaces the whole list of Digital ID wallet return hosts. Bare hostnames
 	// only, such as `shop.example.com`: no scheme, port, path or wildcard. Values
 	// are lowercased and duplicates are dropped. Send `[]` to clear the list.
@@ -526,6 +567,27 @@ type WebhooksUpdateConfigParamsFaceRetentionPolicy string
 const (
 	WebhooksUpdateConfigParamsFaceRetentionPolicyDeleteWithSession      WebhooksUpdateConfigParamsFaceRetentionPolicy = "delete_with_session"
 	WebhooksUpdateConfigParamsFaceRetentionPolicyRetainUntilUserDeleted WebhooksUpdateConfigParamsFaceRetentionPolicy = "retain_until_user_deleted"
+)
+
+// WebhooksUpdateConfigParamsBiometricConsentMode: When the hosted flow and the
+// native SDKs ask the person for explicit biometric consent before a face
+// capture. `auto` (default) asks only where a trigger applies: a declared
+// state, the person's IP, or the identity document's issuer is in Illinois,
+// Texas or Colorado, or the person looks to be in the US without a known state.
+// `always` asks every person whose workflow captures a face. `never` never
+// shows the step, and you collect consent yourself before the selfie. Each
+// change is recorded in the audit log. See [Biometric
+// consent](https://docs.didit.me/getting-started/biometric-consent).
+//
+// WebhooksUpdateConfigParamsBiometricConsentMode is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type WebhooksUpdateConfigParamsBiometricConsentMode string
+
+// Known values of WebhooksUpdateConfigParamsBiometricConsentMode.
+const (
+	WebhooksUpdateConfigParamsBiometricConsentModeAuto   WebhooksUpdateConfigParamsBiometricConsentMode = "auto"
+	WebhooksUpdateConfigParamsBiometricConsentModeAlways WebhooksUpdateConfigParamsBiometricConsentMode = "always"
+	WebhooksUpdateConfigParamsBiometricConsentModeNever  WebhooksUpdateConfigParamsBiometricConsentMode = "never"
 )
 
 // WebhooksDestinationsCreateParams holds the parameters of

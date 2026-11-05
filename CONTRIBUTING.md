@@ -11,6 +11,7 @@ Thanks for helping. This repository is one of the seven Didit server SDKs. They 
 | `openapi/verification.json`, `openapi/account.json`, `openapi/webhook-vectors.json` | Upstream copies | the spec sync workflow only |
 | `openapi/overlay.json` | SDK naming (`x-didit-sdk`) for operations upstream does not name yet | hand, identical in all seven SDKs |
 | `openapi/deprecated-operations.json` | Removed or renamed operations kept for one minor version | `codegen sync` |
+| `openapi/compatibility.json` | Released Go names kept after the API changed the schema behind them | hand |
 | `client.go`, `core.go`, `errors.go`, `opt.go`, `page.go`, `file.go`, `params.go`, `json.go`, `option/`, `internal/` | Hand-written core | hand |
 | `webhook/` | Webhook verification and typed events | hand |
 | `authentication/` | Authentication token verification and issuer calls | hand |
@@ -51,6 +52,7 @@ The SDK follows the API. Never edit generated files: change the generator, or th
 - **The API changed.** The change belongs in the OpenAPI documents of mintlify-docs first. The daily spec sync (`.github/workflows/spec-sync.yml`, `go run ./codegen sync`) downloads them, regenerates, runs the tests and opens a `chore(spec): sync API spec YYYY-MM-DD` pull request listing added, removed and changed operations, with breaking changes called out.
 - **A new operation fails the generator** with a message naming it: add its `x-didit-sdk` entry to `openapi/overlay.json` in all seven SDK repositories (or upstream).
 - **Removed operations** are never deleted silently: the sync records them in `openapi/deprecated-operations.json` and the generator keeps the method, marked `Deprecated:`, for one minor version.
+- **Released Go code keeps compiling** within a major version (docs/DESIGN.md section 13). When a sync would break it, record the old names in `openapi/compatibility.json`: `type_aliases` keeps a released type name as a deprecated alias of the type that now describes the same schema, with the released constants of an enum, and `params_methods` keeps a method that was released without parameters as it was, with a companion method (`DeleteWithParams`) for the optional parameters the API added. The generator fails when an entry no longer applies, and `compat_test.go` uses every kept name.
 - **Core behaviour** that docs/DESIGN.md describes (options, errors, retries, pagination, webhooks, Authentication) changes in all seven SDKs, one pull request each, and docs/DESIGN.md changes in all seven in the same words.
 
 ## Commits and releases

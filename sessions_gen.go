@@ -140,6 +140,12 @@ func (r *SessionsService) AddImages(ctx context.Context, sessionID string, param
 // This endpoint accepts API keys only. Business Console user Bearer tokens are
 // rejected with `403` (unlike the single-session delete, which accepts both).
 //
+// **Filed regulatory reports:** if the selected data is in a finalized
+// regulatory report, the whole request is refused with `409` and nothing is
+// deleted. The body uses `code: in_filed_report` and names each report with
+// `uuid`, `report_number`, `report_type` and `case_uuid`. Delete the reports,
+// then repeat the request.
+//
 //	POST /v3/sessions/delete/
 func (r *SessionsService) BatchDelete(ctx context.Context, params SessionsBatchDeleteParams, opts ...option.RequestOption) (*SessionsBatchDeleteResponse, error) {
 	res := new(SessionsBatchDeleteResponse)
@@ -329,6 +335,12 @@ func (r *SessionsService) Create(ctx context.Context, params SessionsCreateParam
 //
 // To bulk-delete KYC sessions by their numeric `session_number`, use `POST
 // /v3/sessions/delete/` instead.
+//
+// **Filed regulatory reports:** if the selected data is in a finalized
+// regulatory report, the whole request is refused with `409` and nothing is
+// deleted. The body uses `code: in_filed_report` and names each report with
+// `uuid`, `report_number`, `report_type` and `case_uuid`. Delete the reports,
+// then repeat the request.
 //
 //	DELETE /v3/session/{sessionId}/delete/
 func (r *SessionsService) Delete(ctx context.Context, sessionID string, params SessionsDeleteParams, opts ...option.RequestOption) (*SessionsDeleteResponse, error) {
@@ -2404,6 +2416,12 @@ type SessionsCreateParams struct {
 	// it to pass your own correlation ids, A/B variants, or business context.
 	Metadata Opt[any] `json:"metadata"`
 
+	// Tags added to the session when it is created, by name. Up to 10, each up to
+	// 50 characters. Names are case-insensitive and stored in upper case. A name
+	// that does not exist yet in the application is created as a new tag. The tags
+	// show on the session in the console, where you can filter by them.
+	Tags Opt[[]string] `json:"tags"`
+
 	// Language code (ISO 639-1) for the verification process interface. Controls
 	// the language displayed to the end user during verification. If not provided,
 	// the browser's language will be automatically detected and used. Check all the
@@ -2467,6 +2485,21 @@ type SessionsCreateParams struct {
 	// `{"sign": "signature_document_changed"}`. See [Electronic signature
 	// documents](/sessions-api/create-session#electronic-signature-documents).
 	Sign Opt[SessionsCreateParamsSign] `json:"sign"`
+
+	// Where the person lives, when you know it: an ISO 3166-2 subdivision code
+	// (`US-IL`, `ES-M`) or a US state code or name (`IL`, `Illinois`). A state
+	// whose law requires explicit biometric consent (Illinois, Texas, Colorado)
+	// makes the verification flow ask for it before capturing a face, with trigger
+	// `declared_state`. An unrecognized value returns `400`. See [Biometric
+	// consent](/getting-started/biometric-consent).
+	UserState Opt[string] `json:"user_state"`
+
+	// Explicit biometric consent you already collected from the person. It
+	// satisfies the requirement, so the verification flow does not ask again, and
+	// the decision records it as `status: "given"` with trigger
+	// `customer_collected`. An answer the person already gave in the flow is never
+	// replaced. See [Biometric consent](/getting-started/biometric-consent).
+	BiometricConsent Opt[SessionsCreateParamsBiometricConsent] `json:"biometric_consent"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -3082,6 +3115,27 @@ const (
 	SignatureFieldDateFormatDMmmmYyyy SignatureFieldDateFormat = "D MMMM YYYY"
 )
 
+// SessionsCreateParamsBiometricConsent: Explicit biometric consent you already
+// collected from the person. It satisfies the requirement, so the verification
+// flow does not ask again, and the decision records it as `status: "given"`
+// with trigger `customer_collected`. An answer the person already gave in the
+// flow is never replaced. See [Biometric
+// consent](/getting-started/biometric-consent).
+type SessionsCreateParamsBiometricConsent struct {
+	// When the person gave explicit biometric consent (ISO 8601). Cannot be in the
+	// future. Required.
+	GivenAt time.Time `json:"given_at"`
+
+	// Version id of the consent text the person accepted, in your own records.
+	// Required.
+	TextVersion string `json:"text_version"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsCreateParamsBiometricConsent) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
 // SessionsCreateResponse is a response object.
 type SessionsCreateResponse struct {
 	// Unique identifier of the verification session. Use this id when calling `GET
@@ -3113,6 +3167,9 @@ type SessionsCreateResponse struct {
 	// is returned as-is, though a JSON object is recommended. Not shown to the end
 	// user. Always present in responses; `null` when not provided at creation time.
 	Metadata any `json:"metadata"`
+
+	// The tags on the session, by name.
+	Tags []string `json:"tags"`
 
 	// Current status of the session. Newly created sessions return `Not Started`.
 	// If a non-finished session already existed for the same `vendor_data` on the
@@ -3656,7 +3713,19 @@ type SessionDecision struct {
 	// results the resubmitted steps returned before the request, so earlier
 	// submissions stay readable. Deleting the session deletes every submission.
 	Resubmissions []SessionDecisionResubmissions `json:"resubmissions"`
-	Investigator  InvestigatorBlock              `json:"investigator"`
+
+	// Whether the session required explicit biometric consent before a face
+	// capture, why, and the evidence of the answer. User Verification (KYC)
+	// sessions only; the same object is in the `decision` of session webhooks.
+	// `null` when the session was never evaluated, for example a workflow without a
+	// face capture. Fields with no recorded value are `null`. A native SDK below
+	// 4.10.0, or one that does not report its version, cannot show the consent
+	// step: its face captures run as before, and a session that required consent
+	// then reports `status: "pending"` with `reason:
+	// "BIOMETRIC_CONSENT_UNSUPPORTED_SDK"`. See [Biometric
+	// consent](/getting-started/biometric-consent).
+	BiometricConsent SessionDecisionBiometricConsent `json:"biometric_consent"`
+	Investigator     InvestigatorBlock               `json:"investigator"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -4053,6 +4122,12 @@ type SessionDecisionIDVerifications struct {
 	// fired, so an approved document can still be audited. `null` when the check
 	// did not run.
 	DocumentLiveness SessionDecisionIDVerificationsDocumentLiveness `json:"document_liveness"`
+
+	// Address Validation of the address printed on this document: whether it exists
+	// and its normalised form, as the document read it (a later correction of
+	// `address` does not run it again). Present when this ID verification step
+	// enabled the Address Validation add-on; `null` otherwise.
+	AddressValidation AddressValidationResult `json:"address_validation"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -6613,6 +6688,13 @@ type SessionDecisionPOAVerifications struct {
 	// Empty when none are found. A located but undecodable QR code has
 	// `parsed_payload: null`.
 	DetectedCodes []DocumentAiDetectedCode `json:"detected_codes"`
+
+	// Address Validation of the address on this proof of address: whether it exists
+	// and its normalised form, as the document read it (a later correction of
+	// `poa_address` does not run it again). Present when this Proof of Address step
+	// enabled the Address Validation add-on and the upload passed the document
+	// checks; `null` otherwise.
+	AddressValidation AddressValidationResult `json:"address_validation"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -9439,7 +9521,7 @@ type SessionDecisionRegistryChecksCompany struct {
 	// `ownership.tier_delivered`.
 	RegistryTierDelivered string `json:"registry_tier_delivered"`
 
-	// `not_requested`, `pending`, `delivered` or `unavailable`. Also in
+	// `not_requested`, `pending`, `delivered`, `not_held` or `unavailable`. Also in
 	// `ownership.status`.
 	RegistryOwnershipStatus string `json:"registry_ownership_status"`
 
@@ -10883,6 +10965,206 @@ func (r *SessionDecisionResubmissionsRequestedBy) UnmarshalJSON(data []byte) err
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SessionDecisionBiometricConsent: Whether the session required explicit
+// biometric consent before a face capture, why, and the evidence of the answer.
+// User Verification (KYC) sessions only; the same object is in the `decision`
+// of session webhooks. `null` when the session was never evaluated, for example
+// a workflow without a face capture. Fields with no recorded value are `null`.
+// A native SDK below 4.10.0, or one that does not report its version, cannot
+// show the consent step: its face captures run as before, and a session that
+// required consent then reports `status: "pending"` with `reason:
+// "BIOMETRIC_CONSENT_UNSUPPORTED_SDK"`. See [Biometric
+// consent](/getting-started/biometric-consent).
+type SessionDecisionBiometricConsent struct {
+	// Whether the session must collect explicit biometric consent. Never goes back
+	// to `false`.
+	Required bool `json:"required"`
+
+	// Why consent is required, or how it was satisfied. `declared_state`: you
+	// declared a covered state (`user_state`, or a US address in
+	// `expected_details`). `ip_state`: the person's IP is in a covered state
+	// (Illinois, Texas, Colorado). `ip_unknown`: the evidence places the person in
+	// the US but the state cannot be told (the IP is in the US with no state, or
+	// cannot be located while your details or the document place the person in the
+	// US). `document_issuer`: the identity document was issued by a covered state.
+	// `forced`: the application's mode is Always. `customer_collected`: you sent
+	// `biometric_consent` when creating the session. `null` while not required.
+	Trigger SessionDecisionBiometricConsentTrigger `json:"trigger"`
+
+	// `not_required`; `pending` (required and not given: the person has not
+	// answered yet, or `reason` says why it was not collected); `given`; `declined`
+	// (a decline was recorded and the session ended as `Declined`; no Didit screen
+	// offers a decline today).
+	Status SessionDecisionBiometricConsentStatus `json:"status"`
+
+	// When consent was given. For `customer_collected`, the `given_at` you sent.
+	GivenAt time.Time `json:"given_at"`
+
+	// When a decline was recorded.
+	DeclinedAt time.Time `json:"declined_at"`
+
+	// Version id of the consent text the person answered, or the one you sent.
+	TextVersion string `json:"text_version"`
+
+	// SHA-256 (hex) of the exact consent text shown, in the language it was shown
+	// in.
+	TextHash string `json:"text_hash"`
+
+	// Language the consent text was shown in.
+	Locale string `json:"locale"`
+
+	// The biometric data policy the consent step linked to.
+	PolicyURL string `json:"policy_url"`
+
+	// Workflow step the session was on when the person answered, for example
+	// `LIVENESS`.
+	Step string `json:"step"`
+
+	// Workflow graph node the session was on when the person answered.
+	NodeID string `json:"node_id"`
+
+	// IP the answer came from.
+	IPAddress string `json:"ip_address"`
+
+	// ISO 3166-1 alpha-2 country of the answer's IP.
+	IPCountryCode string `json:"ip_country_code"`
+
+	// ISO 3166-2 subdivision of the answer's IP, for example `US-IL`.
+	IPState string `json:"ip_state"`
+
+	// City of the answer's IP.
+	IPCity string `json:"ip_city"`
+
+	// User agent of the answer's request.
+	UserAgent string `json:"user_agent"`
+
+	// The person's IP the requirement was last evaluated from. Can differ from
+	// `ip_address` when the person answered on another device.
+	DetectedIPAddress string `json:"detected_ip_address"`
+
+	// ISO 3166-1 alpha-2 country of the detected IP.
+	DetectedCountryCode string `json:"detected_country_code"`
+
+	// ISO 3166-2 subdivision of the detected IP.
+	DetectedState string `json:"detected_state"`
+
+	// City of the detected IP.
+	DetectedCity string `json:"detected_city"`
+
+	// ISO 3166-2 subdivision you declared: `user_state`, or the state of a US
+	// address in `expected_details`.
+	DeclaredState string `json:"declared_state"`
+
+	// ISO 3166-2 subdivision that issued the identity document, read at ID capture.
+	DocumentState string `json:"document_state"`
+
+	// US states (USPS codes, for example `IL`) whose biometric law covers the
+	// person. `US` when the evidence places the person in the US but no state is
+	// known. Empty when none applies.
+	Jurisdictions []string `json:"jurisdictions"`
+
+	// The shortest biometric retention limit, in months, among `jurisdictions`.
+	// `null` when none applies.
+	RetentionMonths int64 `json:"retention_months"`
+
+	// `BIOMETRIC_CONSENT_UNSUPPORTED_SDK`: consent was required and a native SDK
+	// below 4.10.0, or one that did not report its version, captured a face without
+	// the consent step; `status` stays `pending`, or `given` if the person later
+	// agreed in the hosted flow. `BIOMETRIC_CONSENT_DECLINED`: a decline was
+	// recorded (it replaces the SDK reason). `null` otherwise, and always `null`
+	// when the session did not require consent.
+	Reason SessionDecisionBiometricConsentReason `json:"reason"`
+
+	// `BIOMETRIC_CONSENT_DECLINED` when a recorded decline ended the session,
+	// otherwise `null`.
+	DeclineReason SessionDecisionBiometricConsentDeclineReason `json:"decline_reason"`
+
+	// When the decline deleted the session's face images, videos and face
+	// templates. `null` unless a decline was recorded.
+	FaceDataDeletedAt time.Time `json:"face_data_deleted_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionBiometricConsent leniently.
+func (r *SessionDecisionBiometricConsent) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionBiometricConsentTrigger: Why consent is required, or how it
+// was satisfied. `declared_state`: you declared a covered state (`user_state`,
+// or a US address in `expected_details`). `ip_state`: the person's IP is in a
+// covered state (Illinois, Texas, Colorado). `ip_unknown`: the evidence places
+// the person in the US but the state cannot be told (the IP is in the US with
+// no state, or cannot be located while your details or the document place the
+// person in the US). `document_issuer`: the identity document was issued by a
+// covered state. `forced`: the application's mode is Always.
+// `customer_collected`: you sent `biometric_consent` when creating the session.
+// `null` while not required.
+//
+// SessionDecisionBiometricConsentTrigger is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionBiometricConsentTrigger string
+
+// Known values of SessionDecisionBiometricConsentTrigger.
+const (
+	SessionDecisionBiometricConsentTriggerDeclaredState     SessionDecisionBiometricConsentTrigger = "declared_state"
+	SessionDecisionBiometricConsentTriggerIPState           SessionDecisionBiometricConsentTrigger = "ip_state"
+	SessionDecisionBiometricConsentTriggerIPUnknown         SessionDecisionBiometricConsentTrigger = "ip_unknown"
+	SessionDecisionBiometricConsentTriggerDocumentIssuer    SessionDecisionBiometricConsentTrigger = "document_issuer"
+	SessionDecisionBiometricConsentTriggerForced            SessionDecisionBiometricConsentTrigger = "forced"
+	SessionDecisionBiometricConsentTriggerCustomerCollected SessionDecisionBiometricConsentTrigger = "customer_collected"
+)
+
+// SessionDecisionBiometricConsentStatus: `not_required`; `pending` (required
+// and not given: the person has not answered yet, or `reason` says why it was
+// not collected); `given`; `declined` (a decline was recorded and the session
+// ended as `Declined`; no Didit screen offers a decline today).
+//
+// SessionDecisionBiometricConsentStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionBiometricConsentStatus string
+
+// Known values of SessionDecisionBiometricConsentStatus.
+const (
+	SessionDecisionBiometricConsentStatusNotRequired SessionDecisionBiometricConsentStatus = "not_required"
+	SessionDecisionBiometricConsentStatusPending     SessionDecisionBiometricConsentStatus = "pending"
+	SessionDecisionBiometricConsentStatusGiven       SessionDecisionBiometricConsentStatus = "given"
+	SessionDecisionBiometricConsentStatusDeclined    SessionDecisionBiometricConsentStatus = "declined"
+)
+
+// SessionDecisionBiometricConsentReason: `BIOMETRIC_CONSENT_UNSUPPORTED_SDK`:
+// consent was required and a native SDK below 4.10.0, or one that did not
+// report its version, captured a face without the consent step; `status` stays
+// `pending`, or `given` if the person later agreed in the hosted flow.
+// `BIOMETRIC_CONSENT_DECLINED`: a decline was recorded (it replaces the SDK
+// reason). `null` otherwise, and always `null` when the session did not require
+// consent.
+//
+// SessionDecisionBiometricConsentReason is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionBiometricConsentReason string
+
+// Known values of SessionDecisionBiometricConsentReason.
+const (
+	SessionDecisionBiometricConsentReasonBiometricConsentUnsupportedSDK SessionDecisionBiometricConsentReason = "BIOMETRIC_CONSENT_UNSUPPORTED_SDK"
+	SessionDecisionBiometricConsentReasonBiometricConsentDeclined       SessionDecisionBiometricConsentReason = "BIOMETRIC_CONSENT_DECLINED"
+)
+
+// SessionDecisionBiometricConsentDeclineReason: `BIOMETRIC_CONSENT_DECLINED`
+// when a recorded decline ended the session, otherwise `null`.
+//
+// SessionDecisionBiometricConsentDeclineReason is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionDecisionBiometricConsentDeclineReason string
+
+// Known values of SessionDecisionBiometricConsentDeclineReason.
+const (
+	SessionDecisionBiometricConsentDeclineReasonBiometricConsentDeclined SessionDecisionBiometricConsentDeclineReason = "BIOMETRIC_CONSENT_DECLINED"
+)
+
 // SessionsListParams holds the parameters of Client.Sessions.List.
 type SessionsListParams struct {
 	// Which kind of sessions to list: `user` (KYC only, default), `business` (KYB
@@ -10909,12 +11191,14 @@ type SessionsListParams struct {
 	// own user/business identifier). For partial matches use `search` instead.
 	VendorData Opt[string] `json:"-" query:"vendor_data"`
 
-	// Smart free-text search. A full UUID matches `session_id`; numeric input
-	// matches session-number prefix, document/personal numbers, phone prefix, or
-	// `vendor_data`; input containing `@` matches email prefixes; other text
-	// matches names (accent-insensitive) and `vendor_data`. Free text containing
-	// digits additionally matches document/personal-number search fields and
-	// session-number prefixes.
+	// A complete displayed reference such as `S-0001` (user) or `B-0001` (business)
+	// matches only that session number and kind; leading zeros and letter case do
+	// not affect matching. Smart free-text search. A full UUID matches
+	// `session_id`; numeric input matches session-number prefix, document/personal
+	// numbers, phone prefix, or `vendor_data`; input containing `@` matches email
+	// prefixes; other text matches names (accent-insensitive) and `vendor_data`.
+	// Free text containing digits additionally matches document/personal-number
+	// search fields and session-number prefixes.
 	Search Opt[string] `json:"-" query:"search"`
 
 	// Comma-separated workflow UUIDs (find them on the Workflows page in the

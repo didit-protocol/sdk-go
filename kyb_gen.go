@@ -441,11 +441,13 @@ type KYBListShareholdersResponseKYBRegistry struct {
 	// Same as the top-level `registry_tier_delivered`.
 	RegistryTierDelivered KYBListShareholdersResponseKYBRegistryRegistryTierDelivered `json:"registry_tier_delivered"`
 
-	// `delivered` when the ownership data came back, `unavailable` when an
-	// ownership tier was requested but the registry had none for this company (see
-	// `registry_data.ownership_error`), `pending` when the ownership section has
-	// not been retrieved from the registry yet and Didit is still completing it,
-	// `not_requested` on the Lite tier.
+	// `delivered` when the ownership data came back, `not_held` when the ownership
+	// registry answered and does not list this company (see
+	// `registry_data.ownership_error`), `unavailable` when an ownership tier was
+	// requested but the registry had none for this company or could not be asked
+	// (see `registry_data.ownership_error`), `pending` when the ownership section
+	// has not been retrieved from the registry yet and Didit is still completing
+	// it, `not_requested` on the Lite tier.
 	RegistryOwnershipStatus KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus `json:"registry_ownership_status"`
 	Ownership               KYBRegistryOwnership                                          `json:"ownership"`
 
@@ -763,11 +765,13 @@ const (
 )
 
 // KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus: `delivered`
-// when the ownership data came back, `unavailable` when an ownership tier was
-// requested but the registry had none for this company (see
-// `registry_data.ownership_error`), `pending` when the ownership section has
-// not been retrieved from the registry yet and Didit is still completing it,
-// `not_requested` on the Lite tier.
+// when the ownership data came back, `not_held` when the ownership registry
+// answered and does not list this company (see
+// `registry_data.ownership_error`), `unavailable` when an ownership tier was
+// requested but the registry had none for this company or could not be asked
+// (see `registry_data.ownership_error`), `pending` when the ownership section
+// has not been retrieved from the registry yet and Didit is still completing
+// it, `not_requested` on the Lite tier.
 //
 // KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus is a string
 // with known values below. The set is open: other values may appear and never
@@ -778,6 +782,7 @@ type KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus string
 const (
 	KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatusNotRequested KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus = "not_requested"
 	KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatusDelivered    KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus = "delivered"
+	KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatusNotHeld      KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus = "not_held"
 	KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatusUnavailable  KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus = "unavailable"
 	KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatusPending      KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus = "pending"
 )
@@ -1000,11 +1005,13 @@ type KYBListUBOsResponseKYBRegistry struct {
 	// Same as the top-level `registry_tier_delivered`.
 	RegistryTierDelivered KYBListUBOsResponseKYBRegistryRegistryTierDelivered `json:"registry_tier_delivered"`
 
-	// `delivered` when the ownership data came back, `unavailable` when an
-	// ownership tier was requested but the registry had none for this company (see
-	// `registry_data.ownership_error`), `pending` when the ownership section has
-	// not been retrieved from the registry yet and Didit is still completing it,
-	// `not_requested` on the Lite tier.
+	// `delivered` when the ownership data came back, `not_held` when the ownership
+	// registry answered and does not list this company (see
+	// `registry_data.ownership_error`), `unavailable` when an ownership tier was
+	// requested but the registry had none for this company or could not be asked
+	// (see `registry_data.ownership_error`), `pending` when the ownership section
+	// has not been retrieved from the registry yet and Didit is still completing
+	// it, `not_requested` on the Lite tier.
 	RegistryOwnershipStatus KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus `json:"registry_ownership_status"`
 	Ownership               KYBRegistryOwnership                                  `json:"ownership"`
 
@@ -1317,11 +1324,12 @@ const (
 )
 
 // KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus: `delivered` when the
-// ownership data came back, `unavailable` when an ownership tier was requested
-// but the registry had none for this company (see
-// `registry_data.ownership_error`), `pending` when the ownership section has
-// not been retrieved from the registry yet and Didit is still completing it,
-// `not_requested` on the Lite tier.
+// ownership data came back, `not_held` when the ownership registry answered and
+// does not list this company (see `registry_data.ownership_error`),
+// `unavailable` when an ownership tier was requested but the registry had none
+// for this company or could not be asked (see `registry_data.ownership_error`),
+// `pending` when the ownership section has not been retrieved from the registry
+// yet and Didit is still completing it, `not_requested` on the Lite tier.
 //
 // KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus is a string with known
 // values below. The set is open: other values may appear and never cause an
@@ -1332,6 +1340,7 @@ type KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus string
 const (
 	KYBListUBOsResponseKYBRegistryRegistryOwnershipStatusNotRequested KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus = "not_requested"
 	KYBListUBOsResponseKYBRegistryRegistryOwnershipStatusDelivered    KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus = "delivered"
+	KYBListUBOsResponseKYBRegistryRegistryOwnershipStatusNotHeld      KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus = "not_held"
 	KYBListUBOsResponseKYBRegistryRegistryOwnershipStatusUnavailable  KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus = "unavailable"
 	KYBListUBOsResponseKYBRegistryRegistryOwnershipStatusPending      KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus = "pending"
 )
@@ -1757,9 +1766,11 @@ type KYBSelectResponseKYBRegistry struct {
 	// Same as the top-level `registry_tier_delivered`.
 	RegistryTierDelivered KYBSelectResponseKYBRegistryRegistryTierDelivered `json:"registry_tier_delivered"`
 
-	// `delivered` when the ownership data came back, `unavailable` when an
-	// ownership tier was requested but the registry had none for this company (see
-	// `registry_data.ownership_error`), `not_requested` on the Lite tier.
+	// `delivered` when the ownership data came back, `not_held` when the ownership
+	// registry answered and does not list this company (see
+	// `registry_data.ownership_error`), `unavailable` when an ownership tier was
+	// requested but the registry had none for this company or could not be asked
+	// (see `registry_data.ownership_error`), `not_requested` on the Lite tier.
 	RegistryOwnershipStatus KYBSelectResponseKYBRegistryRegistryOwnershipStatus `json:"registry_ownership_status"`
 	Ownership               KYBRegistryOwnership                                `json:"ownership"`
 
@@ -2070,9 +2081,11 @@ const (
 )
 
 // KYBSelectResponseKYBRegistryRegistryOwnershipStatus: `delivered` when the
-// ownership data came back, `unavailable` when an ownership tier was requested
-// but the registry had none for this company (see
-// `registry_data.ownership_error`), `not_requested` on the Lite tier.
+// ownership data came back, `not_held` when the ownership registry answered and
+// does not list this company (see `registry_data.ownership_error`),
+// `unavailable` when an ownership tier was requested but the registry had none
+// for this company or could not be asked (see `registry_data.ownership_error`),
+// `not_requested` on the Lite tier.
 //
 // KYBSelectResponseKYBRegistryRegistryOwnershipStatus is a string with known
 // values below. The set is open: other values may appear and never cause an
@@ -2083,5 +2096,6 @@ type KYBSelectResponseKYBRegistryRegistryOwnershipStatus string
 const (
 	KYBSelectResponseKYBRegistryRegistryOwnershipStatusNotRequested KYBSelectResponseKYBRegistryRegistryOwnershipStatus = "not_requested"
 	KYBSelectResponseKYBRegistryRegistryOwnershipStatusDelivered    KYBSelectResponseKYBRegistryRegistryOwnershipStatus = "delivered"
+	KYBSelectResponseKYBRegistryRegistryOwnershipStatusNotHeld      KYBSelectResponseKYBRegistryRegistryOwnershipStatus = "not_held"
 	KYBSelectResponseKYBRegistryRegistryOwnershipStatusUnavailable  KYBSelectResponseKYBRegistryRegistryOwnershipStatus = "unavailable"
 )

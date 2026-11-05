@@ -508,8 +508,9 @@ func (g *Gen) structType(doc *Doc, name string, side Side, parts []*Node, union 
 	return t, nil
 }
 
-// collectProps gathers the properties of object schemas, following $ref and
-// allOf.
+// collectProps gathers the properties of object schemas, following $ref,
+// allOf and object oneOf/anyOf variants (a variant property is required only
+// when every variant requires it).
 func (g *Gen) collectProps(doc *Doc, parts []*Node) (map[string]*propInfo, []string, int) {
 	props := map[string]*propInfo{}
 	var order []string
@@ -536,6 +537,28 @@ func (g *Gen) collectProps(doc *Doc, parts []*Node) (map[string]*propInfo, []str
 					order = append(order, k)
 				}
 				p.schemas = append(p.schemas, ps.Get(k))
+			}
+		}
+		for _, key := range []string{"oneOf", "anyOf"} {
+			variants := s.Get(key).Elems()
+			if !allObjects(doc, variants) {
+				continue
+			}
+			var common map[string]bool
+			for _, v := range variants {
+				req := visit(v, map[string]bool{})
+				if common == nil {
+					common = req
+					continue
+				}
+				for k := range common {
+					if !req[k] {
+						delete(common, k)
+					}
+				}
+			}
+			for k := range common {
+				requiredBy[k] = true
 			}
 		}
 		return requiredBy

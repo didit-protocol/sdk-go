@@ -12,6 +12,7 @@ type Client struct {
 	options []option.RequestOption
 
 	Account            *AccountService
+	AddressValidation  *AddressValidationService
 	AgeEstimation      *AgeEstimationService
 	AML                *AMLService
 	AMLMonitoring      *AMLMonitoringService
@@ -58,6 +59,7 @@ func (c *Client) init() {
 	c.Account = &AccountService{client: c}
 	c.Account.Applications = &AccountApplicationsService{client: c}
 	c.Account.Organizations = &AccountOrganizationsService{client: c}
+	c.AddressValidation = &AddressValidationService{client: c}
 	c.AgeEstimation = &AgeEstimationService{client: c}
 	c.AML = &AMLService{client: c}
 	c.AMLMonitoring = &AMLMonitoringService{client: c}
@@ -112,8 +114,10 @@ func (c *Client) init() {
 	c.Transactions.TravelRule = &TransactionsTravelRuleService{client: c}
 	c.TravelRule = &TravelRuleService{client: c}
 	c.TravelRule.CounterpartyContacts = &TravelRuleCounterpartyContactsService{client: c}
+	c.TravelRule.Networks = &TravelRuleNetworksService{client: c}
 	c.TravelRule.Transfers = &TravelRuleTransfersService{client: c}
 	c.TravelRule.WalletAddresses = &TravelRuleWalletAddressesService{client: c}
+	c.TravelRule.WalletProofs = &TravelRuleWalletProofsService{client: c}
 	c.TravelRule.Workspace = &TravelRuleWorkspaceService{client: c}
 	c.Users = &UsersService{client: c}
 	c.WalletScreening = &WalletScreeningService{client: c}

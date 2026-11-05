@@ -6,6 +6,104 @@ import (
 	"time"
 )
 
+// AddressValidationResult: The result of one Address Validation: whether the
+// address exists, and its normalised form. It confirms the address only; it
+// never links the address to a person.
+type AddressValidationResult struct {
+	// `verified`: the address was confirmed down to the building (or the flat or PO
+	// box). `partially_verified`: it was confirmed only to the street, or to the
+	// most precise level the postal reference data holds for that place.
+	// `not_verified`: only the region or the city matched, or nothing did.
+	// `unavailable`: the validation could not run (for example the reference
+	// service did not answer); it is not charged and never affects a verification.
+	Status AddressValidationResultStatus `json:"status"`
+
+	// The most precise level the address was matched to. `null` when nothing
+	// matched or `status` is `unavailable`.
+	VerificationLevel AddressValidationResultVerificationLevel `json:"verification_level"`
+
+	// The normalised address. `null` when `status` is `unavailable`.
+	Address AddressValidationResultAddress `json:"address"`
+
+	// The normalised address on one line.
+	FormattedAddress string  `json:"formatted_address"`
+	Latitude         float64 `json:"latitude"`
+	Longitude        float64 `json:"longitude"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AddressValidationResult leniently.
+func (r *AddressValidationResult) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AddressValidationResultStatus: `verified`: the address was confirmed down to
+// the building (or the flat or PO box). `partially_verified`: it was confirmed
+// only to the street, or to the most precise level the postal reference data
+// holds for that place. `not_verified`: only the region or the city matched, or
+// nothing did. `unavailable`: the validation could not run (for example the
+// reference service did not answer); it is not charged and never affects a
+// verification.
+//
+// AddressValidationResultStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type AddressValidationResultStatus string
+
+// Known values of AddressValidationResultStatus.
+const (
+	AddressValidationResultStatusVerified          AddressValidationResultStatus = "verified"
+	AddressValidationResultStatusPartiallyVerified AddressValidationResultStatus = "partially_verified"
+	AddressValidationResultStatusNotVerified       AddressValidationResultStatus = "not_verified"
+	AddressValidationResultStatusUnavailable       AddressValidationResultStatus = "unavailable"
+)
+
+// AddressValidationResultVerificationLevel: The most precise level the address
+// was matched to. `null` when nothing matched or `status` is `unavailable`.
+//
+// AddressValidationResultVerificationLevel is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type AddressValidationResultVerificationLevel string
+
+// Known values of AddressValidationResultVerificationLevel.
+const (
+	AddressValidationResultVerificationLevelAdministrativeArea AddressValidationResultVerificationLevel = "administrative_area"
+	AddressValidationResultVerificationLevelLocality           AddressValidationResultVerificationLevel = "locality"
+	AddressValidationResultVerificationLevelThoroughfare       AddressValidationResultVerificationLevel = "thoroughfare"
+	AddressValidationResultVerificationLevelPremise            AddressValidationResultVerificationLevel = "premise"
+	AddressValidationResultVerificationLevelDeliveryPoint      AddressValidationResultVerificationLevel = "delivery_point"
+)
+
+// AddressValidationResultAddress: The normalised address. `null` when `status`
+// is `unavailable`.
+type AddressValidationResultAddress struct {
+	// First delivery line, written the way the country writes it.
+	AddressLine1 string `json:"address_line_1"`
+
+	// Second delivery line (a flat, building or neighbourhood), when the address
+	// has one.
+	AddressLine2 string `json:"address_line_2"`
+	City         string `json:"city"`
+
+	// State, province or region.
+	Region     string `json:"region"`
+	PostalCode string `json:"postal_code"`
+
+	// ISO 3166-1 alpha-2 country code.
+	Country string `json:"country"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AddressValidationResultAddress leniently.
+func (r *AddressValidationResultAddress) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // AMLDatasetFreshness: How current the AML datasets were when a screening ran.
 // Dates are never estimated.
 type AMLDatasetFreshness struct {
@@ -1797,9 +1895,11 @@ func (r *KYBRegistryIndustry) UnmarshalJSON(data []byte) error {
 // KYBRegistryOwnership: The outcome of the ownership (Shareholders / UBO) tier,
 // in the same shape for every country and registry source.
 type KYBRegistryOwnership struct {
-	// `delivered` when the registry published ownership; `unavailable` when it did
-	// not (see `unavailable_reason`); `pending` while the registry is still
-	// fetching it; `not_requested` for the Basic tier.
+	// `delivered` when the registry published ownership; `not_held` when the
+	// ownership registry answered and does not list the company at all (see
+	// `unavailable_reason`); `unavailable` when it did not serve the ownership data
+	// for any other reason (see `unavailable_reason`); `pending` while the registry
+	// is still fetching it; `not_requested` for the Basic tier.
 	Status KYBRegistryOwnershipStatus `json:"status"`
 
 	// The tier the workflow ordered.
@@ -1833,7 +1933,9 @@ func (r *KYBRegistryOwnership) UnmarshalJSON(data []byte) error {
 }
 
 // KYBRegistryOwnershipStatus: `delivered` when the registry published
-// ownership; `unavailable` when it did not (see `unavailable_reason`);
+// ownership; `not_held` when the ownership registry answered and does not list
+// the company at all (see `unavailable_reason`); `unavailable` when it did not
+// serve the ownership data for any other reason (see `unavailable_reason`);
 // `pending` while the registry is still fetching it; `not_requested` for the
 // Basic tier.
 //
@@ -1846,6 +1948,7 @@ const (
 	KYBRegistryOwnershipStatusNotRequested KYBRegistryOwnershipStatus = "not_requested"
 	KYBRegistryOwnershipStatusPending      KYBRegistryOwnershipStatus = "pending"
 	KYBRegistryOwnershipStatusDelivered    KYBRegistryOwnershipStatus = "delivered"
+	KYBRegistryOwnershipStatusNotHeld      KYBRegistryOwnershipStatus = "not_held"
 	KYBRegistryOwnershipStatusUnavailable  KYBRegistryOwnershipStatus = "unavailable"
 )
 
@@ -2328,11 +2431,12 @@ const (
 // stuck](/transaction-monitoring/travel-rule#why-a-transfer-is-stuck).
 type TravelRuleNextAction struct {
 	// `select_counterparty_vasp`: the end user picks the destination VASP in the
-	// wallet-ownership widget. `declare_self_hosted`: the end user declares the
-	// wallet self-hosted in the widget. `add_vasp_hint`: tell Didit who the
-	// counterparty is, with a VASP name, LEI or travel address (for example a
-	// `travel_address` on the destination wallet's address-book entry), then
-	// resend. `update_compliance_email` and `resend` are `action` values of `PATCH
+	// wallet-ownership widget, or you PATCH `action=beneficiary_vasp`.
+	// `declare_self_hosted`: the end user declares the wallet self-hosted in the
+	// widget. `add_vasp_hint`: tell Didit who the counterparty is, with a VASP
+	// name, LEI or travel address (for example a `travel_address` on the
+	// destination wallet's address-book entry), then resend.
+	// `update_compliance_email` and `resend` are `action` values of `PATCH
 	// /v3/transactions/{transaction_id}/travel-rule/`: give the counterparty's
 	// compliance email again, and re-run routing.
 	Action TravelRuleNextActionAction `json:"action"`
@@ -2352,13 +2456,14 @@ func (r *TravelRuleNextAction) UnmarshalJSON(data []byte) error {
 }
 
 // TravelRuleNextActionAction: `select_counterparty_vasp`: the end user picks
-// the destination VASP in the wallet-ownership widget. `declare_self_hosted`:
-// the end user declares the wallet self-hosted in the widget. `add_vasp_hint`:
-// tell Didit who the counterparty is, with a VASP name, LEI or travel address
-// (for example a `travel_address` on the destination wallet's address-book
-// entry), then resend. `update_compliance_email` and `resend` are `action`
-// values of `PATCH /v3/transactions/{transaction_id}/travel-rule/`: give the
-// counterparty's compliance email again, and re-run routing.
+// the destination VASP in the wallet-ownership widget, or you PATCH
+// `action=beneficiary_vasp`. `declare_self_hosted`: the end user declares the
+// wallet self-hosted in the widget. `add_vasp_hint`: tell Didit who the
+// counterparty is, with a VASP name, LEI or travel address (for example a
+// `travel_address` on the destination wallet's address-book entry), then
+// resend. `update_compliance_email` and `resend` are `action` values of `PATCH
+// /v3/transactions/{transaction_id}/travel-rule/`: give the counterparty's
+// compliance email again, and re-run routing.
 //
 // TravelRuleNextActionAction is a string with known values below. The set is
 // open: other values may appear and never cause an error.

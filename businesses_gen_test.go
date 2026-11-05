@@ -138,7 +138,7 @@ func TestBusinessesSetAMLMonitoring(t *testing.T) {
 	req.expect(t, "POST", "/v3/businesses/aml-monitoring/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"is_enabled":true,"estimate_only":true,"vendor_data_list":["company-123","company-456"]}`)
-	expectFields(t, res.JSON, []string{"unmatched", "job_id", "status", "is_enabled", "target_type", "total", "processed", "outcomes", "results", "error", "created_at", "completed_at", "estimate"})
+	expectFields(t, res.JSON, []string{"users_total", "already_enabled", "with_existing_aml", "needing_screening", "skipped_no_identity_data", "skipped_blocked", "estimated_screening_cost_usd", "estimated_annual_monitoring_cost_usd", "balance_sufficient", "unmatched", "job_id", "status", "is_enabled", "target_type", "total", "processed", "outcomes", "results", "error", "created_at", "completed_at", "estimate"})
 }
 
 func TestBusinessesSetOngoingMonitoring(t *testing.T) {
@@ -153,7 +153,7 @@ func TestBusinessesSetOngoingMonitoring(t *testing.T) {
 	req.expect(t, "PATCH", "/v3/organization/org-test/application/app-test/vendor-businesses/toggle-ongoing-monitoring/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"is_enabled":true,"estimate_only":true,"update_all":true,"filter_search":"string","filter_status":["string"],"filter_country":"string","filter_date_from":"2025-01-02","filter_date_to":"2025-01-02","didit_internal_id_list":["3fa85f64-5717-4562-b3fc-2c963f66afa6"]}`)
-	expectFields(t, res.JSON, []string{"job_id", "status", "is_enabled", "total", "processed", "outcomes", "error", "estimate"})
+	expectFields(t, res.JSON, []string{"users_total", "already_enabled", "with_existing_aml", "needing_screening", "skipped_no_identity_data", "skipped_blocked", "estimated_screening_cost_usd", "estimated_annual_monitoring_cost_usd", "balance_sufficient", "job_id", "status", "is_enabled", "total", "processed", "outcomes", "error", "estimate"})
 }
 
 func TestBusinessesSetSessionOngoingMonitoring(t *testing.T) {
@@ -168,7 +168,7 @@ func TestBusinessesSetSessionOngoingMonitoring(t *testing.T) {
 	req.expect(t, "PATCH", "/v3/organization/org-test/application/app-test/businesses/toggle-ongoing-monitoring/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"is_enabled":true,"estimate_only":true,"update_all":true,"filter_search":"string","filter_status":["string"],"filter_country":"string","filter_date_from":"2025-01-02","filter_date_to":"2025-01-02","session_numbers":["string"],"toggle_all":true,"filter_workflow_id":"string"}`)
-	expectFields(t, res.JSON, []string{"job_id", "status", "is_enabled", "total", "processed", "outcomes", "error", "estimate"})
+	expectFields(t, res.JSON, []string{"users_total", "already_enabled", "with_existing_aml", "needing_screening", "skipped_no_identity_data", "skipped_blocked", "estimated_screening_cost_usd", "estimated_annual_monitoring_cost_usd", "balance_sufficient", "job_id", "status", "is_enabled", "total", "processed", "outcomes", "error", "estimate"})
 }
 
 func TestBusinessesUpdate(t *testing.T) {

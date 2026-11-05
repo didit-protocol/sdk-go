@@ -42,10 +42,10 @@ type AgeEstimationService struct {
 // Borderline ages near your threshold deserve a fallback to document-based
 // verification - the model's error grows for faces close to the limit.
 //
-// **Billing.** Each `200` response consumes one Age Estimation API credit
-// (standalone APIs have no free tier). When the organization's balance cannot
-// cover the call, the endpoint returns `403` with the not-enough-credits error
-// before any image processing.
+// **Billing.** Each `200` response consumes one Age Estimation API credit (paid
+// from your plan credit or top-up balance). When the organization's balance
+// cannot cover the call, the endpoint returns `403` with the not-enough-credits
+// error before any image processing.
 //
 // **Session persistence (`save_api_request`, default `true`).** When `true`,
 // the call is persisted as an API-type session: it appears in the Business

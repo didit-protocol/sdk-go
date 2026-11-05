@@ -35,6 +35,12 @@ type UsersService struct {
 // store is unavailable, the call returns `503`, no user in the request is
 // deleted, and repeating the request finishes the job.
 //
+// **Filed regulatory reports:** if the selected data is in a finalized
+// regulatory report, the whole request is refused with `409` and nothing is
+// deleted. The body uses `code: in_filed_report` and names each report with
+// `uuid`, `report_number`, `report_type` and `case_uuid`. Delete the reports,
+// then repeat the request.
+//
 //	POST /v3/users/delete/
 func (r *UsersService) BatchDelete(ctx context.Context, params UsersBatchDeleteParams, opts ...option.RequestOption) (*UsersBatchDeleteResponse, error) {
 	res := new(UsersBatchDeleteResponse)
@@ -1126,8 +1132,42 @@ func (r UsersSetAMLMonitoringParams) MarshalJSON() ([]byte, error) {
 
 // UsersSetAMLMonitoringResponse is a response object.
 type UsersSetAMLMonitoringResponse struct {
-	JobID  string                              `json:"job_id"`
-	Status UsersSetAMLMonitoringResponseStatus `json:"status"`
+	// Profiles matched by the selection.
+	UsersTotal int64 `json:"users_total"`
+
+	// Profiles already monitored (nothing to do when enabling; these are what
+	// disabling turns off).
+	AlreadyEnabled int64 `json:"already_enabled"`
+
+	// Profiles whose existing AML screening will be switched to monitored (no new
+	// screening).
+	WithExistingAML int64 `json:"with_existing_aml"`
+
+	// Profiles without any AML screening that will be screened first (billed as a
+	// regular AML screening).
+	NeedingScreening int64 `json:"needing_screening"`
+
+	// Profiles that cannot be screened because identity data is missing.
+	SkippedNoIdentityData int64 `json:"skipped_no_identity_data"`
+
+	// Blocked users that will be skipped (always 0 for businesses).
+	SkippedBlocked int64 `json:"skipped_blocked"`
+
+	// One-time cost of the new screenings.
+	EstimatedScreeningCostUsd float64 `json:"estimated_screening_cost_usd"`
+
+	// Yearly monitoring cost of the profiles that will become monitored.
+	EstimatedAnnualMonitoringCostUsd float64 `json:"estimated_annual_monitoring_cost_usd"`
+
+	// Whether the organization balance covers the screening plus the first year of
+	// monitoring.
+	BalanceSufficient bool `json:"balance_sufficient"`
+
+	// Identifiers of the request that matched no profile in this application,
+	// exactly as sent.
+	Unmatched []string                            `json:"unmatched"`
+	JobID     string                              `json:"job_id"`
+	Status    UsersSetAMLMonitoringResponseStatus `json:"status"`
 
 	// true when the job enables monitoring, false when it disables it.
 	IsEnabled bool `json:"is_enabled"`
@@ -1159,10 +1199,6 @@ type UsersSetAMLMonitoringResponse struct {
 	// Cost preview. Returned directly when estimate_only is true (nothing is
 	// written).
 	Estimate UsersSetAMLMonitoringResponseEstimate `json:"estimate"`
-
-	// Identifiers of the request that matched no profile in this application,
-	// exactly as sent. They are not part of the job.
-	Unmatched []string `json:"unmatched"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -1323,11 +1359,25 @@ func (r *UsersSetAMLMonitoringResponseEstimate) UnmarshalJSON(data []byte) error
 
 // UsersSetOngoingMonitoringResponse is a response object.
 type UsersSetOngoingMonitoringResponse struct {
-	JobID     string                                  `json:"job_id"`
-	Status    UsersSetOngoingMonitoringResponseStatus `json:"status"`
-	IsEnabled bool                                    `json:"is_enabled"`
-	Total     int64                                   `json:"total"`
-	Processed int64                                   `json:"processed"`
+	// Entities in the selection.
+	UsersTotal     int64 `json:"users_total"`
+	AlreadyEnabled int64 `json:"already_enabled"`
+
+	// Entities whose existing AML screening will be switched to monitored.
+	WithExistingAML int64 `json:"with_existing_aml"`
+
+	// Entities without any AML screening that will be screened first (billed).
+	NeedingScreening                 int64                                   `json:"needing_screening"`
+	SkippedNoIdentityData            int64                                   `json:"skipped_no_identity_data"`
+	SkippedBlocked                   int64                                   `json:"skipped_blocked"`
+	EstimatedScreeningCostUsd        float64                                 `json:"estimated_screening_cost_usd"`
+	EstimatedAnnualMonitoringCostUsd float64                                 `json:"estimated_annual_monitoring_cost_usd"`
+	BalanceSufficient                bool                                    `json:"balance_sufficient"`
+	JobID                            string                                  `json:"job_id"`
+	Status                           UsersSetOngoingMonitoringResponseStatus `json:"status"`
+	IsEnabled                        bool                                    `json:"is_enabled"`
+	Total                            int64                                   `json:"total"`
+	Processed                        int64                                   `json:"processed"`
 
 	// Per-entity outcome counters. Nothing is silently skipped: every requested
 	// entity resolves to exactly one counter.

@@ -165,6 +165,59 @@ func TestResponseWithoutContent(t *testing.T) {
 	}
 }
 
+// The fields of an object whose oneOf variants hold the properties come from
+// every variant, in a request body (transactions.batch_delete) and in one
+// response of several.
+func TestObjectWithOneOfVariants(t *testing.T) {
+	dir := writeSpec(t, `{"openapi":"3.0.0","paths":{
+		"/v3/things/delete/":{"delete":{
+			"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","oneOf":[
+				{"required":["thing_ids","reason"],"properties":{
+					"thing_ids":{"type":"array","items":{"type":"string"}},
+					"delete_all":{"type":"boolean","enum":[false]},
+					"reason":{"type":"string"}}},
+				{"required":["delete_all","reason"],"properties":{
+					"delete_all":{"type":"boolean","enum":[true]},
+					"reason":{"type":"string"}}}]},
+				"example":{"thing_ids":["t1"],"reason":"cleanup"}}}},
+			"responses":{"204":{"description":"Deleted"}}}},
+		"/v3/things/count/":{"post":{
+			"responses":{
+				"200":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Count"}}}},
+				"202":{"content":{"application/json":{"schema":{"type":"object","required":["job_id"],"properties":{"job_id":{"type":"string"}}}}}}}}}},
+		"components":{"schemas":{"Count":{"oneOf":[
+			{"type":"object","properties":{"total":{"type":"integer"}}},
+			{"type":"object","properties":{"job_id":{"type":"string"}}}]}}}}`,
+		`{"operations":{
+			"DELETE /v3/things/delete/":{"resource":"things","method":"batch_delete","auth":"api_key","server":true},
+			"POST /v3/things/count/":{"resource":"things","method":"count","auth":"api_key","server":true}}}`)
+	files, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := map[string]string{}
+	for _, f := range files {
+		all[f.Name] = string(f.Content)
+	}
+	code := strings.Join(strings.FieldsFunc(all["things_gen.go"], func(r rune) bool { return r == ' ' || r == '\t' }), " ")
+	for _, want := range []string{
+		// Required by one variant only: optional.
+		"ThingIDs Opt[[]string] `json:\"thing_ids\"`",
+		"DeleteAll Opt[bool] `json:\"delete_all\"`",
+		// Required by every variant: required.
+		"Reason string `json:\"reason\"`",
+		"Total int64 `json:\"total\"`",
+		"JobID string `json:\"job_id\"`",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("generated code lacks %q:\n%s", want, all["things_gen.go"])
+		}
+	}
+	if tests := all["things_gen_test.go"]; !strings.Contains(tests, "req.expectJSON(t, `{\"thing_ids\":[\"t1\"],\"reason\":\"cleanup\"}`)") {
+		t.Errorf("generated tests do not check the request body:\n%s", tests)
+	}
+}
+
 func TestWriteDoc(t *testing.T) {
 	var b bytes.Buffer
 	writeDoc(&b, "\t", "First line \u2014 with a dash.\n\n- item one that is long enough to wrap around the configured width of the comment block\n- item two\n\n| a | b |\n\n1. numbered")
