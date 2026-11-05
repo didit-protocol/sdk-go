@@ -4760,9 +4760,11 @@ type SessionDecisionIDVerifications struct {
 	// `bankid_se`, `itsme`, ...). `null` otherwise.
 	WalletProvider string `json:"wallet_provider"`
 
-	// Why a non-document method ended the ID step. Set on the declined report when
-	// a lookup or a wallet sign-in failed and the country's fallback switch was
-	// `decline`. `null` otherwise.
+	// Why a non-document method did not end the ID step. Set when a lookup or a
+	// wallet sign-in failed: on the document verification the user continued with
+	// when the country's fallback switch was `fallback_to_document` (`action` is
+	// `fallback_to_document`), or on the declined report when it was `decline`.
+	// `null` otherwise.
 	FallbackFrom SessionDecisionIDVerificationsFallbackFrom `json:"fallback_from"`
 
 	// Registry evidence. Present only when `verification_method` is `id_lookup`;
@@ -4999,9 +5001,11 @@ const (
 	SessionDecisionIDVerificationsAssuranceCryptographic SessionDecisionIDVerificationsAssurance = "cryptographic"
 )
 
-// SessionDecisionIDVerificationsFallbackFrom: Why a non-document method ended
-// the ID step. Set on the declined report when a lookup or a wallet sign-in
-// failed and the country's fallback switch was `decline`. `null` otherwise.
+// SessionDecisionIDVerificationsFallbackFrom: Why a non-document method did not
+// end the ID step. Set when a lookup or a wallet sign-in failed: on the
+// document verification the user continued with when the country's fallback
+// switch was `fallback_to_document` (`action` is `fallback_to_document`), or on
+// the declined report when it was `decline`. `null` otherwise.
 type SessionDecisionIDVerificationsFallbackFrom struct {
 	// The method that failed.
 	Method SessionDecisionIDVerificationsFallbackFromMethod `json:"method"`
@@ -5010,8 +5014,8 @@ type SessionDecisionIDVerificationsFallbackFrom struct {
 	// `timeout`.
 	Reason string `json:"reason"`
 
-	// The configured action that was taken, e.g. `decline`.
-	Action string `json:"action"`
+	// The configured action that was taken: `fallback_to_document` or `decline`.
+	Action SessionDecisionIDVerificationsFallbackFromAction `json:"action"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -5034,6 +5038,20 @@ type SessionDecisionIDVerificationsFallbackFromMethod string
 const (
 	SessionDecisionIDVerificationsFallbackFromMethodIDLookup SessionDecisionIDVerificationsFallbackFromMethod = "id_lookup"
 	SessionDecisionIDVerificationsFallbackFromMethodWallet   SessionDecisionIDVerificationsFallbackFromMethod = "wallet"
+)
+
+// SessionDecisionIDVerificationsFallbackFromAction: The configured action that
+// was taken: `fallback_to_document` or `decline`.
+//
+// SessionDecisionIDVerificationsFallbackFromAction is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionDecisionIDVerificationsFallbackFromAction string
+
+// Known values of SessionDecisionIDVerificationsFallbackFromAction.
+const (
+	SessionDecisionIDVerificationsFallbackFromActionFallbackToDocument SessionDecisionIDVerificationsFallbackFromAction = "fallback_to_document"
+	SessionDecisionIDVerificationsFallbackFromActionDecline            SessionDecisionIDVerificationsFallbackFromAction = "decline"
 )
 
 // SessionDecisionIDVerificationsIDLookup: Registry evidence. Present only when
@@ -18259,7 +18277,10 @@ type ReviewItem struct {
 
 	// Extra context for system-generated entries. Console detail-page views carry
 	// `{"system_event": "DETAIL_VIEWED", "detail_type": "verification"}` so they
-	// can be filtered out of notification logic. `null` for ordinary entries.
+	// can be filtered out of notification logic. A `COMMENT` its author edited in
+	// the Console carries `edited_at`, the ISO 8601 time of the last edit
+	// (`comment` and `mentioned_emails` then hold the edited text and its
+	// mentions). `null` for ordinary entries.
 	Metadata map[string]any `json:"metadata"`
 
 	// When the entry was written, ISO 8601 UTC.
