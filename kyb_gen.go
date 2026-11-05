@@ -332,8 +332,12 @@ type KYBListShareholdersResponseKYBRegistry struct {
 	// Registry-reported risk level, when available.
 	RiskLevel string `json:"risk_level"`
 
-	// Registry verification status, when available.
-	VerificationStatus string `json:"verification_status"`
+	// Cross-jurisdiction verification status: `verified` when the registry status
+	// establishes standing (`active`), `failed` when it says the company is no
+	// longer standing (for example `dissolved`), otherwise `unknown`. `null` for a
+	// company that did not come from a registry and while a selection is still
+	// `pending`.
+	VerificationStatus KYBListShareholdersResponseKYBRegistryVerificationStatus `json:"verification_status"`
 
 	// Always `true` for this endpoint - the profile was retrieved from an official
 	// registry.
@@ -507,6 +511,24 @@ const (
 	KYBListShareholdersResponseKYBRegistryRegistryStatusNoLongerAuthorised      KYBListShareholdersResponseKYBRegistryRegistryStatus = "no longer authorised"
 	KYBListShareholdersResponseKYBRegistryRegistryStatusClosed                  KYBListShareholdersResponseKYBRegistryRegistryStatus = "closed"
 	KYBListShareholdersResponseKYBRegistryRegistryStatusStruckOff               KYBListShareholdersResponseKYBRegistryRegistryStatus = "struck off"
+)
+
+// KYBListShareholdersResponseKYBRegistryVerificationStatus: Cross-jurisdiction
+// verification status: `verified` when the registry status establishes standing
+// (`active`), `failed` when it says the company is no longer standing (for
+// example `dissolved`), otherwise `unknown`. `null` for a company that did not
+// come from a registry and while a selection is still `pending`.
+//
+// KYBListShareholdersResponseKYBRegistryVerificationStatus is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type KYBListShareholdersResponseKYBRegistryVerificationStatus string
+
+// Known values of KYBListShareholdersResponseKYBRegistryVerificationStatus.
+const (
+	KYBListShareholdersResponseKYBRegistryVerificationStatusVerified KYBListShareholdersResponseKYBRegistryVerificationStatus = "verified"
+	KYBListShareholdersResponseKYBRegistryVerificationStatusFailed   KYBListShareholdersResponseKYBRegistryVerificationStatus = "failed"
+	KYBListShareholdersResponseKYBRegistryVerificationStatusUnknown  KYBListShareholdersResponseKYBRegistryVerificationStatus = "unknown"
 )
 
 // KYBListShareholdersResponseKYBRegistryFetchStatus: Registry fetch lifecycle.
@@ -920,8 +942,12 @@ type KYBListUBOsResponseKYBRegistry struct {
 	// Registry-reported risk level, when available.
 	RiskLevel string `json:"risk_level"`
 
-	// Registry verification status, when available.
-	VerificationStatus string `json:"verification_status"`
+	// Cross-jurisdiction verification status: `verified` when the registry status
+	// establishes standing (`active`), `failed` when it says the company is no
+	// longer standing (for example `dissolved`), otherwise `unknown`. `null` for a
+	// company that did not come from a registry and while a selection is still
+	// `pending`.
+	VerificationStatus KYBListUBOsResponseKYBRegistryVerificationStatus `json:"verification_status"`
 
 	// Always `true` for this endpoint - the profile was retrieved from an official
 	// registry.
@@ -1094,6 +1120,24 @@ const (
 	KYBListUBOsResponseKYBRegistryRegistryStatusNoLongerAuthorised      KYBListUBOsResponseKYBRegistryRegistryStatus = "no longer authorised"
 	KYBListUBOsResponseKYBRegistryRegistryStatusClosed                  KYBListUBOsResponseKYBRegistryRegistryStatus = "closed"
 	KYBListUBOsResponseKYBRegistryRegistryStatusStruckOff               KYBListUBOsResponseKYBRegistryRegistryStatus = "struck off"
+)
+
+// KYBListUBOsResponseKYBRegistryVerificationStatus: Cross-jurisdiction
+// verification status: `verified` when the registry status establishes standing
+// (`active`), `failed` when it says the company is no longer standing (for
+// example `dissolved`), otherwise `unknown`. `null` for a company that did not
+// come from a registry and while a selection is still `pending`.
+//
+// KYBListUBOsResponseKYBRegistryVerificationStatus is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type KYBListUBOsResponseKYBRegistryVerificationStatus string
+
+// Known values of KYBListUBOsResponseKYBRegistryVerificationStatus.
+const (
+	KYBListUBOsResponseKYBRegistryVerificationStatusVerified KYBListUBOsResponseKYBRegistryVerificationStatus = "verified"
+	KYBListUBOsResponseKYBRegistryVerificationStatusFailed   KYBListUBOsResponseKYBRegistryVerificationStatus = "failed"
+	KYBListUBOsResponseKYBRegistryVerificationStatusUnknown  KYBListUBOsResponseKYBRegistryVerificationStatus = "unknown"
 )
 
 // KYBListUBOsResponseKYBRegistryFetchStatus: Registry fetch lifecycle. Mirrored
@@ -1705,8 +1749,12 @@ type KYBSelectResponseKYBRegistry struct {
 	// Registry-reported risk level, when available.
 	RiskLevel string `json:"risk_level"`
 
-	// Registry verification status, when available.
-	VerificationStatus string `json:"verification_status"`
+	// Cross-jurisdiction verification status: `verified` when the registry status
+	// establishes standing (`active`), `failed` when it says the company is no
+	// longer standing (for example `dissolved`), otherwise `unknown`. `null` for a
+	// company that did not come from a registry and while a selection is still
+	// `pending`.
+	VerificationStatus KYBSelectResponseKYBRegistryVerificationStatus `json:"verification_status"`
 
 	// Always `true` for this endpoint - the profile was retrieved from an official
 	// registry.
@@ -1877,6 +1925,23 @@ const (
 	KYBSelectResponseKYBRegistryRegistryStatusNoLongerAuthorised      KYBSelectResponseKYBRegistryRegistryStatus = "no longer authorised"
 	KYBSelectResponseKYBRegistryRegistryStatusClosed                  KYBSelectResponseKYBRegistryRegistryStatus = "closed"
 	KYBSelectResponseKYBRegistryRegistryStatusStruckOff               KYBSelectResponseKYBRegistryRegistryStatus = "struck off"
+)
+
+// KYBSelectResponseKYBRegistryVerificationStatus: Cross-jurisdiction
+// verification status: `verified` when the registry status establishes standing
+// (`active`), `failed` when it says the company is no longer standing (for
+// example `dissolved`), otherwise `unknown`. `null` for a company that did not
+// come from a registry and while a selection is still `pending`.
+//
+// KYBSelectResponseKYBRegistryVerificationStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type KYBSelectResponseKYBRegistryVerificationStatus string
+
+// Known values of KYBSelectResponseKYBRegistryVerificationStatus.
+const (
+	KYBSelectResponseKYBRegistryVerificationStatusVerified KYBSelectResponseKYBRegistryVerificationStatus = "verified"
+	KYBSelectResponseKYBRegistryVerificationStatusFailed   KYBSelectResponseKYBRegistryVerificationStatus = "failed"
+	KYBSelectResponseKYBRegistryVerificationStatusUnknown  KYBSelectResponseKYBRegistryVerificationStatus = "unknown"
 )
 
 // KYBSelectResponseKYBRegistryFetchStatus: Registry fetch lifecycle. Mirrored

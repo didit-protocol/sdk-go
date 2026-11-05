@@ -31,7 +31,7 @@ func (r *BillingService) RetrieveBalance(ctx context.Context, opts ...option.Req
 
 // TopUp: Top up credits.
 //
-// Add credits via a hosted Stripe Checkout session (**\$50 to \$10,000** per
+// Add credits via a hosted Stripe Checkout session (**\$50 to \$20,000** per
 // top-up). Top-ups are available on the Free, Growth and Scale plans, added at
 // face value with no discount or bonus, and last 12 months; Enterprise annual
 // contracts cannot top up. Redirect the customer to the returned
@@ -58,7 +58,7 @@ type BillingRetrieveBalanceResponse struct {
 	AutoRefillEnabled bool `json:"auto_refill_enabled"`
 
 	// USD amount that will be charged and added to the balance on each auto-refill,
-	// at face value. Set from \$50 to \$10,000 in Console → Billing. `null` when
+	// at face value. Set from \$50 to \$20,000 in Console → Billing. `null` when
 	// auto-refill is disabled or unset.
 	AutoRefillAmount string `json:"auto_refill_amount"`
 
@@ -78,7 +78,7 @@ func (r *BillingRetrieveBalanceResponse) UnmarshalJSON(data []byte) error {
 
 // BillingTopUpParams holds the parameters of Client.Billing.TopUp.
 type BillingTopUpParams struct {
-	// Amount to charge, in USD. **Must be from 50 to 10,000.** The balance receives
+	// Amount to charge, in USD. **Must be from 50 to 20,000.** The balance receives
 	// the same amount, with no discount or bonus. Tax is added automatically at
 	// checkout based on the customer's billing address. Required.
 	AmountInDollars float64 `json:"amount_in_dollars"`
