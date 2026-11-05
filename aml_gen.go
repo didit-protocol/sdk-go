@@ -339,7 +339,9 @@ const (
 // measures how risky the matched entity is and drives the top-level
 // `aml.score`.
 type AMLScreenResponseAMLHits struct {
-	// Stable identifier of the matched entity in the screening datasets.
+	// Didit's stable identifier for the hit: `hit_` followed by 24 hexadecimal
+	// characters. The same matched entity keeps the same `id` when the subject is
+	// screened again. Pass it as `hit_id` to the AML hit review endpoints.
 	ID string `json:"id"`
 
 	// Source URL for the matched entity, when available.
@@ -363,10 +365,12 @@ type AMLScreenResponseAMLHits struct {
 	// Display name of the matched entity.
 	Caption string `json:"caption"`
 
-	// Datasets the entity appears in (e.g. `PEP`, `PEP Level 1`, sanctions list
-	// names).
-	Datasets []string       `json:"datasets"`
-	Features map[string]any `json:"features"`
+	// Risk categories the entity is listed under: `PEP` (with its level, `PEP Level
+	// 1` to `PEP Level 4`), `Sanctions`, `Adverse Media`, `Warnings and Regulatory
+	// Enforcement`, `Fitness and Probity`, `SIP`, `SIE` or `Insolvency`. `Other
+	// Lists` when the entity's source states none of these categories.
+	Datasets []AMLScreenResponseAMLHitsDatasets `json:"datasets"`
+	Features map[string]any                     `json:"features"`
 
 	// Entity profile: `name`, `alias`, `notes`, `gender`, `birthDate`,
 	// `birthPlace`, `nationality`, `position`, and other biographical arrays (each
@@ -437,6 +441,27 @@ type AMLScreenResponseAMLHits struct {
 func (r *AMLScreenResponseAMLHits) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// AMLScreenResponseAMLHitsDatasets is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type AMLScreenResponseAMLHitsDatasets string
+
+// Known values of AMLScreenResponseAMLHitsDatasets.
+const (
+	AMLScreenResponseAMLHitsDatasetsPEP                              AMLScreenResponseAMLHitsDatasets = "PEP"
+	AMLScreenResponseAMLHitsDatasetsPEPLevel1                        AMLScreenResponseAMLHitsDatasets = "PEP Level 1"
+	AMLScreenResponseAMLHitsDatasetsPEPLevel2                        AMLScreenResponseAMLHitsDatasets = "PEP Level 2"
+	AMLScreenResponseAMLHitsDatasetsPEPLevel3                        AMLScreenResponseAMLHitsDatasets = "PEP Level 3"
+	AMLScreenResponseAMLHitsDatasetsPEPLevel4                        AMLScreenResponseAMLHitsDatasets = "PEP Level 4"
+	AMLScreenResponseAMLHitsDatasetsSanctions                        AMLScreenResponseAMLHitsDatasets = "Sanctions"
+	AMLScreenResponseAMLHitsDatasetsAdverseMedia                     AMLScreenResponseAMLHitsDatasets = "Adverse Media"
+	AMLScreenResponseAMLHitsDatasetsWarningsAndRegulatoryEnforcement AMLScreenResponseAMLHitsDatasets = "Warnings and Regulatory Enforcement"
+	AMLScreenResponseAMLHitsDatasetsFitnessAndProbity                AMLScreenResponseAMLHitsDatasets = "Fitness and Probity"
+	AMLScreenResponseAMLHitsDatasetsSip                              AMLScreenResponseAMLHitsDatasets = "SIP"
+	AMLScreenResponseAMLHitsDatasetsSie                              AMLScreenResponseAMLHitsDatasets = "SIE"
+	AMLScreenResponseAMLHitsDatasetsInsolvency                       AMLScreenResponseAMLHitsDatasets = "Insolvency"
+	AMLScreenResponseAMLHitsDatasetsOtherLists                       AMLScreenResponseAMLHitsDatasets = "Other Lists"
+)
 
 // AMLScreenResponseAMLHitsPEPMatches is a response object.
 type AMLScreenResponseAMLHitsPEPMatches struct {

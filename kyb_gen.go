@@ -22,9 +22,12 @@ type KYBService struct {
 // by `POST /v3/kyb/search/`.
 //
 // **Pairing with search.** Pass the candidate's `kyb_response_id` exactly as
-// returned by a search of the same application. The search runs on the Lite
-// registry chain; when the country's ownership data lives at another registry
-// Didit re-finds the company there by registration number, at no extra cost.
+// returned by a search of the same application. Search at the tier you intend
+// to buy (`tier` on `POST /v3/kyb/search/`), because the search runs on the
+// registry chain that serves that tier and an empty Lite search is not proof
+// that the registry does not hold the company. When the country's ownership
+// data lives at another registry, Didit re-finds the company there by
+// registration number, at no extra cost.
 //
 // **Billing.** Billed at the country's Shareholders price - see [KYB registry
 // pricing](/getting-started/kyb-registry-pricing). When the registry holds no
@@ -65,9 +68,12 @@ func (r *KYBService) ListShareholders(ctx context.Context, params KYBRegistryCan
 // candidate returned by `POST /v3/kyb/search/`.
 //
 // **Pairing with search.** Pass the candidate's `kyb_response_id` exactly as
-// returned by a search of the same application. The search runs on the Lite
-// registry chain; when the country's ownership data lives at another registry
-// Didit re-finds the company there by registration number, at no extra cost.
+// returned by a search of the same application. Search at the tier you intend
+// to buy (`tier` on `POST /v3/kyb/search/`), because the search runs on the
+// registry chain that serves that tier and an empty Lite search is not proof
+// that the registry does not hold the company. When the country's ownership
+// data lives at another registry, Didit re-finds the company there by
+// registration number, at no extra cost.
 //
 // **Billing.** Billed at the country's UBO price - see [KYB registry
 // pricing](/getting-started/kyb-registry-pricing). The tier delivered is the
@@ -203,8 +209,9 @@ func (r *KYBService) Select(ctx context.Context, params KYBRegistryCandidateRequ
 // KYBRegistryCandidateRequest is a request object.
 type KYBRegistryCandidateRequest struct {
 	// Candidate handle from `POST /v3/kyb/search/`
-	// (`kyb_registry.companies[].kyb_response_id`). Ephemeral - use it shortly
-	// after the search that produced it. Required.
+	// (`kyb_registry.companies[].kyb_response_id`). Ephemeral: use it shortly after
+	// the search that produced it. Handles can be long, so store and send the value
+	// exactly as returned, without trimming or assuming a length. Required.
 	KYBResponseID string `json:"kyb_response_id"`
 
 	// Your identifier for this company; echoed back and stored with the business
@@ -416,13 +423,8 @@ type KYBListShareholdersResponseKYBRegistry struct {
 	// Registry filing dates, when available. Annual returns and general meetings
 	// use last_annual_return_date and last_agm_date; they are distinct from
 	// financial accounts.
-	Accounts map[string]any `json:"accounts"`
-
-	// Raw record returned by the registry source, kept for reviewers. Its shape
-	// differs by country and source and is not a stable contract: read the
-	// canonical fields (`addresses`, `industries`, `ownership`,
-	// `beneficial_owners[].shareholding`) instead.
-	RegistryData map[string]any `json:"registry_data"`
+	Accounts     map[string]any  `json:"accounts"`
+	RegistryData KYBRegistryData `json:"registry_data"`
 
 	// Always `null` on this endpoint (used by the hosted KYB flow when end users
 	// edit registry data).
@@ -454,6 +456,9 @@ type KYBListShareholdersResponseKYBRegistry struct {
 	// The registry tier the workflow ordered: `basic`, `shareholders` or `ubo`.
 	// Also in `ownership.tier_requested`.
 	RegistryTier string `json:"registry_tier"`
+
+	// The latest registry monitor for the company, or `null` when none exists.
+	RegistryMonitoring KYBListShareholdersResponseKYBRegistryRegistryMonitoring `json:"registry_monitoring"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -787,6 +792,32 @@ const (
 	KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatusPending      KYBListShareholdersResponseKYBRegistryRegistryOwnershipStatus = "pending"
 )
 
+// KYBListShareholdersResponseKYBRegistryRegistryMonitoring: The latest registry
+// monitor for the company, or `null` when none exists.
+type KYBListShareholdersResponseKYBRegistryRegistryMonitoring struct {
+	UUID              string    `json:"uuid"`
+	Status            string    `json:"status"`
+	UnavailableReason string    `json:"unavailable_reason"`
+	EnrolledAt        time.Time `json:"enrolled_at"`
+	CancelledAt       time.Time `json:"cancelled_at"`
+	LastBillDate      string    `json:"last_bill_date"`
+	NextBillDate      string    `json:"next_bill_date"`
+	LastEventAt       time.Time `json:"last_event_at"`
+	EventsCount       int64     `json:"events_count"`
+
+	// The company fields the monitor watches.
+	WatchedFields any `json:"watched_fields"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBListShareholdersResponseKYBRegistryRegistryMonitoring leniently.
+func (r *KYBListShareholdersResponseKYBRegistryRegistryMonitoring) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // KYBListUBOsResponse is a response object.
 type KYBListUBOsResponse struct {
 	// Id of the business session created for this retrieval. The stored record
@@ -980,13 +1011,8 @@ type KYBListUBOsResponseKYBRegistry struct {
 	// Registry filing dates, when available. Annual returns and general meetings
 	// use last_annual_return_date and last_agm_date; they are distinct from
 	// financial accounts.
-	Accounts map[string]any `json:"accounts"`
-
-	// Raw record returned by the registry source, kept for reviewers. Its shape
-	// differs by country and source and is not a stable contract: read the
-	// canonical fields (`addresses`, `industries`, `ownership`,
-	// `beneficial_owners[].shareholding`) instead.
-	RegistryData map[string]any `json:"registry_data"`
+	Accounts     map[string]any  `json:"accounts"`
+	RegistryData KYBRegistryData `json:"registry_data"`
 
 	// Always `null` on this endpoint (used by the hosted KYB flow when end users
 	// edit registry data).
@@ -1018,6 +1044,9 @@ type KYBListUBOsResponseKYBRegistry struct {
 	// The registry tier the workflow ordered: `basic`, `shareholders` or `ubo`.
 	// Also in `ownership.tier_requested`.
 	RegistryTier string `json:"registry_tier"`
+
+	// The latest registry monitor for the company, or `null` when none exists.
+	RegistryMonitoring KYBListUBOsResponseKYBRegistryRegistryMonitoring `json:"registry_monitoring"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -1344,6 +1373,32 @@ const (
 	KYBListUBOsResponseKYBRegistryRegistryOwnershipStatusUnavailable  KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus = "unavailable"
 	KYBListUBOsResponseKYBRegistryRegistryOwnershipStatusPending      KYBListUBOsResponseKYBRegistryRegistryOwnershipStatus = "pending"
 )
+
+// KYBListUBOsResponseKYBRegistryRegistryMonitoring: The latest registry monitor
+// for the company, or `null` when none exists.
+type KYBListUBOsResponseKYBRegistryRegistryMonitoring struct {
+	UUID              string    `json:"uuid"`
+	Status            string    `json:"status"`
+	UnavailableReason string    `json:"unavailable_reason"`
+	EnrolledAt        time.Time `json:"enrolled_at"`
+	CancelledAt       time.Time `json:"cancelled_at"`
+	LastBillDate      string    `json:"last_bill_date"`
+	NextBillDate      string    `json:"next_bill_date"`
+	LastEventAt       time.Time `json:"last_event_at"`
+	EventsCount       int64     `json:"events_count"`
+
+	// The company fields the monitor watches.
+	WatchedFields any `json:"watched_fields"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBListUBOsResponseKYBRegistryRegistryMonitoring leniently.
+func (r *KYBListUBOsResponseKYBRegistryRegistryMonitoring) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // KYBSearchParams holds the parameters of Client.KYB.Search.
 type KYBSearchParams struct {
@@ -1741,13 +1796,8 @@ type KYBSelectResponseKYBRegistry struct {
 	// Registry filing dates, when available. Annual returns and general meetings
 	// use last_annual_return_date and last_agm_date; they are distinct from
 	// financial accounts.
-	Accounts map[string]any `json:"accounts"`
-
-	// Raw record returned by the registry source, kept for reviewers. Its shape
-	// differs by country and source and is not a stable contract: read the
-	// canonical fields (`addresses`, `industries`, `ownership`,
-	// `beneficial_owners[].shareholding`) instead.
-	RegistryData map[string]any `json:"registry_data"`
+	Accounts     map[string]any  `json:"accounts"`
+	RegistryData KYBRegistryData `json:"registry_data"`
 
 	// Always `null` on this endpoint (used by the hosted KYB flow when end users
 	// edit registry data).
@@ -1777,6 +1827,9 @@ type KYBSelectResponseKYBRegistry struct {
 	// The registry tier the workflow ordered: `basic`, `shareholders` or `ubo`.
 	// Also in `ownership.tier_requested`.
 	RegistryTier string `json:"registry_tier"`
+
+	// The latest registry monitor for the company, or `null` when none exists.
+	RegistryMonitoring KYBSelectResponseKYBRegistryRegistryMonitoring `json:"registry_monitoring"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -2099,3 +2152,29 @@ const (
 	KYBSelectResponseKYBRegistryRegistryOwnershipStatusNotHeld      KYBSelectResponseKYBRegistryRegistryOwnershipStatus = "not_held"
 	KYBSelectResponseKYBRegistryRegistryOwnershipStatusUnavailable  KYBSelectResponseKYBRegistryRegistryOwnershipStatus = "unavailable"
 )
+
+// KYBSelectResponseKYBRegistryRegistryMonitoring: The latest registry monitor
+// for the company, or `null` when none exists.
+type KYBSelectResponseKYBRegistryRegistryMonitoring struct {
+	UUID              string    `json:"uuid"`
+	Status            string    `json:"status"`
+	UnavailableReason string    `json:"unavailable_reason"`
+	EnrolledAt        time.Time `json:"enrolled_at"`
+	CancelledAt       time.Time `json:"cancelled_at"`
+	LastBillDate      string    `json:"last_bill_date"`
+	NextBillDate      string    `json:"next_bill_date"`
+	LastEventAt       time.Time `json:"last_event_at"`
+	EventsCount       int64     `json:"events_count"`
+
+	// The company fields the monitor watches.
+	WatchedFields any `json:"watched_fields"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBSelectResponseKYBRegistryRegistryMonitoring leniently.
+func (r *KYBSelectResponseKYBRegistryRegistryMonitoring) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}

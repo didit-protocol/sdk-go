@@ -181,14 +181,20 @@ type SimpleWorkflowFeature struct {
 
 	// Feature-specific settings. For `QUESTIONNAIRE`, include `questionnaire_uuid`
 	// with the `questionnaire_id` returned by the questionnaire create endpoint.
-	// For `OCR`, `methods` selects which ID Verification methods each country may
-	// use (document capture, non-doc lookup against a government or other
-	// authoritative source, and digital identity wallets); omit it and every
-	// country is document capture only. For `SIGNATURE`, see [Electronic Signature
-	// settings](/management-api/workflows/feature-configs#electronic-signature):
-	// `signature_level` accepts `aes` only for now, and workflow documents and
-	// their fields are managed in the console, so through the API send documents
-	// and fields per session with `signature_documents_source: "session"`.
+	// For `SIGNATURE`, a workflow that goes live needs a document to sign: set
+	// `signature_documents_source` to `session` or `both` so each session can bring
+	// its own, or send `status: "draft"` and add the documents before you publish.
+	// `signature_level: "aes"` is refused with `aes_not_available` while
+	// `signature_availability.aes` is `false` on the workflow. For `OCR`, `methods`
+	// selects which ID Verification methods each country may use (document capture,
+	// non-doc lookup against a government or other authoritative source, and
+	// digital identity wallets); omit it and every country is document capture
+	// only. For `SIGNATURE`, see [E-signature
+	// settings](/management-api/workflows/feature-configs#e-signature):
+	// `signature_level` accepts `simple` (the default, no ID verification, email or
+	// phone needed) and `aes` for now, and workflow documents and their fields are
+	// managed in the console, so through the API send documents and fields per
+	// session with `signature_documents_source: "session"`.
 	Config Opt[map[string]any] `json:"config"`
 
 	// Optional internal label for this workflow node.
@@ -308,6 +314,10 @@ type WorkflowDetail struct {
 	CreatedAt       time.Time        `json:"created_at"`
 	UpdatedAt       time.Time        `json:"updated_at"`
 
+	// Which E-signature levels can sign right now. Check it before you set
+	// `signature_level`. Returned on `kyc`, `kyb` and graph workflows.
+	SignatureAvailability WorkflowDetailSignatureAvailability `json:"signature_availability"`
+
 	// Whether a simple KYC or KYB workflow runs Bank verification. It runs after
 	// the contact steps (and Location verification) and before database validation,
 	// AML and IP analysis. Bank verification is not generally available yet:
@@ -374,6 +384,31 @@ const (
 	WorkflowDetailStatusDraft     WorkflowDetailStatus = "draft"
 	WorkflowDetailStatusPublished WorkflowDetailStatus = "published"
 )
+
+// WorkflowDetailSignatureAvailability: Which E-signature levels can sign right
+// now. Check it before you set `signature_level`. Returned on `kyc`, `kyb` and
+// graph workflows.
+type WorkflowDetailSignatureAvailability struct {
+	// Simple is always available.
+	Simple bool `json:"simple"`
+
+	// Whether Advanced (AES) can sign now. While it is `false`, saving a new step
+	// at `signature_level: "aes"` is refused with `aes_not_available`.
+	Aes bool `json:"aes"`
+
+	// Whether Qualified (QES) can sign now. It is `false` until a qualified
+	// provider is connected.
+	Qes bool `json:"qes"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WorkflowDetailSignatureAvailability leniently.
+func (r *WorkflowDetailSignatureAvailability) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // WorkflowsListParams holds the parameters of Client.Workflows.List.
 type WorkflowsListParams struct {

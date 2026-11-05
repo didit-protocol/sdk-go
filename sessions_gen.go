@@ -247,6 +247,24 @@ func (r *SessionsService) Create(ctx context.Context, params SessionsCreateParam
 	return res, nil
 }
 
+// CreateKYBPartyDraft: Create a KYB party draft.
+//
+// Add a party (a person or a company) to the list you are preparing for this
+// KYB session. The same fields and rules as the hosted Key People screen apply:
+// a person needs `full_name` or `first_name` and `last_name`, at least one role
+// and a nationality; a company needs `company_name` and the country of
+// incorporation in `nationality`. Nothing is declared or billed until `POST
+// /v3/session/{sessionId}/kyb/parties/submit/`. Requires `write:businesses`.
+//
+//	POST /v3/session/{sessionId}/kyb/parties/drafts/
+func (r *SessionsService) CreateKYBPartyDraft(ctx context.Context, sessionID string, params SessionsCreateKYBPartyDraftParams, opts ...option.RequestOption) (*SessionsCreateKYBPartyDraftResponse, error) {
+	res := new(SessionsCreateKYBPartyDraftResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/kyb/parties/drafts/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // Delete: Delete a verification session (KYC or KYB).
 //
 // Delete a single verification session, User Verification (KYC) or Business
@@ -265,10 +283,10 @@ func (r *SessionsService) Create(ctx context.Context, params SessionsCreateParam
 //     portrait crops, NFC chip portrait and signature images, face reference
 //     images, liveness videos, face-match source/target images, Proof of
 //     Address documents, and any extra uploaded files (KYC); uploaded company
-//     documents and extra files (KYB). Electronic Signature documents, signed
-//     PDFs, evidence PDFs and signature images (KYC and KYB): their download
-//     paths stop working. Previously issued media URLs
-//     (`https://<media-host>/...`) stop resolving.
+//     documents and extra files (KYB). E-signature documents, signed PDFs,
+//     evidence PDFs and signature images (KYC and KYB): their download paths
+//     stop working. Previously issued media URLs (`https://<media-host>/...`)
+//     stop resolving.
 //   - The session's face data. Its face embedding is deleted too, unless you
 //     choose to keep an image-free template (see **Face biometric data**).
 //   - Webhook deliveries still queued for the session, and their retries.
@@ -351,6 +369,17 @@ func (r *SessionsService) Delete(ctx context.Context, sessionID string, params S
 	return res, nil
 }
 
+// DeleteKYBPartyDraft: Delete a KYB party draft.
+//
+// Drop one party draft. Declared parties are not affected. Requires
+// `write:businesses`.
+//
+//	DELETE /v3/session/{sessionId}/kyb/parties/drafts/{draftId}/
+func (r *SessionsService) DeleteKYBPartyDraft(ctx context.Context, sessionID string, draftID string, params SessionsDeleteKYBPartyDraftParams, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/session/{sessionId}/kyb/parties/drafts/{draftId}/", pathParams: []string{"sessionId", sessionID, "draftId", draftID}, params: params}, nil, opts)
+	return err
+}
+
 // ExportAMLScreeningHistory: Export AML screening history as CSV.
 //
 // Download the same ongoing-monitoring history as `GET
@@ -360,9 +389,9 @@ func (r *SessionsService) Delete(ctx context.Context, sessionID string, params S
 // means unknown, dataset dates are never estimated, and a value that would
 // start a spreadsheet formula is prefixed with an apostrophe. Works for KYC and
 // KYB session IDs; pass `node_id` when the session ran more than one AML step.
-// Errors are returned as JSON, not CSV. A scoped API key needs `decisions:
-// read` and `media: read`: the response is a file, so a key without `media:
-// read` gets `403`.
+// Pass `month` to export one calendar month. Errors are returned as JSON, not
+// CSV. A scoped API key needs `decisions: read` and `media: read`: the response
+// is a file, so a key without `media: read` gets `403`.
 //
 // The response is a file (text/csv). Read it from the returned response's body
 // and close it.
@@ -370,6 +399,31 @@ func (r *SessionsService) Delete(ctx context.Context, sessionID string, params S
 //	GET /v3/session/{sessionId}/aml-screening-history/export/
 func (r *SessionsService) ExportAMLScreeningHistory(ctx context.Context, sessionID string, params SessionsExportAMLScreeningHistoryParams, opts ...option.RequestOption) (*http.Response, error) {
 	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/aml-screening-history/export/", pathParams: []string{"sessionId", sessionID}, params: params, binary: true, accept: "text/csv"}, nil, opts)
+}
+
+// ExportFiles: Export every file of a session.
+//
+// Start preparing one ZIP with every image, video and document of a User
+// Verification (KYC) or Business Verification (KYB) session, in original
+// quality: the files are stored in the ZIP as they were captured, never
+// recompressed. Answers `202` with the export; read it with `GET
+// /v3/session/{sessionId}/files-export/{exportId}/` until `status` is `READY`,
+// then download `download_url`. While an export of the same session is still
+// being prepared, that export is returned instead of a new one.
+//
+// The ZIP is deleted 24 hours after it is ready, and at once when the session
+// is deleted. A deleted session cannot be exported. Every export and every
+// download link handed out is written to the session's audit log. A scoped API
+// key needs `media: read` and `decisions: read`; a console user needs the
+// privilege to read sessions.
+//
+//	POST /v3/session/{sessionId}/files-export/
+func (r *SessionsService) ExportFiles(ctx context.Context, sessionID string, opts ...option.RequestOption) (*SessionFilesExport, error) {
+	res := new(SessionFilesExport)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/files-export/", pathParams: []string{"sessionId", sessionID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // GeneratePDF: Download a PDF report for a verification session.
@@ -434,6 +488,24 @@ func (r *SessionsService) ExportAMLScreeningHistory(ctx context.Context, session
 //	GET /v3/session/{sessionId}/generate-pdf/
 func (r *SessionsService) GeneratePDF(ctx context.Context, sessionID string, opts ...option.RequestOption) (*http.Response, error) {
 	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/generate-pdf/", pathParams: []string{"sessionId", sessionID}, binary: true, accept: "application/pdf"}, nil, opts)
+}
+
+// GetFilesExport: Get a session files export.
+//
+// Progress of an export started with `POST
+// /v3/session/{sessionId}/files-export/`. Once `status` is `READY`,
+// `download_url` is a signed URL of the ZIP that stays valid for a short time;
+// read the export again for a new one until `expires_at`. Each read that hands
+// out a download link is written to the session's audit log. An export of a
+// deleted session returns `404`.
+//
+//	GET /v3/session/{sessionId}/files-export/{exportId}/
+func (r *SessionsService) GetFilesExport(ctx context.Context, sessionID string, exportID string, opts ...option.RequestOption) (*SessionFilesExport, error) {
+	res := new(SessionFilesExport)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/files-export/{exportId}/", pathParams: []string{"sessionId", sessionID, "exportId", exportID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // ImportShared: Redeem a share token to clone a verification session into your
@@ -540,8 +612,9 @@ func (r *SessionsService) ListAutoPaging(ctx context.Context, params SessionsLis
 // screening is part of the session decision) and runs from before this history
 // existed are not reconstructed, so a session without ongoing monitoring
 // returns an empty list. `count` is exact up to 100 and capped at 100 above
-// that, so follow `next` until it is `null`. A scoped API key needs `decisions:
-// read`; see [Continuous AML
+// that, so follow `next` until it is `null`. Pass `month` to read one calendar
+// month at a time. A scoped API key needs `decisions: read`; see [Continuous
+// AML
 // monitoring](https://docs.didit.me/core-technology/aml-screening/continuous-monitoring-aml-screening).
 //
 // It returns one page; ListAMLScreeningHistoryAutoPaging iterates over every
@@ -610,6 +683,43 @@ func (r *SessionsService) ListEventsAutoPaging(ctx context.Context, sessionID st
 func (r *SessionsService) ListFeatureOverrides(ctx context.Context, sessionID string, opts ...option.RequestOption) (*SessionsListFeatureOverridesResponse, error) {
 	res := new(SessionsListFeatureOverridesResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/features/overrides/", pathParams: []string{"sessionId", sessionID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ListKYBExtractedParties: List the parties named by the uploaded documents.
+//
+// Return the shareholders and directors that the documents uploaded to this KYB
+// session name, merged per person and attributed to the documents that named
+// them. Show them to your applicant to confirm, then declare them with the
+// party draft endpoints. A range stays a range: `ownership_percent.text` keeps
+// the verbatim figure and `min` / `max` the numbers read from it. Nobody is
+// labelled a UBO here; that is decided when the parties are submitted, from the
+// role settings and ownership thresholds of the workflow. The same list is in
+// the session decision as `document_verifications[].extracted_parties`.
+// Requires `read:businesses` or `read:sessions`.
+//
+//	GET /v3/session/{sessionId}/kyb/extracted-parties/
+func (r *SessionsService) ListKYBExtractedParties(ctx context.Context, sessionID string, params SessionsListKYBExtractedPartiesParams, opts ...option.RequestOption) (*SessionsListKYBExtractedPartiesResponse, error) {
+	res := new(SessionsListKYBExtractedPartiesResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/kyb/extracted-parties/", pathParams: []string{"sessionId", sessionID}, params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ListKYBPartyDrafts: List the KYB party drafts.
+//
+// List the parties you are preparing for this KYB session, oldest first. A
+// draft is not a declared party: it does not appear in the decision or the
+// console and creates no verification session until you submit it with `POST
+// /v3/session/{sessionId}/kyb/parties/submit/`. Requires `write:businesses`.
+//
+//	GET /v3/session/{sessionId}/kyb/parties/drafts/
+func (r *SessionsService) ListKYBPartyDrafts(ctx context.Context, sessionID string, params SessionsListKYBPartyDraftsParams, opts ...option.RequestOption) (*SessionsListKYBPartyDraftsResponse, error) {
+	res := new(SessionsListKYBPartyDraftsResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/kyb/parties/drafts/", pathParams: []string{"sessionId", sessionID}, params: params}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -767,9 +877,9 @@ func (r *SessionsService) RegenerateKYBParty(ctx context.Context, sessionID stri
 // identifying the workflow graph node that produced them. Read NFC as
 // `response.nfc_verifications[0]` - never as a singular `nfc` field. A block is
 // `null` until the workflow has run that feature at least once; features the
-// workflow does not include never appear with data. Electronic Signature
-// results are in `signatures`, which is present only when the workflow has an
-// Electronic Signature step.
+// workflow does not include never appear with data. E-signature results are in
+// `signatures`, which is present only when the workflow has an E-signature
+// step.
 //
 // **When to call.** The recommended pattern is event-driven: wait for the
 // `status.updated` webhook that fires when the session reaches a decision
@@ -882,12 +992,36 @@ func (r *SessionsService) Simulate(ctx context.Context, sessionID string, params
 	return res, nil
 }
 
+// SubmitKYBParties: Submit the KYB party drafts.
+//
+// Declare the stored drafts as the company's key people. This is the hosted Key
+// People step under your API key: Didit decides from the role settings and
+// ownership thresholds of the workflow which parties must be verified, creates
+// one individual KYC session (or a KYB sub-session for a corporate owner) for
+// each of them, sends the emails the workflow asks for, and advances the
+// session. Each child session is billed like in the hosted flow. The drafts are
+// consumed. Repeating the call after a successful submit changes nothing and
+// answers `200` with `already_submitted: true` and the parties that already
+// exist. The session must be on the Key People step. Send each person's
+// `kyc_session_url` to them, or embed it. Requires `write:businesses`.
+//
+//	POST /v3/session/{sessionId}/kyb/parties/submit/
+func (r *SessionsService) SubmitKYBParties(ctx context.Context, sessionID string, params SessionsSubmitKYBPartiesParams, opts ...option.RequestOption) (*SessionsSubmitKYBPartiesResponse, error) {
+	res := new(SessionsSubmitKYBPartiesResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/kyb/parties/submit/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // UpdateAMLHitStatus: Update an AML hit review status.
 //
 // Set the review status of a **single AML hit** (a potential sanction / PEP /
 // watchlist / adverse-media match) returned by AML screening, without changing
 // the overall session decision. Identify the hit by its `hit_id` (the `id` of
-// an entry in the AML check's `hits` array - see the session decision).
+// an entry in the AML check's `hits` array - see the session decision). A hit
+// id returned in the earlier format is still accepted; the response always
+// names the hit by its current `id`.
 //
 // `review_status` is one of `Unreviewed`, `Confirmed Match`, `False Positive`,
 // or `Inconclusive`. Reviewer decisions are preserved across ongoing-monitoring
@@ -1163,6 +1297,22 @@ func (r *SessionsService) UpdateKYBParty(ctx context.Context, sessionID string, 
 	return res, nil
 }
 
+// UpdateKYBPartyDraft: Edit a KYB party draft.
+//
+// Change fields of one party draft. The edit is merged into the stored draft
+// and the merged party is validated as a whole, so an edit that would leave the
+// party incomplete is rejected. Changing `first_name` or `last_name` replaces
+// the stored full name. Requires `write:businesses`.
+//
+//	PATCH /v3/session/{sessionId}/kyb/parties/drafts/{draftId}/
+func (r *SessionsService) UpdateKYBPartyDraft(ctx context.Context, sessionID string, draftID string, params SessionsUpdateKYBPartyDraftParams, opts ...option.RequestOption) (*SessionsUpdateKYBPartyDraftResponse, error) {
+	res := new(SessionsUpdateKYBPartyDraftResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/session/{sessionId}/kyb/parties/drafts/{draftId}/", pathParams: []string{"sessionId", sessionID, "draftId", draftID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // UpdatePOAData: Update Proof of Address data extracted from the POA document
 // on a verification session.
 //
@@ -1293,6 +1443,28 @@ func (r *SessionsService) UpdateStatus(ctx context.Context, sessionID string, pa
 	return res, nil
 }
 
+// UploadKYBDocuments: Upload KYB documents to a session.
+//
+// Upload one or more corporate documents (articles of incorporation,
+// shareholder register, certificate of incorporation, ...) to the KYB Documents
+// step of a Business Verification session, from your own server instead of the
+// hosted page. Didit runs the hosted pipeline: compression, OCR, tampering and
+// cross-document checks, document grouping, and advances the session when the
+// required document groups are satisfied. The step costs one flat fee however
+// many files you send. The session must be open and on the KYB Documents step,
+// and the company chosen at the registry step must exist. Read the people the
+// documents name with `GET /v3/session/{sessionId}/kyb/extracted-parties/`.
+// Requires `write:businesses`.
+//
+//	POST /v3/session/{sessionId}/kyb/documents/
+func (r *SessionsService) UploadKYBDocuments(ctx context.Context, sessionID string, params SessionsUploadKYBDocumentsParams, opts ...option.RequestOption) (*SessionsUploadKYBDocumentsResponse, error) {
+	res := new(SessionsUploadKYBDocumentsResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/{sessionId}/kyb/documents/", pathParams: []string{"sessionId", sessionID}, params: params, body: bodyMultipart}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // SessionsImportsService holds the sessions imports operations. Use it through
 // Client.Sessions.Imports.
 type SessionsImportsService struct {
@@ -1336,8 +1508,12 @@ func (r *SessionsImportsService) CheckProvider(ctx context.Context, params Sessi
 // reads Veriff, iDenfy and MetaMap records by the IDs you upload in `file`, and
 // imports an export file in Didit's format for the other providers. Record IDs
 // are namespaced by provider (`sumsub:<id>`) so a re-run skips everything
-// already in Didit. Imports are disabled by default and must be enabled per
-// organization by Didit.
+// already in Didit, and a record imported through a file with the provider's
+// bare ID is recognised too, in both directions, so moving between a file
+// import and a provider migration never imports a record twice. An application
+// can run up to 4 import jobs at once; a job interrupted by a deploy or a
+// worker restart continues from its last imported row by itself. Imports are
+// disabled by default and must be enabled per organization by Didit.
 //
 //	POST /v3/session/imports/
 func (r *SessionsImportsService) Create(ctx context.Context, params SessionsImportsCreateParams, opts ...option.RequestOption) (*SessionImportJob, error) {
@@ -1572,15 +1748,16 @@ type SessionsSignaturesService struct {
 
 // DownloadDocument: Download a signed document.
 //
-// Download the signed PDF of one document of an Electronic Signature step. Use
-// the `signed_file` path of `signatures[].documents[]` in the decision. The PDF
-// holds the document the signer was shown with their field values stamped, the
-// evidence page (unless `signature_evidence_page` is off) and the PAdES
-// signature with its timestamp. Didit checks the file against `sha256_signed`
-// before returning it.
+// Download the signed PDF of one document of an E-signature step. Use the
+// `signed_file` path of `signatures[].documents[]` in the decision. The PDF
+// holds the document the signer was shown with their field values stamped and
+// the evidence page (unless `signature_evidence_page` is off). An Advanced
+// (AES) PDF also carries the PAdES signature with its timestamp; a Simple PDF
+// has no digital signature, seal or timestamp. Didit checks the file against
+// `sha256_signed` before returning it.
 //
 // Works for User Verification (KYC) and Business Verification (KYB) sessions.
-// Needs `read:sessions`; your API key works. See the [Electronic Signature
+// Needs `read:sessions`; your API key works. See the [E-signature
 // report](/core-technology/electronic-signature/report-electronic-signature#download-the-signed-documents).
 //
 // The response is a file (application/pdf). Read it from the returned
@@ -1593,11 +1770,12 @@ func (r *SessionsSignaturesService) DownloadDocument(ctx context.Context, sessio
 
 // DownloadEvidence: Download the signature evidence.
 //
-// Download a signer's evidence PDF: the level and format, the signer and their
-// verified identity session, the code confirmation, the IP address, each
-// document with its original SHA-256 and field values, the certificate, the
-// timestamp and the SHA-256 of every signed file. Use the `evidence_file` path
-// of the signer's item in `signatures[]`.
+// Download a signer's evidence PDF: the level and format, the signer, the IP
+// address, each document with its original SHA-256 and field values and the
+// SHA-256 of every signed file, plus, for an Advanced (AES) signature, the
+// verified identity session, the code confirmation, the certificate and the
+// timestamp. Use the `evidence_file` path of the signer's item in
+// `signatures[]`.
 //
 // Always pass `signature_id` when a Business Verification step has several
 // signers: without it, the route picks one of the step's signers. Needs
@@ -1627,12 +1805,14 @@ func (r *SessionsSignaturesService) DownloadFieldImage(ctx context.Context, sess
 
 // Validate: Validate signatures again.
 //
-// Re-check the signed documents of an Electronic Signature step. Didit re-reads
-// every signed PDF, checks its SHA-256 and validates the PAdES signature, the
-// certificate, the revocation data and the timestamp, then saves the result in
-// each signer's `validation` and returns the updated items. Nothing is signed
-// again. Send `signature_id` to check one signer; without it, every signer of
-// the step is checked, and the call fails if any of them hasn't signed.
+// Re-check the signed documents of an E-signature step. Didit re-reads every
+// signed PDF, checks its SHA-256 and, for an Advanced (AES) signature,
+// validates the PAdES signature, the certificate, the revocation data and the
+// timestamp (a Simple signature has no digital signature, so only the file
+// integrity is checked), then saves the result in each signer's `validation`
+// and returns the updated items. Nothing is signed again. Send `signature_id`
+// to check one signer; without it, every signer of the step is checked, and the
+// call fails if any of them hasn't signed.
 //
 // Needs `write:sessions`; your API key works. In the console it's the
 // **Validate again** button.
@@ -2161,7 +2341,8 @@ func (r SessionsBulkUpdateAMLHitStatusParams) MarshalJSON() ([]byte, error) {
 
 // SessionsBulkUpdateAMLHitStatusParamsHitUpdates is a request object.
 type SessionsBulkUpdateAMLHitStatusParamsHitUpdates struct {
-	// Required.
+	// The `id` of the hit in the AML check's `hits` array (`hit_...`). A hit id
+	// returned in the earlier format is still accepted. Required.
 	HitID string `json:"hit_id"`
 
 	// Required.
@@ -2192,8 +2373,9 @@ type SessionsBulkUpdateAMLHitStatusResponse struct {
 	// `hit_updates`.
 	Message string `json:"message"`
 
-	// The `hit_id` of every entry in `hit_updates`, in request order, including
-	// hits whose status did not change.
+	// The `id` of the hit each entry in `hit_updates` names, as the session
+	// decision returns it, in request order, including hits whose status did not
+	// change.
 	UpdatedHits []string `json:"updated_hits"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -2392,6 +2574,14 @@ type SessionsCreateParams struct {
 	// always providing a vendor_data to reduce noise in duplicate detection.
 	VendorData Opt[string] `json:"vendor_data"`
 
+	// Optional duplicate-detection realm inside your organization. Duplicate face
+	// checks compare this session only with other sessions that carry the same
+	// segment, so separate account bases (personal and business accounts, or one
+	// per B2B sub-client) do not flag a person who legitimately holds one account
+	// in each. Omit it to use the single default realm, which is what every session
+	// uses today. Blocklist and allowlist matching ignore this field.
+	MultiAccountSegment Opt[string] `json:"multi_account_segment"`
+
 	// URL to redirect the user to after verification completes. Didit automatically
 	// appends `verificationSessionId` and `status` (Approved, Declined, In Review)
 	// as query parameters. Custom URL schemes (e.g. `myapp://`) are supported for
@@ -2474,16 +2664,16 @@ type SessionsCreateParams struct {
 	// not charged.
 	SandboxScenario Opt[string] `json:"sandbox_scenario"`
 
-	// Electronic Signature input for this session. `documents` are the documents to
-	// sign, for a workflow whose Electronic Signature step takes documents from the
-	// session (`signature_documents_source` `session` or `both`): up to 20
-	// documents and 50 MB in total. `field_values` fills the fields whose `prefill`
-	// is `api.<key>`, on workflow and session documents alike. Creating a session
-	// again for the same `workflow_id` and `vendor_data` returns the pending
-	// session; if that call sends `sign`, its documents, fields and values must be
-	// identical to the first ones, and anything different returns `400` with
-	// `{"sign": "signature_document_changed"}`. See [Electronic signature
-	// documents](/sessions-api/create-session#electronic-signature-documents).
+	// E-signature input for this session. `documents` are the documents to sign,
+	// for a workflow whose E-signature step takes documents from the session
+	// (`signature_documents_source` `session` or `both`): up to 20 documents and 50
+	// MB in total. `field_values` fills the fields whose `prefill` is `api.<key>`,
+	// on workflow and session documents alike. Creating a session again for the
+	// same `workflow_id` and `vendor_data` returns the pending session; if that
+	// call sends `sign`, its documents, fields and values must be identical to the
+	// first ones, and anything different returns `400` with `{"sign":
+	// "signature_document_changed"}`. See [E-signature
+	// documents](/sessions-api/create-session#e-signature-documents).
 	Sign Opt[SessionsCreateParamsSign] `json:"sign"`
 
 	// Where the person lives, when you know it: an ISO 3166-2 subdivision code
@@ -2836,17 +3026,16 @@ const (
 	SessionsCreateParamsExpectedDetailsExpectedDocumentTypesSsc SessionsCreateParamsExpectedDetailsExpectedDocumentTypes = "SSC"
 )
 
-// SessionsCreateParamsSign: Electronic Signature input for this session.
-// `documents` are the documents to sign, for a workflow whose Electronic
-// Signature step takes documents from the session (`signature_documents_source`
-// `session` or `both`): up to 20 documents and 50 MB in total. `field_values`
-// fills the fields whose `prefill` is `api.<key>`, on workflow and session
-// documents alike. Creating a session again for the same `workflow_id` and
-// `vendor_data` returns the pending session; if that call sends `sign`, its
-// documents, fields and values must be identical to the first ones, and
-// anything different returns `400` with `{"sign":
-// "signature_document_changed"}`. See [Electronic signature
-// documents](/sessions-api/create-session#electronic-signature-documents).
+// SessionsCreateParamsSign: E-signature input for this session. `documents` are
+// the documents to sign, for a workflow whose E-signature step takes documents
+// from the session (`signature_documents_source` `session` or `both`): up to 20
+// documents and 50 MB in total. `field_values` fills the fields whose `prefill`
+// is `api.<key>`, on workflow and session documents alike. Creating a session
+// again for the same `workflow_id` and `vendor_data` returns the pending
+// session; if that call sends `sign`, its documents, fields and values must be
+// identical to the first ones, and anything different returns `400` with
+// `{"sign": "signature_document_changed"}`. See [E-signature
+// documents](/sessions-api/create-session#e-signature-documents).
 type SessionsCreateParamsSign struct {
 	Documents Opt[[]SessionSignDocument] `json:"documents"`
 
@@ -3231,6 +3420,273 @@ const (
 	SessionsCreateResponseStatusAwaitingUser SessionsCreateResponseStatus = "Awaiting User"
 )
 
+// SessionsCreateKYBPartyDraftParams holds the parameters of
+// Client.Sessions.CreateKYBPartyDraft.
+type SessionsCreateKYBPartyDraftParams struct {
+	// Whether the party is an individual or a company. Required.
+	EntityType SessionsCreateKYBPartyDraftParamsEntityType `json:"entity_type"`
+
+	// Full name of a person. Send it, or `first_name` and `last_name`.
+	FullName  Opt[string] `json:"full_name"`
+	FirstName Opt[string] `json:"first_name"`
+	LastName  Opt[string] `json:"last_name"`
+
+	// Role the party holds. Interchangeable with `roles`; when both are sent they
+	// are merged.
+	Role Opt[SessionsCreateKYBPartyDraftParamsRole] `json:"role"`
+
+	// Every role the party holds. A person needs at least one role (here or in
+	// `role`).
+	Roles Opt[[]SessionsCreateKYBPartyDraftParamsRoles] `json:"roles"`
+
+	// Job title of a person.
+	Position    Opt[string] `json:"position"`
+	DateOfBirth Opt[string] `json:"date_of_birth"`
+
+	// Name of a company party. Required when `entity_type` is `company`.
+	CompanyName Opt[string] `json:"company_name"`
+
+	// Registration number of a company party.
+	RegistrationNumber Opt[string] `json:"registration_number"`
+
+	// Where the verification link is sent. Required when the party has to complete
+	// verification, which depends on the role settings and ownership thresholds of
+	// the workflow.
+	Email Opt[string] `json:"email"`
+
+	// Share of the company the party owns.
+	OwnershipPercent Opt[float64] `json:"ownership_percent"`
+
+	// Nationality of a person, or country of incorporation of a company. Required
+	// for every party. Required.
+	Nationality string      `json:"nationality"`
+	PhoneNumber Opt[string] `json:"phone_number"`
+
+	// Workflow-defined extra fields.
+	CustomFields Opt[map[string]any] `json:"custom_fields"`
+
+	// Ask to skip this party's verification. Honoured only when the party's role
+	// allows skipping in the workflow's Key People settings.
+	SkipVerification Opt[bool] `json:"skip_verification"`
+
+	// Workflow node of the KYB step. Only needed when the workflow has more than
+	// one KYB node; by default Didit uses the session's own node.
+	NodeID Opt[string] `json:"-" query:"node_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsCreateKYBPartyDraftParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsCreateKYBPartyDraftParamsEntityType: Whether the party is an
+// individual or a company.
+//
+// SessionsCreateKYBPartyDraftParamsEntityType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsCreateKYBPartyDraftParamsEntityType string
+
+// Known values of SessionsCreateKYBPartyDraftParamsEntityType.
+const (
+	SessionsCreateKYBPartyDraftParamsEntityTypePerson  SessionsCreateKYBPartyDraftParamsEntityType = "person"
+	SessionsCreateKYBPartyDraftParamsEntityTypeCompany SessionsCreateKYBPartyDraftParamsEntityType = "company"
+)
+
+// SessionsCreateKYBPartyDraftParamsRole: Role the party holds. Interchangeable
+// with `roles`; when both are sent they are merged.
+//
+// SessionsCreateKYBPartyDraftParamsRole is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsCreateKYBPartyDraftParamsRole string
+
+// Known values of SessionsCreateKYBPartyDraftParamsRole.
+const (
+	SessionsCreateKYBPartyDraftParamsRoleDirector             SessionsCreateKYBPartyDraftParamsRole = "director"
+	SessionsCreateKYBPartyDraftParamsRoleNonExecutiveDirector SessionsCreateKYBPartyDraftParamsRole = "non_executive_director"
+	SessionsCreateKYBPartyDraftParamsRoleSecretary            SessionsCreateKYBPartyDraftParamsRole = "secretary"
+	SessionsCreateKYBPartyDraftParamsRoleChairman             SessionsCreateKYBPartyDraftParamsRole = "chairman"
+	SessionsCreateKYBPartyDraftParamsRoleUBO                  SessionsCreateKYBPartyDraftParamsRole = "ubo"
+	SessionsCreateKYBPartyDraftParamsRoleShareholder          SessionsCreateKYBPartyDraftParamsRole = "shareholder"
+	SessionsCreateKYBPartyDraftParamsRoleRepresentative       SessionsCreateKYBPartyDraftParamsRole = "representative"
+	SessionsCreateKYBPartyDraftParamsRoleFounder              SessionsCreateKYBPartyDraftParamsRole = "founder"
+	SessionsCreateKYBPartyDraftParamsRoleLegalAdvisor         SessionsCreateKYBPartyDraftParamsRole = "legal_advisor"
+	SessionsCreateKYBPartyDraftParamsRoleAuthorizedSignatory  SessionsCreateKYBPartyDraftParamsRole = "authorized_signatory"
+	SessionsCreateKYBPartyDraftParamsRoleTrustee              SessionsCreateKYBPartyDraftParamsRole = "trustee"
+	SessionsCreateKYBPartyDraftParamsRoleBeneficiary          SessionsCreateKYBPartyDraftParamsRole = "beneficiary"
+	SessionsCreateKYBPartyDraftParamsRoleSettlor              SessionsCreateKYBPartyDraftParamsRole = "settlor"
+	SessionsCreateKYBPartyDraftParamsRoleProtector            SessionsCreateKYBPartyDraftParamsRole = "protector"
+	SessionsCreateKYBPartyDraftParamsRoleCompanyOfficer       SessionsCreateKYBPartyDraftParamsRole = "company_officer"
+	SessionsCreateKYBPartyDraftParamsRoleInvestor             SessionsCreateKYBPartyDraftParamsRole = "investor"
+	SessionsCreateKYBPartyDraftParamsRoleOther                SessionsCreateKYBPartyDraftParamsRole = "other"
+)
+
+// SessionsCreateKYBPartyDraftParamsRoles is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsCreateKYBPartyDraftParamsRoles string
+
+// Known values of SessionsCreateKYBPartyDraftParamsRoles.
+const (
+	SessionsCreateKYBPartyDraftParamsRolesDirector             SessionsCreateKYBPartyDraftParamsRoles = "director"
+	SessionsCreateKYBPartyDraftParamsRolesNonExecutiveDirector SessionsCreateKYBPartyDraftParamsRoles = "non_executive_director"
+	SessionsCreateKYBPartyDraftParamsRolesSecretary            SessionsCreateKYBPartyDraftParamsRoles = "secretary"
+	SessionsCreateKYBPartyDraftParamsRolesChairman             SessionsCreateKYBPartyDraftParamsRoles = "chairman"
+	SessionsCreateKYBPartyDraftParamsRolesUBO                  SessionsCreateKYBPartyDraftParamsRoles = "ubo"
+	SessionsCreateKYBPartyDraftParamsRolesShareholder          SessionsCreateKYBPartyDraftParamsRoles = "shareholder"
+	SessionsCreateKYBPartyDraftParamsRolesRepresentative       SessionsCreateKYBPartyDraftParamsRoles = "representative"
+	SessionsCreateKYBPartyDraftParamsRolesFounder              SessionsCreateKYBPartyDraftParamsRoles = "founder"
+	SessionsCreateKYBPartyDraftParamsRolesLegalAdvisor         SessionsCreateKYBPartyDraftParamsRoles = "legal_advisor"
+	SessionsCreateKYBPartyDraftParamsRolesAuthorizedSignatory  SessionsCreateKYBPartyDraftParamsRoles = "authorized_signatory"
+	SessionsCreateKYBPartyDraftParamsRolesTrustee              SessionsCreateKYBPartyDraftParamsRoles = "trustee"
+	SessionsCreateKYBPartyDraftParamsRolesBeneficiary          SessionsCreateKYBPartyDraftParamsRoles = "beneficiary"
+	SessionsCreateKYBPartyDraftParamsRolesSettlor              SessionsCreateKYBPartyDraftParamsRoles = "settlor"
+	SessionsCreateKYBPartyDraftParamsRolesProtector            SessionsCreateKYBPartyDraftParamsRoles = "protector"
+	SessionsCreateKYBPartyDraftParamsRolesCompanyOfficer       SessionsCreateKYBPartyDraftParamsRoles = "company_officer"
+	SessionsCreateKYBPartyDraftParamsRolesInvestor             SessionsCreateKYBPartyDraftParamsRoles = "investor"
+	SessionsCreateKYBPartyDraftParamsRolesOther                SessionsCreateKYBPartyDraftParamsRoles = "other"
+)
+
+// SessionsCreateKYBPartyDraftResponse is a response object.
+type SessionsCreateKYBPartyDraftResponse struct {
+	DraftID   string                                   `json:"draft_id"`
+	CreatedAt time.Time                                `json:"created_at"`
+	UpdatedAt time.Time                                `json:"updated_at"`
+	Party     SessionsCreateKYBPartyDraftResponseParty `json:"party"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsCreateKYBPartyDraftResponse leniently.
+func (r *SessionsCreateKYBPartyDraftResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsCreateKYBPartyDraftResponseParty is a response object.
+type SessionsCreateKYBPartyDraftResponseParty struct {
+	// Whether the party is an individual or a company.
+	EntityType SessionsCreateKYBPartyDraftResponsePartyEntityType `json:"entity_type"`
+
+	// Full name of a person. Send it, or `first_name` and `last_name`.
+	FullName  string `json:"full_name"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+
+	// Role the party holds. Interchangeable with `roles`; when both are sent they
+	// are merged.
+	Role SessionsCreateKYBPartyDraftResponsePartyRole `json:"role"`
+
+	// Every role the party holds. A person needs at least one role (here or in
+	// `role`).
+	Roles []SessionsCreateKYBPartyDraftResponsePartyRoles `json:"roles"`
+
+	// Job title of a person.
+	Position    string `json:"position"`
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Name of a company party. Required when `entity_type` is `company`.
+	CompanyName string `json:"company_name"`
+
+	// Registration number of a company party.
+	RegistrationNumber string `json:"registration_number"`
+
+	// Where the verification link is sent. Required when the party has to complete
+	// verification, which depends on the role settings and ownership thresholds of
+	// the workflow.
+	Email string `json:"email"`
+
+	// Share of the company the party owns.
+	OwnershipPercent float64 `json:"ownership_percent"`
+
+	// Nationality of a person, or country of incorporation of a company. Required
+	// for every party.
+	Nationality string `json:"nationality"`
+	PhoneNumber string `json:"phone_number"`
+
+	// Workflow-defined extra fields.
+	CustomFields map[string]any `json:"custom_fields"`
+
+	// Ask to skip this party's verification. Honoured only when the party's role
+	// allows skipping in the workflow's Key People settings.
+	SkipVerification bool `json:"skip_verification"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsCreateKYBPartyDraftResponseParty leniently.
+func (r *SessionsCreateKYBPartyDraftResponseParty) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsCreateKYBPartyDraftResponsePartyEntityType: Whether the party is an
+// individual or a company.
+//
+// SessionsCreateKYBPartyDraftResponsePartyEntityType is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionsCreateKYBPartyDraftResponsePartyEntityType string
+
+// Known values of SessionsCreateKYBPartyDraftResponsePartyEntityType.
+const (
+	SessionsCreateKYBPartyDraftResponsePartyEntityTypePerson  SessionsCreateKYBPartyDraftResponsePartyEntityType = "person"
+	SessionsCreateKYBPartyDraftResponsePartyEntityTypeCompany SessionsCreateKYBPartyDraftResponsePartyEntityType = "company"
+)
+
+// SessionsCreateKYBPartyDraftResponsePartyRole: Role the party holds.
+// Interchangeable with `roles`; when both are sent they are merged.
+//
+// SessionsCreateKYBPartyDraftResponsePartyRole is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsCreateKYBPartyDraftResponsePartyRole string
+
+// Known values of SessionsCreateKYBPartyDraftResponsePartyRole.
+const (
+	SessionsCreateKYBPartyDraftResponsePartyRoleDirector             SessionsCreateKYBPartyDraftResponsePartyRole = "director"
+	SessionsCreateKYBPartyDraftResponsePartyRoleNonExecutiveDirector SessionsCreateKYBPartyDraftResponsePartyRole = "non_executive_director"
+	SessionsCreateKYBPartyDraftResponsePartyRoleSecretary            SessionsCreateKYBPartyDraftResponsePartyRole = "secretary"
+	SessionsCreateKYBPartyDraftResponsePartyRoleChairman             SessionsCreateKYBPartyDraftResponsePartyRole = "chairman"
+	SessionsCreateKYBPartyDraftResponsePartyRoleUBO                  SessionsCreateKYBPartyDraftResponsePartyRole = "ubo"
+	SessionsCreateKYBPartyDraftResponsePartyRoleShareholder          SessionsCreateKYBPartyDraftResponsePartyRole = "shareholder"
+	SessionsCreateKYBPartyDraftResponsePartyRoleRepresentative       SessionsCreateKYBPartyDraftResponsePartyRole = "representative"
+	SessionsCreateKYBPartyDraftResponsePartyRoleFounder              SessionsCreateKYBPartyDraftResponsePartyRole = "founder"
+	SessionsCreateKYBPartyDraftResponsePartyRoleLegalAdvisor         SessionsCreateKYBPartyDraftResponsePartyRole = "legal_advisor"
+	SessionsCreateKYBPartyDraftResponsePartyRoleAuthorizedSignatory  SessionsCreateKYBPartyDraftResponsePartyRole = "authorized_signatory"
+	SessionsCreateKYBPartyDraftResponsePartyRoleTrustee              SessionsCreateKYBPartyDraftResponsePartyRole = "trustee"
+	SessionsCreateKYBPartyDraftResponsePartyRoleBeneficiary          SessionsCreateKYBPartyDraftResponsePartyRole = "beneficiary"
+	SessionsCreateKYBPartyDraftResponsePartyRoleSettlor              SessionsCreateKYBPartyDraftResponsePartyRole = "settlor"
+	SessionsCreateKYBPartyDraftResponsePartyRoleProtector            SessionsCreateKYBPartyDraftResponsePartyRole = "protector"
+	SessionsCreateKYBPartyDraftResponsePartyRoleCompanyOfficer       SessionsCreateKYBPartyDraftResponsePartyRole = "company_officer"
+	SessionsCreateKYBPartyDraftResponsePartyRoleInvestor             SessionsCreateKYBPartyDraftResponsePartyRole = "investor"
+	SessionsCreateKYBPartyDraftResponsePartyRoleOther                SessionsCreateKYBPartyDraftResponsePartyRole = "other"
+)
+
+// SessionsCreateKYBPartyDraftResponsePartyRoles is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsCreateKYBPartyDraftResponsePartyRoles string
+
+// Known values of SessionsCreateKYBPartyDraftResponsePartyRoles.
+const (
+	SessionsCreateKYBPartyDraftResponsePartyRolesDirector             SessionsCreateKYBPartyDraftResponsePartyRoles = "director"
+	SessionsCreateKYBPartyDraftResponsePartyRolesNonExecutiveDirector SessionsCreateKYBPartyDraftResponsePartyRoles = "non_executive_director"
+	SessionsCreateKYBPartyDraftResponsePartyRolesSecretary            SessionsCreateKYBPartyDraftResponsePartyRoles = "secretary"
+	SessionsCreateKYBPartyDraftResponsePartyRolesChairman             SessionsCreateKYBPartyDraftResponsePartyRoles = "chairman"
+	SessionsCreateKYBPartyDraftResponsePartyRolesUBO                  SessionsCreateKYBPartyDraftResponsePartyRoles = "ubo"
+	SessionsCreateKYBPartyDraftResponsePartyRolesShareholder          SessionsCreateKYBPartyDraftResponsePartyRoles = "shareholder"
+	SessionsCreateKYBPartyDraftResponsePartyRolesRepresentative       SessionsCreateKYBPartyDraftResponsePartyRoles = "representative"
+	SessionsCreateKYBPartyDraftResponsePartyRolesFounder              SessionsCreateKYBPartyDraftResponsePartyRoles = "founder"
+	SessionsCreateKYBPartyDraftResponsePartyRolesLegalAdvisor         SessionsCreateKYBPartyDraftResponsePartyRoles = "legal_advisor"
+	SessionsCreateKYBPartyDraftResponsePartyRolesAuthorizedSignatory  SessionsCreateKYBPartyDraftResponsePartyRoles = "authorized_signatory"
+	SessionsCreateKYBPartyDraftResponsePartyRolesTrustee              SessionsCreateKYBPartyDraftResponsePartyRoles = "trustee"
+	SessionsCreateKYBPartyDraftResponsePartyRolesBeneficiary          SessionsCreateKYBPartyDraftResponsePartyRoles = "beneficiary"
+	SessionsCreateKYBPartyDraftResponsePartyRolesSettlor              SessionsCreateKYBPartyDraftResponsePartyRoles = "settlor"
+	SessionsCreateKYBPartyDraftResponsePartyRolesProtector            SessionsCreateKYBPartyDraftResponsePartyRoles = "protector"
+	SessionsCreateKYBPartyDraftResponsePartyRolesCompanyOfficer       SessionsCreateKYBPartyDraftResponsePartyRoles = "company_officer"
+	SessionsCreateKYBPartyDraftResponsePartyRolesInvestor             SessionsCreateKYBPartyDraftResponsePartyRoles = "investor"
+	SessionsCreateKYBPartyDraftResponsePartyRolesOther                SessionsCreateKYBPartyDraftResponsePartyRoles = "other"
+)
+
 // SessionsDeleteParams holds the parameters of Client.Sessions.Delete.
 type SessionsDeleteParams struct {
 	// Override the application's `face_retention_policy` for this deletion. `true`
@@ -3354,6 +3810,19 @@ const (
 	SessionsDeleteResponseFaceRetentionOutcomeIneligibleNoVendorUser SessionsDeleteResponseFaceRetentionOutcome = "ineligible_no_vendor_user"
 )
 
+// SessionsDeleteKYBPartyDraftParams holds the parameters of
+// Client.Sessions.DeleteKYBPartyDraft.
+type SessionsDeleteKYBPartyDraftParams struct {
+	// Workflow node of the KYB step. Only needed when the workflow has more than
+	// one KYB node; by default Didit uses the session's own node.
+	NodeID Opt[string] `json:"-" query:"node_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsDeleteKYBPartyDraftParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
 // SessionsExportAMLScreeningHistoryParams holds the parameters of
 // Client.Sessions.ExportAMLScreeningHistory.
 type SessionsExportAMLScreeningHistoryParams struct {
@@ -3361,12 +3830,82 @@ type SessionsExportAMLScreeningHistoryParams struct {
 	// more than one AML step; without it the most recent AML check is used. An
 	// unknown node returns `404`.
 	NodeID Opt[string] `json:"-" query:"node_id"`
+
+	// A UTC calendar month as `YYYY-MM`. Only screenings completed in that month
+	// are returned; without it every month is returned. A malformed month returns
+	// `400`.
+	Month Opt[string] `json:"-" query:"month"`
 }
 
 // MarshalJSON encodes the fields that are set.
 func (r SessionsExportAMLScreeningHistoryParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
+
+// SessionFilesExport: One ZIP with every file of a session, in original
+// quality.
+type SessionFilesExport struct {
+	// ID of the export. Pass it to `GET
+	// /v3/session/{sessionId}/files-export/{exportId}/`.
+	ExportID string `json:"export_id"`
+
+	// The session the files are from.
+	SessionID string `json:"session_id"`
+
+	// `PENDING` and `PROCESSING` while the ZIP is prepared, `READY` once it can be
+	// downloaded, `FAILED` when it could not be prepared (request a new export),
+	// `EXPIRED` once the ZIP was deleted.
+	Status SessionFilesExportStatus `json:"status"`
+
+	// Files in the ZIP. Set only while `status` is `READY`.
+	FileCount int64 `json:"file_count"`
+
+	// Size of the ZIP in bytes. Set only while `status` is `READY`.
+	SizeBytes int64 `json:"size_bytes"`
+
+	// Signed URL of the ZIP, valid for a short time. Set only while `status` is
+	// `READY`; read the export again for a new one.
+	DownloadURL string `json:"download_url"`
+
+	// When the ZIP is deleted, 24 hours after it was ready. Set only while `status`
+	// is `READY`.
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Why the export failed, when `status` is `FAILED`.
+	Error string `json:"error"`
+
+	// When the export was requested.
+	CreatedAt time.Time `json:"created_at"`
+
+	// When the ZIP was ready or the export failed.
+	CompletedAt time.Time `json:"completed_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionFilesExport leniently.
+func (r *SessionFilesExport) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionFilesExportStatus: `PENDING` and `PROCESSING` while the ZIP is
+// prepared, `READY` once it can be downloaded, `FAILED` when it could not be
+// prepared (request a new export), `EXPIRED` once the ZIP was deleted.
+//
+// SessionFilesExportStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SessionFilesExportStatus string
+
+// Known values of SessionFilesExportStatus.
+const (
+	SessionFilesExportStatusPending    SessionFilesExportStatus = "PENDING"
+	SessionFilesExportStatusProcessing SessionFilesExportStatus = "PROCESSING"
+	SessionFilesExportStatusReady      SessionFilesExportStatus = "READY"
+	SessionFilesExportStatusFailed     SessionFilesExportStatus = "FAILED"
+	SessionFilesExportStatusExpired    SessionFilesExportStatus = "EXPIRED"
+)
 
 // SessionsImportSharedParams holds the parameters of
 // Client.Sessions.ImportShared.
@@ -3415,6 +3954,10 @@ type SessionDecision struct {
 	// session. Omitted when `include=events` is passed.
 	SharedFromSession string `json:"shared_from_session"`
 
+	// `session_number` of the source session when this session was imported from
+	// another application of your organization. `null` otherwise.
+	SharedFromSessionNumber int64 `json:"shared_from_session_number"`
+
 	// The number of the session.
 	SessionNumber int64 `json:"session_number"`
 
@@ -3427,6 +3970,17 @@ type SessionDecision struct {
 	// `Resubmitted` indicate the session is still moving through the workflow.
 	Status SessionDecisionStatus `json:"status"`
 
+	// Present when a reviewer set `status` by hand. `null` when the status is the
+	// automatic one. Use it to tell a manual approval from an automatic one.
+	StatusOverride SessionDecisionStatusOverride `json:"status_override"`
+
+	// How the status was reached: who set it and which warnings did.
+	DecisionTrace SessionDecisionDecisionTrace `json:"decision_trace"`
+
+	// A summary of other records linked to the session. `null` when there is
+	// nothing to show, and for workflows that declare an age assurance standard.
+	LinkedRecords SessionDecisionLinkedRecords `json:"linked_records"`
+
 	// Stable identifier of the workflow group that produced this session. Workflows
 	// are versioned - this value identifies the workflow itself, not the specific
 	// version.
@@ -3435,13 +3989,13 @@ type SessionDecision struct {
 	// List of verification features configured for this session, as display names:
 	// `ID_VERIFICATION`, `NFC`, `LIVENESS`, `FACE_MATCH`, `POA`, `PHONE`,
 	// `EMAIL_VERIFICATION`, `AML`, `IP_ANALYSIS`, `DATABASE_VALIDATION`,
-	// `QUESTIONNAIRE`, `AGE_ESTIMATION`, `FACE_SEARCH` (Business Verification
-	// sessions use the KYB feature set: `KYB_REGISTRY`, `KYB_DOCUMENTS`,
-	// `KYB_KEY_PEOPLE`, `AML`, `PHONE`, `EMAIL_VERIFICATION`, `IP_ANALYSIS`,
-	// `QUESTIONNAIRE`). With `include=events` each entry becomes an object
-	// `{feature, node_id}` instead of a plain string, and the email feature is
-	// renamed: it appears as `EMAIL` in events mode instead of the
-	// `EMAIL_VERIFICATION` used here.
+	// `QUESTIONNAIRE`, `AGE_ESTIMATION`, `FACE_SEARCH`, `GEOLOCATION` (Location
+	// verification) (Business Verification sessions use the KYB feature set:
+	// `KYB_REGISTRY`, `KYB_DOCUMENTS`, `KYB_KEY_PEOPLE`, `AML`, `PHONE`,
+	// `EMAIL_VERIFICATION`, `IP_ANALYSIS`, `QUESTIONNAIRE`). With `include=events`
+	// each entry becomes an object `{feature, node_id}` instead of a plain string,
+	// and the email feature is renamed: it appears as `EMAIL` in events mode
+	// instead of the `EMAIL_VERIFICATION` used here.
 	Features []string `json:"features"`
 
 	// The vendor data of the session.
@@ -3561,13 +4115,14 @@ type SessionDecision struct {
 	// `account_lookup` (account check), or a `statement` or `microdeposits`
 	// fallback, and `none` when the person continued without a bank before any
 	// attempt was evaluated (`continued_without_bank`). See [Bank verification
-	// methods](/core-technology/bank-verification/verification-methods).
+	// methods](/core-technology/bank-verification/verification-methods). Bank
+	// Verification is not enabled in production yet, so this stays `null` on
+	// production sessions until it is.
 	BankVerifications []BankVerificationResult `json:"bank_verifications"`
 
-	// Electronic Signature results, one item per signer and signature step, for
-	// User and Business Verification. Present only when the workflow has an
-	// Electronic Signature step; an empty array until a signer reaches it. See the
-	// [Electronic Signature
+	// E-signature results, one item per signer and signature step, for User and
+	// Business Verification. Present only when the workflow has an E-signature
+	// step; an empty array until a signer reaches it. See the [E-signature
 	// report](/core-technology/electronic-signature/report-electronic-signature).
 	Signatures []SignatureResult `json:"signatures"`
 
@@ -3585,6 +4140,18 @@ type SessionDecision struct {
 	// `warnings[]`. Entries with duplicate `(node_id, ip_address,
 	// device_fingerprint)` are deduplicated server-side.
 	IPAnalyses []SessionDecisionIPAnalyses `json:"ip_analyses"`
+
+	// **Array of Location verification results**, one per Location verification
+	// step: that step's accepted attempt. `null` until a Location verification step
+	// has produced data. Earlier attempts of the same step are in
+	// `geolocation_attempts`.
+	GeolocationChecks []GeolocationCheck `json:"geolocation_checks"`
+
+	// Every attempt of every Location verification step of this session, oldest
+	// first. Attempts that a resubmission replaced are left out. A workflow that
+	// withholds `geolocation_checks` through its response attributes withholds this
+	// list too.
+	GeolocationAttempts []GeolocationAttempt `json:"geolocation_attempts"`
 
 	// **Array of Database Validation reports** - always a JSON array, never a
 	// singular `database_validation` object. `null` until at least one DB
@@ -3677,7 +4244,25 @@ type SessionDecision struct {
 	// source_data: {identification_number, first_name, last_name, full_name,
 	// gender, date_of_birth, document_type}
 	DatabaseValidations []SessionDecisionDatabaseValidations `json:"database_validations"`
-	Reviews             []SessionDecisionReviews             `json:"reviews"`
+
+	// Why a configured database validation produced no result, as `{code, message}`
+	// plus context fields. Present only when `database_validations` is `null` for a
+	// workflow that has the step, so you can tell "the registry agreed" from
+	// "nothing ran". `null` otherwise.
+	DatabaseValidationNotPerformedReason SessionDecisionDatabaseValidationNotPerformedReason `json:"database_validation_not_performed_reason"`
+	Reviews                              []SessionDecisionReviews                            `json:"reviews"`
+
+	// The Console reviewer the session is assigned to, or `null` when nobody holds
+	// it.
+	Assignee SessionDecisionAssignee `json:"assignee"`
+
+	// When the session started waiting for review. `null` unless the session is `In
+	// Review` and your application sets a review deadline.
+	WaitingSince time.Time `json:"waiting_since"`
+
+	// When the review is due. `null` unless the session is `In Review` and your
+	// application sets a review deadline.
+	SLADueAt time.Time `json:"sla_due_at"`
 
 	// Timestamp at which the session was created (ISO 8601, UTC).
 	CreatedAt time.Time `json:"created_at"`
@@ -3708,6 +4293,10 @@ type SessionDecision struct {
 	// never bill credits.
 	Environment SessionDecisionEnvironment `json:"environment"`
 
+	// The sandbox scenario the session was created with. `null` for live sessions
+	// and for sandbox sessions created without one.
+	SandboxScenario string `json:"sandbox_scenario"`
+
 	// Returned only with `include=resubmissions`, for user and business sessions.
 	// One entry per resubmission request, oldest first. Each entry carries the
 	// results the resubmitted steps returned before the request, so earlier
@@ -3724,8 +4313,20 @@ type SessionDecision struct {
 	// then reports `status: "pending"` with `reason:
 	// "BIOMETRIC_CONSENT_UNSUPPORTED_SDK"`. See [Biometric
 	// consent](/getting-started/biometric-consent).
-	BiometricConsent SessionDecisionBiometricConsent `json:"biometric_consent"`
-	Investigator     InvestigatorBlock               `json:"investigator"`
+	BiometricConsent   SessionDecisionBiometricConsent `json:"biometric_consent"`
+	Investigator       InvestigatorBlock               `json:"investigator"`
+	BiometricRetention BiometricRetention              `json:"biometric_retention"`
+
+	// The result of a Fraud Check API call. `null` for every other session.
+	FraudCheck map[string]any `json:"fraud_check"`
+
+	// Expiring URL of the full-session recording. Returned only when your
+	// organization records full-session video.
+	FullSessionVideo string `json:"full_session_video"`
+
+	// When the full-session recording was made. Returned only when your
+	// organization records full-session video.
+	FullSessionVideoRecordedAt time.Time `json:"full_session_video_recorded_at"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -3782,6 +4383,214 @@ const (
 	SessionDecisionStatusKYCExpired   SessionDecisionStatus = "Kyc Expired"
 	SessionDecisionStatusAbandoned    SessionDecisionStatus = "Abandoned"
 )
+
+// SessionDecisionStatusOverride: Present when a reviewer set `status` by hand.
+// `null` when the status is the automatic one. Use it to tell a manual approval
+// from an automatic one.
+type SessionDecisionStatusOverride struct {
+	OverriddenAt time.Time `json:"overridden_at"`
+
+	// The status the platform's own checks conclude.
+	AutomaticStatus string `json:"automatic_status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionStatusOverride leniently.
+func (r *SessionDecisionStatusOverride) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDecisionTrace: How the status was reached: who set it and
+// which warnings did.
+type SessionDecisionDecisionTrace struct {
+	// The session status.
+	Status string `json:"status"`
+
+	// Who set the status. `null` while the session is not decided.
+	DecidedBy SessionDecisionDecisionTraceDecidedBy `json:"decided_by"`
+	DecidedAt time.Time                             `json:"decided_at"`
+
+	// What the platform's own checks conclude, which differs from `status` after a
+	// manual decision.
+	AutomaticStatus string `json:"automatic_status"`
+
+	// The workflow status node that ended the session, when one did.
+	TerminalNodeID string `json:"terminal_node_id"`
+
+	// The reviewer behind a manual decision.
+	Actor SessionDecisionDecisionTraceActor `json:"actor"`
+
+	// Warnings per `log_type` (`error`, `warning`, `information`) and `total`.
+	WarningCounts map[string]int64 `json:"warning_counts"`
+
+	// The warnings that set a `Declined` or `In Review` status.
+	StatusWarnings []SessionDecisionDecisionTraceStatusWarnings `json:"status_warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDecisionTrace leniently.
+func (r *SessionDecisionDecisionTrace) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDecisionTraceDecidedBy: Who set the status. `null` while the
+// session is not decided.
+//
+// SessionDecisionDecisionTraceDecidedBy is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionDecisionDecisionTraceDecidedBy string
+
+// Known values of SessionDecisionDecisionTraceDecidedBy.
+const (
+	SessionDecisionDecisionTraceDecidedByManual       SessionDecisionDecisionTraceDecidedBy = "manual"
+	SessionDecisionDecisionTraceDecidedByAutomatic    SessionDecisionDecisionTraceDecidedBy = "automatic"
+	SessionDecisionDecisionTraceDecidedByInvestigator SessionDecisionDecisionTraceDecidedBy = "investigator"
+)
+
+// SessionDecisionDecisionTraceActor: The reviewer behind a manual decision.
+type SessionDecisionDecisionTraceActor struct {
+	User      string `json:"user"`
+	ActorType string `json:"actor_type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDecisionTraceActor leniently.
+func (r *SessionDecisionDecisionTraceActor) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionDecisionTraceStatusWarnings is a response object.
+type SessionDecisionDecisionTraceStatusWarnings struct {
+	Risk        string `json:"risk"`
+	Feature     string `json:"feature"`
+	NodeID      string `json:"node_id"`
+	LogType     string `json:"log_type"`
+	CheckStatus string `json:"check_status"`
+
+	// The payload list the warning came from, for example `id_verifications`.
+	Source           string `json:"source"`
+	ShortDescription string `json:"short_description"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDecisionTraceStatusWarnings leniently.
+func (r *SessionDecisionDecisionTraceStatusWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLinkedRecords: A summary of other records linked to the
+// session. `null` when there is nothing to show, and for workflows that declare
+// an age assurance standard.
+type SessionDecisionLinkedRecords struct {
+	// Other people whose face matched one of this session's face searches.
+	SameFace             SessionDecisionLinkedRecordsSameFace             `json:"same_face"`
+	EarlierVerifications SessionDecisionLinkedRecordsEarlierVerifications `json:"earlier_verifications"`
+	Networks             SessionDecisionLinkedRecordsNetworks             `json:"networks"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLinkedRecords leniently.
+func (r *SessionDecisionLinkedRecords) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLinkedRecordsSameFace: Other people whose face matched one of
+// this session's face searches.
+type SessionDecisionLinkedRecordsSameFace struct {
+	Count     int64                                         `json:"count"`
+	BestMatch SessionDecisionLinkedRecordsSameFaceBestMatch `json:"best_match"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLinkedRecordsSameFace leniently.
+func (r *SessionDecisionLinkedRecordsSameFace) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLinkedRecordsSameFaceBestMatch is a response object.
+type SessionDecisionLinkedRecordsSameFaceBestMatch struct {
+	SessionID            string  `json:"session_id"`
+	SessionNumber        int64   `json:"session_number"`
+	VendorUserID         string  `json:"vendor_user_id"`
+	SimilarityPercentage float64 `json:"similarity_percentage"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLinkedRecordsSameFaceBestMatch leniently.
+func (r *SessionDecisionLinkedRecordsSameFaceBestMatch) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLinkedRecordsEarlierVerifications is a response object.
+type SessionDecisionLinkedRecordsEarlierVerifications struct {
+	Count        int64  `json:"count"`
+	VendorUserID string `json:"vendor_user_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLinkedRecordsEarlierVerifications leniently.
+func (r *SessionDecisionLinkedRecordsEarlierVerifications) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLinkedRecordsNetworks is a response object.
+type SessionDecisionLinkedRecordsNetworks struct {
+	Count     int64                                       `json:"count"`
+	Open      int64                                       `json:"open"`
+	Dismissed int64                                       `json:"dismissed"`
+	Items     []SessionDecisionLinkedRecordsNetworksItems `json:"items"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLinkedRecordsNetworks leniently.
+func (r *SessionDecisionLinkedRecordsNetworks) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionLinkedRecordsNetworksItems is a response object.
+type SessionDecisionLinkedRecordsNetworksItems struct {
+	NetworkID     string  `json:"network_id"`
+	DisplayNumber int64   `json:"display_number"`
+	Name          string  `json:"name"`
+	Status        string  `json:"status"`
+	RiskScore     float64 `json:"risk_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionLinkedRecordsNetworksItems leniently.
+func (r *SessionDecisionLinkedRecordsNetworksItems) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // SessionDecisionExpectedDetails: Expected details supplied at session creation
 // - used for cross-validation against extracted data (KYC) or to pre-fill the
@@ -4128,6 +4937,20 @@ type SessionDecisionIDVerifications struct {
 	// `address` does not run it again). Present when this ID verification step
 	// enabled the Address Validation add-on; `null` otherwise.
 	AddressValidation AddressValidationResult `json:"address_validation"`
+
+	// Region or state of the document's issuing country where the document
+	// identifies one.
+	Region string `json:"region"`
+
+	// Snapshot of the data extracted from the document that the person was shown to
+	// review, kept next to the confirmed values so you can compare what was read
+	// with what the person confirmed. `null` when the person was not asked to
+	// review.
+	ExtractedData map[string]any `json:"extracted_data"`
+
+	// Data read from the document's barcodes. Empty when the document has none or
+	// none was read.
+	Barcodes []map[string]any `json:"barcodes"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -5008,6 +5831,8 @@ const (
 	SessionDecisionIDVerificationsWarningsFeatureKYBRegistry        SessionDecisionIDVerificationsWarningsFeature = "KYB_REGISTRY"
 	SessionDecisionIDVerificationsWarningsFeatureKYBDocuments       SessionDecisionIDVerificationsWarningsFeature = "KYB_DOCUMENTS"
 	SessionDecisionIDVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionIDVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+	SessionDecisionIDVerificationsWarningsFeatureGeolocation        SessionDecisionIDVerificationsWarningsFeature = "GEOLOCATION"
+	SessionDecisionIDVerificationsWarningsFeatureSignature          SessionDecisionIDVerificationsWarningsFeature = "SIGNATURE"
 )
 
 // SessionDecisionIDVerificationsMatches is a response object.
@@ -5766,6 +6591,8 @@ const (
 	SessionDecisionNFCVerificationsWarningsFeatureKYBRegistry        SessionDecisionNFCVerificationsWarningsFeature = "KYB_REGISTRY"
 	SessionDecisionNFCVerificationsWarningsFeatureKYBDocuments       SessionDecisionNFCVerificationsWarningsFeature = "KYB_DOCUMENTS"
 	SessionDecisionNFCVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionNFCVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+	SessionDecisionNFCVerificationsWarningsFeatureGeolocation        SessionDecisionNFCVerificationsWarningsFeature = "GEOLOCATION"
+	SessionDecisionNFCVerificationsWarningsFeatureSignature          SessionDecisionNFCVerificationsWarningsFeature = "SIGNATURE"
 )
 
 // SessionDecisionLivenessChecks: One liveness report - the full report for a
@@ -5998,6 +6825,8 @@ const (
 	SessionDecisionLivenessChecksWarningsFeatureKYBRegistry        SessionDecisionLivenessChecksWarningsFeature = "KYB_REGISTRY"
 	SessionDecisionLivenessChecksWarningsFeatureKYBDocuments       SessionDecisionLivenessChecksWarningsFeature = "KYB_DOCUMENTS"
 	SessionDecisionLivenessChecksWarningsFeatureKYBKeyPeople       SessionDecisionLivenessChecksWarningsFeature = "KYB_KEY_PEOPLE"
+	SessionDecisionLivenessChecksWarningsFeatureGeolocation        SessionDecisionLivenessChecksWarningsFeature = "GEOLOCATION"
+	SessionDecisionLivenessChecksWarningsFeatureSignature          SessionDecisionLivenessChecksWarningsFeature = "SIGNATURE"
 )
 
 // SessionDecisionFaceMatches: One face-match report - the full report.
@@ -6027,6 +6856,11 @@ type SessionDecisionFaceMatches struct {
 
 	// Face match verification warnings
 	Warnings []SessionDecisionFaceMatchesWarnings `json:"warnings"`
+
+	// Whether the eyes, mouth and face are covered in the captured image. Returned
+	// by `GET /v3/session/{sessionId}/decision/` only; it is not part of webhook
+	// payloads. `null` when no coverage reading exists.
+	FaceCoverage SessionDecisionFaceMatchesFaceCoverage `json:"face_coverage"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -6109,7 +6943,82 @@ const (
 	SessionDecisionFaceMatchesWarningsFeatureKYBRegistry        SessionDecisionFaceMatchesWarningsFeature = "KYB_REGISTRY"
 	SessionDecisionFaceMatchesWarningsFeatureKYBDocuments       SessionDecisionFaceMatchesWarningsFeature = "KYB_DOCUMENTS"
 	SessionDecisionFaceMatchesWarningsFeatureKYBKeyPeople       SessionDecisionFaceMatchesWarningsFeature = "KYB_KEY_PEOPLE"
+	SessionDecisionFaceMatchesWarningsFeatureGeolocation        SessionDecisionFaceMatchesWarningsFeature = "GEOLOCATION"
+	SessionDecisionFaceMatchesWarningsFeatureSignature          SessionDecisionFaceMatchesWarningsFeature = "SIGNATURE"
 )
+
+// SessionDecisionFaceMatchesFaceCoverage: Whether the eyes, mouth and face are
+// covered in the captured image. Returned by `GET
+// /v3/session/{sessionId}/decision/` only; it is not part of webhook payloads.
+// `null` when no coverage reading exists.
+type SessionDecisionFaceMatchesFaceCoverage struct {
+	Eyes  SessionDecisionFaceMatchesFaceCoverageEyes  `json:"eyes"`
+	Mouth SessionDecisionFaceMatchesFaceCoverageMouth `json:"mouth"`
+	Face  SessionDecisionFaceMatchesFaceCoverageFace  `json:"face"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionFaceMatchesFaceCoverage leniently.
+func (r *SessionDecisionFaceMatchesFaceCoverage) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionFaceMatchesFaceCoverageEyes is a response object.
+type SessionDecisionFaceMatchesFaceCoverageEyes struct {
+	Covered bool `json:"covered"`
+
+	// `false` means the reading is shadow evidence only and no warning acts on it.
+	Calibrated      bool    `json:"calibrated"`
+	VisibilityScore float64 `json:"visibility_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionFaceMatchesFaceCoverageEyes leniently.
+func (r *SessionDecisionFaceMatchesFaceCoverageEyes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionFaceMatchesFaceCoverageMouth is a response object.
+type SessionDecisionFaceMatchesFaceCoverageMouth struct {
+	Covered bool `json:"covered"`
+
+	// `false` means the reading is shadow evidence only and no warning acts on it.
+	Calibrated      bool    `json:"calibrated"`
+	VisibilityScore float64 `json:"visibility_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionFaceMatchesFaceCoverageMouth leniently.
+func (r *SessionDecisionFaceMatchesFaceCoverageMouth) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionFaceMatchesFaceCoverageFace is a response object.
+type SessionDecisionFaceMatchesFaceCoverageFace struct {
+	Covered bool `json:"covered"`
+
+	// `false` means the reading is shadow evidence only and no warning acts on it.
+	Calibrated      bool    `json:"calibrated"`
+	VisibilityScore float64 `json:"visibility_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionFaceMatchesFaceCoverageFace leniently.
+func (r *SessionDecisionFaceMatchesFaceCoverageFace) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // SessionDecisionPhoneVerifications is a response object.
 type SessionDecisionPhoneVerifications struct {
@@ -6166,6 +7075,14 @@ type SessionDecisionPhoneVerifications struct {
 	// `/management-api/lists/overview`). Cross-session matches use different
 	// `vendor_data` and are capped at 5.
 	Matches []SessionDecisionPhoneVerificationsMatches `json:"matches"`
+
+	// Phone intelligence signals. Present only when the phone intelligence add-on
+	// ran for this number.
+	PhoneIntelligence PhoneIntelligence `json:"phone_intelligence"`
+
+	// Social footprint of the number. Present only when the social footprint add-on
+	// ran for this number.
+	PhoneSocial PhoneSocialFootprint `json:"phone_social"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -6312,6 +7229,8 @@ const (
 	SessionDecisionPhoneVerificationsWarningsFeatureKYBRegistry        SessionDecisionPhoneVerificationsWarningsFeature = "KYB_REGISTRY"
 	SessionDecisionPhoneVerificationsWarningsFeatureKYBDocuments       SessionDecisionPhoneVerificationsWarningsFeature = "KYB_DOCUMENTS"
 	SessionDecisionPhoneVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionPhoneVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+	SessionDecisionPhoneVerificationsWarningsFeatureGeolocation        SessionDecisionPhoneVerificationsWarningsFeature = "GEOLOCATION"
+	SessionDecisionPhoneVerificationsWarningsFeatureSignature          SessionDecisionPhoneVerificationsWarningsFeature = "SIGNATURE"
 )
 
 // SessionDecisionPhoneVerificationsMatches is a response object.
@@ -6403,6 +7322,14 @@ type SessionDecisionEmailVerifications struct {
 	// `/management-api/lists/overview`). Cross-session matches use different
 	// `vendor_data` and are capped at 5.
 	Matches []SessionDecisionEmailVerificationsMatches `json:"matches"`
+
+	// Email intelligence signals. Present only when the email intelligence add-on
+	// ran for this address.
+	EmailIntelligence EmailIntelligence `json:"email_intelligence"`
+
+	// Social footprint of the address. Present only when the social footprint
+	// add-on ran for this address.
+	EmailSocial EmailSocialFootprint `json:"email_social"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -6522,6 +7449,8 @@ const (
 	SessionDecisionEmailVerificationsWarningsFeatureKYBRegistry        SessionDecisionEmailVerificationsWarningsFeature = "KYB_REGISTRY"
 	SessionDecisionEmailVerificationsWarningsFeatureKYBDocuments       SessionDecisionEmailVerificationsWarningsFeature = "KYB_DOCUMENTS"
 	SessionDecisionEmailVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionEmailVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+	SessionDecisionEmailVerificationsWarningsFeatureGeolocation        SessionDecisionEmailVerificationsWarningsFeature = "GEOLOCATION"
+	SessionDecisionEmailVerificationsWarningsFeatureSignature          SessionDecisionEmailVerificationsWarningsFeature = "SIGNATURE"
 )
 
 // SessionDecisionEmailVerificationsLifecycle is a response object.
@@ -6966,6 +7895,8 @@ const (
 	SessionDecisionPOAVerificationsWarningsFeatureKYBRegistry        SessionDecisionPOAVerificationsWarningsFeature = "KYB_REGISTRY"
 	SessionDecisionPOAVerificationsWarningsFeatureKYBDocuments       SessionDecisionPOAVerificationsWarningsFeature = "KYB_DOCUMENTS"
 	SessionDecisionPOAVerificationsWarningsFeatureKYBKeyPeople       SessionDecisionPOAVerificationsWarningsFeature = "KYB_KEY_PEOPLE"
+	SessionDecisionPOAVerificationsWarningsFeatureGeolocation        SessionDecisionPOAVerificationsWarningsFeature = "GEOLOCATION"
+	SessionDecisionPOAVerificationsWarningsFeatureSignature          SessionDecisionPOAVerificationsWarningsFeature = "SIGNATURE"
 )
 
 // SessionDecisionDocumentAiDocuments: Document AI results grouped by workflow
@@ -7874,8 +8805,8 @@ const (
 	BankVerificationResultContinuationOfferedMicrodeposits BankVerificationResultContinuationOffered = "microdeposits"
 )
 
-// SignatureResult: One signer's result for one Electronic Signature step. See
-// the [Electronic Signature
+// SignatureResult: One signer's result for one E-signature step. See the
+// [E-signature
 // report](/core-technology/electronic-signature/report-electronic-signature).
 type SignatureResult struct {
 	// Pass it as `signature_id` to download this signer's evidence or validate
@@ -7893,20 +8824,28 @@ type SignatureResult struct {
 	// apply after.
 	Verdict SignatureResultVerdict `json:"verdict"`
 
-	// `aes`. `qes` (Qualified Electronic Signature, QES) is coming soon.
-	Level  SignatureResultLevel  `json:"level"`
+	// `simple` (default) or `aes`. `qes` (Qualified Electronic Signature, QES) is
+	// an add-on that is not available yet.
+	Level SignatureResultLevel `json:"level"`
+
+	// `pdf` for a Simple signature, `pades` for Advanced (AES).
 	Format SignatureResultFormat `json:"format"`
 
-	// `PAdES-B-LT` once signed.
-	Profile      string                      `json:"profile"`
-	Signer       SignatureResultSigner       `json:"signer"`
+	// `PAdES-B-LT` once an Advanced (AES) signature is signed, otherwise null.
+	Profile string                `json:"profile"`
+	Signer  SignatureResultSigner `json:"signer"`
+
+	// The verified identity the signature relies on. Empty for a Simple signature
+	// with no verified identity.
 	IdentityUsed SignatureResultIdentityUsed `json:"identity_used"`
 
-	// The certificate the documents were signed with. `null` until signed.
+	// The certificate the documents were signed with. `null` until signed, and
+	// always `null` for a Simple signature.
 	Certificate  SignatureResultCertificate  `json:"certificate"`
 	Confirmation SignatureResultConfirmation `json:"confirmation"`
 
-	// The trusted timestamp in the signature. `null` until signed.
+	// The RFC 3161 timestamp in the signature, issued by Didit. `null` until
+	// signed, and always `null` for a Simple signature.
 	Timestamp SignatureResultTimestamp   `json:"timestamp"`
 	Documents []SignatureResultDocuments `json:"documents"`
 
@@ -7922,7 +8861,7 @@ type SignatureResult struct {
 	// evidence](/sessions-api/electronic-signature/download-evidence).
 	EvidenceFile string `json:"evidence_file"`
 
-	// Warnings raised for this signer. See [Electronic Signature
+	// Warnings raised for this signer. See [E-signature
 	// warnings](/core-technology/electronic-signature/warnings-electronic-signature).
 	Warnings []SignatureResultWarnings `json:"warnings"`
 
@@ -7989,8 +8928,8 @@ const (
 	SignatureResultVerdictDeclined    SignatureResultVerdict = "Declined"
 )
 
-// SignatureResultLevel: `aes`. `qes` (Qualified Electronic Signature, QES) is
-// coming soon.
+// SignatureResultLevel: `simple` (default) or `aes`. `qes` (Qualified
+// Electronic Signature, QES) is an add-on that is not available yet.
 //
 // SignatureResultLevel is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -7998,22 +8937,29 @@ type SignatureResultLevel string
 
 // Known values of SignatureResultLevel.
 const (
-	SignatureResultLevelAes SignatureResultLevel = "aes"
-	SignatureResultLevelQes SignatureResultLevel = "qes"
+	SignatureResultLevelSimple SignatureResultLevel = "simple"
+	SignatureResultLevelAes    SignatureResultLevel = "aes"
+	SignatureResultLevelQes    SignatureResultLevel = "qes"
 )
 
+// SignatureResultFormat: `pdf` for a Simple signature, `pades` for Advanced
+// (AES).
+//
 // SignatureResultFormat is a string with known values below. The set is open:
 // other values may appear and never cause an error.
 type SignatureResultFormat string
 
 // Known values of SignatureResultFormat.
 const (
+	SignatureResultFormatPDF   SignatureResultFormat = "pdf"
 	SignatureResultFormatPades SignatureResultFormat = "pades"
 )
 
 // SignatureResultSigner is a response object.
 type SignatureResultSigner struct {
-	// Verified name.
+	// The signer's name. Verified (from the approved ID verification or the
+	// session) except at the Simple level without a verified session name, where it
+	// is the name the signer typed and is not verified.
 	Name     string                        `json:"name"`
 	Capacity SignatureResultSignerCapacity `json:"capacity"`
 	Company  string                        `json:"company"`
@@ -8047,7 +8993,8 @@ const (
 	SignatureResultSignerCapacityCompany SignatureResultSignerCapacity = "company"
 )
 
-// SignatureResultIdentityUsed is a response object.
+// SignatureResultIdentityUsed: The verified identity the signature relies on.
+// Empty for a Simple signature with no verified identity.
 type SignatureResultIdentityUsed struct {
 	SessionID string `json:"session_id"`
 	KYCID     string `json:"kyc_id"`
@@ -8067,7 +9014,7 @@ func (r *SignatureResultIdentityUsed) UnmarshalJSON(data []byte) error {
 }
 
 // SignatureResultCertificate: The certificate the documents were signed with.
-// `null` until signed.
+// `null` until signed, and always `null` for a Simple signature.
 type SignatureResultCertificate struct {
 	Issuer   string `json:"issuer"`
 	IssuedTo string `json:"issued_to"`
@@ -8089,6 +9036,7 @@ func (r *SignatureResultCertificate) UnmarshalJSON(data []byte) error {
 
 // SignatureResultConfirmation is a response object.
 type SignatureResultConfirmation struct {
+	// `null` for a Simple signature, which has no code.
 	Channel SignatureResultConfirmationChannel `json:"channel"`
 
 	// The masked contact the code went to.
@@ -8108,6 +9056,9 @@ func (r *SignatureResultConfirmation) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SignatureResultConfirmationChannel: `null` for a Simple signature, which has
+// no code.
+//
 // SignatureResultConfirmationChannel is a string with known values below. The
 // set is open: other values may appear and never cause an error.
 type SignatureResultConfirmationChannel string
@@ -8118,8 +9069,8 @@ const (
 	SignatureResultConfirmationChannelSMS   SignatureResultConfirmationChannel = "sms"
 )
 
-// SignatureResultTimestamp: The trusted timestamp in the signature. `null`
-// until signed.
+// SignatureResultTimestamp: The RFC 3161 timestamp in the signature, issued by
+// Didit. `null` until signed, and always `null` for a Simple signature.
 type SignatureResultTimestamp struct {
 	Time time.Time `json:"time"`
 
@@ -8505,10 +9456,12 @@ type SignatureResultValidationDocuments struct {
 	// "aes_not_qualified"}`.
 	TrustedList SignatureResultValidationDocumentsTrustedList `json:"trusted_list"`
 
-	// The certificate the documents were signed with. `null` until signed.
+	// The certificate the documents were signed with. `null` until signed, and
+	// always `null` for a Simple signature.
 	Certificate SignatureResultValidationDocumentsCertificate `json:"certificate"`
 
-	// The trusted timestamp in the signature. `null` until signed.
+	// The RFC 3161 timestamp in the signature, issued by Didit. `null` until
+	// signed, and always `null` for a Simple signature.
 	Timestamp SignatureResultValidationDocumentsTimestamp `json:"timestamp"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -8538,7 +9491,8 @@ func (r *SignatureResultValidationDocumentsTrustedList) UnmarshalJSON(data []byt
 }
 
 // SignatureResultValidationDocumentsCertificate: The certificate the documents
-// were signed with. `null` until signed.
+// were signed with. `null` until signed, and always `null` for a Simple
+// signature.
 type SignatureResultValidationDocumentsCertificate struct {
 	Issuer   string `json:"issuer"`
 	IssuedTo string `json:"issued_to"`
@@ -8558,8 +9512,9 @@ func (r *SignatureResultValidationDocumentsCertificate) UnmarshalJSON(data []byt
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SignatureResultValidationDocumentsTimestamp: The trusted timestamp in the
-// signature. `null` until signed.
+// SignatureResultValidationDocumentsTimestamp: The RFC 3161 timestamp in the
+// signature, issued by Didit. `null` until signed, and always `null` for a
+// Simple signature.
 type SignatureResultValidationDocumentsTimestamp struct {
 	Time time.Time `json:"time"`
 
@@ -8689,7 +9644,27 @@ type SessionDecisionIPAnalyses struct {
 	// `confidence`, `match_mode`, `device_info` and `location_info`; the keys
 	// `recovery_similarity`, `tls_ja4_corroborated` and `recovery_gate_reason` are
 	// present only when `match_source` is `recovered_high`.
-	Matches []SessionDecisionIPAnalysesMatches `json:"matches"`
+	Matches        []SessionDecisionIPAnalysesMatches `json:"matches"`
+	BrowserVersion string                             `json:"browser_version"`
+	OsVersion      string                             `json:"os_version"`
+
+	// The browser's user agent string.
+	UserAgent string `json:"user_agent"`
+
+	// The `Accept-Language` header the browser sent.
+	AcceptLanguage string `json:"accept_language"`
+
+	// Identifier of the browsing session the verification ran in.
+	SessionIdentifier string `json:"session_identifier"`
+
+	// Age of that browsing session in milliseconds when the step ran.
+	SessionAgeMs int64 `json:"session_age_ms"`
+
+	// Accuracy radius, in metres, of the coordinates the device reported.
+	CoordsAccuracy float64 `json:"coords_accuracy"`
+
+	// Raw device signals collected for the step.
+	RawDeviceData map[string]any `json:"raw_device_data"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -8877,6 +9852,8 @@ const (
 	SessionDecisionIPAnalysesWarningsFeatureKYBRegistry        SessionDecisionIPAnalysesWarningsFeature = "KYB_REGISTRY"
 	SessionDecisionIPAnalysesWarningsFeatureKYBDocuments       SessionDecisionIPAnalysesWarningsFeature = "KYB_DOCUMENTS"
 	SessionDecisionIPAnalysesWarningsFeatureKYBKeyPeople       SessionDecisionIPAnalysesWarningsFeature = "KYB_KEY_PEOPLE"
+	SessionDecisionIPAnalysesWarningsFeatureGeolocation        SessionDecisionIPAnalysesWarningsFeature = "GEOLOCATION"
+	SessionDecisionIPAnalysesWarningsFeatureSignature          SessionDecisionIPAnalysesWarningsFeature = "SIGNATURE"
 )
 
 // SessionDecisionIPAnalysesMatches is a response object.
@@ -9073,6 +10050,801 @@ const (
 	SessionDecisionIPAnalysesMatchesMatchModeProbabilistic SessionDecisionIPAnalysesMatchesMatchMode = "probabilistic"
 	SessionDecisionIPAnalysesMatchesMatchModeCoOccurrence  SessionDecisionIPAnalysesMatchesMatchMode = "co_occurrence"
 )
+
+// GeolocationCheck: One Location verification result, the accepted attempt of
+// one workflow node. Measurement, uncertainty and authenticity are separate
+// keys, so a precise unattested fix reads differently from an imprecise
+// attested one.
+type GeolocationCheck struct {
+	// Workflow node that produced this result, so a workflow with two Location
+	// verification steps stays readable.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this Location verification step, resolved from its
+	// warnings. Independent of the session `status`.
+	Status GeolocationCheckStatus `json:"status"`
+
+	// What happened on this attempt.
+	Outcome GeolocationCheckOutcome `json:"outcome"`
+
+	// What the operating system or browser granted. `not_requested` means the step
+	// uses the connection's IP location only, so the person is never asked for a
+	// permission.
+	Permission GeolocationCheckPermission `json:"permission"`
+
+	// WGS84 latitude of the fix. `null` when there is no fix.
+	Latitude float64 `json:"latitude"`
+
+	// WGS84 longitude of the fix. `null` when there is no fix.
+	Longitude float64 `json:"longitude"`
+
+	// Radius of uncertainty in metres, at the confidence level in
+	// `accuracy_confidence`.
+	AccuracyM float64 `json:"accuracy_m"`
+
+	// Confidence level the platform attaches to `accuracy_m`: `p95` (browsers),
+	// `p68` (Android) or `unspecified` (iOS).
+	AccuracyConfidence GeolocationCheckAccuracyConfidence `json:"accuracy_confidence"`
+
+	// When the device took the fix, by its own clock.
+	MeasuredAt time.Time `json:"measured_at"`
+
+	// Seconds between the device taking the fix and Didit receiving it.
+	AgeSeconds int64 `json:"age_seconds"`
+
+	// Where the fix came from, when the platform says. `ip` means the position is
+	// the connection's IP location.
+	Source GeolocationCheckSource `json:"source"`
+
+	// The client that produced the fix.
+	Platform GeolocationCheckPlatform `json:"platform"`
+
+	// Version of the SDK that produced the fix.
+	SDKVersion string `json:"sdk_version"`
+
+	// `true` when the device says the fix came from a mock location provider or
+	// simulation software. `null` when the platform does not report it (browsers
+	// cannot tell); `null` is not `false`.
+	IsMock bool `json:"is_mock"`
+
+	// iOS only: `true` when the fix came from an external accessory. `null`
+	// elsewhere.
+	ProducedByAccessory bool `json:"produced_by_accessory"`
+
+	// Whether device attestation backs the fix. `unsupported` is what browsers
+	// report, because the web has no attestation mechanism; it is not a failure.
+	Integrity GeolocationCheckIntegrity `json:"integrity"`
+
+	// ISO 3166-1 alpha-2 country the fix is in.
+	CountryCode string `json:"country_code"`
+
+	// ISO 3166-2 subdivision the fix is in.
+	RegionCode string `json:"region_code"`
+
+	// Nearest populated place, a label for reviewers.
+	City string `json:"city"`
+
+	// Result of the country and area rules of the step.
+	Geofence GeolocationCheckGeofence `json:"geofence"`
+
+	// `true` when `geofence.result` is `inside`, `false` when `outside`, `null`
+	// otherwise.
+	InsideGeofence bool `json:"inside_geofence"`
+
+	// Which position the area result was judged from: the `device` fix, or the
+	// connection's `ip` location.
+	GeofenceBasis GeolocationCheckGeofenceBasis `json:"geofence_basis"`
+
+	// Ids of the configured allowed areas the position is inside.
+	InsideAreas []string `json:"inside_areas"`
+
+	// Ids of the configured blocked areas the position is in.
+	BlockedAreas []string `json:"blocked_areas"`
+
+	// Where the step takes the position from, as configured: the device checked
+	// against the IP location, the device only, or the IP location only.
+	PositionSource GeolocationCheckPositionSource `json:"position_source"`
+
+	// What the connection and device look like, each `true`, `false` or `null` when
+	// the source cannot tell.
+	Anonymizers GeolocationCheckAnonymizers `json:"anonymizers"`
+
+	// Distance to the session's IP location after both uncertainty radii are
+	// subtracted; `0` when they overlap.
+	IPDistanceKm float64 `json:"ip_distance_km"`
+
+	// Combined radius that was subtracted: the IP location's radius plus this fix's
+	// accuracy.
+	IPDistanceUncertaintyKm float64 `json:"ip_distance_uncertainty_km"`
+
+	// Whether `ip_distance_km` is within the distance configured on the step.
+	// `null` when either side is unknown.
+	IPConsistent bool `json:"ip_consistent"`
+
+	// Distance to the geocoded address on the ID document or proof of address.
+	// `null` when no address is on file.
+	DocumentDistanceKm float64 `json:"document_distance_km"`
+
+	// Whether the step's travel tolerance excused the distance from the address.
+	// `null` when tolerance is off.
+	TravelExcused bool `json:"travel_excused"`
+
+	// On the final attempt: this check plus the same person's earlier mismatches in
+	// a row.
+	ConsecutiveMismatches int64 `json:"consecutive_mismatches"`
+
+	// Number of this attempt within the node, starting at 1.
+	Attempts int64 `json:"attempts"`
+
+	// The consent the person gave before the system prompt, recorded with the
+	// wording version and language they saw.
+	Consent GeolocationCheckConsent `json:"consent"`
+
+	// Warnings this Location verification step raised, with `feature` set to
+	// `GEOLOCATION`. Warning codes start with `LOCATION_`.
+	Warnings []GeolocationCheckWarnings `json:"warnings"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationCheck leniently.
+func (r *GeolocationCheck) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// GeolocationCheckStatus: Feature-level status of this Location verification
+// step, resolved from its warnings. Independent of the session `status`.
+//
+// GeolocationCheckStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type GeolocationCheckStatus string
+
+// Known values of GeolocationCheckStatus.
+const (
+	GeolocationCheckStatusNotFinished    GeolocationCheckStatus = "Not Finished"
+	GeolocationCheckStatusApproved       GeolocationCheckStatus = "Approved"
+	GeolocationCheckStatusDeclined       GeolocationCheckStatus = "Declined"
+	GeolocationCheckStatusInReview       GeolocationCheckStatus = "In Review"
+	GeolocationCheckStatusResubRequested GeolocationCheckStatus = "Resub Requested"
+)
+
+// GeolocationCheckOutcome: What happened on this attempt.
+//
+// GeolocationCheckOutcome is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type GeolocationCheckOutcome string
+
+// Known values of GeolocationCheckOutcome.
+const (
+	GeolocationCheckOutcomeVerified             GeolocationCheckOutcome = "verified"
+	GeolocationCheckOutcomeLowAccuracy          GeolocationCheckOutcome = "low_accuracy"
+	GeolocationCheckOutcomeAccuracyUndetermined GeolocationCheckOutcome = "accuracy_undetermined"
+	GeolocationCheckOutcomeStale                GeolocationCheckOutcome = "stale"
+	GeolocationCheckOutcomeApproximate          GeolocationCheckOutcome = "approximate"
+	GeolocationCheckOutcomeDenied               GeolocationCheckOutcome = "denied"
+	GeolocationCheckOutcomeRestricted           GeolocationCheckOutcome = "restricted"
+	GeolocationCheckOutcomeUnavailable          GeolocationCheckOutcome = "unavailable"
+	GeolocationCheckOutcomeTimeout              GeolocationCheckOutcome = "timeout"
+	GeolocationCheckOutcomeMockDetected         GeolocationCheckOutcome = "mock_detected"
+	GeolocationCheckOutcomeOutsideGeofence      GeolocationCheckOutcome = "outside_geofence"
+	GeolocationCheckOutcomeInBlockedArea        GeolocationCheckOutcome = "in_blocked_area"
+	GeolocationCheckOutcomeAnonymizerDetected   GeolocationCheckOutcome = "anonymizer_detected"
+	GeolocationCheckOutcomeSkipped              GeolocationCheckOutcome = "skipped"
+	GeolocationCheckOutcomeReplayRejected       GeolocationCheckOutcome = "replay_rejected"
+	GeolocationCheckOutcomeUnsupportedClient    GeolocationCheckOutcome = "unsupported_client"
+)
+
+// GeolocationCheckPermission: What the operating system or browser granted.
+// `not_requested` means the step uses the connection's IP location only, so the
+// person is never asked for a permission.
+//
+// GeolocationCheckPermission is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationCheckPermission string
+
+// Known values of GeolocationCheckPermission.
+const (
+	GeolocationCheckPermissionGrantedPrecise     GeolocationCheckPermission = "granted_precise"
+	GeolocationCheckPermissionGrantedApproximate GeolocationCheckPermission = "granted_approximate"
+	GeolocationCheckPermissionDenied             GeolocationCheckPermission = "denied"
+	GeolocationCheckPermissionRestricted         GeolocationCheckPermission = "restricted"
+	GeolocationCheckPermissionUnavailable        GeolocationCheckPermission = "unavailable"
+	GeolocationCheckPermissionTimeout            GeolocationCheckPermission = "timeout"
+	GeolocationCheckPermissionDismissed          GeolocationCheckPermission = "dismissed"
+	GeolocationCheckPermissionNotRequested       GeolocationCheckPermission = "not_requested"
+)
+
+// GeolocationCheckAccuracyConfidence: Confidence level the platform attaches to
+// `accuracy_m`: `p95` (browsers), `p68` (Android) or `unspecified` (iOS).
+//
+// GeolocationCheckAccuracyConfidence is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type GeolocationCheckAccuracyConfidence string
+
+// Known values of GeolocationCheckAccuracyConfidence.
+const (
+	GeolocationCheckAccuracyConfidenceP95         GeolocationCheckAccuracyConfidence = "p95"
+	GeolocationCheckAccuracyConfidenceP68         GeolocationCheckAccuracyConfidence = "p68"
+	GeolocationCheckAccuracyConfidenceUnspecified GeolocationCheckAccuracyConfidence = "unspecified"
+)
+
+// GeolocationCheckSource: Where the fix came from, when the platform says. `ip`
+// means the position is the connection's IP location.
+//
+// GeolocationCheckSource is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type GeolocationCheckSource string
+
+// Known values of GeolocationCheckSource.
+const (
+	GeolocationCheckSourceGps     GeolocationCheckSource = "gps"
+	GeolocationCheckSourceFused   GeolocationCheckSource = "fused"
+	GeolocationCheckSourceNetwork GeolocationCheckSource = "network"
+	GeolocationCheckSourceWifi    GeolocationCheckSource = "wifi"
+	GeolocationCheckSourceCell    GeolocationCheckSource = "cell"
+	GeolocationCheckSourceBrowser GeolocationCheckSource = "browser"
+	GeolocationCheckSourceUnknown GeolocationCheckSource = "unknown"
+	GeolocationCheckSourceIP      GeolocationCheckSource = "ip"
+)
+
+// GeolocationCheckPlatform: The client that produced the fix.
+//
+// GeolocationCheckPlatform is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationCheckPlatform string
+
+// Known values of GeolocationCheckPlatform.
+const (
+	GeolocationCheckPlatformWeb         GeolocationCheckPlatform = "web"
+	GeolocationCheckPlatformIos         GeolocationCheckPlatform = "ios"
+	GeolocationCheckPlatformAndroid     GeolocationCheckPlatform = "android"
+	GeolocationCheckPlatformReactNative GeolocationCheckPlatform = "react_native"
+	GeolocationCheckPlatformFlutter     GeolocationCheckPlatform = "flutter"
+)
+
+// GeolocationCheckIntegrity: Whether device attestation backs the fix.
+// `unsupported` is what browsers report, because the web has no attestation
+// mechanism; it is not a failure.
+//
+// GeolocationCheckIntegrity is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationCheckIntegrity string
+
+// Known values of GeolocationCheckIntegrity.
+const (
+	GeolocationCheckIntegrityAttested      GeolocationCheckIntegrity = "attested"
+	GeolocationCheckIntegrityNotAttested   GeolocationCheckIntegrity = "not_attested"
+	GeolocationCheckIntegrityFailed        GeolocationCheckIntegrity = "failed"
+	GeolocationCheckIntegrityUnsupported   GeolocationCheckIntegrity = "unsupported"
+	GeolocationCheckIntegrityNotDetermined GeolocationCheckIntegrity = "not_determined"
+)
+
+// GeolocationCheckGeofence: Result of the country and area rules of the step.
+type GeolocationCheckGeofence struct {
+	// Whether the step applies any country or area rule.
+	Enabled bool `json:"enabled"`
+
+	// Where the position sits relative to the rules. `undetermined` means the
+	// accuracy circle straddles the border or the position resolved to no country;
+	// it is not evidence of being outside.
+	Result GeolocationCheckGeofenceResult `json:"result"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationCheckGeofence leniently.
+func (r *GeolocationCheckGeofence) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// GeolocationCheckGeofenceResult: Where the position sits relative to the
+// rules. `undetermined` means the accuracy circle straddles the border or the
+// position resolved to no country; it is not evidence of being outside.
+//
+// GeolocationCheckGeofenceResult is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type GeolocationCheckGeofenceResult string
+
+// Known values of GeolocationCheckGeofenceResult.
+const (
+	GeolocationCheckGeofenceResultInside       GeolocationCheckGeofenceResult = "inside"
+	GeolocationCheckGeofenceResultOutside      GeolocationCheckGeofenceResult = "outside"
+	GeolocationCheckGeofenceResultUndetermined GeolocationCheckGeofenceResult = "undetermined"
+)
+
+// GeolocationCheckGeofenceBasis: Which position the area result was judged
+// from: the `device` fix, or the connection's `ip` location.
+//
+// GeolocationCheckGeofenceBasis is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationCheckGeofenceBasis string
+
+// Known values of GeolocationCheckGeofenceBasis.
+const (
+	GeolocationCheckGeofenceBasisDevice GeolocationCheckGeofenceBasis = "device"
+	GeolocationCheckGeofenceBasisIP     GeolocationCheckGeofenceBasis = "ip"
+)
+
+// GeolocationCheckPositionSource: Where the step takes the position from, as
+// configured: the device checked against the IP location, the device only, or
+// the IP location only.
+//
+// GeolocationCheckPositionSource is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type GeolocationCheckPositionSource string
+
+// Known values of GeolocationCheckPositionSource.
+const (
+	GeolocationCheckPositionSourceDeviceAndIP GeolocationCheckPositionSource = "device_and_ip"
+	GeolocationCheckPositionSourceDeviceOnly  GeolocationCheckPositionSource = "device_only"
+	GeolocationCheckPositionSourceIPOnly      GeolocationCheckPositionSource = "ip_only"
+)
+
+// GeolocationCheckAnonymizers: What the connection and device look like, each
+// `true`, `false` or `null` when the source cannot tell.
+type GeolocationCheckAnonymizers struct {
+	Vpn      bool `json:"vpn"`
+	Proxy    bool `json:"proxy"`
+	Tor      bool `json:"tor"`
+	Spoofing bool `json:"spoofing"`
+	Emulator bool `json:"emulator"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationCheckAnonymizers leniently.
+func (r *GeolocationCheckAnonymizers) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// GeolocationCheckConsent: The consent the person gave before the system
+// prompt, recorded with the wording version and language they saw.
+type GeolocationCheckConsent struct {
+	AcceptedAt time.Time `json:"accepted_at"`
+	Version    string    `json:"version"`
+	Locale     string    `json:"locale"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationCheckConsent leniently.
+func (r *GeolocationCheckConsent) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// GeolocationCheckWarnings is a response object.
+type GeolocationCheckWarnings struct {
+	// The feature that generated this warning. The value identifies the feature
+	// block the warning belongs to. Each module's warnings array typically uses the
+	// value matching its module (e.g. `PHONE` inside
+	// `phone_verifications[].warnings`), but the enum above is authoritative across
+	// all feature warnings on the decision payload.
+	Feature          GeolocationCheckWarningsFeature `json:"feature"`
+	Risk             string                          `json:"risk"`
+	AdditionalData   map[string]any                  `json:"additional_data"`
+	LogType          string                          `json:"log_type"`
+	ShortDescription string                          `json:"short_description"`
+	LongDescription  string                          `json:"long_description"`
+
+	// The workflow graph node ID that generated this warning
+	NodeID string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationCheckWarnings leniently.
+func (r *GeolocationCheckWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// GeolocationCheckWarningsFeature: The feature that generated this warning. The
+// value identifies the feature block the warning belongs to. Each module's
+// warnings array typically uses the value matching its module (e.g. `PHONE`
+// inside `phone_verifications[].warnings`), but the enum above is authoritative
+// across all feature warnings on the decision payload.
+//
+// GeolocationCheckWarningsFeature is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type GeolocationCheckWarningsFeature string
+
+// Known values of GeolocationCheckWarningsFeature.
+const (
+	GeolocationCheckWarningsFeatureIDVerification     GeolocationCheckWarningsFeature = "ID_VERIFICATION"
+	GeolocationCheckWarningsFeatureNFC                GeolocationCheckWarningsFeature = "NFC"
+	GeolocationCheckWarningsFeatureLiveness           GeolocationCheckWarningsFeature = "LIVENESS"
+	GeolocationCheckWarningsFeatureFacematch          GeolocationCheckWarningsFeature = "FACEMATCH"
+	GeolocationCheckWarningsFeatureProofOfAddress     GeolocationCheckWarningsFeature = "PROOF_OF_ADDRESS"
+	GeolocationCheckWarningsFeaturePhone              GeolocationCheckWarningsFeature = "PHONE"
+	GeolocationCheckWarningsFeatureEmail              GeolocationCheckWarningsFeature = "EMAIL"
+	GeolocationCheckWarningsFeatureAML                GeolocationCheckWarningsFeature = "AML"
+	GeolocationCheckWarningsFeatureLocation           GeolocationCheckWarningsFeature = "LOCATION"
+	GeolocationCheckWarningsFeatureDatabaseValidation GeolocationCheckWarningsFeature = "DATABASE_VALIDATION"
+	GeolocationCheckWarningsFeatureQuestionnaire      GeolocationCheckWarningsFeature = "QUESTIONNAIRE"
+	GeolocationCheckWarningsFeatureDocumentAi         GeolocationCheckWarningsFeature = "DOCUMENT_AI"
+	GeolocationCheckWarningsFeatureKYBRegistry        GeolocationCheckWarningsFeature = "KYB_REGISTRY"
+	GeolocationCheckWarningsFeatureKYBDocuments       GeolocationCheckWarningsFeature = "KYB_DOCUMENTS"
+	GeolocationCheckWarningsFeatureKYBKeyPeople       GeolocationCheckWarningsFeature = "KYB_KEY_PEOPLE"
+	GeolocationCheckWarningsFeatureGeolocation        GeolocationCheckWarningsFeature = "GEOLOCATION"
+	GeolocationCheckWarningsFeatureSignature          GeolocationCheckWarningsFeature = "SIGNATURE"
+)
+
+// GeolocationAttempt: One attempt of a Location verification step: the same
+// keys as `geolocation_checks[]` except `warnings`, plus when Didit received
+// it.
+type GeolocationAttempt struct {
+	// Workflow node that produced this result, so a workflow with two Location
+	// verification steps stays readable.
+	NodeID string `json:"node_id"`
+
+	// Feature-level status of this Location verification step, resolved from its
+	// warnings. Independent of the session `status`.
+	Status GeolocationAttemptStatus `json:"status"`
+
+	// What happened on this attempt.
+	Outcome GeolocationAttemptOutcome `json:"outcome"`
+
+	// What the operating system or browser granted. `not_requested` means the step
+	// uses the connection's IP location only, so the person is never asked for a
+	// permission.
+	Permission GeolocationAttemptPermission `json:"permission"`
+
+	// WGS84 latitude of the fix. `null` when there is no fix.
+	Latitude float64 `json:"latitude"`
+
+	// WGS84 longitude of the fix. `null` when there is no fix.
+	Longitude float64 `json:"longitude"`
+
+	// Radius of uncertainty in metres, at the confidence level in
+	// `accuracy_confidence`.
+	AccuracyM float64 `json:"accuracy_m"`
+
+	// Confidence level the platform attaches to `accuracy_m`: `p95` (browsers),
+	// `p68` (Android) or `unspecified` (iOS).
+	AccuracyConfidence GeolocationAttemptAccuracyConfidence `json:"accuracy_confidence"`
+
+	// When the device took the fix, by its own clock.
+	MeasuredAt time.Time `json:"measured_at"`
+
+	// Seconds between the device taking the fix and Didit receiving it.
+	AgeSeconds int64 `json:"age_seconds"`
+
+	// Where the fix came from, when the platform says. `ip` means the position is
+	// the connection's IP location.
+	Source GeolocationAttemptSource `json:"source"`
+
+	// The client that produced the fix.
+	Platform GeolocationAttemptPlatform `json:"platform"`
+
+	// Version of the SDK that produced the fix.
+	SDKVersion string `json:"sdk_version"`
+
+	// `true` when the device says the fix came from a mock location provider or
+	// simulation software. `null` when the platform does not report it (browsers
+	// cannot tell); `null` is not `false`.
+	IsMock bool `json:"is_mock"`
+
+	// iOS only: `true` when the fix came from an external accessory. `null`
+	// elsewhere.
+	ProducedByAccessory bool `json:"produced_by_accessory"`
+
+	// Whether device attestation backs the fix. `unsupported` is what browsers
+	// report, because the web has no attestation mechanism; it is not a failure.
+	Integrity GeolocationAttemptIntegrity `json:"integrity"`
+
+	// ISO 3166-1 alpha-2 country the fix is in.
+	CountryCode string `json:"country_code"`
+
+	// ISO 3166-2 subdivision the fix is in.
+	RegionCode string `json:"region_code"`
+
+	// Nearest populated place, a label for reviewers.
+	City string `json:"city"`
+
+	// Result of the country and area rules of the step.
+	Geofence GeolocationAttemptGeofence `json:"geofence"`
+
+	// `true` when `geofence.result` is `inside`, `false` when `outside`, `null`
+	// otherwise.
+	InsideGeofence bool `json:"inside_geofence"`
+
+	// Which position the area result was judged from: the `device` fix, or the
+	// connection's `ip` location.
+	GeofenceBasis GeolocationAttemptGeofenceBasis `json:"geofence_basis"`
+
+	// Ids of the configured allowed areas the position is inside.
+	InsideAreas []string `json:"inside_areas"`
+
+	// Ids of the configured blocked areas the position is in.
+	BlockedAreas []string `json:"blocked_areas"`
+
+	// Where the step takes the position from, as configured: the device checked
+	// against the IP location, the device only, or the IP location only.
+	PositionSource GeolocationAttemptPositionSource `json:"position_source"`
+
+	// What the connection and device look like, each `true`, `false` or `null` when
+	// the source cannot tell.
+	Anonymizers GeolocationAttemptAnonymizers `json:"anonymizers"`
+
+	// Distance to the session's IP location after both uncertainty radii are
+	// subtracted; `0` when they overlap.
+	IPDistanceKm float64 `json:"ip_distance_km"`
+
+	// Combined radius that was subtracted: the IP location's radius plus this fix's
+	// accuracy.
+	IPDistanceUncertaintyKm float64 `json:"ip_distance_uncertainty_km"`
+
+	// Whether `ip_distance_km` is within the distance configured on the step.
+	// `null` when either side is unknown.
+	IPConsistent bool `json:"ip_consistent"`
+
+	// Distance to the geocoded address on the ID document or proof of address.
+	// `null` when no address is on file.
+	DocumentDistanceKm float64 `json:"document_distance_km"`
+
+	// Whether the step's travel tolerance excused the distance from the address.
+	// `null` when tolerance is off.
+	TravelExcused bool `json:"travel_excused"`
+
+	// On the final attempt: this check plus the same person's earlier mismatches in
+	// a row.
+	ConsecutiveMismatches int64 `json:"consecutive_mismatches"`
+
+	// Number of this attempt within the node, starting at 1.
+	Attempts int64 `json:"attempts"`
+
+	// The consent the person gave before the system prompt, recorded with the
+	// wording version and language they saw.
+	Consent GeolocationAttemptConsent `json:"consent"`
+
+	// When Didit received the attempt.
+	ReceivedAt time.Time `json:"received_at"`
+	CreatedAt  time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationAttempt leniently.
+func (r *GeolocationAttempt) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// GeolocationAttemptStatus: Feature-level status of this Location verification
+// step, resolved from its warnings. Independent of the session `status`.
+//
+// GeolocationAttemptStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationAttemptStatus string
+
+// Known values of GeolocationAttemptStatus.
+const (
+	GeolocationAttemptStatusNotFinished    GeolocationAttemptStatus = "Not Finished"
+	GeolocationAttemptStatusApproved       GeolocationAttemptStatus = "Approved"
+	GeolocationAttemptStatusDeclined       GeolocationAttemptStatus = "Declined"
+	GeolocationAttemptStatusInReview       GeolocationAttemptStatus = "In Review"
+	GeolocationAttemptStatusResubRequested GeolocationAttemptStatus = "Resub Requested"
+)
+
+// GeolocationAttemptOutcome: What happened on this attempt.
+//
+// GeolocationAttemptOutcome is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationAttemptOutcome string
+
+// Known values of GeolocationAttemptOutcome.
+const (
+	GeolocationAttemptOutcomeVerified             GeolocationAttemptOutcome = "verified"
+	GeolocationAttemptOutcomeLowAccuracy          GeolocationAttemptOutcome = "low_accuracy"
+	GeolocationAttemptOutcomeAccuracyUndetermined GeolocationAttemptOutcome = "accuracy_undetermined"
+	GeolocationAttemptOutcomeStale                GeolocationAttemptOutcome = "stale"
+	GeolocationAttemptOutcomeApproximate          GeolocationAttemptOutcome = "approximate"
+	GeolocationAttemptOutcomeDenied               GeolocationAttemptOutcome = "denied"
+	GeolocationAttemptOutcomeRestricted           GeolocationAttemptOutcome = "restricted"
+	GeolocationAttemptOutcomeUnavailable          GeolocationAttemptOutcome = "unavailable"
+	GeolocationAttemptOutcomeTimeout              GeolocationAttemptOutcome = "timeout"
+	GeolocationAttemptOutcomeMockDetected         GeolocationAttemptOutcome = "mock_detected"
+	GeolocationAttemptOutcomeOutsideGeofence      GeolocationAttemptOutcome = "outside_geofence"
+	GeolocationAttemptOutcomeInBlockedArea        GeolocationAttemptOutcome = "in_blocked_area"
+	GeolocationAttemptOutcomeAnonymizerDetected   GeolocationAttemptOutcome = "anonymizer_detected"
+	GeolocationAttemptOutcomeSkipped              GeolocationAttemptOutcome = "skipped"
+	GeolocationAttemptOutcomeReplayRejected       GeolocationAttemptOutcome = "replay_rejected"
+	GeolocationAttemptOutcomeUnsupportedClient    GeolocationAttemptOutcome = "unsupported_client"
+)
+
+// GeolocationAttemptPermission: What the operating system or browser granted.
+// `not_requested` means the step uses the connection's IP location only, so the
+// person is never asked for a permission.
+//
+// GeolocationAttemptPermission is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationAttemptPermission string
+
+// Known values of GeolocationAttemptPermission.
+const (
+	GeolocationAttemptPermissionGrantedPrecise     GeolocationAttemptPermission = "granted_precise"
+	GeolocationAttemptPermissionGrantedApproximate GeolocationAttemptPermission = "granted_approximate"
+	GeolocationAttemptPermissionDenied             GeolocationAttemptPermission = "denied"
+	GeolocationAttemptPermissionRestricted         GeolocationAttemptPermission = "restricted"
+	GeolocationAttemptPermissionUnavailable        GeolocationAttemptPermission = "unavailable"
+	GeolocationAttemptPermissionTimeout            GeolocationAttemptPermission = "timeout"
+	GeolocationAttemptPermissionDismissed          GeolocationAttemptPermission = "dismissed"
+	GeolocationAttemptPermissionNotRequested       GeolocationAttemptPermission = "not_requested"
+)
+
+// GeolocationAttemptAccuracyConfidence: Confidence level the platform attaches
+// to `accuracy_m`: `p95` (browsers), `p68` (Android) or `unspecified` (iOS).
+//
+// GeolocationAttemptAccuracyConfidence is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type GeolocationAttemptAccuracyConfidence string
+
+// Known values of GeolocationAttemptAccuracyConfidence.
+const (
+	GeolocationAttemptAccuracyConfidenceP95         GeolocationAttemptAccuracyConfidence = "p95"
+	GeolocationAttemptAccuracyConfidenceP68         GeolocationAttemptAccuracyConfidence = "p68"
+	GeolocationAttemptAccuracyConfidenceUnspecified GeolocationAttemptAccuracyConfidence = "unspecified"
+)
+
+// GeolocationAttemptSource: Where the fix came from, when the platform says.
+// `ip` means the position is the connection's IP location.
+//
+// GeolocationAttemptSource is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationAttemptSource string
+
+// Known values of GeolocationAttemptSource.
+const (
+	GeolocationAttemptSourceGps     GeolocationAttemptSource = "gps"
+	GeolocationAttemptSourceFused   GeolocationAttemptSource = "fused"
+	GeolocationAttemptSourceNetwork GeolocationAttemptSource = "network"
+	GeolocationAttemptSourceWifi    GeolocationAttemptSource = "wifi"
+	GeolocationAttemptSourceCell    GeolocationAttemptSource = "cell"
+	GeolocationAttemptSourceBrowser GeolocationAttemptSource = "browser"
+	GeolocationAttemptSourceUnknown GeolocationAttemptSource = "unknown"
+	GeolocationAttemptSourceIP      GeolocationAttemptSource = "ip"
+)
+
+// GeolocationAttemptPlatform: The client that produced the fix.
+//
+// GeolocationAttemptPlatform is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationAttemptPlatform string
+
+// Known values of GeolocationAttemptPlatform.
+const (
+	GeolocationAttemptPlatformWeb         GeolocationAttemptPlatform = "web"
+	GeolocationAttemptPlatformIos         GeolocationAttemptPlatform = "ios"
+	GeolocationAttemptPlatformAndroid     GeolocationAttemptPlatform = "android"
+	GeolocationAttemptPlatformReactNative GeolocationAttemptPlatform = "react_native"
+	GeolocationAttemptPlatformFlutter     GeolocationAttemptPlatform = "flutter"
+)
+
+// GeolocationAttemptIntegrity: Whether device attestation backs the fix.
+// `unsupported` is what browsers report, because the web has no attestation
+// mechanism; it is not a failure.
+//
+// GeolocationAttemptIntegrity is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type GeolocationAttemptIntegrity string
+
+// Known values of GeolocationAttemptIntegrity.
+const (
+	GeolocationAttemptIntegrityAttested      GeolocationAttemptIntegrity = "attested"
+	GeolocationAttemptIntegrityNotAttested   GeolocationAttemptIntegrity = "not_attested"
+	GeolocationAttemptIntegrityFailed        GeolocationAttemptIntegrity = "failed"
+	GeolocationAttemptIntegrityUnsupported   GeolocationAttemptIntegrity = "unsupported"
+	GeolocationAttemptIntegrityNotDetermined GeolocationAttemptIntegrity = "not_determined"
+)
+
+// GeolocationAttemptGeofence: Result of the country and area rules of the step.
+type GeolocationAttemptGeofence struct {
+	// Whether the step applies any country or area rule.
+	Enabled bool `json:"enabled"`
+
+	// Where the position sits relative to the rules. `undetermined` means the
+	// accuracy circle straddles the border or the position resolved to no country;
+	// it is not evidence of being outside.
+	Result GeolocationAttemptGeofenceResult `json:"result"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationAttemptGeofence leniently.
+func (r *GeolocationAttemptGeofence) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// GeolocationAttemptGeofenceResult: Where the position sits relative to the
+// rules. `undetermined` means the accuracy circle straddles the border or the
+// position resolved to no country; it is not evidence of being outside.
+//
+// GeolocationAttemptGeofenceResult is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type GeolocationAttemptGeofenceResult string
+
+// Known values of GeolocationAttemptGeofenceResult.
+const (
+	GeolocationAttemptGeofenceResultInside       GeolocationAttemptGeofenceResult = "inside"
+	GeolocationAttemptGeofenceResultOutside      GeolocationAttemptGeofenceResult = "outside"
+	GeolocationAttemptGeofenceResultUndetermined GeolocationAttemptGeofenceResult = "undetermined"
+)
+
+// GeolocationAttemptGeofenceBasis: Which position the area result was judged
+// from: the `device` fix, or the connection's `ip` location.
+//
+// GeolocationAttemptGeofenceBasis is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type GeolocationAttemptGeofenceBasis string
+
+// Known values of GeolocationAttemptGeofenceBasis.
+const (
+	GeolocationAttemptGeofenceBasisDevice GeolocationAttemptGeofenceBasis = "device"
+	GeolocationAttemptGeofenceBasisIP     GeolocationAttemptGeofenceBasis = "ip"
+)
+
+// GeolocationAttemptPositionSource: Where the step takes the position from, as
+// configured: the device checked against the IP location, the device only, or
+// the IP location only.
+//
+// GeolocationAttemptPositionSource is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type GeolocationAttemptPositionSource string
+
+// Known values of GeolocationAttemptPositionSource.
+const (
+	GeolocationAttemptPositionSourceDeviceAndIP GeolocationAttemptPositionSource = "device_and_ip"
+	GeolocationAttemptPositionSourceDeviceOnly  GeolocationAttemptPositionSource = "device_only"
+	GeolocationAttemptPositionSourceIPOnly      GeolocationAttemptPositionSource = "ip_only"
+)
+
+// GeolocationAttemptAnonymizers: What the connection and device look like, each
+// `true`, `false` or `null` when the source cannot tell.
+type GeolocationAttemptAnonymizers struct {
+	Vpn      bool `json:"vpn"`
+	Proxy    bool `json:"proxy"`
+	Tor      bool `json:"tor"`
+	Spoofing bool `json:"spoofing"`
+	Emulator bool `json:"emulator"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationAttemptAnonymizers leniently.
+func (r *GeolocationAttemptAnonymizers) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// GeolocationAttemptConsent: The consent the person gave before the system
+// prompt, recorded with the wording version and language they saw.
+type GeolocationAttemptConsent struct {
+	AcceptedAt time.Time `json:"accepted_at"`
+	Version    string    `json:"version"`
+	Locale     string    `json:"locale"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationAttemptConsent leniently.
+func (r *GeolocationAttemptConsent) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // SessionDecisionDatabaseValidations is a response object.
 type SessionDecisionDatabaseValidations struct {
@@ -9354,7 +11126,31 @@ const (
 	SessionDecisionDatabaseValidationsWarningsFeatureKYBRegistry        SessionDecisionDatabaseValidationsWarningsFeature = "KYB_REGISTRY"
 	SessionDecisionDatabaseValidationsWarningsFeatureKYBDocuments       SessionDecisionDatabaseValidationsWarningsFeature = "KYB_DOCUMENTS"
 	SessionDecisionDatabaseValidationsWarningsFeatureKYBKeyPeople       SessionDecisionDatabaseValidationsWarningsFeature = "KYB_KEY_PEOPLE"
+	SessionDecisionDatabaseValidationsWarningsFeatureGeolocation        SessionDecisionDatabaseValidationsWarningsFeature = "GEOLOCATION"
+	SessionDecisionDatabaseValidationsWarningsFeatureSignature          SessionDecisionDatabaseValidationsWarningsFeature = "SIGNATURE"
 )
+
+// SessionDecisionDatabaseValidationNotPerformedReason: Why a configured
+// database validation produced no result, as `{code, message}` plus context
+// fields. Present only when `database_validations` is `null` for a workflow
+// that has the step, so you can tell "the registry agreed" from "nothing ran".
+// `null` otherwise.
+type SessionDecisionDatabaseValidationNotPerformedReason struct {
+	// Stable machine-readable reason.
+	Code string `json:"code"`
+
+	// Human-readable explanation.
+	Message string `json:"message"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionDatabaseValidationNotPerformedReason leniently.
+func (r *SessionDecisionDatabaseValidationNotPerformedReason) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // SessionDecisionReviews is a response object.
 type SessionDecisionReviews struct {
@@ -9377,6 +11173,22 @@ func (r *SessionDecisionReviews) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SessionDecisionAssignee: The Console reviewer the session is assigned to, or
+// `null` when nobody holds it.
+type SessionDecisionAssignee struct {
+	Email      string    `json:"email"`
+	AssignedAt time.Time `json:"assigned_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionAssignee leniently.
+func (r *SessionDecisionAssignee) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // SessionDecisionRegistryChecks: One company registry check - the full
 // company-registry payload enriched with ownership structure and warnings.
 // Present only when `session_kind = business`.
@@ -9388,13 +11200,9 @@ type SessionDecisionRegistryChecks struct {
 
 	// Full registry payload for the company (registry record merged with any
 	// user-provided or console-edited data).
-	Company SessionDecisionRegistryChecksCompany `json:"company"`
-
-	// Raw ownership snapshot kept for reviewers; its shape differs by registry
-	// source and is not a stable contract. Read `company.beneficial_owners` and
-	// `company.ownership` instead.
-	OwnershipStructure map[string]any   `json:"ownership_structure"`
-	Warnings           []map[string]any `json:"warnings"`
+	Company            SessionDecisionRegistryChecksCompany `json:"company"`
+	OwnershipStructure KYBOwnershipStructure                `json:"ownership_structure"`
+	Warnings           []map[string]any                     `json:"warnings"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -9498,13 +11306,8 @@ type SessionDecisionRegistryChecksCompany struct {
 	// Registry filing dates, when available. Annual returns and general meetings
 	// use last_annual_return_date and last_agm_date; they are distinct from
 	// financial accounts.
-	Accounts map[string]any `json:"accounts"`
-
-	// Raw record returned by the registry source, kept for reviewers. Its shape
-	// differs by country and source and is not a stable contract: read the
-	// canonical fields (`addresses`, `industries`, `ownership`,
-	// `beneficial_owners[].shareholding`) instead.
-	RegistryData map[string]any `json:"registry_data"`
+	Accounts     map[string]any  `json:"accounts"`
+	RegistryData KYBRegistryData `json:"registry_data"`
 
 	// Data confirmed or edited by the end user.
 	UserProvidedData  map[string]any       `json:"user_provided_data"`
@@ -9524,6 +11327,9 @@ type SessionDecisionRegistryChecksCompany struct {
 	// `not_requested`, `pending`, `delivered`, `not_held` or `unavailable`. Also in
 	// `ownership.status`.
 	RegistryOwnershipStatus string `json:"registry_ownership_status"`
+
+	// The latest registry monitor for the company, or `null` when none exists.
+	RegistryMonitoring SessionDecisionRegistryChecksCompanyRegistryMonitoring `json:"registry_monitoring"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -9722,6 +11528,131 @@ const (
 	SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatusApproved SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus = "Approved"
 	SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatusDeclined SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus = "Declined"
 	SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatusPending  SessionDecisionRegistryChecksCompanyBeneficialOwnersKYCStatus = "Pending"
+)
+
+// SessionDecisionRegistryChecksCompanyRegistryMonitoring: The latest registry
+// monitor for the company, or `null` when none exists.
+type SessionDecisionRegistryChecksCompanyRegistryMonitoring struct {
+	UUID              string    `json:"uuid"`
+	Status            string    `json:"status"`
+	UnavailableReason string    `json:"unavailable_reason"`
+	EnrolledAt        time.Time `json:"enrolled_at"`
+	CancelledAt       time.Time `json:"cancelled_at"`
+	LastBillDate      string    `json:"last_bill_date"`
+	NextBillDate      string    `json:"next_bill_date"`
+	LastEventAt       time.Time `json:"last_event_at"`
+	EventsCount       int64     `json:"events_count"`
+
+	// The company fields the monitor watches.
+	WatchedFields any `json:"watched_fields"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionRegistryChecksCompanyRegistryMonitoring leniently.
+func (r *SessionDecisionRegistryChecksCompanyRegistryMonitoring) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBOwnershipStructure: The cap table the registry proved, as it stood when
+// the ownership tier was delivered: direct `shareholders` and
+// `beneficial_owners`. Null when the registry proved no ownership. It never
+// carries the registry source's own rows; read `company.beneficial_owners` and
+// `company.ownership` for the current record.
+type KYBOwnershipStructure struct {
+	Shareholders     []KYBOwnershipStructureOwner `json:"shareholders"`
+	BeneficialOwners []KYBOwnershipStructureOwner `json:"beneficial_owners"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBOwnershipStructure leniently.
+func (r *KYBOwnershipStructure) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBOwnershipStructureOwner: One owner of the ownership snapshot: the same
+// registry identity and stake as `company.beneficial_owners[]`, and its
+// canonical `shareholding`.
+type KYBOwnershipStructureOwner struct {
+	// Owner name as the registry states it.
+	Name string `json:"name"`
+
+	// Given name, for a natural person, when the registry states it.
+	FirstName string `json:"first_name"`
+
+	// Family name, for a natural person, when the registry states it.
+	LastName string `json:"last_name"`
+
+	// Date of birth (ISO 8601) when the registry publishes it.
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Country of birth when the registry publishes it.
+	CountryOfBirth string `json:"country_of_birth"`
+
+	// Company name, for a corporate owner.
+	CompanyName string `json:"company_name"`
+
+	// Registration number, for a corporate owner.
+	RegistrationNumber string `json:"registration_number"`
+
+	// Whether the owner is a natural person or a company.
+	EntityType KYBOwnershipStructureOwnerEntityType `json:"entity_type"`
+
+	// Nationality when the registry states it.
+	Nationality string `json:"nationality"`
+
+	// The owner's title or role as the registry prints it.
+	Designation string `json:"designation"`
+
+	// `shareholder` for a direct holder, `ubo` for a beneficial owner.
+	Roles []string `json:"roles"`
+
+	// Lower bound of the stake, in percent (equal to the upper bound for an exact
+	// stake).
+	OwnershipMinShares string `json:"ownership_min_shares"`
+
+	// Upper bound of the stake, in percent.
+	OwnershipMaxShares string `json:"ownership_max_shares"`
+
+	// Lower bound of the voting rights, in percent.
+	VotingMinShares string `json:"voting_min_shares"`
+
+	// Upper bound of the voting rights, in percent.
+	VotingMaxShares string `json:"voting_max_shares"`
+
+	// Date the holding or appointment started (ISO 8601).
+	AppointmentDate string `json:"appointment_date"`
+
+	// False for a former owner.
+	IsActive     bool                    `json:"is_active"`
+	Shareholding KYBRegistryShareholding `json:"shareholding"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBOwnershipStructureOwner leniently.
+func (r *KYBOwnershipStructureOwner) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBOwnershipStructureOwnerEntityType: Whether the owner is a natural person
+// or a company.
+//
+// KYBOwnershipStructureOwnerEntityType is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type KYBOwnershipStructureOwnerEntityType string
+
+// Known values of KYBOwnershipStructureOwnerEntityType.
+const (
+	KYBOwnershipStructureOwnerEntityTypePerson  KYBOwnershipStructureOwnerEntityType = "person"
+	KYBOwnershipStructureOwnerEntityTypeCompany KYBOwnershipStructureOwnerEntityType = "company"
 )
 
 // SessionDecisionKeyPeopleChecks: Aggregate check over the company's officers +
@@ -11165,6 +13096,28 @@ const (
 	SessionDecisionBiometricConsentDeclineReasonBiometricConsentDeclined SessionDecisionBiometricConsentDeclineReason = "BIOMETRIC_CONSENT_DECLINED"
 )
 
+// BiometricRetention: When the live biometric data of this session is deleted.
+type BiometricRetention struct {
+	// Codes of the US states whose biometric rules set a deletion limit for this
+	// person (`US` when the state is unknown). Empty when none applies.
+	Jurisdictions []string `json:"jurisdictions"`
+
+	// The date the live biometric data (face images and templates) of this session
+	// is deleted, from your application's retention setting and, where one applies,
+	// the legal limit for the person's jurisdiction. `null` when no date applies
+	// yet.
+	DeletesAt time.Time `json:"deletes_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BiometricRetention leniently.
+func (r *BiometricRetention) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // SessionsListParams holds the parameters of Client.Sessions.List.
 type SessionsListParams struct {
 	// Which kind of sessions to list: `user` (KYC only, default), `business` (KYB
@@ -11215,6 +13168,19 @@ type SessionsListParams struct {
 	// <= date_to` (midnight), so use the next day's date to include a full day of
 	// KYB sessions.
 	DateTo Opt[string] `json:"-" query:"date_to"`
+
+	// Comma-separated tag ids (`tags` of your application). Returns the sessions
+	// that carry any of them. Ids that are not valid UUIDs are ignored, and when
+	// none is valid the list is empty.
+	Tags Opt[string] `json:"-" query:"tags"`
+
+	// ISO 8601 datetime. Returns the sessions whose status last changed at or after
+	// it. It filters on the time of the last status change, not on creation time.
+	DecidedFrom Opt[time.Time] `json:"-" query:"decided_from"`
+
+	// ISO 8601 datetime. Returns the sessions whose status last changed before it.
+	// Combine with `decided_from` for a half-open window.
+	DecidedTo Opt[time.Time] `json:"-" query:"decided_to"`
 
 	// Comma-separated country filter. For KYC rows: ISO 3166-1 alpha-3 codes of the
 	// ID document's issuing state (e.g. `ESP,USA`), which may differ from
@@ -11399,6 +13365,25 @@ type SessionsListResponseResults struct {
 	// response-attributes configuration are omitted.
 	AdditionalDetails SessionsListResponseResultsAdditionalDetails `json:"additional_details"`
 
+	// The Console reviewer the session is assigned to, or `null` when nobody holds
+	// it.
+	Assignee SessionsListResponseResultsAssignee `json:"assignee"`
+
+	// When the session started waiting for review. `null` unless the session is `In
+	// Review`.
+	WaitingSince time.Time `json:"waiting_since"`
+
+	// When the review is due, from the review deadline set for your application in
+	// the Console. `null` unless the session is `In Review` and a deadline is set.
+	SLADueAt time.Time `json:"sla_due_at"`
+
+	// Up to a few of the session's most important warnings, for a quick triage
+	// view. The full list is in the decision.
+	TopWarnings []SessionsListResponseResultsTopWarnings `json:"top_warnings"`
+
+	// Number of warnings on the session.
+	WarningsCount int64 `json:"warnings_count"`
+
 	// Identifier of the workflow this session was created with.
 	WorkflowID string `json:"workflow_id"`
 
@@ -11512,6 +13497,7 @@ const (
 	SessionsListResponseResultsFeaturesFeatureIPAnalysis         SessionsListResponseResultsFeaturesFeature = "IP_ANALYSIS"
 	SessionsListResponseResultsFeaturesFeatureAgeEstimation      SessionsListResponseResultsFeaturesFeature = "AGE_ESTIMATION"
 	SessionsListResponseResultsFeaturesFeatureDatabaseValidation SessionsListResponseResultsFeaturesFeature = "DATABASE_VALIDATION"
+	SessionsListResponseResultsFeaturesFeatureGeolocation        SessionsListResponseResultsFeaturesFeature = "GEOLOCATION"
 )
 
 // SessionsListResponseResultsFeaturesStatus: Status of this feature. `Not
@@ -11759,6 +13745,44 @@ func (r *SessionsListResponseResultsAdditionalDetailsEmailVerification) Unmarsha
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SessionsListResponseResultsAssignee: The Console reviewer the session is
+// assigned to, or `null` when nobody holds it.
+type SessionsListResponseResultsAssignee struct {
+	Email      string    `json:"email"`
+	AssignedAt time.Time `json:"assigned_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListResponseResultsAssignee leniently.
+func (r *SessionsListResponseResultsAssignee) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsListResponseResultsTopWarnings is a response object.
+type SessionsListResponseResultsTopWarnings struct {
+	// Warning code, for example `FACE_MATCH_LOW_SIMILARITY`.
+	Risk string `json:"risk"`
+
+	// The feature that raised it.
+	Feature string `json:"feature"`
+
+	// `error` or `warning`; `null` for a legacy entry.
+	LogType          string `json:"log_type"`
+	ShortDescription string `json:"short_description"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListResponseResultsTopWarnings leniently.
+func (r *SessionsListResponseResultsTopWarnings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // SessionsListAMLScreeningHistoryParams holds the parameters of
 // Client.Sessions.ListAMLScreeningHistory.
 type SessionsListAMLScreeningHistoryParams struct {
@@ -11766,6 +13790,11 @@ type SessionsListAMLScreeningHistoryParams struct {
 	// more than one AML step; without it the most recent AML check is used. An
 	// unknown node returns `404`.
 	NodeID Opt[string] `json:"-" query:"node_id"`
+
+	// A UTC calendar month as `YYYY-MM`. Only screenings completed in that month
+	// are returned; without it every month is returned. A malformed month returns
+	// `400`.
+	Month Opt[string] `json:"-" query:"month"`
 
 	// Maximum number of screening runs per page. Defaults to 50. A value below 1 or
 	// a non-numeric value falls back to 50; a value above 1,000,000 returns `400`.
@@ -11792,6 +13821,10 @@ func (r SessionsListAMLScreeningHistoryParams) MarshalJSON() ([]byte, error) {
 type AMLScreeningRun struct {
 	// Identifier of this screening run.
 	UUID string `json:"uuid"`
+
+	// The monitoring run this screening belongs to. Every verification screened in
+	// the same run shares it.
+	RunID string `json:"run_id"`
 
 	// When this subject's re-screen finished. Results are ordered by it, newest
 	// first.
@@ -11820,6 +13853,15 @@ type AMLScreeningRun struct {
 
 	// Number of hits this run left the check in.
 	TotalHits int64 `json:"total_hits"`
+
+	// Number of hits this run found that the check did not have before it. `0` when
+	// nothing new was found; `null` when the run failed or was recorded before this
+	// count existed.
+	NewHits int64 `json:"new_hits"`
+
+	// Number of entities this run screened for the verification: `1` when the
+	// subject was screened, `0` when the run failed.
+	EntitiesScreened int64 `json:"entities_screened"`
 
 	// Dataset freshness behind this run, or `null` when no dates were available.
 	DatasetFreshness AMLDatasetFreshness `json:"dataset_freshness"`
@@ -12051,6 +14093,328 @@ func (r *SessionsListFeatureOverridesResponse) UnmarshalJSON(data []byte) error 
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SessionsListKYBExtractedPartiesParams holds the parameters of
+// Client.Sessions.ListKYBExtractedParties.
+type SessionsListKYBExtractedPartiesParams struct {
+	// Workflow node of the KYB step. Only needed when the workflow has more than
+	// one KYB node; by default Didit uses the session's own node.
+	NodeID Opt[string] `json:"-" query:"node_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsListKYBExtractedPartiesParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsListKYBExtractedPartiesResponse is a response object.
+type SessionsListKYBExtractedPartiesResponse struct {
+	// The shareholders and directors the uploaded documents name, merged per
+	// person. Nobody is labelled a UBO here: that is decided when the parties are
+	// submitted.
+	Parties []SessionsListKYBExtractedPartiesResponseParties `json:"parties"`
+
+	// Number of uploaded documents the list was read from.
+	DocumentCount int64  `json:"document_count"`
+	NodeID        string `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListKYBExtractedPartiesResponse leniently.
+func (r *SessionsListKYBExtractedPartiesResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsListKYBExtractedPartiesResponseParties is a response object.
+type SessionsListKYBExtractedPartiesResponseParties struct {
+	Name            string                                                   `json:"name"`
+	EntityType      SessionsListKYBExtractedPartiesResponsePartiesEntityType `json:"entity_type"`
+	FirstName       string                                                   `json:"first_name"`
+	LastName        string                                                   `json:"last_name"`
+	AppointmentDate string                                                   `json:"appointment_date"`
+	Designation     string                                                   `json:"designation"`
+	Roles           []SessionsListKYBExtractedPartiesResponsePartiesRoles    `json:"roles"`
+
+	// The uploaded documents that named this party.
+	Documents []SessionsListKYBExtractedPartiesResponsePartiesDocuments `json:"documents"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListKYBExtractedPartiesResponseParties leniently.
+func (r *SessionsListKYBExtractedPartiesResponseParties) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsListKYBExtractedPartiesResponsePartiesEntityType is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionsListKYBExtractedPartiesResponsePartiesEntityType string
+
+// Known values of SessionsListKYBExtractedPartiesResponsePartiesEntityType.
+const (
+	SessionsListKYBExtractedPartiesResponsePartiesEntityTypePerson  SessionsListKYBExtractedPartiesResponsePartiesEntityType = "person"
+	SessionsListKYBExtractedPartiesResponsePartiesEntityTypeCompany SessionsListKYBExtractedPartiesResponsePartiesEntityType = "company"
+)
+
+// SessionsListKYBExtractedPartiesResponsePartiesRoles is a response object.
+type SessionsListKYBExtractedPartiesResponsePartiesRoles struct {
+	Role             SessionsListKYBExtractedPartiesResponsePartiesRolesRole             `json:"role"`
+	OwnershipPercent SessionsListKYBExtractedPartiesResponsePartiesRolesOwnershipPercent `json:"ownership_percent"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListKYBExtractedPartiesResponsePartiesRoles leniently.
+func (r *SessionsListKYBExtractedPartiesResponsePartiesRoles) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsListKYBExtractedPartiesResponsePartiesRolesRole is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionsListKYBExtractedPartiesResponsePartiesRolesRole string
+
+// Known values of SessionsListKYBExtractedPartiesResponsePartiesRolesRole.
+const (
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleDirector             SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "director"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleNonExecutiveDirector SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "non_executive_director"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleSecretary            SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "secretary"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleChairman             SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "chairman"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleUBO                  SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "ubo"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleShareholder          SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "shareholder"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleRepresentative       SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "representative"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleFounder              SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "founder"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleLegalAdvisor         SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "legal_advisor"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleAuthorizedSignatory  SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "authorized_signatory"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleTrustee              SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "trustee"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleBeneficiary          SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "beneficiary"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleSettlor              SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "settlor"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleProtector            SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "protector"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleCompanyOfficer       SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "company_officer"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleInvestor             SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "investor"
+	SessionsListKYBExtractedPartiesResponsePartiesRolesRoleOther                SessionsListKYBExtractedPartiesResponsePartiesRolesRole = "other"
+)
+
+// SessionsListKYBExtractedPartiesResponsePartiesRolesOwnershipPercent is a
+// response object.
+type SessionsListKYBExtractedPartiesResponsePartiesRolesOwnershipPercent struct {
+	// The ownership figure exactly as the document states it, such as `25-50%`,
+	// `>50%` or `NO EXHIBE`.
+	Text string `json:"text"`
+
+	// Lower number read out of `text`; null when it states none.
+	Min float64 `json:"min"`
+
+	// Upper number read out of `text`; null when it states none.
+	Max float64 `json:"max"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListKYBExtractedPartiesResponsePartiesRolesOwnershipPercent leniently.
+func (r *SessionsListKYBExtractedPartiesResponsePartiesRolesOwnershipPercent) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsListKYBExtractedPartiesResponsePartiesDocuments is a response object.
+type SessionsListKYBExtractedPartiesResponsePartiesDocuments struct {
+	DocumentUUID     string `json:"document_uuid"`
+	DocumentType     string `json:"document_type"`
+	DocumentSubtype  string `json:"document_subtype"`
+	OriginalFilename string `json:"original_filename"`
+	Status           string `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListKYBExtractedPartiesResponsePartiesDocuments leniently.
+func (r *SessionsListKYBExtractedPartiesResponsePartiesDocuments) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsListKYBPartyDraftsParams holds the parameters of
+// Client.Sessions.ListKYBPartyDrafts.
+type SessionsListKYBPartyDraftsParams struct {
+	// Workflow node of the KYB step. Only needed when the workflow has more than
+	// one KYB node; by default Didit uses the session's own node.
+	NodeID Opt[string] `json:"-" query:"node_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsListKYBPartyDraftsParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsListKYBPartyDraftsResponse is a response object.
+type SessionsListKYBPartyDraftsResponse struct {
+	Parties []SessionsListKYBPartyDraftsResponseParties `json:"parties"`
+	NodeID  string                                      `json:"node_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListKYBPartyDraftsResponse leniently.
+func (r *SessionsListKYBPartyDraftsResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsListKYBPartyDraftsResponseParties is a response object.
+type SessionsListKYBPartyDraftsResponseParties struct {
+	DraftID   string                                         `json:"draft_id"`
+	CreatedAt time.Time                                      `json:"created_at"`
+	UpdatedAt time.Time                                      `json:"updated_at"`
+	Party     SessionsListKYBPartyDraftsResponsePartiesParty `json:"party"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListKYBPartyDraftsResponseParties leniently.
+func (r *SessionsListKYBPartyDraftsResponseParties) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsListKYBPartyDraftsResponsePartiesParty is a response object.
+type SessionsListKYBPartyDraftsResponsePartiesParty struct {
+	// Whether the party is an individual or a company.
+	EntityType SessionsListKYBPartyDraftsResponsePartiesPartyEntityType `json:"entity_type"`
+
+	// Full name of a person. Send it, or `first_name` and `last_name`.
+	FullName  string `json:"full_name"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+
+	// Role the party holds. Interchangeable with `roles`; when both are sent they
+	// are merged.
+	Role SessionsListKYBPartyDraftsResponsePartiesPartyRole `json:"role"`
+
+	// Every role the party holds. A person needs at least one role (here or in
+	// `role`).
+	Roles []SessionsListKYBPartyDraftsResponsePartiesPartyRoles `json:"roles"`
+
+	// Job title of a person.
+	Position    string `json:"position"`
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Name of a company party. Required when `entity_type` is `company`.
+	CompanyName string `json:"company_name"`
+
+	// Registration number of a company party.
+	RegistrationNumber string `json:"registration_number"`
+
+	// Where the verification link is sent. Required when the party has to complete
+	// verification, which depends on the role settings and ownership thresholds of
+	// the workflow.
+	Email string `json:"email"`
+
+	// Share of the company the party owns.
+	OwnershipPercent float64 `json:"ownership_percent"`
+
+	// Nationality of a person, or country of incorporation of a company. Required
+	// for every party.
+	Nationality string `json:"nationality"`
+	PhoneNumber string `json:"phone_number"`
+
+	// Workflow-defined extra fields.
+	CustomFields map[string]any `json:"custom_fields"`
+
+	// Ask to skip this party's verification. Honoured only when the party's role
+	// allows skipping in the workflow's Key People settings.
+	SkipVerification bool `json:"skip_verification"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsListKYBPartyDraftsResponsePartiesParty leniently.
+func (r *SessionsListKYBPartyDraftsResponsePartiesParty) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsListKYBPartyDraftsResponsePartiesPartyEntityType: Whether the party
+// is an individual or a company.
+//
+// SessionsListKYBPartyDraftsResponsePartiesPartyEntityType is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionsListKYBPartyDraftsResponsePartiesPartyEntityType string
+
+// Known values of SessionsListKYBPartyDraftsResponsePartiesPartyEntityType.
+const (
+	SessionsListKYBPartyDraftsResponsePartiesPartyEntityTypePerson  SessionsListKYBPartyDraftsResponsePartiesPartyEntityType = "person"
+	SessionsListKYBPartyDraftsResponsePartiesPartyEntityTypeCompany SessionsListKYBPartyDraftsResponsePartiesPartyEntityType = "company"
+)
+
+// SessionsListKYBPartyDraftsResponsePartiesPartyRole: Role the party holds.
+// Interchangeable with `roles`; when both are sent they are merged.
+//
+// SessionsListKYBPartyDraftsResponsePartiesPartyRole is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionsListKYBPartyDraftsResponsePartiesPartyRole string
+
+// Known values of SessionsListKYBPartyDraftsResponsePartiesPartyRole.
+const (
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleDirector             SessionsListKYBPartyDraftsResponsePartiesPartyRole = "director"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleNonExecutiveDirector SessionsListKYBPartyDraftsResponsePartiesPartyRole = "non_executive_director"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleSecretary            SessionsListKYBPartyDraftsResponsePartiesPartyRole = "secretary"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleChairman             SessionsListKYBPartyDraftsResponsePartiesPartyRole = "chairman"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleUBO                  SessionsListKYBPartyDraftsResponsePartiesPartyRole = "ubo"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleShareholder          SessionsListKYBPartyDraftsResponsePartiesPartyRole = "shareholder"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleRepresentative       SessionsListKYBPartyDraftsResponsePartiesPartyRole = "representative"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleFounder              SessionsListKYBPartyDraftsResponsePartiesPartyRole = "founder"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleLegalAdvisor         SessionsListKYBPartyDraftsResponsePartiesPartyRole = "legal_advisor"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleAuthorizedSignatory  SessionsListKYBPartyDraftsResponsePartiesPartyRole = "authorized_signatory"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleTrustee              SessionsListKYBPartyDraftsResponsePartiesPartyRole = "trustee"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleBeneficiary          SessionsListKYBPartyDraftsResponsePartiesPartyRole = "beneficiary"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleSettlor              SessionsListKYBPartyDraftsResponsePartiesPartyRole = "settlor"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleProtector            SessionsListKYBPartyDraftsResponsePartiesPartyRole = "protector"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleCompanyOfficer       SessionsListKYBPartyDraftsResponsePartiesPartyRole = "company_officer"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleInvestor             SessionsListKYBPartyDraftsResponsePartiesPartyRole = "investor"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRoleOther                SessionsListKYBPartyDraftsResponsePartiesPartyRole = "other"
+)
+
+// SessionsListKYBPartyDraftsResponsePartiesPartyRoles is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionsListKYBPartyDraftsResponsePartiesPartyRoles string
+
+// Known values of SessionsListKYBPartyDraftsResponsePartiesPartyRoles.
+const (
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesDirector             SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "director"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesNonExecutiveDirector SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "non_executive_director"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesSecretary            SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "secretary"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesChairman             SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "chairman"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesUBO                  SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "ubo"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesShareholder          SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "shareholder"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesRepresentative       SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "representative"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesFounder              SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "founder"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesLegalAdvisor         SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "legal_advisor"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesAuthorizedSignatory  SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "authorized_signatory"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesTrustee              SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "trustee"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesBeneficiary          SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "beneficiary"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesSettlor              SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "settlor"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesProtector            SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "protector"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesCompanyOfficer       SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "company_officer"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesInvestor             SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "investor"
+	SessionsListKYBPartyDraftsResponsePartiesPartyRolesOther                SessionsListKYBPartyDraftsResponsePartiesPartyRoles = "other"
+)
+
 // SessionsPreviewDecisionEmailParams holds the parameters of
 // Client.Sessions.PreviewDecisionEmail.
 type SessionsPreviewDecisionEmailParams struct {
@@ -12113,6 +14477,10 @@ type SessionsPreviewDecisionEmailResponse struct {
 	// The email's HTML exactly as it is sent, with its logo embedded as a data URL.
 	// Render it in a sandboxed frame, never directly in your application DOM.
 	HTML string `json:"html"`
+
+	// The email's words as plain text, as the person's Messages thread keeps them,
+	// for a compact preview (the HTML stays the email the person receives).
+	Text string `json:"text"`
 
 	// The language the email is written in. English (`en`) when the
 	// `email_language` you asked for is not offered.
@@ -12282,6 +14650,7 @@ const (
 	SessionsPreviewResubmissionParamsNodesToResubmitFeatureKYBRegistry        SessionsPreviewResubmissionParamsNodesToResubmitFeature = "KYB_REGISTRY"
 	SessionsPreviewResubmissionParamsNodesToResubmitFeatureKYBKeyPeople       SessionsPreviewResubmissionParamsNodesToResubmitFeature = "KYB_KEY_PEOPLE"
 	SessionsPreviewResubmissionParamsNodesToResubmitFeatureKYB                SessionsPreviewResubmissionParamsNodesToResubmitFeature = "KYB"
+	SessionsPreviewResubmissionParamsNodesToResubmitFeatureGeolocation        SessionsPreviewResubmissionParamsNodesToResubmitFeature = "GEOLOCATION"
 )
 
 // SessionsPreviewResubmissionResponse is a response object.
@@ -12317,6 +14686,10 @@ type SessionsPreviewResubmissionResponse struct {
 	// The email's HTML exactly as it is sent, with its logo embedded as a data URL.
 	// Render it in a sandboxed frame, never directly in your application DOM.
 	HTML string `json:"html"`
+
+	// The email's words as plain text, as the person's Messages thread keeps them,
+	// for a compact preview (the HTML stays the email the person receives).
+	Text string `json:"text"`
 
 	// The language the email is written in. English (`en`) when the
 	// `email_language` you asked for is not offered.
@@ -12468,6 +14841,7 @@ const (
 	SessionsPreviewResubmissionResponseNodesToResubmitFeatureKYBRegistry        SessionsPreviewResubmissionResponseNodesToResubmitFeature = "KYB_REGISTRY"
 	SessionsPreviewResubmissionResponseNodesToResubmitFeatureKYBKeyPeople       SessionsPreviewResubmissionResponseNodesToResubmitFeature = "KYB_KEY_PEOPLE"
 	SessionsPreviewResubmissionResponseNodesToResubmitFeatureKYB                SessionsPreviewResubmissionResponseNodesToResubmitFeature = "KYB"
+	SessionsPreviewResubmissionResponseNodesToResubmitFeatureGeolocation        SessionsPreviewResubmissionResponseNodesToResubmitFeature = "GEOLOCATION"
 )
 
 // KYBKeyPeopleParty: A Key People party of a Business Verification (KYB)
@@ -13062,10 +15436,55 @@ const (
 	SandboxSimulateResponseStatusAbandoned SandboxSimulateResponseStatus = "Abandoned"
 )
 
+// SessionsSubmitKYBPartiesParams holds the parameters of
+// Client.Sessions.SubmitKYBParties.
+type SessionsSubmitKYBPartiesParams struct {
+	// Locale used to translate the response of the step the session advances to.
+	Locale Opt[string] `json:"locale"`
+
+	// Workflow node of the KYB step. Only needed when the workflow has more than
+	// one KYB node; by default Didit uses the session's own node.
+	NodeID Opt[string] `json:"-" query:"node_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsSubmitKYBPartiesParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsSubmitKYBPartiesResponse is a response object.
+type SessionsSubmitKYBPartiesResponse struct {
+	Valid bool `json:"valid"`
+
+	// Step the session is on.
+	NextStep string `json:"next_step"`
+
+	// Status of the business session.
+	Status string `json:"status"`
+
+	// `true` when this call declared the parties and advanced the session.
+	Advanced bool `json:"advanced"`
+
+	// `true` when the parties had been declared by an earlier call.
+	AlreadySubmitted   bool                `json:"already_submitted"`
+	KYBKeyPeopleStatus string              `json:"kyb_key_people_status"`
+	Parties            []KYBKeyPeopleParty `json:"parties"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsSubmitKYBPartiesResponse leniently.
+func (r *SessionsSubmitKYBPartiesResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // SessionsUpdateAMLHitStatusParams holds the parameters of
 // Client.Sessions.UpdateAMLHitStatus.
 type SessionsUpdateAMLHitStatusParams struct {
-	// The `id` of the hit in the AML check's `hits` array. Required.
+	// The `id` of the hit in the AML check's `hits` array (`hit_...`). A hit id
+	// returned in the earlier format is still accepted. Required.
 	HitID string `json:"hit_id"`
 
 	// The new review status for the hit. Required.
@@ -13105,7 +15524,8 @@ type SessionsUpdateAMLHitStatusResponse struct {
 	// Always `Hit status updated successfully`.
 	Message string `json:"message"`
 
-	// The updated hit, with surrounding whitespace removed.
+	// The `id` of the updated hit, as the session decision returns it, also when
+	// the request named the hit by an id in the earlier format.
 	HitID string `json:"hit_id"`
 
 	// The review status now stored on the hit.
@@ -14020,12 +16440,8 @@ type SessionsUpdateKYBCompanyDataResponse struct {
 	// Registry filing dates, when available. Annual returns and general meetings
 	// use last_annual_return_date and last_agm_date; they are distinct from
 	// financial accounts.
-	Accounts map[string]any `json:"accounts"`
-
-	// Raw registry payload snapshot. Every key you PATCH is merged into this map
-	// (dates serialized as ISO strings), so the "extracted from registry" view
-	// reflects operator corrections.
-	RegistryData map[string]any `json:"registry_data"`
+	Accounts     map[string]any  `json:"accounts"`
+	RegistryData KYBRegistryData `json:"registry_data"`
 
 	// What the end user typed during the hosted registry-confirmation step. Never
 	// modified by this endpoint.
@@ -14167,6 +16583,273 @@ type SessionsUpdateKYBPartyResponseEntityType string
 const (
 	SessionsUpdateKYBPartyResponseEntityTypePerson  SessionsUpdateKYBPartyResponseEntityType = "person"
 	SessionsUpdateKYBPartyResponseEntityTypeCompany SessionsUpdateKYBPartyResponseEntityType = "company"
+)
+
+// SessionsUpdateKYBPartyDraftParams holds the parameters of
+// Client.Sessions.UpdateKYBPartyDraft.
+type SessionsUpdateKYBPartyDraftParams struct {
+	// Whether the party is an individual or a company.
+	EntityType Opt[SessionsUpdateKYBPartyDraftParamsEntityType] `json:"entity_type"`
+
+	// Full name of a person. Send it, or `first_name` and `last_name`.
+	FullName  Opt[string] `json:"full_name"`
+	FirstName Opt[string] `json:"first_name"`
+	LastName  Opt[string] `json:"last_name"`
+
+	// Role the party holds. Interchangeable with `roles`; when both are sent they
+	// are merged.
+	Role Opt[SessionsUpdateKYBPartyDraftParamsRole] `json:"role"`
+
+	// Every role the party holds. A person needs at least one role (here or in
+	// `role`).
+	Roles Opt[[]SessionsUpdateKYBPartyDraftParamsRoles] `json:"roles"`
+
+	// Job title of a person.
+	Position    Opt[string] `json:"position"`
+	DateOfBirth Opt[string] `json:"date_of_birth"`
+
+	// Name of a company party. Required when `entity_type` is `company`.
+	CompanyName Opt[string] `json:"company_name"`
+
+	// Registration number of a company party.
+	RegistrationNumber Opt[string] `json:"registration_number"`
+
+	// Where the verification link is sent. Required when the party has to complete
+	// verification, which depends on the role settings and ownership thresholds of
+	// the workflow.
+	Email Opt[string] `json:"email"`
+
+	// Share of the company the party owns.
+	OwnershipPercent Opt[float64] `json:"ownership_percent"`
+
+	// Nationality of a person, or country of incorporation of a company. Required
+	// for every party.
+	Nationality Opt[string] `json:"nationality"`
+	PhoneNumber Opt[string] `json:"phone_number"`
+
+	// Workflow-defined extra fields.
+	CustomFields Opt[map[string]any] `json:"custom_fields"`
+
+	// Ask to skip this party's verification. Honoured only when the party's role
+	// allows skipping in the workflow's Key People settings.
+	SkipVerification Opt[bool] `json:"skip_verification"`
+
+	// Workflow node of the KYB step. Only needed when the workflow has more than
+	// one KYB node; by default Didit uses the session's own node.
+	NodeID Opt[string] `json:"-" query:"node_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsUpdateKYBPartyDraftParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsUpdateKYBPartyDraftParamsEntityType: Whether the party is an
+// individual or a company.
+//
+// SessionsUpdateKYBPartyDraftParamsEntityType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsUpdateKYBPartyDraftParamsEntityType string
+
+// Known values of SessionsUpdateKYBPartyDraftParamsEntityType.
+const (
+	SessionsUpdateKYBPartyDraftParamsEntityTypePerson  SessionsUpdateKYBPartyDraftParamsEntityType = "person"
+	SessionsUpdateKYBPartyDraftParamsEntityTypeCompany SessionsUpdateKYBPartyDraftParamsEntityType = "company"
+)
+
+// SessionsUpdateKYBPartyDraftParamsRole: Role the party holds. Interchangeable
+// with `roles`; when both are sent they are merged.
+//
+// SessionsUpdateKYBPartyDraftParamsRole is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsUpdateKYBPartyDraftParamsRole string
+
+// Known values of SessionsUpdateKYBPartyDraftParamsRole.
+const (
+	SessionsUpdateKYBPartyDraftParamsRoleDirector             SessionsUpdateKYBPartyDraftParamsRole = "director"
+	SessionsUpdateKYBPartyDraftParamsRoleNonExecutiveDirector SessionsUpdateKYBPartyDraftParamsRole = "non_executive_director"
+	SessionsUpdateKYBPartyDraftParamsRoleSecretary            SessionsUpdateKYBPartyDraftParamsRole = "secretary"
+	SessionsUpdateKYBPartyDraftParamsRoleChairman             SessionsUpdateKYBPartyDraftParamsRole = "chairman"
+	SessionsUpdateKYBPartyDraftParamsRoleUBO                  SessionsUpdateKYBPartyDraftParamsRole = "ubo"
+	SessionsUpdateKYBPartyDraftParamsRoleShareholder          SessionsUpdateKYBPartyDraftParamsRole = "shareholder"
+	SessionsUpdateKYBPartyDraftParamsRoleRepresentative       SessionsUpdateKYBPartyDraftParamsRole = "representative"
+	SessionsUpdateKYBPartyDraftParamsRoleFounder              SessionsUpdateKYBPartyDraftParamsRole = "founder"
+	SessionsUpdateKYBPartyDraftParamsRoleLegalAdvisor         SessionsUpdateKYBPartyDraftParamsRole = "legal_advisor"
+	SessionsUpdateKYBPartyDraftParamsRoleAuthorizedSignatory  SessionsUpdateKYBPartyDraftParamsRole = "authorized_signatory"
+	SessionsUpdateKYBPartyDraftParamsRoleTrustee              SessionsUpdateKYBPartyDraftParamsRole = "trustee"
+	SessionsUpdateKYBPartyDraftParamsRoleBeneficiary          SessionsUpdateKYBPartyDraftParamsRole = "beneficiary"
+	SessionsUpdateKYBPartyDraftParamsRoleSettlor              SessionsUpdateKYBPartyDraftParamsRole = "settlor"
+	SessionsUpdateKYBPartyDraftParamsRoleProtector            SessionsUpdateKYBPartyDraftParamsRole = "protector"
+	SessionsUpdateKYBPartyDraftParamsRoleCompanyOfficer       SessionsUpdateKYBPartyDraftParamsRole = "company_officer"
+	SessionsUpdateKYBPartyDraftParamsRoleInvestor             SessionsUpdateKYBPartyDraftParamsRole = "investor"
+	SessionsUpdateKYBPartyDraftParamsRoleOther                SessionsUpdateKYBPartyDraftParamsRole = "other"
+)
+
+// SessionsUpdateKYBPartyDraftParamsRoles is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type SessionsUpdateKYBPartyDraftParamsRoles string
+
+// Known values of SessionsUpdateKYBPartyDraftParamsRoles.
+const (
+	SessionsUpdateKYBPartyDraftParamsRolesDirector             SessionsUpdateKYBPartyDraftParamsRoles = "director"
+	SessionsUpdateKYBPartyDraftParamsRolesNonExecutiveDirector SessionsUpdateKYBPartyDraftParamsRoles = "non_executive_director"
+	SessionsUpdateKYBPartyDraftParamsRolesSecretary            SessionsUpdateKYBPartyDraftParamsRoles = "secretary"
+	SessionsUpdateKYBPartyDraftParamsRolesChairman             SessionsUpdateKYBPartyDraftParamsRoles = "chairman"
+	SessionsUpdateKYBPartyDraftParamsRolesUBO                  SessionsUpdateKYBPartyDraftParamsRoles = "ubo"
+	SessionsUpdateKYBPartyDraftParamsRolesShareholder          SessionsUpdateKYBPartyDraftParamsRoles = "shareholder"
+	SessionsUpdateKYBPartyDraftParamsRolesRepresentative       SessionsUpdateKYBPartyDraftParamsRoles = "representative"
+	SessionsUpdateKYBPartyDraftParamsRolesFounder              SessionsUpdateKYBPartyDraftParamsRoles = "founder"
+	SessionsUpdateKYBPartyDraftParamsRolesLegalAdvisor         SessionsUpdateKYBPartyDraftParamsRoles = "legal_advisor"
+	SessionsUpdateKYBPartyDraftParamsRolesAuthorizedSignatory  SessionsUpdateKYBPartyDraftParamsRoles = "authorized_signatory"
+	SessionsUpdateKYBPartyDraftParamsRolesTrustee              SessionsUpdateKYBPartyDraftParamsRoles = "trustee"
+	SessionsUpdateKYBPartyDraftParamsRolesBeneficiary          SessionsUpdateKYBPartyDraftParamsRoles = "beneficiary"
+	SessionsUpdateKYBPartyDraftParamsRolesSettlor              SessionsUpdateKYBPartyDraftParamsRoles = "settlor"
+	SessionsUpdateKYBPartyDraftParamsRolesProtector            SessionsUpdateKYBPartyDraftParamsRoles = "protector"
+	SessionsUpdateKYBPartyDraftParamsRolesCompanyOfficer       SessionsUpdateKYBPartyDraftParamsRoles = "company_officer"
+	SessionsUpdateKYBPartyDraftParamsRolesInvestor             SessionsUpdateKYBPartyDraftParamsRoles = "investor"
+	SessionsUpdateKYBPartyDraftParamsRolesOther                SessionsUpdateKYBPartyDraftParamsRoles = "other"
+)
+
+// SessionsUpdateKYBPartyDraftResponse is a response object.
+type SessionsUpdateKYBPartyDraftResponse struct {
+	DraftID   string                                   `json:"draft_id"`
+	CreatedAt time.Time                                `json:"created_at"`
+	UpdatedAt time.Time                                `json:"updated_at"`
+	Party     SessionsUpdateKYBPartyDraftResponseParty `json:"party"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsUpdateKYBPartyDraftResponse leniently.
+func (r *SessionsUpdateKYBPartyDraftResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsUpdateKYBPartyDraftResponseParty is a response object.
+type SessionsUpdateKYBPartyDraftResponseParty struct {
+	// Whether the party is an individual or a company.
+	EntityType SessionsUpdateKYBPartyDraftResponsePartyEntityType `json:"entity_type"`
+
+	// Full name of a person. Send it, or `first_name` and `last_name`.
+	FullName  string `json:"full_name"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+
+	// Role the party holds. Interchangeable with `roles`; when both are sent they
+	// are merged.
+	Role SessionsUpdateKYBPartyDraftResponsePartyRole `json:"role"`
+
+	// Every role the party holds. A person needs at least one role (here or in
+	// `role`).
+	Roles []SessionsUpdateKYBPartyDraftResponsePartyRoles `json:"roles"`
+
+	// Job title of a person.
+	Position    string `json:"position"`
+	DateOfBirth string `json:"date_of_birth"`
+
+	// Name of a company party. Required when `entity_type` is `company`.
+	CompanyName string `json:"company_name"`
+
+	// Registration number of a company party.
+	RegistrationNumber string `json:"registration_number"`
+
+	// Where the verification link is sent. Required when the party has to complete
+	// verification, which depends on the role settings and ownership thresholds of
+	// the workflow.
+	Email string `json:"email"`
+
+	// Share of the company the party owns.
+	OwnershipPercent float64 `json:"ownership_percent"`
+
+	// Nationality of a person, or country of incorporation of a company. Required
+	// for every party.
+	Nationality string `json:"nationality"`
+	PhoneNumber string `json:"phone_number"`
+
+	// Workflow-defined extra fields.
+	CustomFields map[string]any `json:"custom_fields"`
+
+	// Ask to skip this party's verification. Honoured only when the party's role
+	// allows skipping in the workflow's Key People settings.
+	SkipVerification bool `json:"skip_verification"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsUpdateKYBPartyDraftResponseParty leniently.
+func (r *SessionsUpdateKYBPartyDraftResponseParty) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsUpdateKYBPartyDraftResponsePartyEntityType: Whether the party is an
+// individual or a company.
+//
+// SessionsUpdateKYBPartyDraftResponsePartyEntityType is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type SessionsUpdateKYBPartyDraftResponsePartyEntityType string
+
+// Known values of SessionsUpdateKYBPartyDraftResponsePartyEntityType.
+const (
+	SessionsUpdateKYBPartyDraftResponsePartyEntityTypePerson  SessionsUpdateKYBPartyDraftResponsePartyEntityType = "person"
+	SessionsUpdateKYBPartyDraftResponsePartyEntityTypeCompany SessionsUpdateKYBPartyDraftResponsePartyEntityType = "company"
+)
+
+// SessionsUpdateKYBPartyDraftResponsePartyRole: Role the party holds.
+// Interchangeable with `roles`; when both are sent they are merged.
+//
+// SessionsUpdateKYBPartyDraftResponsePartyRole is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsUpdateKYBPartyDraftResponsePartyRole string
+
+// Known values of SessionsUpdateKYBPartyDraftResponsePartyRole.
+const (
+	SessionsUpdateKYBPartyDraftResponsePartyRoleDirector             SessionsUpdateKYBPartyDraftResponsePartyRole = "director"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleNonExecutiveDirector SessionsUpdateKYBPartyDraftResponsePartyRole = "non_executive_director"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleSecretary            SessionsUpdateKYBPartyDraftResponsePartyRole = "secretary"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleChairman             SessionsUpdateKYBPartyDraftResponsePartyRole = "chairman"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleUBO                  SessionsUpdateKYBPartyDraftResponsePartyRole = "ubo"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleShareholder          SessionsUpdateKYBPartyDraftResponsePartyRole = "shareholder"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleRepresentative       SessionsUpdateKYBPartyDraftResponsePartyRole = "representative"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleFounder              SessionsUpdateKYBPartyDraftResponsePartyRole = "founder"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleLegalAdvisor         SessionsUpdateKYBPartyDraftResponsePartyRole = "legal_advisor"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleAuthorizedSignatory  SessionsUpdateKYBPartyDraftResponsePartyRole = "authorized_signatory"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleTrustee              SessionsUpdateKYBPartyDraftResponsePartyRole = "trustee"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleBeneficiary          SessionsUpdateKYBPartyDraftResponsePartyRole = "beneficiary"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleSettlor              SessionsUpdateKYBPartyDraftResponsePartyRole = "settlor"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleProtector            SessionsUpdateKYBPartyDraftResponsePartyRole = "protector"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleCompanyOfficer       SessionsUpdateKYBPartyDraftResponsePartyRole = "company_officer"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleInvestor             SessionsUpdateKYBPartyDraftResponsePartyRole = "investor"
+	SessionsUpdateKYBPartyDraftResponsePartyRoleOther                SessionsUpdateKYBPartyDraftResponsePartyRole = "other"
+)
+
+// SessionsUpdateKYBPartyDraftResponsePartyRoles is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsUpdateKYBPartyDraftResponsePartyRoles string
+
+// Known values of SessionsUpdateKYBPartyDraftResponsePartyRoles.
+const (
+	SessionsUpdateKYBPartyDraftResponsePartyRolesDirector             SessionsUpdateKYBPartyDraftResponsePartyRoles = "director"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesNonExecutiveDirector SessionsUpdateKYBPartyDraftResponsePartyRoles = "non_executive_director"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesSecretary            SessionsUpdateKYBPartyDraftResponsePartyRoles = "secretary"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesChairman             SessionsUpdateKYBPartyDraftResponsePartyRoles = "chairman"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesUBO                  SessionsUpdateKYBPartyDraftResponsePartyRoles = "ubo"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesShareholder          SessionsUpdateKYBPartyDraftResponsePartyRoles = "shareholder"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesRepresentative       SessionsUpdateKYBPartyDraftResponsePartyRoles = "representative"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesFounder              SessionsUpdateKYBPartyDraftResponsePartyRoles = "founder"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesLegalAdvisor         SessionsUpdateKYBPartyDraftResponsePartyRoles = "legal_advisor"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesAuthorizedSignatory  SessionsUpdateKYBPartyDraftResponsePartyRoles = "authorized_signatory"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesTrustee              SessionsUpdateKYBPartyDraftResponsePartyRoles = "trustee"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesBeneficiary          SessionsUpdateKYBPartyDraftResponsePartyRoles = "beneficiary"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesSettlor              SessionsUpdateKYBPartyDraftResponsePartyRoles = "settlor"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesProtector            SessionsUpdateKYBPartyDraftResponsePartyRoles = "protector"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesCompanyOfficer       SessionsUpdateKYBPartyDraftResponsePartyRoles = "company_officer"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesInvestor             SessionsUpdateKYBPartyDraftResponsePartyRoles = "investor"
+	SessionsUpdateKYBPartyDraftResponsePartyRolesOther                SessionsUpdateKYBPartyDraftResponsePartyRoles = "other"
 )
 
 // SessionsUpdatePOADataParams holds the parameters of
@@ -14519,6 +17202,7 @@ const (
 	SessionsUpdateStatusParamsNodesToResubmitFeatureKYBRegistry        SessionsUpdateStatusParamsNodesToResubmitFeature = "KYB_REGISTRY"
 	SessionsUpdateStatusParamsNodesToResubmitFeatureKYBKeyPeople       SessionsUpdateStatusParamsNodesToResubmitFeature = "KYB_KEY_PEOPLE"
 	SessionsUpdateStatusParamsNodesToResubmitFeatureKYB                SessionsUpdateStatusParamsNodesToResubmitFeature = "KYB"
+	SessionsUpdateStatusParamsNodesToResubmitFeatureGeolocation        SessionsUpdateStatusParamsNodesToResubmitFeature = "GEOLOCATION"
 )
 
 // SessionsUpdateStatusResponse is a response object.
@@ -14533,6 +17217,71 @@ type SessionsUpdateStatusResponse struct {
 
 // UnmarshalJSON decodes SessionsUpdateStatusResponse leniently.
 func (r *SessionsUpdateStatusResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionsUploadKYBDocumentsParams holds the parameters of
+// Client.Sessions.UploadKYBDocuments.
+type SessionsUploadKYBDocumentsParams struct {
+	// Files to upload: JPG, JPEG, PNG, TIFF, WEBP, PDF or ZIP archives of them.
+	// PDFs up to 50 MB, photos up to 6 MB before compression. Required.
+	Documents []File `json:"documents"`
+
+	// One entry per file in `documents`, in the same order: the password of a
+	// protected PDF, empty for any other file.
+	DocumentPasswords Opt[[]string] `json:"document_passwords"`
+
+	// Required document group this upload answers.
+	DocumentGroup Opt[SessionsUploadKYBDocumentsParamsDocumentGroup] `json:"document_group"`
+
+	// Locale used to translate the response of the next step.
+	Locale Opt[string] `json:"locale"`
+
+	// Workflow node of the KYB step. Only needed when the workflow has more than
+	// one KYB node; by default Didit uses the session's own node.
+	NodeID Opt[string] `json:"-" query:"node_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsUploadKYBDocumentsParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsUploadKYBDocumentsParamsDocumentGroup: Required document group this
+// upload answers.
+//
+// SessionsUploadKYBDocumentsParamsDocumentGroup is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SessionsUploadKYBDocumentsParamsDocumentGroup string
+
+// Known values of SessionsUploadKYBDocumentsParamsDocumentGroup.
+const (
+	SessionsUploadKYBDocumentsParamsDocumentGroupLegalPresence                SessionsUploadKYBDocumentsParamsDocumentGroup = "LEGAL_PRESENCE"
+	SessionsUploadKYBDocumentsParamsDocumentGroupCompanyDetails               SessionsUploadKYBDocumentsParamsDocumentGroup = "COMPANY_DETAILS"
+	SessionsUploadKYBDocumentsParamsDocumentGroupOwnershipStructure           SessionsUploadKYBDocumentsParamsDocumentGroup = "OWNERSHIP_STRUCTURE"
+	SessionsUploadKYBDocumentsParamsDocumentGroupRepresentativesAuthorization SessionsUploadKYBDocumentsParamsDocumentGroup = "REPRESENTATIVES_AUTHORIZATION"
+)
+
+// SessionsUploadKYBDocumentsResponse is a response object.
+type SessionsUploadKYBDocumentsResponse struct {
+	Valid bool `json:"valid"`
+
+	// Step the session is on after the upload.
+	NextStep string `json:"next_step"`
+
+	// Status of the company check.
+	KYBStatus string `json:"kyb_status"`
+
+	// Result per uploaded document and the uploads left.
+	DocumentAnswer map[string]any `json:"document_answer"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionsUploadKYBDocumentsResponse leniently.
+func (r *SessionsUploadKYBDocumentsResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 

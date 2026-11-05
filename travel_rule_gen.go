@@ -18,6 +18,7 @@ type TravelRuleService struct {
 	CounterpartyContacts *TravelRuleCounterpartyContactsService
 	Networks             *TravelRuleNetworksService
 	Transfers            *TravelRuleTransfersService
+	UnmatchedDeposits    *TravelRuleUnmatchedDepositsService
 	WalletAddresses      *TravelRuleWalletAddressesService
 	WalletProofs         *TravelRuleWalletProofsService
 	Workspace            *TravelRuleWorkspaceService
@@ -432,6 +433,60 @@ func (r *TravelRuleTransfersService) ListAutoPaging(ctx context.Context, params 
 	return newPageIterator(ctx, func() (*Page[TravelRuleTransferRow], error) {
 		return r.List(ctx, params, opts...)
 	})
+}
+
+// TravelRuleUnmatchedDepositsService holds the travel_rule unmatched_deposits
+// operations. Use it through Client.TravelRule.UnmatchedDeposits.
+type TravelRuleUnmatchedDepositsService struct {
+	client *Client
+}
+
+// List: List unmatched Travel Rule deposits.
+//
+// Inbound deposits that are still waiting for the originating VASP's Travel
+// Rule data: their transfer is `AWAITING_COUNTERPARTY`,
+// `NOT_ENOUGH_COUNTERPARTY_DATA` or `COUNTERPARTY_VASP_NOT_FOUND`, no received
+// message is paired with them, and nobody matched them by hand. The rows and
+// the filters are the same as in `GET /v3/travel-rule/transfers/`, newest
+// first, paginated with `limit` (default 50) and `offset`. Pair a deposit with
+// the message the originating VASP sent with `POST
+// /v3/travel-rule/unmatched/{transaction_uuid}/match/`.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/travel-rule/unmatched/
+func (r *TravelRuleUnmatchedDepositsService) List(ctx context.Context, params TravelRuleUnmatchedDepositsListParams, opts ...option.RequestOption) (*Page[TravelRuleTransferRow], error) {
+	return getPage[TravelRuleTransferRow](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/unmatched/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *TravelRuleUnmatchedDepositsService) ListAutoPaging(ctx context.Context, params TravelRuleUnmatchedDepositsListParams, opts ...option.RequestOption) *PageIterator[TravelRuleTransferRow] {
+	return newPageIterator(ctx, func() (*Page[TravelRuleTransferRow], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Match: Match a Travel Rule deposit to a received message.
+//
+// Pair an inbound deposit that is still waiting for originator data with the
+// Travel Rule message the originating VASP sent for it. The deposit takes the
+// message's originator data, counterparty VASP and rail, and both transfers
+// record the match on their timelines. `transaction_uuid` is the deposit's
+// `transaction_id` from `GET /v3/travel-rule/unmatched/`. `transaction_id` in
+// the body is the received message's `transaction_id`, from a row of `GET
+// /v3/travel-rule/transfers/?kind=message`; the transfer's own `id` is not
+// found. The message must be for the same asset as the deposit. A deposit or
+// message deleted from the Console answers `404`; one that has already moved on
+// (matched, or no longer waiting) answers `409`.
+//
+//	POST /v3/travel-rule/unmatched/{transaction_uuid}/match/
+func (r *TravelRuleUnmatchedDepositsService) Match(ctx context.Context, transactionUUID string, params TravelRuleManualMatchRequest, opts ...option.RequestOption) (*TravelRuleManualMatchResponse, error) {
+	res := new(TravelRuleManualMatchResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/unmatched/{transaction_uuid}/match/", pathParams: []string{"transaction_uuid", transactionUUID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // TravelRuleWalletAddressesService holds the travel_rule wallet_addresses
@@ -3737,6 +3792,75 @@ const (
 	TravelRuleTransferRowBeneficiaryWalletTypeSelfHosted TravelRuleTransferRowBeneficiaryWalletType = "self_hosted"
 	TravelRuleTransferRowBeneficiaryWalletTypeOwn        TravelRuleTransferRowBeneficiaryWalletType = "own"
 )
+
+// TravelRuleUnmatchedDepositsListParams holds the parameters of
+// Client.TravelRule.UnmatchedDeposits.List.
+type TravelRuleUnmatchedDepositsListParams struct {
+	// INBOUND, OUTBOUND, or both comma-separated. Case-sensitive.
+	Direction Opt[string] `json:"-" query:"direction"`
+
+	// One or more transfer statuses, comma-separated.
+	Status Opt[string] `json:"-" query:"status"`
+
+	// One or more of INTERNAL, TRP, GTR, TRUST, VERIFYVASP, SYGNA, EMAIL,
+	// TEST_VASP, comma-separated.
+	Rail Opt[string] `json:"-" query:"rail"`
+
+	// withdrawal, deposit or message, comma-separated.
+	Kind Opt[string] `json:"-" query:"kind"`
+
+	// The transaction's currency, case-insensitive.
+	Currency Opt[string] `json:"-" query:"currency"`
+
+	// Transfers created on or after this day (UTC), YYYY-MM-DD.
+	StartDate Opt[string] `json:"-" query:"start_date"`
+
+	// Transfers created on or before this day (UTC), YYYY-MM-DD.
+	EndDate Opt[string] `json:"-" query:"end_date"`
+
+	// The `id` of a directory entry or Didit network member from GET
+	// /v3/travel-rule/vasps/: your transfers with that counterparty. A value that
+	// is not a valid id answers 400.
+	Counterparty Opt[string] `json:"-" query:"counterparty"`
+
+	// Page size, default 50.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Rows to skip.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleUnmatchedDepositsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleManualMatchRequest is a request object.
+type TravelRuleManualMatchRequest struct {
+	// The `transaction_id` of the received Travel Rule message (a row with `kind:
+	// message`). Required.
+	TransactionID string `json:"transaction_id"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleManualMatchRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleManualMatchResponse is a response object.
+type TravelRuleManualMatchResponse struct {
+	Deposit TravelRuleTransferRow `json:"deposit"`
+	Message TravelRuleTransferRow `json:"message"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleManualMatchResponse leniently.
+func (r *TravelRuleManualMatchResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // TravelRuleWalletAddressesBulkImportParams holds the parameters of
 // Client.TravelRule.WalletAddresses.BulkImport.

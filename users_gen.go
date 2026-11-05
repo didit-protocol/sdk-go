@@ -28,12 +28,15 @@ type UsersService struct {
 // are not refused and not applied, so with `delete_all: true` they still delete
 // every user; do not send them.
 //
-// **Biometric templates:** every image-free biometric template retained for
-// these users after session deletion (see `/v3/biometric-templates/`) is purged
-// before the user is deleted, so the person stops matching in duplicate
-// detection and Face Search. If a template cannot be purged because a biometric
-// store is unavailable, the call returns `503`, no user in the request is
-// deleted, and repeating the request finishes the job.
+// **Biometric templates:** unless you set `retain_face_embeddings` to `true`,
+// every image-free biometric template retained for these users after session
+// deletion (see `/v3/biometric-templates/`) is purged before the user is
+// deleted, so the person stops matching in duplicate detection and Face Search.
+// With `retain_face_embeddings: true` and `face_retention_days`, you choose to
+// keep one image-free biometric template per person for that many days, and
+// nothing else about the person is kept. If a template cannot be purged because
+// a biometric store is unavailable, the call returns `503`, no user in the
+// request is deleted, and repeating the request finishes the job.
 //
 // **Filed regulatory reports:** if the selected data is in a finalized
 // regulatory report, the whole request is refused with `409` and nothing is
@@ -329,6 +332,17 @@ type UsersBatchDeleteParams struct {
 
 	// If `true`, deletes every user in the application.
 	DeleteAll Opt[bool] `json:"delete_all"`
+
+	// Your explicit choice to keep one image-free biometric template of each
+	// deleted person for duplicate detection, for `face_retention_days`. Everything
+	// else about the person is deleted. Omit it, or send `false`, to delete the
+	// templates with the users. When `true`, `face_retention_days` is required.
+	RetainFaceEmbeddings Opt[bool] `json:"retain_face_embeddings"`
+
+	// Number of days the image-free biometric template is kept when
+	// `retain_face_embeddings` is `true`. Required with it, and rejected without it
+	// with a `400` on `face_retention_days`.
+	FaceRetentionDays Opt[int64] `json:"face_retention_days"`
 }
 
 // MarshalJSON encodes the fields that are set.

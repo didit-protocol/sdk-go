@@ -5,6 +5,7 @@ package didit
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/didit-protocol/sdk-go/option"
 )
@@ -42,6 +43,31 @@ type AnalyticsService struct {
 func (r *AnalyticsService) Retrieve(ctx context.Context, params AnalyticsRetrieveParams, opts ...option.RequestOption) (*AnalyticsRetrieveResponse, error) {
 	res := new(AnalyticsRetrieveResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/analytics/", appScope: true, params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// RetrieveToday: Get today's verifications by hour.
+//
+// Today's user verification (KYC) sessions, from local midnight in `tz`,
+// counted per local hour they were created in, next to the same hours of the
+// same weekday one week before, and split by the outcome each one holds now:
+// approved, in review or declined. This is the volume card of the Business
+// Console's Home.
+//
+// `total` is today so far. `previous_total_so_far` counts the comparison day
+// only up to the same local time, so a change between them compares the same
+// part of both days. The hours still to come today are `0`. A day on which the
+// clocks change has 23 or 25 hours: the missing hour stays `0` and the repeated
+// hour holds both.
+//
+// The organization and application ids come from the client options.
+//
+//	GET /v3/organization/{organization_id}/application/{application_id}/analytics/today/
+func (r *AnalyticsService) RetrieveToday(ctx context.Context, params AnalyticsRetrieveTodayParams, opts ...option.RequestOption) (*ApplicationAnalyticsToday, error) {
+	res := new(ApplicationAnalyticsToday)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/analytics/today/", appScope: true, params: params}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -907,5 +933,77 @@ type ApplicationAnalyticsWidgetSearch struct {
 
 // UnmarshalJSON decodes ApplicationAnalyticsWidgetSearch leniently.
 func (r *ApplicationAnalyticsWidgetSearch) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AnalyticsRetrieveTodayParams holds the parameters of
+// Client.Analytics.RetrieveToday.
+type AnalyticsRetrieveTodayParams struct {
+	// IANA time zone whose midnight starts today, for example `Europe/Madrid` or
+	// `America/Mexico_City`. Omit it for UTC.
+	Tz Opt[string] `json:"-" query:"tz"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r AnalyticsRetrieveTodayParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// ApplicationAnalyticsToday: Today's verifications by local hour against the
+// same weekday last week.
+type ApplicationAnalyticsToday struct {
+	// The IANA time zone the day and its hours are in.
+	TimeZone string `json:"time_zone"`
+
+	// Today in that time zone.
+	Date string `json:"date"`
+
+	// The local hour it is now.
+	CurrentHour int64 `json:"current_hour"`
+
+	// The comparison day: the same weekday one week before.
+	PreviousDate string `json:"previous_date"`
+
+	// Verifications created today, per local hour from 00:00. The hours still to
+	// come are 0.
+	Hours []int64 `json:"hours"`
+
+	// Verifications created on the comparison day, per local hour from 00:00.
+	PreviousHours []int64 `json:"previous_hours"`
+
+	// Verifications created today so far.
+	Total int64 `json:"total"`
+
+	// Verifications created on the comparison day up to the same local time.
+	PreviousTotalSoFar int64 `json:"previous_total_so_far"`
+
+	// Of today's verifications, how many are approved, waiting in review and
+	// declined now. The rest are not finished yet.
+	Outcomes ApplicationAnalyticsTodayOutcomes `json:"outcomes"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ApplicationAnalyticsToday leniently.
+func (r *ApplicationAnalyticsToday) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ApplicationAnalyticsTodayOutcomes: Of today's verifications, how many are
+// approved, waiting in review and declined now. The rest are not finished yet.
+type ApplicationAnalyticsTodayOutcomes struct {
+	Approved int64 `json:"approved"`
+	InReview int64 `json:"in_review"`
+	Declined int64 `json:"declined"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ApplicationAnalyticsTodayOutcomes leniently.
+func (r *ApplicationAnalyticsTodayOutcomes) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }

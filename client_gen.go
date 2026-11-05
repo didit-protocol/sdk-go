@@ -116,6 +116,7 @@ func (c *Client) init() {
 	c.TravelRule.CounterpartyContacts = &TravelRuleCounterpartyContactsService{client: c}
 	c.TravelRule.Networks = &TravelRuleNetworksService{client: c}
 	c.TravelRule.Transfers = &TravelRuleTransfersService{client: c}
+	c.TravelRule.UnmatchedDeposits = &TravelRuleUnmatchedDepositsService{client: c}
 	c.TravelRule.WalletAddresses = &TravelRuleWalletAddressesService{client: c}
 	c.TravelRule.WalletProofs = &TravelRuleWalletProofsService{client: c}
 	c.TravelRule.Workspace = &TravelRuleWorkspaceService{client: c}

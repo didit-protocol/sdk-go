@@ -320,6 +320,13 @@ type WebhookConfig struct {
 	// `/v3/webhook/destinations/` endpoints.
 	Endpoints []WebhookConfigDestination `json:"endpoints"`
 
+	// Origins (for example `https://app.example.com`; `http` only for `localhost`)
+	// the hosted verification flow may be embedded in and may send the user back to
+	// with a session callback. Server-to-server calls are not affected. An empty
+	// list means no restriction. Didit stores each origin in lower case without a
+	// default port. An invalid entry fails with `400` on `allowed_domains`.
+	AllowedDomains []string `json:"allowed_domains"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -519,6 +526,15 @@ type WebhooksUpdateConfigParams struct {
 	// only, such as `shop.example.com`: no scheme, port, path or wildcard. Values
 	// are lowercased and duplicates are dropped. Send `[]` to clear the list.
 	AllowedReturnHosts Opt[[]string] `json:"allowed_return_hosts"`
+
+	// Replaces the whole list of allowed origins. Origins (for example
+	// `https://app.example.com`; `http` only for `localhost`) the hosted
+	// verification flow may be embedded in and may send the user back to with a
+	// session callback. Server-to-server calls are not affected. An empty list
+	// means no restriction. Didit stores each origin in lower case without a
+	// default port. An invalid entry fails with `400` on `allowed_domains`. Send
+	// `[]` to remove the restriction.
+	AllowedDomains Opt[[]string] `json:"allowed_domains"`
 }
 
 // MarshalJSON encodes the fields that are set.

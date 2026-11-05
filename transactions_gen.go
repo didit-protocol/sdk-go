@@ -722,7 +722,8 @@ type TransactionsCreateParamsTransactionDetails struct {
 	// Transaction amount (up to 18 decimal places). Send it as a decimal string
 	// (e.g. `"0.123456789012345678"`) when exact precision matters: a JSON number
 	// is parsed as a binary float first, so digits beyond about 15 significant
-	// digits are rounded before the amount is stored. Required.
+	// digits are rounded before the amount is stored. Must be zero or greater: the
+	// direction carries the sign, and a negative amount returns `400`. Required.
 	Amount float64 `json:"amount"`
 
 	// Currency code. Any ISO 4217 alphabetic code is accepted (e.g. `EUR`, `USD`,
@@ -738,7 +739,7 @@ type TransactionsCreateParamsTransactionDetails struct {
 	CurrencyKind Opt[string] `json:"currency_kind"`
 
 	// Pre-converted amount in the default currency. If omitted, automatic FX
-	// conversion is attempted.
+	// conversion is attempted. Must be zero or greater.
 	AmountInDefaultCurrency Opt[float64] `json:"amount_in_default_currency"`
 
 	// The default currency code for the converted amount. Any currently-circulating
@@ -789,18 +790,21 @@ const (
 // token symbol does not guarantee transaction-hash coverage for its contract.
 type TransactionsCreateParamsTransactionDetailsCryptoParams struct {
 	// Actual network used for screening. Managed screening supports BTC, ETH, LTC,
-	// XRP, BCH, DOGE, TRX, SOL, MATIC, BNB, BASE (Base), OP (Optimism) and ARB
-	// (Arbitrum One). Always specify this for multi-network tokens. When it is
-	// missing for USDT, USDC or ETH sent with a 0x transaction hash, Didit looks
-	// the hash up on Ethereum, BNB Chain, Polygon, Base, Arbitrum and Optimism and
-	// screens it on the network where it is found; if no network has it, the
-	// transaction is not screened and custom_values.aml_screening_status is FAILED
-	// with the reason in custom_values.aml_screening_error. When it is missing for
-	// USDT or USDC screened by wallet (no transaction hash), a Tron address is
-	// screened on Tron, a Solana address on Solana, and a 0x address on the first
-	// of those six networks where it has sent a transaction or holds the token, or
-	// on Ethereum when it is active on none of them. Connected-provider coverage
-	// varies; LIGHTNING requires a supported connected provider.
+	// XRP, BCH, DOGE, TRX, SOL, MATIC, BNB, BASE (Base), OP (Optimism), ARB
+	// (Arbitrum One), AVAX (Avalanche C-Chain), ADA (Cardano), XLM (Stellar) and
+	// HBAR (Hedera). Common network names are accepted too, for example POLYGON or
+	// POL for MATIC, BSC for BNB and TRON for TRX. Always specify this for
+	// multi-network tokens. When it is missing for USDT, USDC or ETH sent with a 0x
+	// transaction hash, Didit looks the hash up on Ethereum, BNB Chain, Polygon,
+	// Base, Arbitrum and Optimism and screens it on the network where it is found;
+	// if no network has it, the transaction is not screened and
+	// custom_values.aml_screening_status is FAILED with the reason in
+	// custom_values.aml_screening_error. When it is missing for USDT or USDC
+	// screened by wallet (no transaction hash), a Tron address is screened on Tron,
+	// a Solana address on Solana, and a 0x address on the first of those six
+	// networks where it has sent a transaction or holds the token, or on Ethereum
+	// when it is active on none of them. Connected-provider coverage varies;
+	// LIGHTNING requires a supported connected provider.
 	CryptoChain Opt[string] `json:"crypto_chain"`
 }
 
@@ -1354,7 +1358,8 @@ type TransactionDetail struct {
 	// Activity log entries (creation, notes, manual reviews, status changes).
 	Activities []TransactionDetailActivities `json:"activities"`
 
-	// Alerts raised by rules and providers.
+	// Always empty today. An open alert is a transaction with status `IN_REVIEW` or
+	// `AWAITING_USER`.
 	Alerts []TransactionDetailAlerts `json:"alerts"`
 
 	// Per-rule execution results - which rule fired, with what score impact.
@@ -2293,6 +2298,13 @@ type TransactionsListParams struct {
 	// filter; `total_transactions` still counts every transaction in the
 	// application.
 	TravelRuleStatus Opt[string] `json:"-" query:"travel_rule_status"`
+
+	// Comma-separated; a transaction matches when it meets any value. `unassigned`
+	// is what nobody holds yet, `rules` is what the rules decided on their own
+	// without a reviewer, and a member email matches the reviewer assigned to it.
+	// `me` is the signed-in Console reviewer, so an API key sending `me` gets
+	// `400`.
+	Assignee Opt[string] `json:"-" query:"assignee"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -2966,8 +2978,11 @@ type TransactionRuleConditionParam struct {
 	// `value`. Required.
 	Operator TransactionRuleConditionOperator `json:"operator"`
 
-	// Comparison value. Its shape depends on the operator and value_type; omit for
-	// the presence-check operators.
+	// Comparison value. Its shape depends on the operator and value_type; omit it
+	// for the presence-check operators. Every other operator needs a value that is
+	// not `null` or an empty list, otherwise the rule is refused with `400`.
+	// `contains_any` needs a list of strings, and `contains`, `not_contains` and
+	// `regex` need a single string.
 	Value Opt[any] `json:"value"`
 
 	// Optional value interpretation. `list`: value is a List UUID and the list's
@@ -3103,11 +3118,14 @@ type TransactionRuleAggregationParam struct {
 	// from the condition field catalog; a value of "__current__" resolves to the
 	// same field's value on the transaction being evaluated (e.g.
 	// {"subject_vendor_data": "__current__"} scopes the window to the same
-	// subject), and a list value means membership. Filters compare by equality or
-	// membership ONLY - there is no lt/gte filter, so a range such as "historical
-	// transactions under 10,000" cannot be expressed here. Put the range on the
-	// metric instead (metric max with operator lt keeps every transaction in the
-	// window below the threshold).
+	// subject), and a list value means membership. Records without the grouped
+	// value are never grouped together: when the transaction being evaluated has no
+	// value for a "__current__" field (no counterparty, no device fingerprint), the
+	// aggregation does not match, whatever its operator. Filters compare by
+	// equality or membership ONLY - there is no lt/gte filter, so a range such as
+	// "historical transactions under 10,000" cannot be expressed here. Put the
+	// range on the metric instead (metric max with operator lt keeps every
+	// transaction in the window below the threshold).
 	Filters Opt[map[string]any] `json:"filters"`
 }
 
@@ -3500,8 +3518,11 @@ type TransactionRuleCondition struct {
 	// `value`.
 	Operator TransactionRuleConditionOperator `json:"operator"`
 
-	// Comparison value. Its shape depends on the operator and value_type; omit for
-	// the presence-check operators.
+	// Comparison value. Its shape depends on the operator and value_type; omit it
+	// for the presence-check operators. Every other operator needs a value that is
+	// not `null` or an empty list, otherwise the rule is refused with `400`.
+	// `contains_any` needs a list of strings, and `contains`, `not_contains` and
+	// `regex` need a single string.
 	Value any `json:"value"`
 
 	// Optional value interpretation. `list`: value is a List UUID and the list's
@@ -3562,11 +3583,14 @@ type TransactionRuleAggregation struct {
 	// from the condition field catalog; a value of "__current__" resolves to the
 	// same field's value on the transaction being evaluated (e.g.
 	// {"subject_vendor_data": "__current__"} scopes the window to the same
-	// subject), and a list value means membership. Filters compare by equality or
-	// membership ONLY - there is no lt/gte filter, so a range such as "historical
-	// transactions under 10,000" cannot be expressed here. Put the range on the
-	// metric instead (metric max with operator lt keeps every transaction in the
-	// window below the threshold).
+	// subject), and a list value means membership. Records without the grouped
+	// value are never grouped together: when the transaction being evaluated has no
+	// value for a "__current__" field (no counterparty, no device fingerprint), the
+	// aggregation does not match, whatever its operator. Filters compare by
+	// equality or membership ONLY - there is no lt/gte filter, so a range such as
+	// "historical transactions under 10,000" cannot be expressed here. Put the
+	// range on the metric instead (metric max with operator lt keeps every
+	// transaction in the window below the threshold).
 	Filters map[string]any `json:"filters"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown

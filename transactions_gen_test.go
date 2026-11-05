@@ -75,6 +75,7 @@ func TestTransactionsList(t *testing.T) {
 	params.Limit = didit.Int(50)
 	params.Offset = didit.Int(0)
 	params.TravelRuleStatus = didit.String("value")
+	params.Assignee = didit.String("value")
 	res, err := client.Transactions.List(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +83,7 @@ func TestTransactionsList(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/transactions/")
 	req.expectAPIKey(t)
-	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0", "travel_rule_status": "value"})
+	req.expectQuery(t, map[string]string{"assignee": "value", "limit": "50", "offset": "0", "travel_rule_status": "value"})
 	if res == nil {
 		t.Fatal("nil page")
 	}

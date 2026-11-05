@@ -12,7 +12,7 @@ import (
 func TestReportTemplatesCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","jurisdiction":"string","report_type":"SAR","report_type_display":"string","field_config":{"key":"value"},"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.ReportTemplatesCreateParams
-	mustUnmarshal(t, `{"name":"string","jurisdiction":"string","report_type":"SAR","field_config":{"key":"value"}}`, &params)
+	mustUnmarshal(t, `{"name":"US SAR default","jurisdiction":"US","report_type":"SAR","field_config":{"rentity_id":"FIU-US-00123","submission_code":"E","currency_code_local":"USD"}}`, &params)
 	res, err := client.ReportTemplates.Create(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -20,7 +20,7 @@ func TestReportTemplatesCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/report-templates/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"name":"string","jurisdiction":"string","report_type":"SAR","field_config":{"key":"value"}}`)
+	req.expectJSON(t, `{"name":"US SAR default","jurisdiction":"US","report_type":"SAR","field_config":{"rentity_id":"FIU-US-00123","submission_code":"E","currency_code_local":"USD"}}`)
 	expectFields(t, res.JSON, []string{"uuid", "name", "jurisdiction", "report_type", "report_type_display", "field_config", "created_at", "updated_at"})
 }
 
@@ -71,7 +71,7 @@ func TestReportTemplatesRetrieve(t *testing.T) {
 func TestReportTemplatesUpdate(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","jurisdiction":"string","report_type":"SAR","report_type_display":"string","field_config":{"key":"value"},"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.ReportTemplatesUpdateParams
-	mustUnmarshal(t, `{"name":"string","jurisdiction":"string","report_type":"SAR","field_config":{"key":"value"}}`, &params)
+	mustUnmarshal(t, `{"field_config":{"rentity_id":"FIU-US-00124"}}`, &params)
 	res, err := client.ReportTemplates.Update(context.Background(), "template-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +79,6 @@ func TestReportTemplatesUpdate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "PATCH", "/v3/organization/org-test/application/app-test/report-templates/template-uuid-1/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"name":"string","jurisdiction":"string","report_type":"SAR","field_config":{"key":"value"}}`)
+	req.expectJSON(t, `{"field_config":{"rentity_id":"FIU-US-00124"}}`)
 	expectFields(t, res.JSON, []string{"uuid", "name", "jurisdiction", "report_type", "report_type_display", "field_config", "created_at", "updated_at"})
 }
