@@ -244,6 +244,8 @@ func bodyFieldType(params reflect.Type) (reflect.Type, bool) {
 	return t, true
 }
 
+// jsonFieldTags returns the body field names of a params struct: json fields
+// and form fields (files sent as multipart parts).
 func jsonFieldTags(t reflect.Type) map[string]bool {
 	tags := map[string]bool{}
 	if t.Kind() == reflect.Pointer {
@@ -253,10 +255,11 @@ func jsonFieldTags(t reflect.Type) map[string]bool {
 		return tags
 	}
 	for i := 0; i < t.NumField(); i++ {
-		tag := t.Field(i).Tag.Get("json")
-		name, _, _ := strings.Cut(tag, ",")
-		if name != "" && name != "-" {
-			tags[name] = true
+		for _, key := range []string{"json", "form"} {
+			name, _, _ := strings.Cut(t.Field(i).Tag.Get(key), ",")
+			if name != "" && name != "-" {
+				tags[name] = true
+			}
 		}
 	}
 	return tags

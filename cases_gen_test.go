@@ -14,7 +14,7 @@ import (
 func TestCasesApplyEntityAction(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"receipt":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","client_reference":"3fa85f64-5717-4562-b3fc-2c963f66afa6","action":"string","status":"APPLIED","result":"value","error":"string","actor_email":"user@example.com","attempts":0,"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"},"entity_type":"user","entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","action":"string","previous_status":"string","new_status":"string","tags_added":["string"],"comment_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","blocklisted":["string"]}`)
 	var params didit.CaseActionCaseEntityActionRequest
-	mustUnmarshal(t, `{"client_reference":"3fa85f64-5717-4562-b3fc-2c963f66afa6","retry":true,"action":"set_status","status":"string","tags":["string"],"note":"string"}`, &params)
+	mustUnmarshal(t, `{"client_reference":"e1a00000-0000-4000-8000-000000000001","action":"add_tags","tags":["source-of-funds-reviewed"]}`, &params)
 	res, err := client.Cases.ApplyEntityAction(context.Background(), "case-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +22,7 @@ func TestCasesApplyEntityAction(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/case-uuid-1/entity-actions/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"client_reference":"3fa85f64-5717-4562-b3fc-2c963f66afa6","retry":true,"action":"set_status","status":"string","tags":["string"],"note":"string"}`)
+	req.expectJSON(t, `{"client_reference":"e1a00000-0000-4000-8000-000000000001","action":"add_tags","tags":["source-of-funds-reviewed"]}`)
 	expectFields(t, res.JSON, []string{"receipt", "entity_type", "entity_uuid", "action", "previous_status", "new_status", "tags_added", "comment_uuid", "blocklisted"})
 }
 
@@ -41,7 +41,7 @@ func TestCasesApproveResolution(t *testing.T) {
 func TestCasesAssign(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","case_number":"string","title":"string","status":"OPEN","resolution":"FALSE_POSITIVE","resolution_notes":"string","priority":"LOW","source":"MANUAL","tags":["string"],"subject":{"type":"user","uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","external_id":"string","country":"ESP","portrait":"https://example.com/path"},"assigned_to":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","full_name":"string","email":"user@example.com"},"assigned_at":"2025-01-02T03:04:05Z","team":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string"},"due_at":"2025-01-02T03:04:05Z","resolved_at":"2025-01-02T03:04:05Z","resolved_by_email":"string","pending_resolution":{"resolution":"FALSE_POSITIVE","resolution_notes":"string","maker_email":"user@example.com","maker_name":"string","maker_user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","maker_blueprint_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","staged_at":"2025-01-02T03:04:05Z"},"checker":{"member_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","email":"user@example.com"},"metadata":{"key":"value"},"blueprint":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","description":"string","assignment_method":"MANUAL","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"max_active_cases":1,"escalation_enabled":true,"transfer_enabled":true,"require_resolution_note":true,"is_active":true,"preset_key":"string","created_at":"2025-01-02T03:04:05Z","escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","escalation_blueprint_name":"string","four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","four_eyes_checker_blueprint_name":"string","content_config":{"checklist":{"enabled":true,"optional":true,"items":[{"label":"string","order":1}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"creation_sources":[{"kind":"aml","id":"string","name":"string"}],"receives_escalation_from":[{"id":"string","name":"string"}],"updated_at":"2025-01-02T03:04:05Z","version":1,"default_deadline_hours":1},"notes":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","comment":"string","actor_email":"user@example.com","actor_name":"string","mentioned_emails":["user@example.com"],"is_internal":true,"attachments":[{"s3_key":"string","filename":"string","file_size":1,"url":"https://example.com/path"}],"tags":["string"],"created_at":"2025-01-02T03:04:05Z"}],"events":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","event_type":"CREATED","actor_email":"user@example.com","actor_name":"string","previous_status":"OPEN","new_status":"OPEN","metadata":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}],"links":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_type":"session","linked_entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_summary":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}],"links_count":1,"notes_count":1,"checklist_items":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","label":"string","is_completed":true,"completed_by":"user@example.com","completed_at":"2025-01-02T03:04:05Z","order":1}],"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.CasesAssignParams
-	mustUnmarshal(t, `{"assignee_user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","assignee_email":"user@example.com","assignee_name":"string"}`, &params)
+	mustUnmarshal(t, `{"assignee_user_id":"9a000000-0000-4000-8000-0000000000aa"}`, &params)
 	res, err := client.Cases.Assign(context.Background(), "case-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -49,14 +49,14 @@ func TestCasesAssign(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/case-uuid-1/assign/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"assignee_user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","assignee_email":"user@example.com","assignee_name":"string"}`)
+	req.expectJSON(t, `{"assignee_user_id":"9a000000-0000-4000-8000-0000000000aa"}`)
 	expectFields(t, res.JSON, []string{"uuid", "case_number", "title", "status", "resolution", "resolution_notes", "priority", "source", "tags", "subject", "assigned_to", "assigned_at", "team", "due_at", "resolved_at", "resolved_by_email", "pending_resolution", "checker", "metadata", "blueprint", "notes", "events", "links", "links_count", "notes_count", "checklist_items", "created_at", "updated_at"})
 }
 
 func TestCasesBulkAssign(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"updated":1,"failures":[{"case_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","detail":"string"}]}`)
 	var params didit.CasesBulkAssignParams
-	mustUnmarshal(t, `{"case_uuids":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"assignee_user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","assignee_email":"user@example.com","assignee_name":"string"}`, &params)
+	mustUnmarshal(t, `{"case_uuids":["c1a5e000-0000-4000-8000-000000000001"],"assignee_user_id":"9a000000-0000-4000-8000-0000000000aa"}`, &params)
 	res, err := client.Cases.BulkAssign(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -64,14 +64,14 @@ func TestCasesBulkAssign(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/bulk/assign/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"case_uuids":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"assignee_user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","assignee_email":"user@example.com","assignee_name":"string"}`)
+	req.expectJSON(t, `{"case_uuids":["c1a5e000-0000-4000-8000-000000000001"],"assignee_user_id":"9a000000-0000-4000-8000-0000000000aa"}`)
 	expectFields(t, res.JSON, []string{"updated", "failures"})
 }
 
 func TestCasesBulkUpdateStatus(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"updated":1,"failures":[{"case_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","detail":"string"}]}`)
 	var params didit.CasesBulkUpdateStatusParams
-	mustUnmarshal(t, `{"case_uuids":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"status":"OPEN","resolution":"FALSE_POSITIVE","note":"string"}`, &params)
+	mustUnmarshal(t, `{"case_uuids":["c1a5e000-0000-4000-8000-000000000001"],"status":"RESOLVED","resolution":"FALSE_POSITIVE"}`, &params)
 	res, err := client.Cases.BulkUpdateStatus(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -79,14 +79,14 @@ func TestCasesBulkUpdateStatus(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/bulk/status/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"case_uuids":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"status":"OPEN","resolution":"FALSE_POSITIVE","note":"string"}`)
+	req.expectJSON(t, `{"case_uuids":["c1a5e000-0000-4000-8000-000000000001"],"status":"RESOLVED","resolution":"FALSE_POSITIVE"}`)
 	expectFields(t, res.JSON, []string{"updated", "failures"})
 }
 
 func TestCasesCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","case_number":"string","title":"string","status":"OPEN","resolution":"FALSE_POSITIVE","resolution_notes":"string","priority":"LOW","source":"MANUAL","tags":["string"],"subject":{"type":"user","uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","external_id":"string","country":"ESP","portrait":"https://example.com/path"},"assigned_to":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","full_name":"string","email":"user@example.com"},"assigned_at":"2025-01-02T03:04:05Z","team":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string"},"due_at":"2025-01-02T03:04:05Z","resolved_at":"2025-01-02T03:04:05Z","resolved_by_email":"string","pending_resolution":{"resolution":"FALSE_POSITIVE","resolution_notes":"string","maker_email":"user@example.com","maker_name":"string","maker_user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","maker_blueprint_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","staged_at":"2025-01-02T03:04:05Z"},"checker":{"member_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","email":"user@example.com"},"metadata":{"key":"value"},"blueprint":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","description":"string","assignment_method":"MANUAL","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"max_active_cases":1,"escalation_enabled":true,"transfer_enabled":true,"require_resolution_note":true,"is_active":true,"preset_key":"string","created_at":"2025-01-02T03:04:05Z","escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","escalation_blueprint_name":"string","four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","four_eyes_checker_blueprint_name":"string","content_config":{"checklist":{"enabled":true,"optional":true,"items":[{"label":"string","order":1}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"creation_sources":[{"kind":"aml","id":"string","name":"string"}],"receives_escalation_from":[{"id":"string","name":"string"}],"updated_at":"2025-01-02T03:04:05Z","version":1,"default_deadline_hours":1},"notes":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","comment":"string","actor_email":"user@example.com","actor_name":"string","mentioned_emails":["user@example.com"],"is_internal":true,"attachments":[{"s3_key":"string","filename":"string","file_size":1,"url":"https://example.com/path"}],"tags":["string"],"created_at":"2025-01-02T03:04:05Z"}],"events":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","event_type":"CREATED","actor_email":"user@example.com","actor_name":"string","previous_status":"OPEN","new_status":"OPEN","metadata":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}],"links":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_type":"session","linked_entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_summary":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}],"links_count":1,"notes_count":1,"checklist_items":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","label":"string","is_completed":true,"completed_by":"user@example.com","completed_at":"2025-01-02T03:04:05Z","order":1}],"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.CasesCreateParams
-	mustUnmarshal(t, `{"title":"string","blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","priority":"LOW","due_at":"2025-01-02T03:04:05Z","tags":["string"],"subject":{"type":"user","uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6"},"links":[{"key":"value"}],"assigned_to":"3fa85f64-5717-4562-b3fc-2c963f66afa6","review_duplicates":true,"separate_incident_reason":"string","source_context":{"check_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","request_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","source_section":"string"}}`, &params)
+	mustUnmarshal(t, `{"title":"Manual - Jane Doe","blueprint":"b1de0000-0000-4000-8000-000000000002","priority":"HIGH","tags":["review"],"subject":{"type":"user","uuid":"5b9a0000-0000-4000-8000-00000000f00d"}}`, &params)
 	res, err := client.Cases.Create(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestCasesCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"title":"string","blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","priority":"LOW","due_at":"2025-01-02T03:04:05Z","tags":["string"],"subject":{"type":"user","uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6"},"links":[{"key":"value"}],"assigned_to":"3fa85f64-5717-4562-b3fc-2c963f66afa6","review_duplicates":true,"separate_incident_reason":"string","source_context":{"check_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","request_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","source_section":"string"}}`)
+	req.expectJSON(t, `{"title":"Manual - Jane Doe","blueprint":"b1de0000-0000-4000-8000-000000000002","priority":"HIGH","tags":["review"],"subject":{"type":"user","uuid":"5b9a0000-0000-4000-8000-00000000f00d"}}`)
 	expectFields(t, res.JSON, []string{"uuid", "case_number", "title", "status", "resolution", "resolution_notes", "priority", "source", "tags", "subject", "assigned_to", "assigned_at", "team", "due_at", "resolved_at", "resolved_by_email", "pending_resolution", "checker", "metadata", "blueprint", "notes", "events", "links", "links_count", "notes_count", "checklist_items", "created_at", "updated_at"})
 }
 
@@ -123,7 +123,7 @@ func TestCasesEscalate(t *testing.T) {
 func TestCasesFindDuplicates(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next_offset":1,"results":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","case_number":"string","title":"string","status":"OPEN","priority":"LOW","created_at":"2025-01-02T03:04:05Z"}]}`)
 	var params didit.CaseDuplicateCaseDuplicateQueryRequest
-	mustUnmarshal(t, `{"subject":{"type":"user","uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6"},"links":[{"entity_type":"session","entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6"}],"offset":0}`, &params)
+	mustUnmarshal(t, `{"subject":{"type":"user","uuid":"5b9a0000-0000-4000-8000-00000000f00d"}}`, &params)
 	res, err := client.Cases.FindDuplicates(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestCasesFindDuplicates(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/duplicates/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"subject":{"type":"user","uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6"},"links":[{"entity_type":"session","entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6"}],"offset":0}`)
+	req.expectJSON(t, `{"subject":{"type":"user","uuid":"5b9a0000-0000-4000-8000-00000000f00d"}}`)
 	expectFields(t, res.JSON, []string{"count", "next_offset", "results"})
 }
 
@@ -246,7 +246,7 @@ func TestCasesPrint(t *testing.T) {
 func TestCasesRejectResolution(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","case_number":"string","title":"string","status":"OPEN","resolution":"FALSE_POSITIVE","resolution_notes":"string","priority":"LOW","source":"MANUAL","tags":["string"],"subject":{"type":"user","uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","external_id":"string","country":"ESP","portrait":"https://example.com/path"},"assigned_to":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","full_name":"string","email":"user@example.com"},"assigned_at":"2025-01-02T03:04:05Z","team":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string"},"due_at":"2025-01-02T03:04:05Z","resolved_at":"2025-01-02T03:04:05Z","resolved_by_email":"string","pending_resolution":{"resolution":"FALSE_POSITIVE","resolution_notes":"string","maker_email":"user@example.com","maker_name":"string","maker_user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","maker_blueprint_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","staged_at":"2025-01-02T03:04:05Z"},"checker":{"member_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","email":"user@example.com"},"metadata":{"key":"value"},"blueprint":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","description":"string","assignment_method":"MANUAL","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"max_active_cases":1,"escalation_enabled":true,"transfer_enabled":true,"require_resolution_note":true,"is_active":true,"preset_key":"string","created_at":"2025-01-02T03:04:05Z","escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","escalation_blueprint_name":"string","four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","four_eyes_checker_blueprint_name":"string","content_config":{"checklist":{"enabled":true,"optional":true,"items":[{"label":"string","order":1}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"creation_sources":[{"kind":"aml","id":"string","name":"string"}],"receives_escalation_from":[{"id":"string","name":"string"}],"updated_at":"2025-01-02T03:04:05Z","version":1,"default_deadline_hours":1},"notes":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","comment":"string","actor_email":"user@example.com","actor_name":"string","mentioned_emails":["user@example.com"],"is_internal":true,"attachments":[{"s3_key":"string","filename":"string","file_size":1,"url":"https://example.com/path"}],"tags":["string"],"created_at":"2025-01-02T03:04:05Z"}],"events":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","event_type":"CREATED","actor_email":"user@example.com","actor_name":"string","previous_status":"OPEN","new_status":"OPEN","metadata":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}],"links":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_type":"session","linked_entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_summary":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}],"links_count":1,"notes_count":1,"checklist_items":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","label":"string","is_completed":true,"completed_by":"user@example.com","completed_at":"2025-01-02T03:04:05Z","order":1}],"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.CasesRejectResolutionParams
-	mustUnmarshal(t, `{"notes":"string"}`, &params)
+	mustUnmarshal(t, `{"notes":"Needs a clearer rationale before this can be approved."}`, &params)
 	res, err := client.Cases.RejectResolution(context.Background(), "case-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -254,7 +254,7 @@ func TestCasesRejectResolution(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/case-uuid-1/reject-approval/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"notes":"string"}`)
+	req.expectJSON(t, `{"notes":"Needs a clearer rationale before this can be approved."}`)
 	expectFields(t, res.JSON, []string{"uuid", "case_number", "title", "status", "resolution", "resolution_notes", "priority", "source", "tags", "subject", "assigned_to", "assigned_at", "team", "due_at", "resolved_at", "resolved_by_email", "pending_resolution", "checker", "metadata", "blueprint", "notes", "events", "links", "links_count", "notes_count", "checklist_items", "created_at", "updated_at"})
 }
 
@@ -345,7 +345,7 @@ func TestCasesRetryActionReceipt(t *testing.T) {
 func TestCasesTransfer(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","case_number":"string","title":"string","status":"OPEN","resolution":"FALSE_POSITIVE","resolution_notes":"string","priority":"LOW","source":"MANUAL","tags":["string"],"subject":{"type":"user","uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","external_id":"string","country":"ESP","portrait":"https://example.com/path"},"assigned_to":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","full_name":"string","email":"user@example.com"},"assigned_at":"2025-01-02T03:04:05Z","team":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string"},"due_at":"2025-01-02T03:04:05Z","resolved_at":"2025-01-02T03:04:05Z","resolved_by_email":"string","pending_resolution":{"resolution":"FALSE_POSITIVE","resolution_notes":"string","maker_email":"user@example.com","maker_name":"string","maker_user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","maker_blueprint_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","staged_at":"2025-01-02T03:04:05Z"},"checker":{"member_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","email":"user@example.com"},"metadata":{"key":"value"},"blueprint":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","description":"string","assignment_method":"MANUAL","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"max_active_cases":1,"escalation_enabled":true,"transfer_enabled":true,"require_resolution_note":true,"is_active":true,"preset_key":"string","created_at":"2025-01-02T03:04:05Z","escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","escalation_blueprint_name":"string","four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","four_eyes_checker_blueprint_name":"string","content_config":{"checklist":{"enabled":true,"optional":true,"items":[{"label":"string","order":1}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"creation_sources":[{"kind":"aml","id":"string","name":"string"}],"receives_escalation_from":[{"id":"string","name":"string"}],"updated_at":"2025-01-02T03:04:05Z","version":1,"default_deadline_hours":1},"notes":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","comment":"string","actor_email":"user@example.com","actor_name":"string","mentioned_emails":["user@example.com"],"is_internal":true,"attachments":[{"s3_key":"string","filename":"string","file_size":1,"url":"https://example.com/path"}],"tags":["string"],"created_at":"2025-01-02T03:04:05Z"}],"events":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","event_type":"CREATED","actor_email":"user@example.com","actor_name":"string","previous_status":"OPEN","new_status":"OPEN","metadata":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}],"links":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_type":"session","linked_entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_summary":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}],"links_count":1,"notes_count":1,"checklist_items":[{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","label":"string","is_completed":true,"completed_by":"user@example.com","completed_at":"2025-01-02T03:04:05Z","order":1}],"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.CasesTransferParams
-	mustUnmarshal(t, `{"target_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6"}`, &params)
+	mustUnmarshal(t, `{"target_blueprint":"b1de0000-0000-4000-8000-000000000002"}`, &params)
 	res, err := client.Cases.Transfer(context.Background(), "case-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -353,7 +353,7 @@ func TestCasesTransfer(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/case-uuid-1/transfer/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"target_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6"}`)
+	req.expectJSON(t, `{"target_blueprint":"b1de0000-0000-4000-8000-000000000002"}`)
 	expectFields(t, res.JSON, []string{"uuid", "case_number", "title", "status", "resolution", "resolution_notes", "priority", "source", "tags", "subject", "assigned_to", "assigned_at", "team", "due_at", "resolved_at", "resolved_by_email", "pending_resolution", "checker", "metadata", "blueprint", "notes", "events", "links", "links_count", "notes_count", "checklist_items", "created_at", "updated_at"})
 }
 
@@ -375,7 +375,7 @@ func TestCasesUpdate(t *testing.T) {
 func TestCasesBlueprintsCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","description":"string","assignment_method":"MANUAL","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"max_active_cases":1,"escalation_enabled":true,"transfer_enabled":true,"require_resolution_note":true,"is_active":true,"preset_key":"string","created_at":"2025-01-02T03:04:05Z","escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","escalation_blueprint_name":"string","four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","four_eyes_checker_blueprint_name":"string","content_config":{"checklist":{"enabled":true,"optional":true,"items":[{"label":"string","order":1}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"creation_sources":[{"kind":"aml","id":"string","name":"string"}],"receives_escalation_from":[{"id":"string","name":"string"}],"updated_at":"2025-01-02T03:04:05Z","version":1,"default_deadline_hours":1}`)
 	var params didit.CasesBlueprintsCreateParams
-	mustUnmarshal(t, `{"name":"string","description":"string","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"assignment_method":"MANUAL","max_active_cases":1,"escalation_enabled":true,"escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","transfer_enabled":true,"four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","require_resolution_note":true,"content_config":{"checklist":{"enabled":true,"optional":true,"items":[{}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"is_active":true,"default_deadline_hours":1,"publish":true}`, &params)
+	mustUnmarshal(t, `{"name":"AML investigation","assignee_pool":["9a000000-0000-4000-8000-0000000000aa"],"assignment_method":"AUTOMATIC","max_active_cases":15,"require_resolution_note":true,"content_config":{"aml_control":{"enabled":true,"financial":true,"identity":false}}}`, &params)
 	res, err := client.Cases.Blueprints.Create(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -383,7 +383,7 @@ func TestCasesBlueprintsCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/blueprints/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"name":"string","description":"string","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"assignment_method":"MANUAL","max_active_cases":1,"escalation_enabled":true,"escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","transfer_enabled":true,"four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","require_resolution_note":true,"content_config":{"checklist":{"enabled":true,"optional":true,"items":[{}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"is_active":true,"default_deadline_hours":1,"publish":true}`)
+	req.expectJSON(t, `{"name":"AML investigation","assignee_pool":["9a000000-0000-4000-8000-0000000000aa"],"assignment_method":"AUTOMATIC","max_active_cases":15,"require_resolution_note":true,"content_config":{"aml_control":{"enabled":true,"financial":true,"identity":false}}}`)
 	expectFields(t, res.JSON, []string{"uuid", "name", "description", "assignment_method", "assignee_pool", "max_active_cases", "escalation_enabled", "transfer_enabled", "require_resolution_note", "is_active", "preset_key", "created_at", "escalation_blueprint", "escalation_blueprint_name", "four_eyes_checker_blueprint", "four_eyes_checker_blueprint_name", "content_config", "creation_sources", "receives_escalation_from", "updated_at", "version", "default_deadline_hours"})
 }
 
@@ -413,7 +413,7 @@ func TestCasesBlueprintsDiscardDraft(t *testing.T) {
 func TestCasesBlueprintsInstallPresets(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"created":["string"]}`)
 	var params didit.CasesBlueprintsInstallPresetsParams
-	mustUnmarshal(t, `{"preset_keys":["string"]}`, &params)
+	mustUnmarshal(t, `{"preset_keys":["aml_investigation","kyc"]}`, &params)
 	res, err := client.Cases.Blueprints.InstallPresets(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -421,7 +421,7 @@ func TestCasesBlueprintsInstallPresets(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/blueprints/presets/install/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"preset_keys":["string"]}`)
+	req.expectJSON(t, `{"preset_keys":["aml_investigation","kyc"]}`)
 	expectFields(t, res.JSON, []string{"created"})
 }
 
@@ -524,7 +524,7 @@ func TestCasesBlueprintsRetrieveDraft(t *testing.T) {
 func TestCasesBlueprintsSaveDraft(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"revision":"3fa85f64-5717-4562-b3fc-2c963f66afa6","base_version":0,"changes":"value","actor_email":"user@example.com","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.CasePublicationPolicyDraftWriteRequest
-	mustUnmarshal(t, `{"expected_version":0,"expected_revision":"3fa85f64-5717-4562-b3fc-2c963f66afa6","changes":{"key":"value"}}`, &params)
+	mustUnmarshal(t, `{"expected_version":1,"expected_revision":"4e5f0000-0000-4000-8000-000000000003","changes":{"max_active_cases":20}}`, &params)
 	res, err := client.Cases.Blueprints.SaveDraft(context.Background(), "blueprint-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -532,14 +532,14 @@ func TestCasesBlueprintsSaveDraft(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "PUT", "/v3/organization/org-test/application/app-test/cases/blueprints/blueprint-uuid-1/draft/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"expected_version":0,"expected_revision":"3fa85f64-5717-4562-b3fc-2c963f66afa6","changes":{"key":"value"}}`)
+	req.expectJSON(t, `{"expected_version":1,"expected_revision":"4e5f0000-0000-4000-8000-000000000003","changes":{"max_active_cases":20}}`)
 	expectFields(t, res.JSON, []string{"revision", "base_version", "changes", "actor_email", "updated_at"})
 }
 
 func TestCasesBlueprintsUpdate(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","description":"string","assignment_method":"MANUAL","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"max_active_cases":1,"escalation_enabled":true,"transfer_enabled":true,"require_resolution_note":true,"is_active":true,"preset_key":"string","created_at":"2025-01-02T03:04:05Z","escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","escalation_blueprint_name":"string","four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","four_eyes_checker_blueprint_name":"string","content_config":{"checklist":{"enabled":true,"optional":true,"items":[{"label":"string","order":1}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"creation_sources":[{"kind":"aml","id":"string","name":"string"}],"receives_escalation_from":[{"id":"string","name":"string"}],"updated_at":"2025-01-02T03:04:05Z","version":1,"default_deadline_hours":1}`)
 	var params didit.CasesBlueprintsUpdateParams
-	mustUnmarshal(t, `{"name":"string","description":"string","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"assignment_method":"MANUAL","max_active_cases":1,"escalation_enabled":true,"escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","transfer_enabled":true,"four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","require_resolution_note":true,"content_config":{"checklist":{"enabled":true,"optional":true,"items":[{}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"is_active":true,"default_deadline_hours":1,"expected_version":1}`, &params)
+	mustUnmarshal(t, `{"transfer_enabled":true}`, &params)
 	res, err := client.Cases.Blueprints.Update(context.Background(), "blueprint-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -547,7 +547,7 @@ func TestCasesBlueprintsUpdate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "PATCH", "/v3/organization/org-test/application/app-test/cases/blueprints/blueprint-uuid-1/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"name":"string","description":"string","assignee_pool":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"assignment_method":"MANUAL","max_active_cases":1,"escalation_enabled":true,"escalation_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","transfer_enabled":true,"four_eyes_checker_blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","require_resolution_note":true,"content_config":{"checklist":{"enabled":true,"optional":true,"items":[{}]},"aml_control":{"enabled":true,"financial":true,"identity":true},"identity":{"enabled":true,"personal_information":true,"applicant_tags":true,"contact_information":true,"risk_overview":true,"poi_documents":true,"poa_documents":true},"verifications":{"enabled":true,"summary":true},"reporting":{"enabled":true,"fiu_reports":true},"financial":{"enabled":true,"payment_methods":true,"transactions":true}},"is_active":true,"default_deadline_hours":1,"expected_version":1}`)
+	req.expectJSON(t, `{"transfer_enabled":true}`)
 	expectFields(t, res.JSON, []string{"uuid", "name", "description", "assignment_method", "assignee_pool", "max_active_cases", "escalation_enabled", "transfer_enabled", "require_resolution_note", "is_active", "preset_key", "created_at", "escalation_blueprint", "escalation_blueprint_name", "four_eyes_checker_blueprint", "four_eyes_checker_blueprint_name", "content_config", "creation_sources", "receives_escalation_from", "updated_at", "version", "default_deadline_hours"})
 }
 
@@ -581,7 +581,7 @@ func TestCasesChecklistToggleItem(t *testing.T) {
 func TestCasesLinksCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_type":"session","linked_entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","linked_entity_summary":{"key":"value"},"created_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.CasesLinksCreateParams
-	mustUnmarshal(t, `{"entity_type":"session","entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6"}`, &params)
+	mustUnmarshal(t, `{"entity_type":"transaction","entity_uuid":"77000000-0000-4000-8000-000000000077"}`, &params)
 	res, err := client.Cases.Links.Create(context.Background(), "case-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -589,7 +589,7 @@ func TestCasesLinksCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/case-uuid-1/links/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"entity_type":"session","entity_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6"}`)
+	req.expectJSON(t, `{"entity_type":"transaction","entity_uuid":"77000000-0000-4000-8000-000000000077"}`)
 	expectFields(t, res.JSON, []string{"uuid", "linked_entity_type", "linked_entity_uuid", "linked_entity_summary", "created_at"})
 }
 
@@ -618,7 +618,7 @@ func TestCasesLinksList(t *testing.T) {
 func TestCasesNotesCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","comment":"string","actor_email":"user@example.com","actor_name":"string","mentioned_emails":"value","is_internal":true,"attachments":"value","tags":"value","created_at":"2025-01-02T03:04:05Z","reply_to":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","actor_name":"string","actor_email":"user@example.com","comment":"string"},"is_pinned":true,"client_reference":"3fa85f64-5717-4562-b3fc-2c963f66afa6"}`)
 	var params didit.CaseCollaborationCaseNoteCreateRequest
-	mustUnmarshal(t, `{"comment":"string","reply_to":"3fa85f64-5717-4562-b3fc-2c963f66afa6","client_reference":"3fa85f64-5717-4562-b3fc-2c963f66afa6","mentioned_emails":["user@example.com"],"is_internal":true,"attachments":[{"key":"value"}],"tags":["string"]}`, &params)
+	mustUnmarshal(t, `{"comment":"Proof of address matches the ID document."}`, &params)
 	res, err := client.Cases.Notes.Create(context.Background(), "case-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -626,7 +626,7 @@ func TestCasesNotesCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/case-uuid-1/notes/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"comment":"string","reply_to":"3fa85f64-5717-4562-b3fc-2c963f66afa6","client_reference":"3fa85f64-5717-4562-b3fc-2c963f66afa6","mentioned_emails":["user@example.com"],"is_internal":true,"attachments":[{"key":"value"}],"tags":["string"]}`)
+	req.expectJSON(t, `{"comment":"Proof of address matches the ID document."}`)
 	expectFields(t, res.JSON, []string{"uuid", "comment", "actor_email", "actor_name", "mentioned_emails", "is_internal", "attachments", "tags", "created_at", "reply_to", "is_pinned", "client_reference"})
 }
 
@@ -712,7 +712,7 @@ func TestCasesNotesUpdate(t *testing.T) {
 func TestCasesRegulatoryReportsCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","case_uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","case_number":"string","report_type":"SAR","report_type_display":"string","report_code":"string","report_number":"string","status":"DRAFT","status_display":"string","jurisdiction":"string","rentity_id":"string","rentity_branch":"string","submission_code":"E","entity_reference":"string","fiu_ref_number":"string","currency_code_local":"string","submission_date":"2025-01-02T03:04:05Z","reporting_person":{"key":"value"},"location":{"key":"value"},"reason":"string","action":"string","activity":"string","narrative":{"who":"string","what":"string","when":"string","where":"string","why":"string","how":"string"},"report_indicators":["string"],"included_fields":["string"],"transactions":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"validation_errors":[{"field":"string","message":"string"}],"validated_at":"2025-01-02T03:04:05Z","finalized_at":"2025-01-02T03:04:05Z","created_by_email":"string","created_by_name":"string","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.CasesRegulatoryReportsCreateParams
-	mustUnmarshal(t, `{"report_type":"SAR","jurisdiction":"string","template":"3fa85f64-5717-4562-b3fc-2c963f66afa6","transactions":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"rentity_id":"string","rentity_branch":"string","submission_code":"E","entity_reference":"string","fiu_ref_number":"string","currency_code_local":"string","submission_date":"2025-01-02T03:04:05Z","reporting_person":{"key":"value"},"location":{"key":"value"},"reason":"string","action":"string","activity":"string","narrative":{"who":"string","what":"string","when":"string","where":"string","why":"string","how":"string"},"report_indicators":["string"],"included_fields":["string"]}`, &params)
+	mustUnmarshal(t, `{"template":"7ec00000-0000-4000-8000-000000000006"}`, &params)
 	res, err := client.Cases.RegulatoryReports.Create(context.Background(), "case-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -720,7 +720,7 @@ func TestCasesRegulatoryReportsCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/case-uuid-1/regulatory-reports/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"report_type":"SAR","jurisdiction":"string","template":"3fa85f64-5717-4562-b3fc-2c963f66afa6","transactions":["3fa85f64-5717-4562-b3fc-2c963f66afa6"],"rentity_id":"string","rentity_branch":"string","submission_code":"E","entity_reference":"string","fiu_ref_number":"string","currency_code_local":"string","submission_date":"2025-01-02T03:04:05Z","reporting_person":{"key":"value"},"location":{"key":"value"},"reason":"string","action":"string","activity":"string","narrative":{"who":"string","what":"string","when":"string","where":"string","why":"string","how":"string"},"report_indicators":["string"],"included_fields":["string"]}`)
+	req.expectJSON(t, `{"template":"7ec00000-0000-4000-8000-000000000006"}`)
 	expectFields(t, res.JSON, []string{"uuid", "case_uuid", "case_number", "report_type", "report_type_display", "report_code", "report_number", "status", "status_display", "jurisdiction", "rentity_id", "rentity_branch", "submission_code", "entity_reference", "fiu_ref_number", "currency_code_local", "submission_date", "reporting_person", "location", "reason", "action", "activity", "narrative", "report_indicators", "included_fields", "transactions", "validation_errors", "validated_at", "finalized_at", "created_by_email", "created_by_name", "created_at", "updated_at"})
 }
 
@@ -854,7 +854,7 @@ func TestCasesRequestsRetrieveOptions(t *testing.T) {
 func TestCasesRoutingRulesCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"name":"string","description":"string","priority":0,"conditions":[{"field":"source","operator":"equals","value":"string"}],"required_skills":["string"],"blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","team":"3fa85f64-5717-4562-b3fc-2c963f66afa6","is_active":true,"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","version":1,"blueprint_name":"string","team_name":"string"}`)
 	var params didit.CaseRoutingRuleCreate
-	mustUnmarshal(t, `{"name":"string","description":"string","priority":0,"conditions":[{"field":"source","operator":"equals","value":"string"}],"required_skills":["string"],"blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","team":"3fa85f64-5717-4562-b3fc-2c963f66afa6","is_active":true,"publish":true}`, &params)
+	mustUnmarshal(t, `{"name":"AML screening alerts","conditions":[{"field":"source","operator":"equals","value":"AML_SCREENING"}],"blueprint":"b1de0000-0000-4000-8000-000000000002"}`, &params)
 	res, err := client.Cases.RoutingRules.Create(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -862,7 +862,7 @@ func TestCasesRoutingRulesCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/routing-rules/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"name":"string","description":"string","priority":0,"conditions":[{"field":"source","operator":"equals","value":"string"}],"required_skills":["string"],"blueprint":"3fa85f64-5717-4562-b3fc-2c963f66afa6","team":"3fa85f64-5717-4562-b3fc-2c963f66afa6","is_active":true,"publish":true}`)
+	req.expectJSON(t, `{"name":"AML screening alerts","conditions":[{"field":"source","operator":"equals","value":"AML_SCREENING"}],"blueprint":"b1de0000-0000-4000-8000-000000000002"}`)
 	expectFields(t, res.JSON, []string{"name", "description", "priority", "conditions", "required_skills", "blueprint", "team", "is_active", "uuid", "created_at", "updated_at", "version", "blueprint_name", "team_name"})
 }
 
@@ -981,7 +981,7 @@ func TestCasesRoutingRulesRetrieveDraft(t *testing.T) {
 func TestCasesRoutingRulesSaveDraft(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"revision":"3fa85f64-5717-4562-b3fc-2c963f66afa6","base_version":0,"changes":"value","actor_email":"user@example.com","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.RoutingPublicationPolicyDraftWriteRequest
-	mustUnmarshal(t, `{"expected_version":0,"expected_revision":"3fa85f64-5717-4562-b3fc-2c963f66afa6","changes":{"key":"value"}}`, &params)
+	mustUnmarshal(t, `{"expected_version":1,"expected_revision":"4e5f0000-0000-4000-8000-000000000003","changes":{"priority":10}}`, &params)
 	res, err := client.Cases.RoutingRules.SaveDraft(context.Background(), "record-uuid-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -989,7 +989,7 @@ func TestCasesRoutingRulesSaveDraft(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "PUT", "/v3/organization/org-test/application/app-test/cases/routing-rules/record-uuid-1/draft/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"expected_version":0,"expected_revision":"3fa85f64-5717-4562-b3fc-2c963f66afa6","changes":{"key":"value"}}`)
+	req.expectJSON(t, `{"expected_version":1,"expected_revision":"4e5f0000-0000-4000-8000-000000000003","changes":{"priority":10}}`)
 	expectFields(t, res.JSON, []string{"revision", "base_version", "changes", "actor_email", "updated_at"})
 }
 
@@ -1011,7 +1011,7 @@ func TestCasesRoutingRulesUpdate(t *testing.T) {
 func TestCasesTeamsCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"name":"string","description":"string","members":[{"user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","availability":"available","capacity":1,"skills":["string"],"available_from":"2025-01-02T03:04:05Z","available_until":"2025-01-02T03:04:05Z"}],"is_active":true,"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.CaseReviewTeamCreate
-	mustUnmarshal(t, `{"name":"string","description":"string","members":[{"user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","availability":"available","capacity":1,"skills":["string"],"available_from":"2025-01-02T03:04:05Z","available_until":"2025-01-02T03:04:05Z"}],"is_active":true}`, &params)
+	mustUnmarshal(t, `{"name":"AML analysts","members":[{"user_id":"9a000000-0000-4000-8000-0000000000aa","capacity":10}]}`, &params)
 	res, err := client.Cases.Teams.Create(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -1019,7 +1019,7 @@ func TestCasesTeamsCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/cases/teams/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"name":"string","description":"string","members":[{"user_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","availability":"available","capacity":1,"skills":["string"],"available_from":"2025-01-02T03:04:05Z","available_until":"2025-01-02T03:04:05Z"}],"is_active":true}`)
+	req.expectJSON(t, `{"name":"AML analysts","members":[{"user_id":"9a000000-0000-4000-8000-0000000000aa","capacity":10}]}`)
 	expectFields(t, res.JSON, []string{"name", "description", "members", "is_active", "uuid", "created_at", "updated_at"})
 }
 

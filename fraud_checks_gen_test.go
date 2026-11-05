@@ -12,7 +12,7 @@ import (
 func TestFraudChecksCreate(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"check_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","request_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","client_reference":"string","processing_status":"pending","profile_id":"string","profile_version":"string","created_at":"2025-01-02T03:04:05Z","completed_at":"2025-01-02T03:04:05Z","inputs":[{"reference":"string","type":"email","namespace":{"key":"value"},"quality":"string","normalization":{"key":"value"},"availability":"available"}],"modules":[{"module":"normalization","status":"planned","reason":"string","latency_ms":1,"freshness":"string","billable_units":1}],"attribute_evidence":[{"key":"value"}],"compound_evidence":[{"key":"value"}],"risk":[{"dimension":"identity","score":1,"band":"low","availability":"available","requested_but_unavailable":true,"reason_codes":["string"],"evidence_indexes":[1]}],"network":{"key":"value"},"enrichment":{"key":"value"},"identity_relationship":{"result":"match","reference_type":"string","country":"string","availability":"available","reason_codes":["string"]},"recommendation":"approve","next_action":"none","decision_reasons":["string"],"coverage":{"key":"value"},"usage":[{"key":"value"}],"vendor_data":"string","metadata":"value"}`)
 	var params didit.FraudCheckRequestRequest
-	mustUnmarshal(t, `{"client_reference":"string","profile":"string","profile_version":"string","subject":{"selfie":"string","identifiers":[{"type":"email","value":"string"}],"attributes":{"first_name":"string","last_name":"string","full_name":"string","date_of_birth":"2025-01-02","nationality":"string","gender":"string","address":"string","city":"string","state":"string","postal_code":"string"}},"context":{"ip_address":"string","user_agent":"string","country":"string","purpose":"string","consent_obtained":true},"checks":{"include":["normalization"],"exclude":["normalization"]},"vendor_data":"string","metadata":"value"}`, &params)
+	mustUnmarshal(t, `{"client_reference":"review-attempt-001","subject":{"identifiers":[{"type":"email","value":"applicant@example.com"}],"attributes":{"first_name":"Alex","last_name":"Example"}},"checks":{"include":["networks_same_org","networks_cross_org","email_risk"]}}`, &params)
 	res, err := client.FraudChecks.Create(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -20,14 +20,14 @@ func TestFraudChecksCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/fraud/checks/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"client_reference":"string","profile":"string","profile_version":"string","subject":{"selfie":"string","identifiers":[{"type":"email","value":"string"}],"attributes":{"first_name":"string","last_name":"string","full_name":"string","date_of_birth":"2025-01-02","nationality":"string","gender":"string","address":"string","city":"string","state":"string","postal_code":"string"}},"context":{"ip_address":"string","user_agent":"string","country":"string","purpose":"string","consent_obtained":true},"checks":{"include":["normalization"],"exclude":["normalization"]},"vendor_data":"string","metadata":"value"}`)
+	req.expectJSON(t, `{"client_reference":"review-attempt-001","subject":{"identifiers":[{"type":"email","value":"applicant@example.com"}],"attributes":{"first_name":"Alex","last_name":"Example"}},"checks":{"include":["networks_same_org","networks_cross_org","email_risk"]}}`)
 	expectFields(t, res.JSON, []string{"check_id", "request_id", "client_reference", "processing_status", "profile_id", "profile_version", "created_at", "completed_at", "inputs", "modules", "attribute_evidence", "compound_evidence", "risk", "network", "enrichment", "identity_relationship", "recommendation", "next_action", "decision_reasons", "coverage", "usage", "vendor_data", "metadata"})
 }
 
 func TestFraudChecksPlan(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"profile_id":"string","profile_version":"string","modules":[{"module":"normalization","available":true,"availability_reason":"string","will_run":true,"selection_reason":"string","estimated_price":"string"}],"estimated_price":"string","currency":"string","is_sandbox":true,"can_afford":true}`)
 	var params didit.FraudCheckRequestRequest
-	mustUnmarshal(t, `{"client_reference":"string","profile":"string","profile_version":"string","subject":{"selfie":"string","identifiers":[{"type":"email","value":"string"}],"attributes":{"first_name":"string","last_name":"string","full_name":"string","date_of_birth":"2025-01-02","nationality":"string","gender":"string","address":"string","city":"string","state":"string","postal_code":"string"}},"context":{"ip_address":"string","user_agent":"string","country":"string","purpose":"string","consent_obtained":true},"checks":{"include":["normalization"],"exclude":["normalization"]},"vendor_data":"string","metadata":"value"}`, &params)
+	mustUnmarshal(t, `{"client_reference":"review-attempt-001","subject":{"identifiers":[{"type":"email","value":"applicant@example.com"}],"attributes":{"first_name":"Alex","last_name":"Example"}},"checks":{"include":["networks_same_org","networks_cross_org","email_risk"]}}`, &params)
 	res, err := client.FraudChecks.Plan(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestFraudChecksPlan(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/fraud/checks/plan/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"client_reference":"string","profile":"string","profile_version":"string","subject":{"selfie":"string","identifiers":[{"type":"email","value":"string"}],"attributes":{"first_name":"string","last_name":"string","full_name":"string","date_of_birth":"2025-01-02","nationality":"string","gender":"string","address":"string","city":"string","state":"string","postal_code":"string"}},"context":{"ip_address":"string","user_agent":"string","country":"string","purpose":"string","consent_obtained":true},"checks":{"include":["normalization"],"exclude":["normalization"]},"vendor_data":"string","metadata":"value"}`)
+	req.expectJSON(t, `{"client_reference":"review-attempt-001","subject":{"identifiers":[{"type":"email","value":"applicant@example.com"}],"attributes":{"first_name":"Alex","last_name":"Example"}},"checks":{"include":["networks_same_org","networks_cross_org","email_risk"]}}`)
 	expectFields(t, res.JSON, []string{"profile_id", "profile_version", "modules", "estimated_price", "currency", "is_sandbox", "can_afford"})
 }
 

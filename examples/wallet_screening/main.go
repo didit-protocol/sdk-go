@@ -43,7 +43,7 @@ func main() {
 
 	result, err := client.WalletScreening.Screen(ctx, didit.WalletScreeningScreenParams{
 		WalletAddress: *address,
-		Blockchain:    didit.WalletScreeningScreenParamsBlockchain(*blockchain),
+		Blockchain:    didit.Some(didit.WalletScreeningScreenParamsBlockchain(*blockchain)),
 		Direction:     didit.Some(didit.WalletScreeningScreenParamsDirectionInbound),
 	})
 	if err != nil {

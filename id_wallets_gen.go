@@ -316,6 +316,30 @@ func (r *IDWalletsService) StartFtn(ctx context.Context, params IDWalletsStartFt
 	return res, nil
 }
 
+// StartGoogleWallet: Start Google Wallet verification.
+//
+// Start a Google Wallet sign-in (Google Wallet (ID pass) and US state issuers
+// (mobile driving licence); USA, GBR, BRA, SGP, TWN) without any workflow.
+// Billed once, only when the identity is verified. The response carries
+// next_action.type=request_digital_credential with a request Didit signed for
+// your application, usable only from origin. In a user gesture there, pass
+// next_action.digital_credentials.request to
+// navigator.credentials.get({digital: ...}) (or to Android Credential Manager
+// as GetDigitalCredentialOption requestJson), then POST what the wallet returns
+// to /v3/id-verification/wallets/verifications/{request_id}/response/. The
+// browser offers its own QR code when the wallet is on another device. Sandbox
+// applications get a deterministic simulation (simulated: true) that never
+// contacts the provider.
+//
+//	POST /v3/id-verification/wallets/google-wallet/
+func (r *IDWalletsService) StartGoogleWallet(ctx context.Context, params IDWalletsStartGoogleWalletParams, opts ...option.RequestOption) (*DigitalIDWalletAPIWalletVerificationResponse, error) {
+	res := new(DigitalIDWalletAPIWalletVerificationResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/id-verification/wallets/google-wallet/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // StartGovbr: Start gov.br verification.
 //
 // Start a gov.br sign-in (Governo Federal do Brasil; BRA) without any workflow.
@@ -568,6 +592,25 @@ func (r *IDWalletsService) StartVipps(ctx context.Context, params IDWalletsStart
 	return res, nil
 }
 
+// SubmitVerificationResponse: Submit a wallet response.
+//
+// Digital Credentials API wallets (Google Wallet): send what the wallet
+// returned to your page or app for a verification whose next_action is
+// request_digital_credential. Didit decrypts it, checks the issuer's signature
+// against the trusted issuer roots, every returned value against its signed
+// digest, and the device signature over your origin and this request, then
+// decides the verification: verified (billed once) or declined with the error
+// code. Single use: a second submit returns the decided verification.
+//
+//	POST /v3/id-verification/wallets/verifications/{request_id}/response/
+func (r *IDWalletsService) SubmitVerificationResponse(ctx context.Context, requestID string, params DigitalIDWalletAPIWalletDigitalCredentialResponseRequest, opts ...option.RequestOption) (*DigitalIDWalletAPIWalletVerificationResponse, error) {
+	res := new(DigitalIDWalletAPIWalletVerificationResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/id-verification/wallets/verifications/{request_id}/response/", pathParams: []string{"request_id", requestID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // DigitalIDWalletAPIWalletVerificationResponse: One standalone wallet
 // verification, as every wallet endpoint answers it.
 type DigitalIDWalletAPIWalletVerificationResponse struct {
@@ -660,6 +703,7 @@ const (
 
 // DigitalIDWalletAPIInteractionEnum: * `redirect` - redirect
 //   - `in_app` - in_app
+//   - `digital_credentials` - digital_credentials
 //
 // DigitalIDWalletAPIInteractionEnum is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -667,22 +711,30 @@ type DigitalIDWalletAPIInteractionEnum string
 
 // Known values of DigitalIDWalletAPIInteractionEnum.
 const (
-	DigitalIDWalletAPIInteractionEnumRedirect DigitalIDWalletAPIInteractionEnum = "redirect"
-	DigitalIDWalletAPIInteractionEnumInApp    DigitalIDWalletAPIInteractionEnum = "in_app"
+	DigitalIDWalletAPIInteractionEnumRedirect           DigitalIDWalletAPIInteractionEnum = "redirect"
+	DigitalIDWalletAPIInteractionEnumInApp              DigitalIDWalletAPIInteractionEnum = "in_app"
+	DigitalIDWalletAPIInteractionEnumDigitalCredentials DigitalIDWalletAPIInteractionEnum = "digital_credentials"
 )
 
 // DigitalIDWalletAPIWalletNextAction is a response object.
 type DigitalIDWalletAPIWalletNextAction struct {
 	// redirect: send the user's browser to url. confirm_in_app: show
 	// verification_code to the user, who checks it matches the code in their wallet
-	// app and confirms there; then poll.
+	// app and confirms there; then poll. request_digital_credential: in a user
+	// gesture on the origin you started with, ask the wallet with
+	// digital_credentials.request, then send what it returns to POST
+	// .../verifications/{request_id}/response/.
 	//
 	//   - `redirect` - redirect
 	//   - `confirm_in_app` - confirm_in_app
+	//   - `request_digital_credential` - request_digital_credential
 	Type DigitalIDWalletAPIWalletNextActionTypeEnum `json:"type"`
 
 	// redirect only: where the user signs in with the wallet.
 	URL string `json:"url"`
+
+	// request_digital_credential only: the request to hand to the wallet.
+	DigitalCredentials DigitalIDWalletAPIWalletDigitalCredentialsRequest `json:"digital_credentials"`
 
 	// confirm_in_app only: the 4-digit comparison code the wallet app shows too.
 	VerificationCode string `json:"verification_code"`
@@ -705,6 +757,7 @@ func (r *DigitalIDWalletAPIWalletNextAction) UnmarshalJSON(data []byte) error {
 
 // DigitalIDWalletAPIWalletNextActionTypeEnum: * `redirect` - redirect
 //   - `confirm_in_app` - confirm_in_app
+//   - `request_digital_credential` - request_digital_credential
 //
 // DigitalIDWalletAPIWalletNextActionTypeEnum is a string with known values
 // below. The set is open: other values may appear and never cause an error.
@@ -712,9 +765,30 @@ type DigitalIDWalletAPIWalletNextActionTypeEnum string
 
 // Known values of DigitalIDWalletAPIWalletNextActionTypeEnum.
 const (
-	DigitalIDWalletAPIWalletNextActionTypeEnumRedirect     DigitalIDWalletAPIWalletNextActionTypeEnum = "redirect"
-	DigitalIDWalletAPIWalletNextActionTypeEnumConfirmInApp DigitalIDWalletAPIWalletNextActionTypeEnum = "confirm_in_app"
+	DigitalIDWalletAPIWalletNextActionTypeEnumRedirect                 DigitalIDWalletAPIWalletNextActionTypeEnum = "redirect"
+	DigitalIDWalletAPIWalletNextActionTypeEnumConfirmInApp             DigitalIDWalletAPIWalletNextActionTypeEnum = "confirm_in_app"
+	DigitalIDWalletAPIWalletNextActionTypeEnumRequestDigitalCredential DigitalIDWalletAPIWalletNextActionTypeEnum = "request_digital_credential"
 )
+
+// DigitalIDWalletAPIWalletDigitalCredentialsRequest is a response object.
+type DigitalIDWalletAPIWalletDigitalCredentialsRequest struct {
+	// openid4vp-v1-signed.
+	Protocol string `json:"protocol"`
+
+	// Pass as is: navigator.credentials.get({digital: request}) in the browser, or
+	// JSON.stringify(request) as GetDigitalCredentialOption's requestJson on
+	// Android. Signed by Didit for your application.
+	Request map[string]any `json:"request"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes DigitalIDWalletAPIWalletDigitalCredentialsRequest leniently.
+func (r *DigitalIDWalletAPIWalletDigitalCredentialsRequest) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // DigitalIDWalletAPIWalletIdentity is a response object.
 type DigitalIDWalletAPIWalletIdentity struct {
@@ -1733,6 +1807,84 @@ const (
 	DigitalIDWalletAPIFtnWalletVerificationStartCountryEnumFin DigitalIDWalletAPIFtnWalletVerificationStartCountryEnum = "FIN"
 )
 
+// IDWalletsStartGoogleWalletParams holds the parameters of
+// Client.IDWallets.StartGoogleWallet.
+type IDWalletsStartGoogleWalletParams struct {
+	// Body is the JSON request body.
+	Body DigitalIDWalletAPIGoogleWalletWalletVerificationStartRequest `json:"-" body:"json"`
+
+	// Optional retry-safety key (max 255 characters). Retrying with the same key,
+	// wallet and body returns the original verification without starting a second
+	// sign-in; the same key with another wallet or body returns 409
+	// idempotency_key_reused.
+	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r IDWalletsStartGoogleWalletParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// DigitalIDWalletAPIGoogleWalletWalletVerificationStartRequest: Start a Google
+// Wallet verification (USA, GBR, BRA, SGP, TWN).
+type DigitalIDWalletAPIGoogleWalletWalletVerificationStartRequest struct {
+	// Your own reference for this verification (e.g. your user id). Returned in
+	// results and webhooks.
+	VendorData Opt[string] `json:"vendor_data"`
+
+	// Optional JSON object stored with the verification and returned in results and
+	// webhooks.
+	Metadata Opt[map[string]any] `json:"metadata"`
+
+	// Sandbox applications only: the simulated outcome - 'wallet_cancelled',
+	// 'wallet_timeout' or 'wallet_provider_error'; any other scenario (or none)
+	// verifies. Rejected on live applications. The full catalog is available at GET
+	// /v1/sandbox/scenarios/.
+	SandboxScenario Opt[string] `json:"sandbox_scenario"`
+
+	// ISO 3166-1 alpha-3 country of the Google Wallet identity.
+	//
+	//   - `USA` - USA
+	//   - `GBR` - GBR
+	//   - `BRA` - BRA
+	//   - `SGP` - SGP
+	//   - `TWN` - TWN Required.
+	Country DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum `json:"country"`
+
+	// Where your page or app will ask the wallet: the https origin of your page
+	// (its host must be in the application's allowed_return_hosts, or be its
+	// white-label domain), e.g. https://app.example.com, or
+	// android:apk-key-hash:<base64 SHA-256 of your app's signing certificate, no
+	// padding>. The wallet refuses the request anywhere else. Required.
+	Origin string `json:"origin"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r DigitalIDWalletAPIGoogleWalletWalletVerificationStartRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum: * `USA` -
+// USA
+//   - `GBR` - GBR
+//   - `BRA` - BRA
+//   - `SGP` - SGP
+//   - `TWN` - TWN
+//
+// DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum string
+
+// Known values of DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum.
+const (
+	DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnumUsa DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum = "USA"
+	DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnumGbr DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum = "GBR"
+	DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnumBra DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum = "BRA"
+	DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnumSgp DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum = "SGP"
+	DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnumTwn DigitalIDWalletAPIGoogleWalletWalletVerificationStartCountryEnum = "TWN"
+)
+
 // IDWalletsStartGovbrParams holds the parameters of
 // Client.IDWallets.StartGovbr.
 type IDWalletsStartGovbrParams struct {
@@ -2642,5 +2794,19 @@ type DigitalIDWalletAPIVippsWalletVerificationStartRequest struct {
 
 // MarshalJSON encodes the fields that are set.
 func (r DigitalIDWalletAPIVippsWalletVerificationStartRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// DigitalIDWalletAPIWalletDigitalCredentialResponseRequest: What the wallet
+// answered your page or app, for a “request_digital_credential“ verification.
+type DigitalIDWalletAPIWalletDigitalCredentialResponseRequest struct {
+	// Exactly what the wallet returned: {protocol, data} of the DigitalCredential
+	// from navigator.credentials.get, or the parsed credentialJson of Android's
+	// DigitalCredential. Encrypted to Didit; do not alter it. Required.
+	Response map[string]any `json:"response"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r DigitalIDWalletAPIWalletDigitalCredentialResponseRequest) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }

@@ -41,7 +41,8 @@ type IPService struct {
 // or invalid credentials return `403` - this API never returns `401`.
 //
 // **Rate limit.** Shared write budget of 300 requests per minute per API key
-// across all POST/PATCH/DELETE endpoints.
+// across POST/PATCH/DELETE endpoints (transaction creates and event ingestion
+// have a separate budget of 600).
 //
 //	POST /v3/ip/risk/
 func (r *IPService) AssessRisk(ctx context.Context, params IPRiskRequest, opts ...option.RequestOption) (*IPRiskResponse, error) {

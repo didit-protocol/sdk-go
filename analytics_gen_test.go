@@ -32,3 +32,18 @@ func TestAnalyticsRetrieve(t *testing.T) {
 	req.expectQuery(t, map[string]string{"action_type": "withdrawal", "branch_path_ids": "default", "end_date": "2026-10-15", "scope": "home", "start_date": "2026-10-01", "tag": "value", "transaction_type": "finance", "versions": "3,4", "widget_keys": "tx_count_total,tx_count_daily", "workflow_ids": "33333333-4444-5555-6666-777777777777"})
 	expectFields(t, res.JSON, []string{"data_points", "request_breakdown", "previous_data_points", "previous_request_breakdown", "conversion_rate", "location_stats", "demographic_stats", "device_details", "workflow_funnel_stats", "verification_time_stats", "resubmission_stats", "warning_stats", "original_status_stats", "grouping_mode", "demographic_time_series", "device_time_series", "verification_time_time_series", "resubmission_time_series", "original_status_time_series"})
 }
+
+func TestAnalyticsRetrieveToday(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"time_zone":"Europe/Madrid","date":"2026-10-30","current_hour":14,"previous_date":"2026-10-23","hours":[3,1,0,0,1,2,4,9,14,18,21,19,22,24,27,0,0,0,0,0,0,0,0,0],"previous_hours":[2,1,1,0,1,3,5,8,12,16,19,18,20,22,24,26,23,19,15,12,9,7,5,3],"total":165,"previous_total_so_far":151,"outcomes":{"approved":139,"in_review":6,"declined":18}}`)
+	var params didit.AnalyticsRetrieveTodayParams
+	params.Tz = didit.String("Europe/Madrid")
+	res, err := client.Analytics.RetrieveToday(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/organization/org-test/application/app-test/analytics/today/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"tz": "Europe/Madrid"})
+	expectFields(t, res.JSON, []string{"time_zone", "date", "current_hour", "previous_date", "hours", "previous_hours", "total", "previous_total_so_far", "outcomes"})
+}

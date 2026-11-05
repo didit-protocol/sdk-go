@@ -212,3 +212,51 @@ func TestRequestIDHeaders(t *testing.T) {
 		t.Error("empty")
 	}
 }
+
+type fileListParams struct {
+	Docs  []File      `json:"-" form:"docs"`
+	More  Opt[[]File] `json:"-" form:"more"`
+	Unset Opt[[]File] `json:"-" form:"unset"`
+	Name  string      `json:"name"`
+}
+
+func TestEncodeMultipartFileLists(t *testing.T) {
+	p := fileListParams{
+		Docs: []File{FileFromBytes("a.png", []byte("a")), FileFromBytes("b.png", []byte("b")), {}},
+		More: Some([]File{FileFromBytes("c.png", []byte("c"))}),
+		Name: "n",
+	}
+	body, ct, err := encodeMultipart(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, params, _ := mime.ParseMediaType(ct)
+	r := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+	files := map[string][]string{}
+	fields := map[string]string{}
+	for {
+		part, err := r.NextPart()
+		if err != nil {
+			break
+		}
+		var b bytes.Buffer
+		_, _ = b.ReadFrom(part)
+		if part.FileName() != "" {
+			files[part.FormName()] = append(files[part.FormName()], part.FileName()+"="+b.String())
+		} else {
+			fields[part.FormName()] = b.String()
+		}
+	}
+	if got := strings.Join(files["docs"], ","); got != "a.png=a,b.png=b" {
+		t.Errorf("docs = %q", got)
+	}
+	if got := strings.Join(files["more"], ","); got != "c.png=c" {
+		t.Errorf("more = %q", got)
+	}
+	if _, ok := files["unset"]; ok || fields["name"] != "n" || len(fields) != 1 {
+		t.Errorf("files %v fields %v", files, fields)
+	}
+	if !hasFile(p) || hasFile(fileListParams{}) || hasFile(fileListParams{Docs: []File{{}}}) {
+		t.Error("hasFile on file lists")
+	}
+}

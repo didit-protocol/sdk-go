@@ -41,7 +41,8 @@ type PhoneService struct {
 // or invalid credentials return `403` - this API never returns `401`.
 //
 // **Rate limit.** Shared write budget of 300 requests per minute per API key
-// across all POST/PATCH/DELETE endpoints.
+// across POST/PATCH/DELETE endpoints (transaction creates and event ingestion
+// have a separate budget of 600).
 //
 // **Social footprint.** Set `enable_social` to `true` to add a `phone_social`
 // block: the online platforms this number is registered on, with per-category
@@ -425,132 +426,6 @@ func (r *PhoneMatchItem) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneIntelligence: Normalized phone-intelligence block. Present only when the
-// intelligence add-on ran for this lookup; when present it is also exposed
-// under the `enrichment` alias with identical values.
-type PhoneIntelligence struct {
-	// Normalized 0-100 risk score. Higher is riskier.
-	Score float64 `json:"score"`
-
-	// `Low`, `Medium` or `High`, derived from the score.
-	PhoneTypeRisk string `json:"phone_type_risk"`
-
-	// Inverse of the score, for dashboards that prefer higher is better.
-	PhoneTrustIndex float64 `json:"phone_trust_index"`
-
-	// Stability of the line's network.
-	NetworkStabilityIndex float64 `json:"network_stability_index"`
-
-	// `true` when the number looks disposable or virtual.
-	IsDisposable bool `json:"is_disposable"`
-
-	// `true` when the number has moved carrier.
-	IsPorted bool `json:"is_ported"`
-
-	// `true` when the port happened recently.
-	IsRecentlyPorted bool `json:"is_recently_ported"`
-
-	// Line classification reported by the lookup (e.g., `mobile`).
-	CarrierType string `json:"carrier_type"`
-
-	// Machine-readable codes explaining the score. Values can grow over time, so do
-	// not reject unknown codes.
-	ReasonCodes []string `json:"reason_codes"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes PhoneIntelligence leniently.
-func (r *PhoneIntelligence) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// PhoneSocialFootprint: Social footprint of the phone number: the online
-// platforms it is registered on. Present only when `enable_social` was set and
-// the check completed. Every count may be null when no data was returned for
-// it. `profiles_registered: 0` means the platforms were checked and the phone
-// number was found on none of them - a valid, billable answer and a common
-// synthetic-identity signal.
-type PhoneSocialFootprint struct {
-	// Platforms where the phone number is confirmed registered.
-	ProfilesRegistered int64 `json:"profiles_registered"`
-
-	// Platforms evaluated for registration.
-	ProfilesChecked int64 `json:"profiles_checked"`
-
-	// Platforms that returned an associated name.
-	NamesFound int64 `json:"names_found"`
-
-	// Platforms that returned a profile photo.
-	PhotosFound int64 `json:"photos_found"`
-
-	// Communication platforms with detected presence.
-	CommunicationBreadth int64 `json:"communication_breadth"`
-
-	// Distinct platform categories with detected presence.
-	DigitalFootprintDiversity int64 `json:"digital_footprint_diversity"`
-
-	// Composite digital-maturity indicator, 0-10.
-	DigitalSophisticationIndex int64 `json:"digital_sophistication_index"`
-
-	// Profile-richness indicator, 0-10.
-	EngagementDepthIndex int64 `json:"engagement_depth_index"`
-
-	// Free vs paid platform mix, 0-10.
-	SubscriptionAffordabilityIndex int64 `json:"subscription_affordability_index"`
-
-	// Registrations on free platforms.
-	FreePlatforms int64 `json:"free_platforms"`
-
-	// Registrations on fully paid platforms.
-	FullPaidPlatforms int64 `json:"full_paid_platforms"`
-
-	// Registrations on freemium platforms.
-	PartialPaidPlatforms int64 `json:"partial_paid_platforms"`
-
-	// Completeness of the WhatsApp profile. Phone only; null for email.
-	WhatsappProfileCompleteness PhoneSocialFootprintWhatsappProfileCompleteness `json:"whatsapp_profile_completeness"`
-
-	// Platforms where registration is confirmed.
-	RegisteredPlatforms []SocialFootprintPlatform `json:"registered_platforms"`
-
-	// Platforms checked with a negative result.
-	NotRegisteredPlatforms []SocialFootprintPlatform `json:"not_registered_platforms"`
-
-	// Registered count and ratio per platform category.
-	Categories map[string]SocialFootprintCategorySummary `json:"categories"`
-
-	// Per-platform profile details, keyed by platform, when the platform exposes
-	// them.
-	Profiles map[string]SocialFootprintProfile `json:"profiles"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes PhoneSocialFootprint leniently.
-func (r *PhoneSocialFootprint) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// PhoneSocialFootprintWhatsappProfileCompleteness: Completeness of the WhatsApp
-// profile. Phone only; null for email.
-//
-// PhoneSocialFootprintWhatsappProfileCompleteness is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type PhoneSocialFootprintWhatsappProfileCompleteness string
-
-// Known values of PhoneSocialFootprintWhatsappProfileCompleteness.
-const (
-	PhoneSocialFootprintWhatsappProfileCompletenessBasic      PhoneSocialFootprintWhatsappProfileCompleteness = "Basic"
-	PhoneSocialFootprintWhatsappProfileCompletenessPartial    PhoneSocialFootprintWhatsappProfileCompleteness = "Partial"
-	PhoneSocialFootprintWhatsappProfileCompletenessComplete   PhoneSocialFootprintWhatsappProfileCompleteness = "Complete"
-	PhoneSocialFootprintWhatsappProfileCompletenessNotPresent PhoneSocialFootprintWhatsappProfileCompleteness = "Not Present"
-)
-
 // PhoneCheckCodeParams holds the parameters of Client.Phone.CheckCode.
 type PhoneCheckCodeParams struct {
 	// The same phone number used in the matching [`POST
@@ -579,6 +454,35 @@ type PhoneCheckCodeParams struct {
 	// `isp`, or `vpn` (`phone.is_virtual`). `DECLINE` flips the final `status` to
 	// `Declined`; `NO_ACTION` records the risk in `phone.warnings`.
 	VoipNumberAction Opt[PhoneCheckCodeParamsVoipNumberAction] `json:"voip_number_action"`
+
+	// When `true`, also run phone intelligence on the number: a risk score, the
+	// line type, whether it was recently ported and a trust index. Billed as one
+	// `phone_intelligence_api` unit per request ($0.05 at list price) in addition
+	// to this endpoint's own price. The request returns `403` when your balance
+	// cannot cover it.
+	EnableEnrichment Opt[bool] `json:"enable_enrichment"`
+
+	// Action when the phone intelligence risk score is above the threshold.
+	// `DECLINE` flips the final `status` to `Declined`; `NO_ACTION` records the
+	// signal without declining. Only takes effect when `enable_enrichment` is
+	// `true`.
+	PhoneIntelligenceScoreAction Opt[PhoneCheckCodeParamsPhoneIntelligenceScoreAction] `json:"phone_intelligence_score_action"`
+
+	// Action when the number is a high-risk line type. `DECLINE` flips the final
+	// `status` to `Declined`; `NO_ACTION` records the signal without declining.
+	// Only takes effect when `enable_enrichment` is `true`.
+	PhoneTypeRiskAction Opt[PhoneCheckCodeParamsPhoneTypeRiskAction] `json:"phone_type_risk_action"`
+
+	// Action when the number was ported to another carrier recently. `DECLINE`
+	// flips the final `status` to `Declined`; `NO_ACTION` records the signal
+	// without declining. Only takes effect when `enable_enrichment` is `true`.
+	RecentPortAction Opt[PhoneCheckCodeParamsRecentPortAction] `json:"recent_port_action"`
+
+	// Action when the phone intelligence trust index is at or below the threshold.
+	// `DECLINE` flips the final `status` to `Declined`; `NO_ACTION` records the
+	// signal without declining. Only takes effect when `enable_enrichment` is
+	// `true`.
+	LowPhoneTrustAction Opt[PhoneCheckCodeParamsLowPhoneTrustAction] `json:"low_phone_trust_action"`
 
 	// When true, also look up the social footprint of the number - the messaging,
 	// social, e-commerce and professional platforms it is registered on. Billed as
@@ -640,6 +544,67 @@ type PhoneCheckCodeParamsVoipNumberAction string
 const (
 	PhoneCheckCodeParamsVoipNumberActionNoAction PhoneCheckCodeParamsVoipNumberAction = "NO_ACTION"
 	PhoneCheckCodeParamsVoipNumberActionDecline  PhoneCheckCodeParamsVoipNumberAction = "DECLINE"
+)
+
+// PhoneCheckCodeParamsPhoneIntelligenceScoreAction: Action when the phone
+// intelligence risk score is above the threshold. `DECLINE` flips the final
+// `status` to `Declined`; `NO_ACTION` records the signal without declining.
+// Only takes effect when `enable_enrichment` is `true`.
+//
+// PhoneCheckCodeParamsPhoneIntelligenceScoreAction is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type PhoneCheckCodeParamsPhoneIntelligenceScoreAction string
+
+// Known values of PhoneCheckCodeParamsPhoneIntelligenceScoreAction.
+const (
+	PhoneCheckCodeParamsPhoneIntelligenceScoreActionNoAction PhoneCheckCodeParamsPhoneIntelligenceScoreAction = "NO_ACTION"
+	PhoneCheckCodeParamsPhoneIntelligenceScoreActionDecline  PhoneCheckCodeParamsPhoneIntelligenceScoreAction = "DECLINE"
+)
+
+// PhoneCheckCodeParamsPhoneTypeRiskAction: Action when the number is a
+// high-risk line type. `DECLINE` flips the final `status` to `Declined`;
+// `NO_ACTION` records the signal without declining. Only takes effect when
+// `enable_enrichment` is `true`.
+//
+// PhoneCheckCodeParamsPhoneTypeRiskAction is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneCheckCodeParamsPhoneTypeRiskAction string
+
+// Known values of PhoneCheckCodeParamsPhoneTypeRiskAction.
+const (
+	PhoneCheckCodeParamsPhoneTypeRiskActionNoAction PhoneCheckCodeParamsPhoneTypeRiskAction = "NO_ACTION"
+	PhoneCheckCodeParamsPhoneTypeRiskActionDecline  PhoneCheckCodeParamsPhoneTypeRiskAction = "DECLINE"
+)
+
+// PhoneCheckCodeParamsRecentPortAction: Action when the number was ported to
+// another carrier recently. `DECLINE` flips the final `status` to `Declined`;
+// `NO_ACTION` records the signal without declining. Only takes effect when
+// `enable_enrichment` is `true`.
+//
+// PhoneCheckCodeParamsRecentPortAction is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneCheckCodeParamsRecentPortAction string
+
+// Known values of PhoneCheckCodeParamsRecentPortAction.
+const (
+	PhoneCheckCodeParamsRecentPortActionNoAction PhoneCheckCodeParamsRecentPortAction = "NO_ACTION"
+	PhoneCheckCodeParamsRecentPortActionDecline  PhoneCheckCodeParamsRecentPortAction = "DECLINE"
+)
+
+// PhoneCheckCodeParamsLowPhoneTrustAction: Action when the phone intelligence
+// trust index is at or below the threshold. `DECLINE` flips the final `status`
+// to `Declined`; `NO_ACTION` records the signal without declining. Only takes
+// effect when `enable_enrichment` is `true`.
+//
+// PhoneCheckCodeParamsLowPhoneTrustAction is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneCheckCodeParamsLowPhoneTrustAction string
+
+// Known values of PhoneCheckCodeParamsLowPhoneTrustAction.
+const (
+	PhoneCheckCodeParamsLowPhoneTrustActionNoAction PhoneCheckCodeParamsLowPhoneTrustAction = "NO_ACTION"
+	PhoneCheckCodeParamsLowPhoneTrustActionDecline  PhoneCheckCodeParamsLowPhoneTrustAction = "DECLINE"
 )
 
 // PhoneCheckCodeParamsPhoneNoSocialPresenceAction: Action when the social
@@ -781,6 +746,10 @@ type PhoneVerificationCheckResponsePhone struct {
 	// matches.
 	Matches     []PhoneVerificationCheckResponsePhoneMatches `json:"matches"`
 	PhoneSocial PhoneSocialFootprint                         `json:"phone_social"`
+
+	// Phone intelligence signals. Present only when `enable_enrichment` was `true`
+	// on the check.
+	PhoneIntelligence PhoneIntelligence `json:"phone_intelligence"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.

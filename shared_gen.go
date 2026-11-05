@@ -552,7 +552,9 @@ const (
 
 // AMLScreeningHits is a response object.
 type AMLScreeningHits struct {
-	// Unique identifier of the match
+	// Didit's stable identifier for the hit: `hit_` followed by 24 hexadecimal
+	// characters. The same matched entity keeps the same `id` when the subject is
+	// screened again. Pass it as `hit_id` to the AML hit review endpoints.
 	ID string `json:"id"`
 
 	// Source URL for the match
@@ -574,7 +576,8 @@ type AMLScreeningHits struct {
 
 	// List of dataset categories where the match was found. Indicates whether the
 	// entity appeared in PEP lists (with level), sanctions databases, adverse
-	// media, warnings/regulatory enforcement, or other compliance datasets.
+	// media, warnings/regulatory enforcement, or other compliance datasets. `Other
+	// Lists` when the entity's source states none of these categories.
 	Datasets []AMLScreeningHitsDatasets `json:"datasets"`
 
 	// Additional features of the match
@@ -649,6 +652,7 @@ const (
 	AMLScreeningHitsDatasetsSip                              AMLScreeningHitsDatasets = "SIP"
 	AMLScreeningHitsDatasetsSie                              AMLScreeningHitsDatasets = "SIE"
 	AMLScreeningHitsDatasetsInsolvency                       AMLScreeningHitsDatasets = "Insolvency"
+	AMLScreeningHitsDatasetsOtherLists                       AMLScreeningHitsDatasets = "Other Lists"
 )
 
 // AMLScreeningHitsRiskView is a response object.
@@ -1169,6 +1173,8 @@ const (
 	AMLScreeningWarningsFeatureKYBRegistry        AMLScreeningWarningsFeature = "KYB_REGISTRY"
 	AMLScreeningWarningsFeatureKYBDocuments       AMLScreeningWarningsFeature = "KYB_DOCUMENTS"
 	AMLScreeningWarningsFeatureKYBKeyPeople       AMLScreeningWarningsFeature = "KYB_KEY_PEOPLE"
+	AMLScreeningWarningsFeatureGeolocation        AMLScreeningWarningsFeature = "GEOLOCATION"
+	AMLScreeningWarningsFeatureSignature          AMLScreeningWarningsFeature = "SIGNATURE"
 )
 
 // RegulatoryReportDetail is a response object.
@@ -1459,6 +1465,182 @@ type RiskLifecycleEvent struct {
 func (r *RiskLifecycleEvent) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// EmailIntelligence: Normalized email-intelligence block. Present only when the
+// intelligence add-on ran for this email; when present it is also exposed as
+// the `enrichment` alias with identical values.
+type EmailIntelligence struct {
+	// Normalized 0-100 risk score. Higher is riskier.
+	Score float64 `json:"score"`
+
+	// Deliverability band (e.g., `high`).
+	Deliverable string `json:"deliverable"`
+
+	// `Low`, `Medium` or `High`.
+	BreachRiskLevel string `json:"breach_risk_level"`
+
+	// Numeric breach-risk index.
+	BreachRiskIndex float64 `json:"breach_risk_index"`
+
+	// `true` when the address appears in a recent breach.
+	IsRecentBreach bool `json:"is_recent_breach"`
+
+	// `true` when the address appears in many breaches.
+	IsFrequentBreached bool `json:"is_frequent_breached"`
+
+	// `true` when the domain is a throwaway provider.
+	IsDisposable bool `json:"is_disposable"`
+
+	// `true` when the domain is a free mail provider.
+	IsFreeDomain bool `json:"is_free_domain"`
+
+	// `true` when the address appears in known breaches.
+	IsBreached bool `json:"is_breached"`
+
+	// Number of known breaches containing the address.
+	NoOfBreaches float64 `json:"no_of_breaches"`
+
+	// Signals that explain the score, each with a stable Didit code, a direction, a
+	// message and an impact level. New codes can appear over time, so do not reject
+	// unknown codes.
+	ReasonCodes []EmailIntelligenceReasonCodes `json:"reason_codes"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes EmailIntelligence leniently.
+func (r *EmailIntelligence) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// EmailIntelligenceReasonCodes is a response object.
+type EmailIntelligenceReasonCodes struct {
+	// Stable Didit identifier of the signal, for example `IR-5AC67A32`. Opaque:
+	// group and filter on it, do not parse it.
+	Code string `json:"code"`
+
+	// For a risk flag (for example `voip`, `leaked`, `disposable`, `spam_trap`),
+	// its value: a boolean, a level or a date. Null for a scored reason code.
+	Value any `json:"value"`
+
+	// Whether the signal raised the risk or added trust.
+	Direction EmailIntelligenceReasonCodesDirection `json:"direction"`
+
+	// Human-readable explanation of the signal, in English.
+	Message string `json:"message"`
+
+	// How strongly the signal moved the score, for example `low`, `medium` or
+	// `high`.
+	ImpactLevel string `json:"impact_level"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes EmailIntelligenceReasonCodes leniently.
+func (r *EmailIntelligenceReasonCodes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// EmailIntelligenceReasonCodesDirection: Whether the signal raised the risk or
+// added trust.
+//
+// EmailIntelligenceReasonCodesDirection is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type EmailIntelligenceReasonCodesDirection string
+
+// Known values of EmailIntelligenceReasonCodesDirection.
+const (
+	EmailIntelligenceReasonCodesDirectionRisk  EmailIntelligenceReasonCodesDirection = "risk"
+	EmailIntelligenceReasonCodesDirectionTrust EmailIntelligenceReasonCodesDirection = "trust"
+)
+
+// EmailSocialFootprint: Social footprint of the email address: the online
+// platforms it is registered on. Present only when `enable_social` was set and
+// the check completed. Every count may be null when no data was returned for
+// it. `profiles_registered: 0` means the platforms were checked and the email
+// address was found on none of them - a valid, billable answer and a common
+// synthetic-identity signal.
+type EmailSocialFootprint struct {
+	// Platforms where the email address is confirmed registered.
+	ProfilesRegistered int64 `json:"profiles_registered"`
+
+	// Platforms evaluated for registration.
+	ProfilesChecked int64 `json:"profiles_checked"`
+
+	// Platforms that returned an associated name.
+	NamesFound int64 `json:"names_found"`
+
+	// Platforms that returned a profile photo.
+	PhotosFound int64 `json:"photos_found"`
+
+	// Communication platforms with detected presence.
+	CommunicationBreadth int64 `json:"communication_breadth"`
+
+	// Distinct platform categories with detected presence.
+	DigitalFootprintDiversity int64 `json:"digital_footprint_diversity"`
+
+	// Composite digital-maturity indicator, 0-10.
+	DigitalSophisticationIndex int64 `json:"digital_sophistication_index"`
+
+	// Profile-richness indicator, 0-10.
+	EngagementDepthIndex int64 `json:"engagement_depth_index"`
+
+	// Free vs paid platform mix, 0-10.
+	SubscriptionAffordabilityIndex int64 `json:"subscription_affordability_index"`
+
+	// Registrations on free platforms.
+	FreePlatforms int64 `json:"free_platforms"`
+
+	// Registrations on fully paid platforms.
+	FullPaidPlatforms int64 `json:"full_paid_platforms"`
+
+	// Registrations on freemium platforms.
+	PartialPaidPlatforms int64 `json:"partial_paid_platforms"`
+
+	// Completeness of the WhatsApp profile. Phone only; null for email.
+	WhatsappProfileCompleteness EmailSocialFootprintWhatsappProfileCompleteness `json:"whatsapp_profile_completeness"`
+
+	// Platforms where registration is confirmed.
+	RegisteredPlatforms []SocialFootprintPlatform `json:"registered_platforms"`
+
+	// Platforms checked with a negative result.
+	NotRegisteredPlatforms []SocialFootprintPlatform `json:"not_registered_platforms"`
+
+	// Registered count and ratio per platform category.
+	Categories map[string]SocialFootprintCategorySummary `json:"categories"`
+
+	// Per-platform profile details, keyed by platform, when the platform exposes
+	// them.
+	Profiles map[string]SocialFootprintProfile `json:"profiles"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes EmailSocialFootprint leniently.
+func (r *EmailSocialFootprint) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// EmailSocialFootprintWhatsappProfileCompleteness: Completeness of the WhatsApp
+// profile. Phone only; null for email.
+//
+// EmailSocialFootprintWhatsappProfileCompleteness is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type EmailSocialFootprintWhatsappProfileCompleteness string
+
+// Known values of EmailSocialFootprintWhatsappProfileCompleteness.
+const (
+	EmailSocialFootprintWhatsappProfileCompletenessBasic      EmailSocialFootprintWhatsappProfileCompleteness = "Basic"
+	EmailSocialFootprintWhatsappProfileCompletenessPartial    EmailSocialFootprintWhatsappProfileCompleteness = "Partial"
+	EmailSocialFootprintWhatsappProfileCompletenessComplete   EmailSocialFootprintWhatsappProfileCompleteness = "Complete"
+	EmailSocialFootprintWhatsappProfileCompletenessNotPresent EmailSocialFootprintWhatsappProfileCompleteness = "Not Present"
+)
 
 // SocialFootprintPlatform is a response object.
 type SocialFootprintPlatform struct {
@@ -1892,6 +2074,285 @@ func (r *KYBRegistryIndustry) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// KYBRegistryData: Didit's normalized registry detail for the company: the
+// ownership outcome (`ownership_error`, `section_errors`, `ubo_resolution`,
+// `lite_enrichment`), the corrections made with update-data, and registry facts
+// that have no field of their own. It never carries the registry source's own
+// record. Every key is optional and present only when the company has a value
+// for it; new keys may be added. Read the canonical fields (`addresses`,
+// `industries`, `ownership`, `beneficial_owners[].shareholding`) for anything
+// they cover.
+type KYBRegistryData struct {
+	// Company name as corrected in the console.
+	CompanyName string `json:"company_name"`
+
+	// Registration number as the registry or a console correction states it.
+	RegistrationNumber string `json:"registration_number"`
+
+	// Country of the registration as the registry or a console correction states
+	// it.
+	CountryCode string `json:"country_code"`
+
+	// Region or state of the registration.
+	Region string `json:"region"`
+
+	// Incorporation date (ISO 8601).
+	IncorporationDate string `json:"incorporation_date"`
+
+	// Registration date (ISO 8601) when the registry states one apart from the
+	// incorporation date.
+	RegistrationDate string `json:"registration_date"`
+
+	// Dissolution date (ISO 8601) when the registry states one.
+	DissolutionDate string `json:"dissolution_date"`
+
+	// Tax identification number.
+	TaxNumber string `json:"tax_number"`
+
+	// VAT number.
+	VATNumber string `json:"vat_number"`
+
+	// Legal address as corrected in the console.
+	LegalAddress string `json:"legal_address"`
+
+	// Registered address as the registry states it.
+	RegisteredAddress string `json:"registered_address"`
+
+	// Legal form.
+	CompanyType string `json:"company_type"`
+
+	// Company status at the registry.
+	RegistryStatus string `json:"registry_status"`
+
+	// Verification status.
+	VerificationStatus string `json:"verification_status"`
+
+	// Other names the company trades or traded under.
+	AlternativeNames string `json:"alternative_names"`
+
+	// Activity description.
+	NatureOfBusiness string `json:"nature_of_business"`
+
+	// Registered capital as printed.
+	RegisteredCapital string `json:"registered_capital"`
+
+	// Registered capital amount, as a decimal string.
+	RegisteredCapitalAmount string `json:"registered_capital_amount"`
+
+	// Registered capital currency (ISO 4217).
+	RegisteredCapitalCurrency string `json:"registered_capital_currency"`
+
+	// Website.
+	Website string `json:"website"`
+
+	// Contact email.
+	Email string `json:"email"`
+
+	// Contact phone.
+	Phone string `json:"phone"`
+
+	// Legal Entity Identifier (LEI).
+	LegalEntityIdentifier string `json:"legal_entity_identifier"`
+
+	// Place of registration.
+	LocationOfRegistration string `json:"location_of_registration"`
+
+	// Governance scheme when the registry exposes it.
+	ControlScheme string `json:"control_scheme"`
+
+	// Why a requested ownership tier was not delivered, in the same codes as
+	// `ownership.unavailable_reason`. `no_owners_on_record` (the registry answered
+	// and names no owner) and `ownership_section_unavailable` (the registry did not
+	// return the ownership section) are different findings.
+	OwnershipError KYBRegistryDataOwnershipError `json:"ownership_error"`
+
+	// Sections the registry did not return, keyed by section (`officers`,
+	// `shareholders`, `group_structure`). A section listed here was never
+	// delivered: an empty list next to it says nothing about the company.
+	SectionErrors  map[string]KYBRegistrySectionError `json:"section_errors"`
+	UBOResolution  KYBRegistryUBOResolution           `json:"ubo_resolution"`
+	LiteEnrichment KYBRegistryLiteEnrichment          `json:"lite_enrichment"`
+
+	// The register's own fields for the company, keyed as the register names them,
+	// as plain values (legacy records). Only fields reviewed as registry facts are
+	// included.
+	RegistryMetadata map[string]any `json:"registry_metadata"`
+
+	// The official registers the record was read from (legacy records). Other
+	// sources are not named.
+	RegistrySources []KYBRegistrySource `json:"registry_sources"`
+
+	// Names the company was registered under before (legacy records).
+	PreviousNames []string `json:"previous_names"`
+
+	// Parent companies the registry names (legacy records).
+	ParentCompanies []string `json:"parent_companies"`
+
+	// How many filings the registry offers for the company (legacy records).
+	DocumentsAvailable int64 `json:"documents_available"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistryData leniently.
+func (r *KYBRegistryData) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBRegistryDataOwnershipError: Why a requested ownership tier was not
+// delivered, in the same codes as `ownership.unavailable_reason`.
+// `no_owners_on_record` (the registry answered and names no owner) and
+// `ownership_section_unavailable` (the registry did not return the ownership
+// section) are different findings.
+//
+// KYBRegistryDataOwnershipError is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type KYBRegistryDataOwnershipError string
+
+// Known values of KYBRegistryDataOwnershipError.
+const (
+	KYBRegistryDataOwnershipErrorNoOwnersOnRecord            KYBRegistryDataOwnershipError = "no_owners_on_record"
+	KYBRegistryDataOwnershipErrorNoNaturalPersonOwner        KYBRegistryDataOwnershipError = "no_natural_person_owner"
+	KYBRegistryDataOwnershipErrorOwnershipSectionUnavailable KYBRegistryDataOwnershipError = "ownership_section_unavailable"
+	KYBRegistryDataOwnershipErrorCompanyNotFound             KYBRegistryDataOwnershipError = "company_not_found"
+	KYBRegistryDataOwnershipErrorAmbiguousCompanyMatch       KYBRegistryDataOwnershipError = "ambiguous_company_match"
+	KYBRegistryDataOwnershipErrorMissingRegistrationNumber   KYBRegistryDataOwnershipError = "missing_registration_number"
+	KYBRegistryDataOwnershipErrorEntityTypeNotCovered        KYBRegistryDataOwnershipError = "entity_type_not_covered"
+	KYBRegistryDataOwnershipErrorProviderUnavailable         KYBRegistryDataOwnershipError = "provider_unavailable"
+	KYBRegistryDataOwnershipErrorOther                       KYBRegistryDataOwnershipError = "other"
+)
+
+// KYBRegistrySectionError: A section the registry did not return.
+type KYBRegistrySectionError struct {
+	// The status the registry answered for the section.
+	StatusCode int64 `json:"status_code"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistrySectionError leniently.
+func (r *KYBRegistrySectionError) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBRegistryUBOResolution: How the UBO tier walked the ownership chain above
+// the company.
+type KYBRegistryUBOResolution struct {
+	// Corporate parents from the ultimate parent down to the company.
+	ParentChain []KYBRegistryGroupCompany `json:"parent_chain"`
+
+	// Companies directly below the company in its corporate group.
+	Subsidiaries []KYBRegistryGroupCompany `json:"subsidiaries"`
+
+	// Parts of the chain the registry could not resolve (the same entries as
+	// `ownership.unresolved`).
+	Unresolved []KYBRegistryUBOResolutionUnresolved `json:"unresolved"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistryUBOResolution leniently.
+func (r *KYBRegistryUBOResolution) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBRegistryGroupCompany: A company of the corporate group, by its registry
+// identity.
+type KYBRegistryGroupCompany struct {
+	// Company name.
+	Name string `json:"name"`
+
+	// Country of registration.
+	CountryCode string `json:"country_code"`
+
+	// Registration number.
+	RegistrationNumber string `json:"registration_number"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistryGroupCompany leniently.
+func (r *KYBRegistryGroupCompany) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBRegistryUBOResolutionUnresolved is a response object.
+type KYBRegistryUBOResolutionUnresolved struct {
+	// Why, for example `no_group_structure_on_record`,
+	// `selected_company_not_in_group_structure` or `section_error`.
+	Reason string `json:"reason"`
+
+	// The section concerned, for example `group_structure`.
+	Section string `json:"section"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistryUBOResolutionUnresolved leniently.
+func (r *KYBRegistryUBOResolutionUnresolved) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBRegistryLiteEnrichment: Blank Lite profile fields another of the country's
+// registry sources filled. The source is not named.
+type KYBRegistryLiteEnrichment struct {
+	// The company fields that were filled.
+	Fields []string `json:"fields"`
+
+	// How many officers or owners were added.
+	PeopleAdded int64 `json:"people_added"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistryLiteEnrichment leniently.
+func (r *KYBRegistryLiteEnrichment) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBRegistrySource: An official register the record was read from. Only
+// official government registers, regulators and the official identifier system
+// are named; any other source is left out.
+type KYBRegistrySource struct {
+	// Register name, for example `UK Companies House`.
+	Name string `json:"name"`
+
+	// Always `official`.
+	SourceType KYBRegistrySourceSourceType `json:"source_type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistrySource leniently.
+func (r *KYBRegistrySource) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBRegistrySourceSourceType: Always `official`.
+//
+// KYBRegistrySourceSourceType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type KYBRegistrySourceSourceType string
+
+// Known values of KYBRegistrySourceSourceType.
+const (
+	KYBRegistrySourceSourceTypeOfficial KYBRegistrySourceSourceType = "official"
+)
+
 // KYBRegistryOwnership: The outcome of the ownership (Shareholders / UBO) tier,
 // in the same shape for every country and registry source.
 type KYBRegistryOwnership struct {
@@ -2015,6 +2476,176 @@ func (r *KYBRegistryOwnershipUnresolved) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// PhoneIntelligence: Normalized phone-intelligence block. Present only when the
+// intelligence add-on ran for this lookup; when present it is also exposed
+// under the `enrichment` alias with identical values.
+type PhoneIntelligence struct {
+	// Normalized 0-100 risk score. Higher is riskier.
+	Score float64 `json:"score"`
+
+	// `Low`, `Medium` or `High`, derived from the score.
+	PhoneTypeRisk string `json:"phone_type_risk"`
+
+	// Inverse of the score, for dashboards that prefer higher is better.
+	PhoneTrustIndex float64 `json:"phone_trust_index"`
+
+	// Stability of the line's network.
+	NetworkStabilityIndex float64 `json:"network_stability_index"`
+
+	// `true` when the number looks disposable or virtual.
+	IsDisposable bool `json:"is_disposable"`
+
+	// `true` when the number has moved carrier.
+	IsPorted bool `json:"is_ported"`
+
+	// `true` when the port happened recently.
+	IsRecentlyPorted bool `json:"is_recently_ported"`
+
+	// Line classification reported by the lookup (e.g., `mobile`).
+	CarrierType string `json:"carrier_type"`
+
+	// Signals that explain the score, each with a stable Didit code, a direction, a
+	// message and an impact level. New codes can appear over time, so do not reject
+	// unknown codes.
+	ReasonCodes []PhoneIntelligenceReasonCodes `json:"reason_codes"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneIntelligence leniently.
+func (r *PhoneIntelligence) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneIntelligenceReasonCodes is a response object.
+type PhoneIntelligenceReasonCodes struct {
+	// Stable Didit identifier of the signal, for example `IR-5AC67A32`. Opaque:
+	// group and filter on it, do not parse it.
+	Code string `json:"code"`
+
+	// For a risk flag (for example `voip`, `leaked`, `disposable`, `spam_trap`),
+	// its value: a boolean, a level or a date. Null for a scored reason code.
+	Value any `json:"value"`
+
+	// Whether the signal raised the risk or added trust.
+	Direction PhoneIntelligenceReasonCodesDirection `json:"direction"`
+
+	// Human-readable explanation of the signal, in English.
+	Message string `json:"message"`
+
+	// How strongly the signal moved the score, for example `low`, `medium` or
+	// `high`.
+	ImpactLevel string `json:"impact_level"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneIntelligenceReasonCodes leniently.
+func (r *PhoneIntelligenceReasonCodes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneIntelligenceReasonCodesDirection: Whether the signal raised the risk or
+// added trust.
+//
+// PhoneIntelligenceReasonCodesDirection is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneIntelligenceReasonCodesDirection string
+
+// Known values of PhoneIntelligenceReasonCodesDirection.
+const (
+	PhoneIntelligenceReasonCodesDirectionRisk  PhoneIntelligenceReasonCodesDirection = "risk"
+	PhoneIntelligenceReasonCodesDirectionTrust PhoneIntelligenceReasonCodesDirection = "trust"
+)
+
+// PhoneSocialFootprint: Social footprint of the phone number: the online
+// platforms it is registered on. Present only when `enable_social` was set and
+// the check completed. Every count may be null when no data was returned for
+// it. `profiles_registered: 0` means the platforms were checked and the phone
+// number was found on none of them - a valid, billable answer and a common
+// synthetic-identity signal.
+type PhoneSocialFootprint struct {
+	// Platforms where the phone number is confirmed registered.
+	ProfilesRegistered int64 `json:"profiles_registered"`
+
+	// Platforms evaluated for registration.
+	ProfilesChecked int64 `json:"profiles_checked"`
+
+	// Platforms that returned an associated name.
+	NamesFound int64 `json:"names_found"`
+
+	// Platforms that returned a profile photo.
+	PhotosFound int64 `json:"photos_found"`
+
+	// Communication platforms with detected presence.
+	CommunicationBreadth int64 `json:"communication_breadth"`
+
+	// Distinct platform categories with detected presence.
+	DigitalFootprintDiversity int64 `json:"digital_footprint_diversity"`
+
+	// Composite digital-maturity indicator, 0-10.
+	DigitalSophisticationIndex int64 `json:"digital_sophistication_index"`
+
+	// Profile-richness indicator, 0-10.
+	EngagementDepthIndex int64 `json:"engagement_depth_index"`
+
+	// Free vs paid platform mix, 0-10.
+	SubscriptionAffordabilityIndex int64 `json:"subscription_affordability_index"`
+
+	// Registrations on free platforms.
+	FreePlatforms int64 `json:"free_platforms"`
+
+	// Registrations on fully paid platforms.
+	FullPaidPlatforms int64 `json:"full_paid_platforms"`
+
+	// Registrations on freemium platforms.
+	PartialPaidPlatforms int64 `json:"partial_paid_platforms"`
+
+	// Completeness of the WhatsApp profile. Phone only; null for email.
+	WhatsappProfileCompleteness PhoneSocialFootprintWhatsappProfileCompleteness `json:"whatsapp_profile_completeness"`
+
+	// Platforms where registration is confirmed.
+	RegisteredPlatforms []SocialFootprintPlatform `json:"registered_platforms"`
+
+	// Platforms checked with a negative result.
+	NotRegisteredPlatforms []SocialFootprintPlatform `json:"not_registered_platforms"`
+
+	// Registered count and ratio per platform category.
+	Categories map[string]SocialFootprintCategorySummary `json:"categories"`
+
+	// Per-platform profile details, keyed by platform, when the platform exposes
+	// them.
+	Profiles map[string]SocialFootprintProfile `json:"profiles"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSocialFootprint leniently.
+func (r *PhoneSocialFootprint) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSocialFootprintWhatsappProfileCompleteness: Completeness of the WhatsApp
+// profile. Phone only; null for email.
+//
+// PhoneSocialFootprintWhatsappProfileCompleteness is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneSocialFootprintWhatsappProfileCompleteness string
+
+// Known values of PhoneSocialFootprintWhatsappProfileCompleteness.
+const (
+	PhoneSocialFootprintWhatsappProfileCompletenessBasic      PhoneSocialFootprintWhatsappProfileCompleteness = "Basic"
+	PhoneSocialFootprintWhatsappProfileCompletenessPartial    PhoneSocialFootprintWhatsappProfileCompleteness = "Partial"
+	PhoneSocialFootprintWhatsappProfileCompletenessComplete   PhoneSocialFootprintWhatsappProfileCompleteness = "Complete"
+	PhoneSocialFootprintWhatsappProfileCompletenessNotPresent PhoneSocialFootprintWhatsappProfileCompleteness = "Not Present"
+)
+
 // WebhookEvent: Supported webhook event name. Use these exact strings in
 // `subscribed_events`; unsupported values are rejected.
 //
@@ -2024,37 +2655,38 @@ type WebhookEvent string
 
 // Known values of WebhookEvent.
 const (
-	WebhookEventStatusUpdated                   WebhookEvent = "status.updated"
-	WebhookEventDataUpdated                     WebhookEvent = "data.updated"
-	WebhookEventUserStatusUpdated               WebhookEvent = "user.status.updated"
-	WebhookEventUserDataUpdated                 WebhookEvent = "user.data.updated"
-	WebhookEventBusinessStatusUpdated           WebhookEvent = "business.status.updated"
-	WebhookEventBusinessDataUpdated             WebhookEvent = "business.data.updated"
-	WebhookEventActivityCreated                 WebhookEvent = "activity.created"
-	WebhookEventTransactionCreated              WebhookEvent = "transaction.created"
-	WebhookEventTransactionStatusUpdated        WebhookEvent = "transaction.status.updated"
-	WebhookEventTravelRuleStatusUpdated         WebhookEvent = "travel_rule.status.updated"
-	WebhookEventWorkflowComplianceChanged       WebhookEvent = "workflow.compliance_changed"
-	WebhookEventAuthSignup                      WebhookEvent = "auth.signup"
-	WebhookEventAuthLogin                       WebhookEvent = "auth.login"
-	WebhookEventAuthLoginFailed                 WebhookEvent = "auth.login_failed"
-	WebhookEventAuthPasswordResetRequested      WebhookEvent = "auth.password_reset_requested"
-	WebhookEventAuthPasswordResetCompleted      WebhookEvent = "auth.password_reset_completed"
-	WebhookEventAuthMFAChanged                  WebhookEvent = "auth.mfa_changed"
-	WebhookEventAuthNewDevice                   WebhookEvent = "auth.new_device"
-	WebhookEventAuthAccountLocked               WebhookEvent = "auth.account_locked"
-	WebhookEventInvestigatorReportReady         WebhookEvent = "investigator.report.ready"
-	WebhookEventInvestigatorDecisionAutomated   WebhookEvent = "investigator.decision.automated"
-	WebhookEventInvestigatorDecisionOverridden  WebhookEvent = "investigator.decision.overridden"
-	WebhookEventInvestigatorDecisionContested   WebhookEvent = "investigator.decision.contested"
-	WebhookEventInvestigatorQuestionRaised      WebhookEvent = "investigator.question.raised"
-	WebhookEventInvestigatorAutomationPaused    WebhookEvent = "investigator.automation.paused"
-	WebhookEventInvestigatorRfiAnswered         WebhookEvent = "investigator.rfi.answered"
-	WebhookEventInvestigatorRfiOverdue          WebhookEvent = "investigator.rfi.overdue"
-	WebhookEventInvestigatorDriftDetected       WebhookEvent = "investigator.drift.detected"
-	WebhookEventInvestigatorSLABreached         WebhookEvent = "investigator.sla.breached"
-	WebhookEventInvestigatorQaFailed            WebhookEvent = "investigator.qa.failed"
-	WebhookEventInvestigatorExternalReportReady WebhookEvent = "investigator.external.report.ready"
+	WebhookEventStatusUpdated                     WebhookEvent = "status.updated"
+	WebhookEventDataUpdated                       WebhookEvent = "data.updated"
+	WebhookEventUserStatusUpdated                 WebhookEvent = "user.status.updated"
+	WebhookEventUserDataUpdated                   WebhookEvent = "user.data.updated"
+	WebhookEventBusinessStatusUpdated             WebhookEvent = "business.status.updated"
+	WebhookEventBusinessDataUpdated               WebhookEvent = "business.data.updated"
+	WebhookEventActivityCreated                   WebhookEvent = "activity.created"
+	WebhookEventTransactionCreated                WebhookEvent = "transaction.created"
+	WebhookEventTransactionStatusUpdated          WebhookEvent = "transaction.status.updated"
+	WebhookEventTravelRuleStatusUpdated           WebhookEvent = "travel_rule.status.updated"
+	WebhookEventWorkflowComplianceChanged         WebhookEvent = "workflow.compliance_changed"
+	WebhookEventTransactionRuleSuggestionsCreated WebhookEvent = "transaction_rule_suggestions.created"
+	WebhookEventAuthSignup                        WebhookEvent = "auth.signup"
+	WebhookEventAuthLogin                         WebhookEvent = "auth.login"
+	WebhookEventAuthLoginFailed                   WebhookEvent = "auth.login_failed"
+	WebhookEventAuthPasswordResetRequested        WebhookEvent = "auth.password_reset_requested"
+	WebhookEventAuthPasswordResetCompleted        WebhookEvent = "auth.password_reset_completed"
+	WebhookEventAuthMFAChanged                    WebhookEvent = "auth.mfa_changed"
+	WebhookEventAuthNewDevice                     WebhookEvent = "auth.new_device"
+	WebhookEventAuthAccountLocked                 WebhookEvent = "auth.account_locked"
+	WebhookEventInvestigatorReportReady           WebhookEvent = "investigator.report.ready"
+	WebhookEventInvestigatorDecisionAutomated     WebhookEvent = "investigator.decision.automated"
+	WebhookEventInvestigatorDecisionOverridden    WebhookEvent = "investigator.decision.overridden"
+	WebhookEventInvestigatorDecisionContested     WebhookEvent = "investigator.decision.contested"
+	WebhookEventInvestigatorQuestionRaised        WebhookEvent = "investigator.question.raised"
+	WebhookEventInvestigatorAutomationPaused      WebhookEvent = "investigator.automation.paused"
+	WebhookEventInvestigatorRfiAnswered           WebhookEvent = "investigator.rfi.answered"
+	WebhookEventInvestigatorRfiOverdue            WebhookEvent = "investigator.rfi.overdue"
+	WebhookEventInvestigatorDriftDetected         WebhookEvent = "investigator.drift.detected"
+	WebhookEventInvestigatorSLABreached           WebhookEvent = "investigator.sla.breached"
+	WebhookEventInvestigatorQaFailed              WebhookEvent = "investigator.qa.failed"
+	WebhookEventInvestigatorExternalReportReady   WebhookEvent = "investigator.external.report.ready"
 )
 
 // TravelRuleUtxo: The inputs and outputs of a UTXO transfer (BTC, LTC, BCH,

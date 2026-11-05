@@ -243,6 +243,18 @@ func templateParams(path string) []string {
 	}
 }
 
+// hasFileProperty reports whether an object schema has a file or file list
+// property.
+func (g *Gen) hasFileProperty(doc *Doc, schema *Node) bool {
+	props, _, _ := g.collectProps(doc, []*Node{schema})
+	for _, p := range props {
+		if len(p.schemas) > 0 && isBinarySchema(doc, view(doc, p.schemas[0])) {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *Gen) buildParams(op *Operation, m *Method, prefix string, params []*Node) error {
 	var query, header []*Node
 	for _, p := range params {
@@ -258,6 +270,7 @@ func (g *Gen) buildParams(op *Operation, m *Method, prefix string, params []*Nod
 		}
 	}
 	var jsonSchema, formSchema *Node
+	multipartWithFiles := false
 	if rb := op.Doc.Resolve(op.Node.Get("requestBody")); rb != nil {
 		content := rb.Get("content")
 		jsonSchema = content.Path("application/json", "schema")
@@ -265,14 +278,17 @@ func (g *Gen) buildParams(op *Operation, m *Method, prefix string, params []*Nod
 		if jsonSchema == nil && formSchema == nil && len(content.ObjKeys()) > 0 {
 			return fmt.Errorf("unsupported request content types %v", content.ObjKeys())
 		}
-		// DRF lists the same serializer for JSON, form and multipart: JSON.
+		// DRF lists the same serializer for JSON, form and multipart: the
+		// params type comes from that one schema. When it has file fields the
+		// request is still sent as multipart whenever a file is set.
 		if jsonSchema != nil && formSchema != nil && jsonSchema.SortedJSON() == formSchema.SortedJSON() {
+			multipartWithFiles = g.hasFileProperty(op.Doc, formSchema)
 			formSchema = nil
 		}
 	}
 	name := prefix + "Params"
 	switch {
-	case jsonSchema != nil && formSchema != nil:
+	case jsonSchema != nil && (formSchema != nil || multipartWithFiles):
 		m.BodyKind = "bodyJSONOrMultipart"
 	case formSchema != nil:
 		m.BodyKind = "bodyMultipart"

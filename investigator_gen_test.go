@@ -14,7 +14,7 @@ import (
 func TestInvestigatorAcceptRun(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"outcome":"accepted","action":"approve","actor_email":"string","actor_name":"string","override_category":"missing_context","override_reason":"string","final_status":"string","agreed":true,"decided_at":"2025-01-02T03:04:05Z","billed":true,"decided_by":"investigator","original_outcome":{"action":"string","final_status":"string","decided_at":"2025-01-02T03:04:05Z"},"overrides":[{"action":"string","actor_email":"string","actor_name":"string","override_category":"string","override_reason":"string","previous_status":"string","final_status":"string","agreed":true,"overridden_at":"2025-01-02T03:04:05Z"}]}`)
 	var params didit.InvestigatorAcceptRequest
-	mustUnmarshal(t, `{"narrative":"string","send_email":true,"email_address":"user@example.com","email_language":"string"}`, &params)
+	mustUnmarshal(t, `{"send_email":false}`, &params)
 	res, err := client.Investigator.AcceptRun(context.Background(), "run-id-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +22,7 @@ func TestInvestigatorAcceptRun(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/investigator/runs/run-id-1/accept/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"narrative":"string","send_email":true,"email_address":"user@example.com","email_language":"string"}`)
+	req.expectJSON(t, `{"send_email":false}`)
 	expectFields(t, res.JSON, []string{"outcome", "action", "actor_email", "actor_name", "override_category", "override_reason", "final_status", "agreed", "decided_at", "billed", "decided_by", "original_outcome", "overrides"})
 }
 
@@ -131,7 +131,7 @@ func TestInvestigatorListQueue(t *testing.T) {
 func TestInvestigatorOverrideRun(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"outcome":"accepted","action":"approve","actor_email":"string","actor_name":"string","override_category":"missing_context","override_reason":"string","final_status":"string","agreed":true,"decided_at":"2025-01-02T03:04:05Z","billed":true,"decided_by":"investigator","original_outcome":{"action":"string","final_status":"string","decided_at":"2025-01-02T03:04:05Z"},"overrides":[{"action":"string","actor_email":"string","actor_name":"string","override_category":"string","override_reason":"string","previous_status":"string","final_status":"string","agreed":true,"overridden_at":"2025-01-02T03:04:05Z"}]}`)
 	var params didit.InvestigatorOverrideRequest
-	mustUnmarshal(t, `{"action":"approve","category":"missing_context","reason":"string","send_email":true,"email_address":"user@example.com","email_language":"string"}`, &params)
+	mustUnmarshal(t, `{"action":"decline","category":"evidence_misread","reason":"The proof of address is older than three months."}`, &params)
 	res, err := client.Investigator.OverrideRun(context.Background(), "run-id-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +139,7 @@ func TestInvestigatorOverrideRun(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/investigator/runs/run-id-1/override/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"action":"approve","category":"missing_context","reason":"string","send_email":true,"email_address":"user@example.com","email_language":"string"}`)
+	req.expectJSON(t, `{"action":"decline","category":"evidence_misread","reason":"The proof of address is older than three months."}`)
 	expectFields(t, res.JSON, []string{"outcome", "action", "actor_email", "actor_name", "override_category", "override_reason", "final_status", "agreed", "decided_at", "billed", "decided_by", "original_outcome", "overrides"})
 }
 
@@ -229,7 +229,7 @@ func TestInvestigatorRetrieveTransaction(t *testing.T) {
 func TestInvestigatorUpdateSettings(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"stage":"none","stage_changed_at":"2025-01-02T03:04:05Z","stage_changed_by":"string","monthly_spend_limit":"string","spend_limit":{"enabled":true,"limit":"string","spent":"string","reviews":1,"reserved":"string","currency":"string","paused":true}}`)
 	var params didit.InvestigatorSettingsParam
-	mustUnmarshal(t, `{"stage":"none","monthly_spend_limit":"string"}`, &params)
+	mustUnmarshal(t, `{"stage":"shadow","monthly_spend_limit":"500.00"}`, &params)
 	res, err := client.Investigator.UpdateSettings(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -237,6 +237,6 @@ func TestInvestigatorUpdateSettings(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "PATCH", "/v3/investigator/settings/")
 	req.expectAPIKey(t)
-	req.expectJSON(t, `{"stage":"none","monthly_spend_limit":"string"}`)
+	req.expectJSON(t, `{"stage":"shadow","monthly_spend_limit":"500.00"}`)
 	expectFields(t, res.JSON, []string{"stage", "stage_changed_at", "stage_changed_by", "monthly_spend_limit", "spend_limit"})
 }

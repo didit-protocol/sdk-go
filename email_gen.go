@@ -40,7 +40,8 @@ type EmailService struct {
 // or invalid credentials return `403` - this API never returns `401`.
 //
 // **Rate limit.** Shared write budget of 300 requests per minute per API key
-// across all POST/PATCH/DELETE endpoints.
+// across POST/PATCH/DELETE endpoints (transaction creates and event ingestion
+// have a separate budget of 600).
 //
 // **Social footprint.** Set `enable_social` to `true` to add a `email_social`
 // block: the online platforms this address is registered on, with per-category
@@ -418,138 +419,6 @@ func (r *EmailMatchItem) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// EmailIntelligence: Normalized email-intelligence block. Present only when the
-// intelligence add-on ran for this email; when present it is also exposed as
-// the `enrichment` alias with identical values.
-type EmailIntelligence struct {
-	// Normalized 0-100 risk score. Higher is riskier.
-	Score float64 `json:"score"`
-
-	// Deliverability band (e.g., `high`).
-	Deliverable string `json:"deliverable"`
-
-	// `Low`, `Medium` or `High`.
-	BreachRiskLevel string `json:"breach_risk_level"`
-
-	// Numeric breach-risk index.
-	BreachRiskIndex float64 `json:"breach_risk_index"`
-
-	// `true` when the address appears in a recent breach.
-	IsRecentBreach bool `json:"is_recent_breach"`
-
-	// `true` when the address appears in many breaches.
-	IsFrequentBreached bool `json:"is_frequent_breached"`
-
-	// `true` when the domain is a throwaway provider.
-	IsDisposable bool `json:"is_disposable"`
-
-	// `true` when the domain is a free mail provider.
-	IsFreeDomain bool `json:"is_free_domain"`
-
-	// `true` when the address appears in known breaches.
-	IsBreached bool `json:"is_breached"`
-
-	// Number of known breaches containing the address.
-	NoOfBreaches float64 `json:"no_of_breaches"`
-
-	// Machine-readable codes explaining the score. Values can grow over time, so do
-	// not reject unknown codes.
-	ReasonCodes []string `json:"reason_codes"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes EmailIntelligence leniently.
-func (r *EmailIntelligence) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// EmailSocialFootprint: Social footprint of the email address: the online
-// platforms it is registered on. Present only when `enable_social` was set and
-// the check completed. Every count may be null when no data was returned for
-// it. `profiles_registered: 0` means the platforms were checked and the email
-// address was found on none of them - a valid, billable answer and a common
-// synthetic-identity signal.
-type EmailSocialFootprint struct {
-	// Platforms where the email address is confirmed registered.
-	ProfilesRegistered int64 `json:"profiles_registered"`
-
-	// Platforms evaluated for registration.
-	ProfilesChecked int64 `json:"profiles_checked"`
-
-	// Platforms that returned an associated name.
-	NamesFound int64 `json:"names_found"`
-
-	// Platforms that returned a profile photo.
-	PhotosFound int64 `json:"photos_found"`
-
-	// Communication platforms with detected presence.
-	CommunicationBreadth int64 `json:"communication_breadth"`
-
-	// Distinct platform categories with detected presence.
-	DigitalFootprintDiversity int64 `json:"digital_footprint_diversity"`
-
-	// Composite digital-maturity indicator, 0-10.
-	DigitalSophisticationIndex int64 `json:"digital_sophistication_index"`
-
-	// Profile-richness indicator, 0-10.
-	EngagementDepthIndex int64 `json:"engagement_depth_index"`
-
-	// Free vs paid platform mix, 0-10.
-	SubscriptionAffordabilityIndex int64 `json:"subscription_affordability_index"`
-
-	// Registrations on free platforms.
-	FreePlatforms int64 `json:"free_platforms"`
-
-	// Registrations on fully paid platforms.
-	FullPaidPlatforms int64 `json:"full_paid_platforms"`
-
-	// Registrations on freemium platforms.
-	PartialPaidPlatforms int64 `json:"partial_paid_platforms"`
-
-	// Completeness of the WhatsApp profile. Phone only; null for email.
-	WhatsappProfileCompleteness EmailSocialFootprintWhatsappProfileCompleteness `json:"whatsapp_profile_completeness"`
-
-	// Platforms where registration is confirmed.
-	RegisteredPlatforms []SocialFootprintPlatform `json:"registered_platforms"`
-
-	// Platforms checked with a negative result.
-	NotRegisteredPlatforms []SocialFootprintPlatform `json:"not_registered_platforms"`
-
-	// Registered count and ratio per platform category.
-	Categories map[string]SocialFootprintCategorySummary `json:"categories"`
-
-	// Per-platform profile details, keyed by platform, when the platform exposes
-	// them.
-	Profiles map[string]SocialFootprintProfile `json:"profiles"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes EmailSocialFootprint leniently.
-func (r *EmailSocialFootprint) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// EmailSocialFootprintWhatsappProfileCompleteness: Completeness of the WhatsApp
-// profile. Phone only; null for email.
-//
-// EmailSocialFootprintWhatsappProfileCompleteness is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type EmailSocialFootprintWhatsappProfileCompleteness string
-
-// Known values of EmailSocialFootprintWhatsappProfileCompleteness.
-const (
-	EmailSocialFootprintWhatsappProfileCompletenessBasic      EmailSocialFootprintWhatsappProfileCompleteness = "Basic"
-	EmailSocialFootprintWhatsappProfileCompletenessPartial    EmailSocialFootprintWhatsappProfileCompleteness = "Partial"
-	EmailSocialFootprintWhatsappProfileCompletenessComplete   EmailSocialFootprintWhatsappProfileCompleteness = "Complete"
-	EmailSocialFootprintWhatsappProfileCompletenessNotPresent EmailSocialFootprintWhatsappProfileCompleteness = "Not Present"
-)
-
 // EmailCheckCodeParams holds the parameters of Client.Email.CheckCode.
 type EmailCheckCodeParams struct {
 	// The same email address used in the matching [`POST
@@ -577,6 +446,28 @@ type EmailCheckCodeParams struct {
 	// (`email.is_disposable`). `DECLINE` flips the final `status` to `Declined`;
 	// `NO_ACTION` records the risk in `email.warnings`.
 	DisposableEmailAction Opt[EmailCheckCodeParamsDisposableEmailAction] `json:"disposable_email_action"`
+
+	// When `true`, also run email intelligence on the address: a risk score and its
+	// breach history. Billed as one `email_intelligence_api` unit per request
+	// ($0.05 at list price) in addition to this endpoint's own price. The request
+	// returns `403` when your balance cannot cover it.
+	EnableEnrichment Opt[bool] `json:"enable_enrichment"`
+
+	// Action when the email intelligence risk score is above the threshold.
+	// `DECLINE` flips the final `status` to `Declined`; `NO_ACTION` records the
+	// signal without declining. Only takes effect when `enable_enrichment` is
+	// `true`.
+	EmailIntelligenceScoreAction Opt[EmailCheckCodeParamsEmailIntelligenceScoreAction] `json:"email_intelligence_score_action"`
+
+	// Action when the address appears in a recent known data breach. `DECLINE`
+	// flips the final `status` to `Declined`; `NO_ACTION` records the signal
+	// without declining. Only takes effect when `enable_enrichment` is `true`.
+	RecentEmailBreachAction Opt[EmailCheckCodeParamsRecentEmailBreachAction] `json:"recent_email_breach_action"`
+
+	// Action when the address appears in many known data breaches. `DECLINE` flips
+	// the final `status` to `Declined`; `NO_ACTION` records the signal without
+	// declining. Only takes effect when `enable_enrichment` is `true`.
+	FrequentEmailBreachAction Opt[EmailCheckCodeParamsFrequentEmailBreachAction] `json:"frequent_email_breach_action"`
 
 	// When true, also look up the social footprint of the address - the email,
 	// social, professional, e-commerce and entertainment platforms it is registered
@@ -639,6 +530,52 @@ type EmailCheckCodeParamsDisposableEmailAction string
 const (
 	EmailCheckCodeParamsDisposableEmailActionNoAction EmailCheckCodeParamsDisposableEmailAction = "NO_ACTION"
 	EmailCheckCodeParamsDisposableEmailActionDecline  EmailCheckCodeParamsDisposableEmailAction = "DECLINE"
+)
+
+// EmailCheckCodeParamsEmailIntelligenceScoreAction: Action when the email
+// intelligence risk score is above the threshold. `DECLINE` flips the final
+// `status` to `Declined`; `NO_ACTION` records the signal without declining.
+// Only takes effect when `enable_enrichment` is `true`.
+//
+// EmailCheckCodeParamsEmailIntelligenceScoreAction is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type EmailCheckCodeParamsEmailIntelligenceScoreAction string
+
+// Known values of EmailCheckCodeParamsEmailIntelligenceScoreAction.
+const (
+	EmailCheckCodeParamsEmailIntelligenceScoreActionNoAction EmailCheckCodeParamsEmailIntelligenceScoreAction = "NO_ACTION"
+	EmailCheckCodeParamsEmailIntelligenceScoreActionDecline  EmailCheckCodeParamsEmailIntelligenceScoreAction = "DECLINE"
+)
+
+// EmailCheckCodeParamsRecentEmailBreachAction: Action when the address appears
+// in a recent known data breach. `DECLINE` flips the final `status` to
+// `Declined`; `NO_ACTION` records the signal without declining. Only takes
+// effect when `enable_enrichment` is `true`.
+//
+// EmailCheckCodeParamsRecentEmailBreachAction is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type EmailCheckCodeParamsRecentEmailBreachAction string
+
+// Known values of EmailCheckCodeParamsRecentEmailBreachAction.
+const (
+	EmailCheckCodeParamsRecentEmailBreachActionNoAction EmailCheckCodeParamsRecentEmailBreachAction = "NO_ACTION"
+	EmailCheckCodeParamsRecentEmailBreachActionDecline  EmailCheckCodeParamsRecentEmailBreachAction = "DECLINE"
+)
+
+// EmailCheckCodeParamsFrequentEmailBreachAction: Action when the address
+// appears in many known data breaches. `DECLINE` flips the final `status` to
+// `Declined`; `NO_ACTION` records the signal without declining. Only takes
+// effect when `enable_enrichment` is `true`.
+//
+// EmailCheckCodeParamsFrequentEmailBreachAction is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type EmailCheckCodeParamsFrequentEmailBreachAction string
+
+// Known values of EmailCheckCodeParamsFrequentEmailBreachAction.
+const (
+	EmailCheckCodeParamsFrequentEmailBreachActionNoAction EmailCheckCodeParamsFrequentEmailBreachAction = "NO_ACTION"
+	EmailCheckCodeParamsFrequentEmailBreachActionDecline  EmailCheckCodeParamsFrequentEmailBreachAction = "DECLINE"
 )
 
 // EmailCheckCodeParamsEmailNoSocialPresenceAction: Action when the social
@@ -769,6 +706,10 @@ type EmailVerificationCheckResponseEmail struct {
 	// matches keep created_at order. Empty array when there are no matches.
 	Matches     []EmailVerificationCheckResponseEmailMatches `json:"matches"`
 	EmailSocial EmailSocialFootprint                         `json:"email_social"`
+
+	// Email intelligence signals. Present only when `enable_enrichment` was `true`
+	// on the check.
+	EmailIntelligence EmailIntelligence `json:"email_intelligence"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.

@@ -261,6 +261,23 @@ func TestIDWalletsStartFtn(t *testing.T) {
 	expectFields(t, res.JSON, []string{"request_id", "wallet_verification", "vendor_data", "metadata", "created_at"})
 }
 
+func TestIDWalletsStartGoogleWallet(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"request_id":"00000000-0000-4000-8000-000000000001","wallet_verification":{"wallet":{"id":"google_wallet","name":"Google Wallet","issuing_authority":"Google Wallet (ID pass) and US state issuers (mobile driving licence)"},"country":"USA","status":"Not Finished","outcome":"pending","error":null,"interaction":"digital_credentials","simulated":false,"expires_at":"2026-01-01T10:10:00Z","next_action":{"type":"request_digital_credential","digital_credentials":{"protocol":"openid4vp-v1-signed","request":{"requests":[{"protocol":"openid4vp-v1-signed","data":{"request":"\u003ccompact JWS signed by Didit\u003e"}}]}}},"identity":null,"attributes":null,"level_of_assurance":null,"verified_at":null,"signature_valid":null,"credential_type":"sample-credential-type"},"vendor_data":"your-customer-reference","metadata":{"reference":"example"},"created_at":"2026-01-01T10:00:00Z"}`)
+	var params didit.IDWalletsStartGoogleWalletParams
+	mustUnmarshal(t, `{"vendor_data":"your-customer-reference","metadata":{"reference":"example"},"country":"USA","origin":"https://app.example.com"}`, &params.Body)
+	params.IdempotencyKey = didit.String("value")
+	res, err := client.IDWallets.StartGoogleWallet(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/id-verification/wallets/google-wallet/")
+	req.expectAPIKey(t)
+	req.expectHeader(t, "Idempotency-Key", "value")
+	req.expectJSON(t, `{"vendor_data":"your-customer-reference","metadata":{"reference":"example"},"country":"USA","origin":"https://app.example.com"}`)
+	expectFields(t, res.JSON, []string{"request_id", "wallet_verification", "vendor_data", "metadata", "created_at"})
+}
+
 func TestIDWalletsStartGovbr(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"request_id":"00000000-0000-4000-8000-000000000001","wallet_verification":{"wallet":{"id":"govbr","name":"gov.br","issuing_authority":"Governo Federal do Brasil"},"country":"BRA","status":"Not Finished","outcome":"pending","error":null,"interaction":"redirect","simulated":false,"expires_at":"2026-01-01T10:10:00Z","next_action":{"type":"redirect","url":"https://wallet.example.com/authorize"},"identity":null,"attributes":null,"level_of_assurance":null,"verified_at":null,"signature_valid":null,"credential_type":"sample-credential-type"},"vendor_data":"your-customer-reference","metadata":{"reference":"example"},"created_at":"2026-01-01T10:00:00Z"}`)
 	var params didit.IDWalletsStartGovbrParams
@@ -479,5 +496,20 @@ func TestIDWalletsStartVipps(t *testing.T) {
 	req.expectAPIKey(t)
 	req.expectHeader(t, "Idempotency-Key", "value")
 	req.expectJSON(t, `{"vendor_data":"your-customer-reference","metadata":{"reference":"example"},"country":"NOR","return_url":"https://app.example.com/identity/complete"}`)
+	expectFields(t, res.JSON, []string{"request_id", "wallet_verification", "vendor_data", "metadata", "created_at"})
+}
+
+func TestIDWalletsSubmitVerificationResponse(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"00000000-0000-4000-8000-000000000001","wallet_verification":{"wallet":{"id":"google_wallet","name":"Google Wallet","issuing_authority":"Google Wallet (ID pass) and US state issuers (mobile driving licence)"},"country":"USA","status":"Approved","outcome":"verified","error":null,"interaction":"digital_credentials","simulated":false,"expires_at":"2026-01-01T10:10:00Z","next_action":null,"identity":{"full_name":"Alex Example","first_name":"Alex","last_name":"Example","date_of_birth":"1990-01-31","nationality":"USA","issuing_state":"USA"},"attributes":{"document_number":"X0000000","document_expiry_date":"2030-01-31"},"level_of_assurance":"substantial","verified_at":"2026-01-01T10:01:00Z","signature_valid":true,"credential_type":"sample-credential-type"},"vendor_data":"your-customer-reference","metadata":{"reference":"example"},"created_at":"2026-01-01T10:00:00Z"}`)
+	var params didit.DigitalIDWalletAPIWalletDigitalCredentialResponseRequest
+	mustUnmarshal(t, `{"response":{"protocol":"openid4vp-v1-signed","data":{"response":"\u003ccompact JWE returned by the wallet\u003e"}}}`, &params)
+	res, err := client.IDWallets.SubmitVerificationResponse(context.Background(), "request-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/id-verification/wallets/verifications/request-id-1/response/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"response":{"protocol":"openid4vp-v1-signed","data":{"response":"\u003ccompact JWE returned by the wallet\u003e"}}}`)
 	expectFields(t, res.JSON, []string{"request_id", "wallet_verification", "vendor_data", "metadata", "created_at"})
 }

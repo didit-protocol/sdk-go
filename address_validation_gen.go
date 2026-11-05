@@ -46,7 +46,8 @@ type AddressValidationService struct {
 // or invalid credentials return `403` - this API never returns `401`.
 //
 // **Rate limit.** Shared write budget of 300 requests per minute per API key
-// across all POST/PATCH/DELETE endpoints.
+// across POST/PATCH/DELETE endpoints (transaction creates and event ingestion
+// have a separate budget of 600).
 //
 //	POST /v3/address-validation/
 func (r *AddressValidationService) Validate(ctx context.Context, params AddressValidationRequest, opts ...option.RequestOption) (*AddressValidationResponse, error) {
