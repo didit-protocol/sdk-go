@@ -17225,7 +17225,7 @@ func (r *SessionsUpdateStatusResponse) UnmarshalJSON(data []byte) error {
 type SessionsUploadKYBDocumentsParams struct {
 	// Files to upload: JPG, JPEG, PNG, TIFF, WEBP, PDF or ZIP archives of them.
 	// PDFs up to 50 MB, photos up to 6 MB before compression. Required.
-	Documents []File `json:"documents"`
+	Documents []File `json:"-" form:"documents"`
 
 	// One entry per file in `documents`, in the same order: the password of a
 	// protected PDF, empty for any other file.

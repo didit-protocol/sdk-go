@@ -3935,7 +3935,7 @@ type TravelRuleMessageCreateRequest struct {
 	ReplyTo Opt[string] `json:"reply_to"`
 
 	// Multipart only. Up to 5 files of 10 MB each.
-	Files Opt[[]File] `json:"files"`
+	Files Opt[[]File] `json:"-" form:"files"`
 }
 
 // MarshalJSON encodes the fields that are set.

@@ -632,7 +632,8 @@ func TestSessionsUpdateStatus(t *testing.T) {
 func TestSessionsUploadKYBDocuments(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"valid":true,"next_step":"KYB_KEY_PEOPLE","kyb_status":"In Progress"}`)
 	var params didit.SessionsUploadKYBDocumentsParams
-	mustUnmarshal(t, `{"documents":["string"],"document_passwords":["sample-document-passwords"],"document_group":"LEGAL_PRESENCE","locale":"string"}`, &params)
+	mustUnmarshal(t, `{"document_passwords":["sample-document-passwords"],"document_group":"LEGAL_PRESENCE","locale":"string"}`, &params)
+	params.Documents = []didit.File{didit.FileFromBytes("documents.png", []byte("file-content"))}
 	params.NodeID = didit.String("value")
 	res, err := client.Sessions.UploadKYBDocuments(context.Background(), "sessionId-1", params)
 	if err != nil {
@@ -642,7 +643,7 @@ func TestSessionsUploadKYBDocuments(t *testing.T) {
 	req.expect(t, "POST", "/v3/session/sessionId-1/kyb/documents/")
 	req.expectAPIKey(t)
 	req.expectQuery(t, map[string]string{"node_id": "value"})
-	req.expectMultipart(t, []string{"documents", "document_passwords", "document_group", "locale"}, []string{})
+	req.expectMultipart(t, []string{"document_passwords", "document_group", "locale"}, []string{"documents"})
 	expectFields(t, res.JSON, []string{"valid", "next_step", "kyb_status"})
 }
 
