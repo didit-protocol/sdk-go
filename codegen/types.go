@@ -499,7 +499,7 @@ func (g *Gen) structType(doc *Doc, name string, side Side, parts []*Node, union 
 		}
 		if side == Request {
 			f.Opt = !required || nullable
-			if ft.Kind == TFile {
+			if isFileType(ft) {
 				f.Tag = "form"
 			}
 		}
@@ -792,4 +792,10 @@ func (g *Gen) sortedDecls() []*Decl {
 	out := append([]*Decl(nil), g.decls...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].order < out[j].order })
 	return out
+}
+
+// isFileType reports whether t is a file or a list of files, which a multipart
+// request sends as file parts instead of JSON fields.
+func isFileType(t *GoType) bool {
+	return t.Kind == TFile || (t.Kind == TSlice && t.Elem != nil && t.Elem.Kind == TFile)
 }

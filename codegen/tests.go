@@ -221,17 +221,21 @@ func (g *Gen) emitTestAs(b *bytes.Buffer, m *Method, name string, params *GoType
 			}
 			// Files.
 			for _, f := range d.Fields {
-				if f.Type.Kind != TFile {
+				if !isFileType(f.Type) {
 					continue
+				}
+				file := fmt.Sprintf("didit.FileFromBytes(%s, []byte(\"file-content\"))", strconv.Quote(f.Name+".png"))
+				if f.Type.Kind == TSlice {
+					file = "[]didit.File{" + file + "}"
 				}
 				if !f.Required && !multipart {
 					continue
 				}
 				if !f.Required && multipart {
 					// Optional files: send one too, to cover Opt[File].
-					fmt.Fprintf(b, "\tparams.%s = didit.Some(didit.FileFromBytes(%s, []byte(\"file-content\")))\n", f.GoName, strconv.Quote(f.Name+".png"))
+					fmt.Fprintf(b, "\tparams.%s = didit.Some(%s)\n", f.GoName, file)
 				} else {
-					fmt.Fprintf(b, "\tparams.%s = didit.FileFromBytes(%s, []byte(\"file-content\"))\n", f.GoName, strconv.Quote(f.Name+".png"))
+					fmt.Fprintf(b, "\tparams.%s = %s\n", f.GoName, file)
 				}
 				wantFiles = append(wantFiles, f.Name)
 			}

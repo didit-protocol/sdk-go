@@ -37,6 +37,22 @@ func parseTime(s string) (time.Time, bool) {
 
 // props returns the merged properties and required set of an object-like
 // schema (following $ref, allOf, oneOf and anyOf).
+// isBinaryField reports whether the property schema s is a file or an array of
+// files. Files are never part of a JSON example: the tests attach them.
+func (b *exampleBuilder) isBinaryField(s *Node) bool {
+	if s == nil {
+		return false
+	}
+	if s.Get("format").Text() == "binary" {
+		return true
+	}
+	if s.Get("type").Text() == "array" {
+		items := view(b.doc, s.Get("items"))
+		return items != nil && items.Get("format").Text() == "binary"
+	}
+	return false
+}
+
 func (b *exampleBuilder) props(s *Node) (keys []string, schemas map[string]*Node, required map[string]bool) {
 	schemas = map[string]*Node{}
 	required = map[string]bool{}
@@ -103,7 +119,7 @@ func (b *exampleBuilder) fit(ex, s *Node, depth int) *Node {
 			if b.side == Request && pview != nil && pview.Get("readOnly").Truthy() {
 				continue
 			}
-			if b.side == Request && pview != nil && pview.Get("format").Text() == "binary" {
+			if b.side == Request && b.isBinaryField(pview) {
 				continue
 			}
 			if pv != nil {
@@ -242,7 +258,7 @@ func (b *exampleBuilder) synth(s *Node, depth int, seen map[string]bool) *Node {
 		for _, k := range keys {
 			ps := schemas[k]
 			pv := view(b.doc, ps)
-			if b.side == Request && pv != nil && (pv.Get("readOnly").Truthy() || pv.Get("format").Text() == "binary") {
+			if b.side == Request && pv != nil && (pv.Get("readOnly").Truthy() || b.isBinaryField(pv)) {
 				continue
 			}
 			if b.side == Request && !required[k] && depth > 2 {

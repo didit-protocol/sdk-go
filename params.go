@@ -24,7 +24,10 @@ import (
 //	body:"json"    the whole JSON body (an operation whose body is a schema
 //	               component and that also has query or header parameters)
 
-var fileType = reflect.TypeOf(File{})
+var (
+	fileType      = reflect.TypeOf(File{})
+	fileSliceType = reflect.TypeOf([]File(nil))
+)
 
 // encodeQuery adds the query-tagged fields of params to q.
 func encodeQuery(params any, q url.Values) {
@@ -88,6 +91,13 @@ func hasFile(params any) bool {
 		if f, ok := fileValue(rv.Field(idx)); ok && !f.IsZero() {
 			return true
 		}
+		if files, ok := fileValues(rv.Field(idx)); ok {
+			for _, f := range files {
+				if !f.IsZero() {
+					return true
+				}
+			}
+		}
 	}
 	return false
 }
@@ -115,28 +125,42 @@ func encodeMultipart(params any) ([]byte, string, error) {
 	return buf.Bytes(), w.FormDataContentType(), nil
 }
 
+// writeFilePart writes f as a file part named name; a zero file writes nothing.
+func writeFilePart(w *multipart.Writer, name string, f File) error {
+	if f.IsZero() {
+		return nil
+	}
+	data, contentType, err := f.load()
+	if err != nil {
+		return err
+	}
+	filename := f.name
+	if filename == "" {
+		filename = name
+	}
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(name), escapeQuotes(filename)))
+	h.Set("Content-Type", contentType)
+	part, err := w.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	_, err = part.Write(data)
+	return err
+}
+
 func writeFormField(w *multipart.Writer, name string, v reflect.Value) error {
 	if f, ok := fileValue(v); ok {
-		if f.IsZero() {
-			return nil
+		return writeFilePart(w, name, f)
+	}
+	if files, ok := fileValues(v); ok {
+		// A list of files repeats the part name, one part per file.
+		for _, f := range files {
+			if err := writeFilePart(w, name, f); err != nil {
+				return err
+			}
 		}
-		data, contentType, err := f.load()
-		if err != nil {
-			return err
-		}
-		filename := f.name
-		if filename == "" {
-			filename = name
-		}
-		h := make(textproto.MIMEHeader)
-		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(name), escapeQuotes(filename)))
-		h.Set("Content-Type", contentType)
-		part, err := w.CreatePart(h)
-		if err != nil {
-			return err
-		}
-		_, err = part.Write(data)
-		return err
+		return nil
 	}
 	// Unwrap Opt.
 	if o, ok := v.Interface().(optional); ok {
@@ -200,6 +224,23 @@ func fileValue(v reflect.Value) (File, bool) {
 		}
 	}
 	return File{}, false
+}
+
+// fileValues returns the files of a []File or Opt[[]File] field.
+func fileValues(v reflect.Value) ([]File, bool) {
+	if v.Type() == fileSliceType {
+		return v.Interface().([]File), true
+	}
+	if o, ok := v.Interface().(optional); ok {
+		value, set := o.anyValue()
+		if files, isList := value.([]File); isList {
+			if !set {
+				return nil, true
+			}
+			return files, true
+		}
+	}
+	return nil, false
 }
 
 // formScalar formats strings, numbers, booleans and times.
