@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.2](https://github.com/didit-protocol/sdk-go/compare/v1.0.1...v1.0.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **codegen:** import only the packages the generated code uses ([2e098d3](https://github.com/didit-protocol/sdk-go/commit/2e098d33b3721abd977cf901c30939c32159dc3b))
+* **codegen:** keep multipart for identical JSON and multipart schemas with files ([0e7ca0a](https://github.com/didit-protocol/sdk-go/commit/0e7ca0a454628b391d104f2c788258a0eb4a4a08))
+* **codegen:** keep the params type of identical JSON and multipart schemas ([0d3f8c9](https://github.com/didit-protocol/sdk-go/commit/0d3f8c910bcf8120bbf238a46420f46bd30518f2))
+* **codegen:** multipart file lists send one file part per file ([867e1ce](https://github.com/didit-protocol/sdk-go/commit/867e1cef28dc80b02465769dbc073bd6f2604e41))
+* **examples:** blockchain is optional in the wallet screening request ([bb8adb7](https://github.com/didit-protocol/sdk-go/commit/bb8adb72dc53d24677434507ce92e22343e3419d))
+
 ## [1.0.1](https://github.com/didit-protocol/sdk-go/compare/v1.0.0...v1.0.1) (2026-10-29)
 
 
