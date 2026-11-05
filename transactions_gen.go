@@ -524,7 +524,7 @@ func (r *TransactionsTravelRuleService) ConfirmOwnership(ctx context.Context, tr
 //	POST /v3/transactions/{transaction_id}/travel-rule/messages/
 func (r *TransactionsTravelRuleService) CreateMessage(ctx context.Context, transactionID string, params TravelRuleMessageCreateRequest, opts ...option.RequestOption) (*TravelRuleMessage, error) {
 	res := new(TravelRuleMessage)
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/transactions/{transaction_id}/travel-rule/messages/", pathParams: []string{"transaction_id", transactionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/transactions/{transaction_id}/travel-rule/messages/", pathParams: []string{"transaction_id", transactionID}, params: params, body: bodyJSONOrMultipart}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil

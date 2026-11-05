@@ -39,7 +39,10 @@ func parseTime(s string) (time.Time, bool) {
 // schema (following $ref, allOf, oneOf and anyOf).
 // isBinaryField reports whether the property schema s is a file or an array of
 // files. Files are never part of a JSON example: the tests attach them.
-func (b *exampleBuilder) isBinaryField(s *Node) bool {
+func (b *exampleBuilder) isBinaryField(s *Node) bool { return isBinarySchema(b.doc, s) }
+
+// isBinarySchema reports whether s is a binary string or an array of them.
+func isBinarySchema(doc *Doc, s *Node) bool {
 	if s == nil {
 		return false
 	}
@@ -47,7 +50,7 @@ func (b *exampleBuilder) isBinaryField(s *Node) bool {
 		return true
 	}
 	if s.Get("type").Text() == "array" {
-		items := view(b.doc, s.Get("items"))
+		items := view(doc, s.Get("items"))
 		return items != nil && items.Get("format").Text() == "binary"
 	}
 	return false
