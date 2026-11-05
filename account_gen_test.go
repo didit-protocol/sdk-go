@@ -55,7 +55,7 @@ func TestAccountResendOTP(t *testing.T) {
 }
 
 func TestAccountVerifyEmail(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"access_token":"sample-access-token","refresh_token":"sample-refresh-token","expires_in":86400,"organization":{"uuid":"a1b2c3d4-5678-90ab-cdef-111111111111","name":"developer"},"application":{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"developer","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key"}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"access_token":"sample-access-token","refresh_token":"sample-refresh-token","expires_in":86400,"organization":{"uuid":"a1b2c3d4-5678-90ab-cdef-111111111111","name":"developer"},"application":{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"developer","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","data_location":"eu"}}`)
 	var params didit.VerifyEmailRequest
 	mustUnmarshal(t, `{"email":"you@yourdomain.com","code":"A3K9F2"}`, &params)
 	res, err := client.Account.VerifyEmail(context.Background(), params)
@@ -70,9 +70,9 @@ func TestAccountVerifyEmail(t *testing.T) {
 }
 
 func TestAccountApplicationsCreate(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"Acme Customer App","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","website_url":"https://acme.example","redirect_uris":["https://acme.example/callback"],"terms_url":"https://acme.example/terms","privacy_url":"https://acme.example/privacy","description":null,"created_at":"2025-06-01T10:00:00Z","products":[{"product":"identity","status":"enabled","modules":{"user_verification":true,"business_verification":true,"case_management":true}},{"product":"transactions","status":"disabled","modules":{"travel_rule":true,"case_management":true}},{"product":"authentication","status":"disabled","modules":{}}]}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"Acme Customer App","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","website_url":"https://acme.example","redirect_uris":["https://acme.example/callback"],"terms_url":"https://acme.example/terms","privacy_url":"https://acme.example/privacy","description":null,"created_at":"2025-06-01T10:00:00Z","data_location":"eu","products":[{"product":"identity","status":"enabled","modules":{"user_verification":true,"business_verification":true,"case_management":true}},{"product":"transactions","status":"disabled","modules":{"travel_rule":true,"case_management":true}},{"product":"authentication","status":"disabled","modules":{}}]}`)
 	var params didit.ApplicationCreateRequest
-	mustUnmarshal(t, `{"name":"Acme Customer App","website_url":"https://acme.example","redirect_uris":["https://acme.example/callback"],"terms_url":"https://acme.example/terms","privacy_url":"https://acme.example/privacy"}`, &params)
+	mustUnmarshal(t, `{"name":"Acme Customer App","website_url":"https://acme.example","redirect_uris":["https://acme.example/callback"],"terms_url":"https://acme.example/terms","privacy_url":"https://acme.example/privacy","data_location":"eu"}`, &params)
 	res, err := client.Account.Applications.Create(context.Background(), "org-id-1", params)
 	if err != nil {
 		t.Fatal(err)
@@ -80,12 +80,12 @@ func TestAccountApplicationsCreate(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/auth/v2/organizations/me/org-id-1/applications/")
 	req.expectAccountToken(t)
-	req.expectJSON(t, `{"name":"Acme Customer App","website_url":"https://acme.example","redirect_uris":["https://acme.example/callback"],"terms_url":"https://acme.example/terms","privacy_url":"https://acme.example/privacy"}`)
-	expectFields(t, res.JSON, []string{"uuid", "name", "client_id", "api_key", "website_url", "redirect_uris", "terms_url", "privacy_url", "created_at", "products"})
+	req.expectJSON(t, `{"name":"Acme Customer App","website_url":"https://acme.example","redirect_uris":["https://acme.example/callback"],"terms_url":"https://acme.example/terms","privacy_url":"https://acme.example/privacy","data_location":"eu"}`)
+	expectFields(t, res.JSON, []string{"uuid", "name", "client_id", "api_key", "website_url", "redirect_uris", "terms_url", "privacy_url", "created_at", "data_location", "products"})
 }
 
 func TestAccountApplicationsList(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"My App","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","website_url":"https://example.com","redirect_uris":["https://example.com/callback"],"terms_url":"https://example.com/terms","privacy_url":"https://example.com/privacy","description":"Production application","created_at":"2025-06-01T10:00:00Z","products":[{"product":"identity","status":"enabled","modules":{"user_verification":true,"business_verification":true,"case_management":true}},{"product":"transactions","status":"disabled","modules":{"travel_rule":true,"case_management":true}},{"product":"authentication","status":"disabled","modules":{}}]}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"My App","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","website_url":"https://example.com","redirect_uris":["https://example.com/callback"],"terms_url":"https://example.com/terms","privacy_url":"https://example.com/privacy","description":"Production application","created_at":"2025-06-01T10:00:00Z","data_location":"eu","products":[{"product":"identity","status":"enabled","modules":{"user_verification":true,"business_verification":true,"case_management":true}},{"product":"transactions","status":"disabled","modules":{"travel_rule":true,"case_management":true}},{"product":"authentication","status":"disabled","modules":{}}]}]}`)
 	var params didit.AccountApplicationsListParams
 	params.Limit = didit.Int(50)
 	params.Offset = didit.Int(0)
@@ -103,11 +103,11 @@ func TestAccountApplicationsList(t *testing.T) {
 	if len(res.Results) == 0 {
 		t.Fatal("no results")
 	}
-	expectFields(t, res.Results[0].JSON, []string{"uuid", "name", "client_id", "api_key", "website_url", "redirect_uris", "terms_url", "privacy_url", "description", "created_at", "products"})
+	expectFields(t, res.Results[0].JSON, []string{"uuid", "name", "client_id", "api_key", "website_url", "redirect_uris", "terms_url", "privacy_url", "description", "created_at", "data_location", "products"})
 }
 
 func TestAccountApplicationsRetrieve(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"My App","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","website_url":"https://example.com","redirect_uris":["https://example.com/callback"],"terms_url":"https://example.com/terms","privacy_url":"https://example.com/privacy","description":"Production application","created_at":"2025-06-01T10:00:00Z","products":[{"product":"identity","status":"enabled","modules":{"user_verification":true,"business_verification":true,"case_management":true}},{"product":"transactions","status":"disabled","modules":{"travel_rule":true,"case_management":true}},{"product":"authentication","status":"disabled","modules":{}}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"My App","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","website_url":"https://example.com","redirect_uris":["https://example.com/callback"],"terms_url":"https://example.com/terms","privacy_url":"https://example.com/privacy","description":"Production application","created_at":"2025-06-01T10:00:00Z","data_location":"eu","products":[{"product":"identity","status":"enabled","modules":{"user_verification":true,"business_verification":true,"case_management":true}},{"product":"transactions","status":"disabled","modules":{"travel_rule":true,"case_management":true}},{"product":"authentication","status":"disabled","modules":{}}]}`)
 	res, err := client.Account.Applications.Retrieve(context.Background(), "org-id-1", "app-id-1")
 	if err != nil {
 		t.Fatal(err)
@@ -115,11 +115,11 @@ func TestAccountApplicationsRetrieve(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/auth/v2/organizations/me/org-id-1/applications/app-id-1/")
 	req.expectAccountToken(t)
-	expectFields(t, res.JSON, []string{"uuid", "name", "client_id", "api_key", "website_url", "redirect_uris", "terms_url", "privacy_url", "description", "created_at", "products"})
+	expectFields(t, res.JSON, []string{"uuid", "name", "client_id", "api_key", "website_url", "redirect_uris", "terms_url", "privacy_url", "description", "created_at", "data_location", "products"})
 }
 
 func TestAccountApplicationsUpdate(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"Acme Production App","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","website_url":"https://app.acme.example","redirect_uris":["https://acme.example/callback"],"terms_url":"https://acme.example/terms","privacy_url":"https://acme.example/privacy","description":null,"created_at":"2025-06-01T10:00:00Z","products":[{"product":"identity","status":"enabled","modules":{"user_verification":true,"business_verification":true,"case_management":true}},{"product":"transactions","status":"disabled","modules":{"travel_rule":true,"case_management":true}},{"product":"authentication","status":"disabled","modules":{}}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"Acme Production App","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","website_url":"https://app.acme.example","redirect_uris":["https://acme.example/callback"],"terms_url":"https://acme.example/terms","privacy_url":"https://acme.example/privacy","description":null,"created_at":"2025-06-01T10:00:00Z","data_location":"eu","products":[{"product":"identity","status":"enabled","modules":{"user_verification":true,"business_verification":true,"case_management":true}},{"product":"transactions","status":"disabled","modules":{"travel_rule":true,"case_management":true}},{"product":"authentication","status":"disabled","modules":{}}]}`)
 	var params didit.ApplicationUpdateRequest
 	mustUnmarshal(t, `{"name":"Acme Production App","website_url":"https://app.acme.example"}`, &params)
 	res, err := client.Account.Applications.Update(context.Background(), "org-id-1", "app-id-1", params)
@@ -130,7 +130,7 @@ func TestAccountApplicationsUpdate(t *testing.T) {
 	req.expect(t, "PATCH", "/auth/v2/organizations/me/org-id-1/applications/app-id-1/")
 	req.expectAccountToken(t)
 	req.expectJSON(t, `{"name":"Acme Production App","website_url":"https://app.acme.example"}`)
-	expectFields(t, res.JSON, []string{"uuid", "name", "client_id", "api_key", "website_url", "redirect_uris", "terms_url", "privacy_url", "created_at", "products"})
+	expectFields(t, res.JSON, []string{"uuid", "name", "client_id", "api_key", "website_url", "redirect_uris", "terms_url", "privacy_url", "created_at", "data_location", "products"})
 }
 
 func TestAccountOrganizationsList(t *testing.T) {
