@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"go/ast"
 	"go/format"
+	"go/parser"
+	"go/token"
 	"sort"
 	"strconv"
 	"strings"
@@ -172,7 +175,10 @@ func (g *Gen) emit(root *Service) ([]File, error) {
 	sort.Strings(names)
 	for _, n := range names {
 		src := bodies[n].Bytes()
-		full := assemble(src)
+		full, err := assemble(src)
+		if err != nil {
+			return nil, fmt.Errorf("assembling %s: %w", n, err)
+		}
 		formatted, err := format.Source(full)
 		if err != nil {
 			return nil, fmt.Errorf("formatting %s: %w\n%s", n, err, numbered(full))
@@ -193,18 +199,42 @@ func numbered(src []byte) string {
 	return b.String()
 }
 
+// usedQualifiers returns the identifiers the body uses as the qualifier of a
+// selector expression (http in http.MethodGet). Comments and string literals
+// are not code, so a doc comment that ends a sentence with "time." does not
+// count as a use of the time package.
+func usedQualifiers(body []byte) (map[string]bool, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), "", "package didit\n\n"+string(body), 0)
+	if err != nil {
+		return nil, err
+	}
+	used := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok {
+			if id, ok := sel.X.(*ast.Ident); ok {
+				used[id.Name] = true
+			}
+		}
+		return true
+	})
+	return used, nil
+}
+
 // assemble adds the header, package clause and the imports the body uses.
-func assemble(body []byte) []byte {
-	s := string(body)
+func assemble(body []byte) ([]byte, error) {
+	used, err := usedQualifiers(body)
+	if err != nil {
+		return nil, err
+	}
 	var std, mod []string
 	for _, imp := range []struct{ pkg, use string }{
-		{"context", "context."},
-		{"encoding/json", "json."},
-		{"net/http", "http."},
-		{"time", "time."},
-		{"github.com/didit-protocol/sdk-go/option", "option."},
+		{"context", "context"},
+		{"encoding/json", "json"},
+		{"net/http", "http"},
+		{"time", "time"},
+		{"github.com/didit-protocol/sdk-go/option", "option"},
 	} {
-		if !strings.Contains(s, imp.use) {
+		if !used[imp.use] {
 			continue
 		}
 		if strings.Contains(imp.pkg, ".") {
@@ -230,7 +260,7 @@ func assemble(body []byte) []byte {
 		b.WriteString(")\n\n")
 	}
 	b.Write(body)
-	return b.Bytes()
+	return b.Bytes(), nil
 }
 
 func emitClient(b *bytes.Buffer, root *Service) {
