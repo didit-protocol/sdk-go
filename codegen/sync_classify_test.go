@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/didit-protocol/sdk-go/internal/version"
@@ -186,12 +187,33 @@ func TestSyncPinnedDocumentationChangeReleasesNothing(t *testing.T) {
 	}
 }
 
-// probeAfter syncs the 2026-11-04 "after" document, changed by setup (when
-// set), against a copy changed by setup and edit.
+// probePaths are the operations the probes change; the probe document keeps
+// only them (and every component), so that each probe parses 1 MB, not 6.
+var probePaths = []string{"/v3/database-validation/", "/v3/webhook/destinations/"}
+
+var (
+	probeOnce sync.Once
+	probeBase string
+)
+
+// probeAfter syncs the 2026-11-04 "after" document (probePaths only),
+// changed by setup (when set), against a copy changed by setup and edit.
 func probeAfter(t *testing.T, setup, edit func(doc *Node)) syncResult {
 	t.Helper()
-	pinned := readPinned(t, "e002a815773bbd1599256e2774046ee76520c6c8")
-	old, doc := mustNode(t, string(pinned)), mustNode(t, string(pinned))
+	probeOnce.Do(func() {
+		full := mustNode(t, string(readPinned(t, "e002a815773bbd1599256e2774046ee76520c6c8")))
+		paths := syncObject()
+		for _, p := range probePaths {
+			paths.Set(p, full.Path("paths", p))
+		}
+		trimmed := syncCopyObject(full)
+		trimmed.Set("paths", paths)
+		probeBase = syncEncode(trimmed, syncFileStyle)
+	})
+	if probeBase == "" {
+		t.Fatal("the probe document could not be built")
+	}
+	old, doc := mustNode(t, probeBase), mustNode(t, probeBase)
 	if setup != nil {
 		setup(old)
 		setup(doc)
