@@ -186,14 +186,18 @@ func TestSyncPinnedDocumentationChangeReleasesNothing(t *testing.T) {
 	}
 }
 
-// probeAfter syncs the 2026-11-04 "after" document against a copy changed
-// by edit, and returns the breaking entries.
-func probeAfter(t *testing.T, edit func(doc *Node)) syncResult {
+// probeAfter syncs the 2026-11-04 "after" document, changed by setup (when
+// set), against a copy changed by setup and edit.
+func probeAfter(t *testing.T, setup, edit func(doc *Node)) syncResult {
 	t.Helper()
-	before := readPinned(t, "e002a815773bbd1599256e2774046ee76520c6c8")
-	doc := mustNode(t, string(before))
+	pinned := readPinned(t, "e002a815773bbd1599256e2774046ee76520c6c8")
+	old, doc := mustNode(t, string(pinned)), mustNode(t, string(pinned))
+	if setup != nil {
+		setup(old)
+		setup(doc)
+	}
 	edit(doc)
-	return syncPinnedPair(t, before, []byte(syncEncode(doc, syncFileStyle)))
+	return syncPinnedPair(t, []byte(syncEncode(old, syncFileStyle)), []byte(syncEncode(doc, syncFileStyle)))
 }
 
 // Changes that a sync must report although something next to them changed
@@ -204,9 +208,14 @@ func TestSyncReportsChangesInsideUnionsAndWrappers(t *testing.T) {
 			"schema", "properties", "database_validation", "properties", "validations")
 	}
 	const op = "`POST /v3/database-validation/` response "
+	note := func(t *testing.T, doc *Node) {
+		v := validations(doc).Get("oneOf")
+		v.Arr = append(v.Arr, mustNode(t, `{"type": "object", "properties": {"note": {"type": "string"}}}`))
+	}
 	tests := []struct {
 		name  string
-		edit  func(t *testing.T, doc *Node)
+		setup func(t *testing.T, doc *Node) // both documents
+		edit  func(t *testing.T, doc *Node) // the new one
 		want  []string
 		other []string // listed, not breaking
 	}{{
@@ -249,12 +258,17 @@ func TestSyncReportsChangesInsideUnionsAndWrappers(t *testing.T) {
 		},
 		want: []string{op + "`database_validation.validations`: type changed from array/object to array"},
 	}, {
-		name: "a variant of a type that stays is removed",
+		name:  "a variant of a type that is already there is added",
+		edit:  note,
+		other: []string{"response `database_validation.validations`: variant `object` added"},
+	}, {
+		name:  "a variant of a type that stays is removed",
+		setup: note,
 		edit: func(t *testing.T, doc *Node) {
 			v := validations(doc).Get("oneOf")
-			v.Arr = append(v.Arr, mustNode(t, `{"type": "object", "properties": {"note": {"type": "string"}}}`))
+			v.Arr = v.Arr[:2]
 		},
-		other: []string{"response `database_validation.validations`: variant `object` added"},
+		want: []string{op + "`database_validation.validations`: variant `object` removed"},
 	}, {
 		name: "the items of an array behind an allOf change",
 		edit: func(t *testing.T, doc *Node) {
@@ -277,7 +291,11 @@ func TestSyncReportsChangesInsideUnionsAndWrappers(t *testing.T) {
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			res := probeAfter(t, func(doc *Node) { tt.edit(t, doc) })
+			var setup func(doc *Node)
+			if tt.setup != nil {
+				setup = func(doc *Node) { tt.setup(t, doc) }
+			}
+			res := probeAfter(t, setup, func(doc *Node) { tt.edit(t, doc) })
 			got := breakingTexts(res)
 			for _, w := range tt.want {
 				if !strings.Contains(strings.Join(got, "\n"), w) {
