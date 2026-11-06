@@ -125,6 +125,33 @@ const fixtureAccount = `{
  "components": {"schemas": {"Organization": {"type": "object", "properties": {"uuid": {"type": "string"}, "name": {"type": "string"}}}}}
 }`
 
+const fixtureAuthentication = `{
+ "openapi": "3.0.3",
+ "info": {"title": "Didit Authentication (fixture)", "version": "1"},
+ "paths": {
+  "/session/": {
+   "get": {
+    "operationId": "authentication_get_session",
+    "x-didit-sdk": {"resource": "authentication", "method": "get_session", "auth": "access_token", "server": true},
+    "responses": {"200": {"description": "ok", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}}}
+   },
+   "delete": {
+    "operationId": "authentication_revoke_session",
+    "x-didit-sdk": {"resource": "authentication", "method": "revoke_session", "auth": "access_token", "server": true},
+    "responses": {"204": {"description": "revoked"}}
+   }
+  },
+  "/monitoring-token/": {
+   "post": {
+    "operationId": "authentication_create_monitoring_token",
+    "x-didit-sdk": {"resource": "authentication", "method": "create_monitoring_token", "auth": "access_token", "server": false},
+    "responses": {"201": {"description": "ok"}}
+   }
+  }
+ },
+ "components": {"schemas": {"Session": {"type": "object", "properties": {"sid": {"type": "string"}, "expires_at": {"type": "string", "format": "date-time"}}, "required": ["sid"]}}}
+}`
+
 const fixtureOverlay = `{
  "description": "SDK naming (fixture).",
  "version": 1,
@@ -157,6 +184,7 @@ func newSyncFixture(t *testing.T) *syncFixture {
 	}
 	f.writeNode("verification.json", mustNode(t, fixtureVerification))
 	f.writeNode("account.json", mustNode(t, fixtureAccount))
+	f.writeNode("authentication.json", mustNode(t, fixtureAuthentication))
 	f.writeNode("overlay.json", mustNode(t, fixtureOverlay))
 	f.writeNode("SOURCE.json", mustNode(t, fixtureSource))
 	// An empty file of its own, like the one the SDK was seeded with. Not the
@@ -226,17 +254,51 @@ func (f *syncFixture) sync(downloads map[string][]byte) (syncResult, error) {
 // current account.json, and returns the summary.
 func (f *syncFixture) syncVerification(doc *Node) string {
 	f.t.Helper()
-	res, err := f.sync(map[string][]byte{
-		"verification.json": []byte(syncEncode(doc, syncFileStyle)),
-		"account.json":      f.read("account.json"),
-	})
+	return f.syncDoc("verification.json", doc).summary
+}
+
+// syncDoc syncs with doc as the new file and the current other upstream
+// documents, and returns the result.
+func (f *syncFixture) syncDoc(file string, doc *Node) syncResult {
+	f.t.Helper()
+	downloads := map[string][]byte{}
+	for _, up := range syncUpstreams {
+		downloads[up.file] = f.read(up.file)
+	}
+	downloads[file] = []byte(syncEncode(doc, syncFileStyle))
+	res, err := f.sync(downloads)
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	if !res.changed {
 		f.t.Fatal("changed = false, want true")
 	}
-	return res.summary
+	return res
+}
+
+// breakingTexts returns the entries of a result's breaking list.
+func breakingTexts(res syncResult) []string {
+	var out []string
+	for _, b := range res.breaking {
+		out = append(out, b.text())
+	}
+	return out
+}
+
+// expectBreaking fails unless the summary lists exactly want as breaking
+// changes, in this order, and the result carries the same entries.
+func expectBreaking(t *testing.T, res syncResult, want ...string) {
+	t.Helper()
+	text := "None detected.\n"
+	if len(want) > 0 {
+		text = "- " + strings.Join(want, "\n- ") + "\n"
+	}
+	if got := section(res.summary, "Breaking changes"); got != text {
+		t.Errorf("Breaking changes:\n%s\nwant:\n%s", got, text)
+	}
+	if got := breakingTexts(res); !reflect.DeepEqual(got, want) && (len(got) > 0 || len(want) > 0) {
+		t.Errorf("breaking = %q, want %q", got, want)
+	}
 }
 
 // generate runs the generator on the fixture.
@@ -343,8 +405,8 @@ func TestSyncWithoutUpstreamChangeTouchesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.changed || res.summary != "No upstream change.\n" {
-		t.Fatalf("got changed=%t summary %q", res.changed, res.summary)
+	if res.changed || res.typ != "chore" || res.summary != "No upstream change.\n" {
+		t.Fatalf("got changed=%t type %q summary %q", res.changed, res.typ, res.summary)
 	}
 	if after := f.snapshot(); !reflect.DeepEqual(before, after) {
 		t.Fatal("files changed")
@@ -362,13 +424,14 @@ func TestSyncReportsAddedOperations(t *testing.T) {
 		"x-didit-sdk": {"resource": "device", "method": "ping", "auth": "device_token", "server": false},
 		"responses": {"200": {"description": "ok"}}}}`))
 	paths.Set("/v3/unnamed/", mustNode(t, `{"post": {"operationId": "unnamed_create", "responses": {"201": {"description": "ok"}}}}`))
-	summary := f.syncVerification(doc)
-	expectContains(t, section(summary, "Added operations (3)"),
+	res := f.syncDoc("verification.json", doc)
+	expectContains(t, section(res.summary, "Added operations (3)"),
 		"- `GET /v3/things/` -> `things.list`",
 		"- `POST /v3/device/` (not exposed by server SDKs: device_token)",
 		"- `POST /v3/unnamed/`: **no SDK naming**; add an entry to `openapi/overlay.json`")
-	if got := section(summary, "Breaking changes"); got != "None detected.\n" {
-		t.Errorf("breaking changes: %q", got)
+	expectBreaking(t, res)
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat (a new operation)", res.typ)
 	}
 	// The generator refuses the operation without naming, and names it.
 	_, err := LoadSpec(f.root)
@@ -389,10 +452,14 @@ func TestSyncKeepsRemovedOperationAsDeprecatedMethod(t *testing.T) {
 	syncDeleteKey(comps, "responses")
 	syncDeleteKey(comps.Get("schemas"), "BalanceBreakdown")
 	syncDeleteKey(comps.Get("schemas"), "BalanceLine")
-	summary := f.syncVerification(doc)
+	res := f.syncDoc("verification.json", doc)
+	summary := res.summary
 
-	expectContains(t, section(summary, "Breaking changes"),
-		"`billing.retrieve_balance` was removed upstream (GET /v3/billing/balance/); kept as a deprecated method until version 0.5.0")
+	expectBreaking(t, res,
+		"`GET /v3/billing/balance/`: operation removed; `billing.retrieve_balance` stays as a deprecated method until version 0.5.0")
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
 	expectContains(t, section(summary, "Removed operations (1)"),
 		"- `GET /v3/billing/balance/` (`billing.retrieve_balance`): kept as a deprecated method until version 0.5.0, recorded in `openapi/deprecated-operations.json`")
 	// The schemas it took along stay generated, so their removal breaks nobody yet.
@@ -478,10 +545,14 @@ func TestSyncKeepsRenamedMethodAsDeprecatedAlias(t *testing.T) {
 	doc := f.node("verification.json")
 	op := doc.Path("paths", "/v3/billing/balance/", "get")
 	op.Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "get_balance", "auth": "api_key", "server": true}`))
-	summary := f.syncVerification(doc)
+	res := f.syncDoc("verification.json", doc)
+	summary := res.summary
 
-	expectContains(t, section(summary, "Breaking changes"),
-		"`billing.retrieve_balance` was renamed upstream to `billing.get_balance` (GET /v3/billing/balance/); the old name is a deprecated alias until version 0.5.0")
+	// The old name stays as a deprecated alias, so nothing breaks yet.
+	expectBreaking(t, res)
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
 	expectContains(t, section(summary, "Renamed methods (1)"),
 		"- `GET /v3/billing/balance/`: `billing.retrieve_balance` renamed to `billing.get_balance`")
 	entry := f.deprecated().Get("billing.retrieve_balance")
@@ -542,13 +613,14 @@ func TestSyncMovedOperationIsNotDeprecated(t *testing.T) {
 	syncDeleteKey(paths, "/v3/billing/balance/")
 	item.Get("get").Set("x-didit-sdk", mustNode(t, fixtureOverlay).Path("operations", "GET /v3/billing/balance/"))
 	paths.Set("/v3/billing/balance-v2/", item)
-	summary := f.syncVerification(doc)
+	res := f.syncDoc("verification.json", doc)
 
-	expectContains(t, summary,
+	expectContains(t, res.summary,
 		"- `GET /v3/billing/balance/` moved to `GET /v3/billing/balance-v2/`; `billing.retrieve_balance` keeps its name",
-		"- `billing.retrieve_balance` moved from `GET /v3/billing/balance/` to `GET /v3/billing/balance-v2/`: ")
-	if got := section(summary, "Breaking changes"); got != "None detected.\n" {
-		t.Errorf("breaking changes: %q", got)
+		"- `billing.retrieve_balance` moved from `GET /v3/billing/balance/` to `GET /v3/billing/balance-v2/`: same parameters, body and response")
+	expectBreaking(t, res)
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
 	}
 	if got := f.deprecated().ObjKeys(); len(got) != 0 {
 		t.Errorf("deprecated methods = %v", got)
@@ -570,22 +642,30 @@ func TestSyncMovedOperationReportsWhatChanged(t *testing.T) {
 		mustNode(t, `{"name": "dry_run", "in": "query", "required": true, "schema": {"type": "boolean"}}`))
 	op.Path("responses", "200", "content", "application/json").Set("schema", mustNode(t, `{"type": "array", "items": {"type": "object"}}`))
 	paths.Set("/v4/billing/balance/", item)
-	breaking := section(f.syncVerification(doc), "Breaking changes")
-	expectContains(t, breaking,
-		"`billing.retrieve_balance` moved from `GET /v3/billing/balance/` to `GET /v4/billing/balance/`",
-		"parameter added: dry_run (query, required) (breaking)",
-		"response: type object -> array (breaking)")
+	res := f.syncDoc("verification.json", doc)
+	// The changes of a moved method count under its new path.
+	expectBreaking(t, res,
+		"`GET /v4/billing/balance/` parameter `dry_run` (query): added, required",
+		"`GET /v4/billing/balance/` response: type changed from object to array")
+	expectContains(t, section(res.summary, "Moved or reassigned methods (1)"),
+		"- `billing.retrieve_balance` **(breaking)** moved from `GET /v3/billing/balance/` to `GET /v4/billing/balance/`: parameter `dry_run` (query): added, required (breaking); response: type changed from object to array (breaking)")
 }
 
-func TestSyncSwappedNamesAreBreaking(t *testing.T) {
+func TestSyncSwappedNamesAreListedForReview(t *testing.T) {
 	f := newSyncFixture(t)
 	doc := f.node("verification.json")
 	doc.Path("paths", "/v3/billing/balance/", "get").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "top_up", "auth": "api_key", "server": true}`))
 	doc.Path("paths", "/v3/billing/top-up/", "post").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "retrieve_balance", "auth": "api_key", "server": true}`))
-	breaking := section(f.syncVerification(doc), "Breaking changes")
-	expectContains(t, breaking,
-		"`billing.top_up` now calls `GET /v3/billing/balance/` instead of `POST /v3/billing/top-up/`",
-		"`billing.retrieve_balance` now calls `POST /v3/billing/top-up/` instead of `GET /v3/billing/balance/`")
+	res := f.syncDoc("verification.json", doc)
+	// A reassigned method is not on the DESIGN 3.1 list: it is listed for
+	// review, and the sync is a feature.
+	expectBreaking(t, res)
+	expectContains(t, section(res.summary, "Moved or reassigned methods (2)"),
+		"- `billing.top_up` **(review)** now calls `GET /v3/billing/balance/` instead of `POST /v3/billing/top-up/`",
+		"- `billing.retrieve_balance` **(review)** now calls `POST /v3/billing/top-up/` instead of `GET /v3/billing/balance/`")
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
 	if got := f.deprecated().ObjKeys(); len(got) != 0 {
 		t.Errorf("deprecated methods = %v", got)
 	}
@@ -595,8 +675,8 @@ func TestSyncOperationThatStopsBeingServerIsRemoved(t *testing.T) {
 	f := newSyncFixture(t)
 	doc := f.node("verification.json")
 	doc.Path("paths", "/v3/billing/balance/", "get").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "retrieve_balance", "auth": "device_token", "server": false}`))
-	breaking := section(f.syncVerification(doc), "Breaking changes")
-	expectContains(t, breaking, "`billing.retrieve_balance` (GET /v3/billing/balance/) is removed: the operation now needs device_token")
+	res := f.syncDoc("verification.json", doc)
+	expectBreaking(t, res, "`GET /v3/billing/balance/`: operation removed from the server SDKs (it now needs device_token); `billing.retrieve_balance` is removed")
 	// Never kept: server SDKs do not expose device-token operations (DESIGN 4).
 	if got := f.deprecated().ObjKeys(); len(got) != 0 {
 		t.Errorf("deprecated methods = %v", got)
@@ -619,9 +699,12 @@ func TestSyncOperationThatLosesItsNamingIsCalledOut(t *testing.T) {
 
 	doc := f.node("verification.json")
 	syncDeleteKey(doc.Path("paths", "/v3/billing/balance/", "get"), "x-didit-sdk")
-	summary := f.syncVerification(doc)
-	expectContains(t, summary, "lost its SDK naming")
-	expectContains(t, section(summary, "Breaking changes"), "`billing.retrieve_balance` (GET /v3/billing/balance/) has no SDK naming any more")
+	res := f.syncDoc("verification.json", doc)
+	// The generator fails until the operation is named again, so nothing
+	// ships; the summary says what to do.
+	expectContains(t, section(res.summary, "Renamed methods (1)"),
+		"- `GET /v3/billing/balance/` lost its SDK naming: add `billing.retrieve_balance` back to `openapi/overlay.json` (the generator fails until it is named)")
+	expectBreaking(t, res)
 	if got := f.deprecated().ObjKeys(); len(got) != 0 {
 		t.Errorf("deprecated methods = %v", got)
 	}
@@ -639,7 +722,8 @@ func TestSyncOverlayEntries(t *testing.T) {
 	doc.Path("paths", "/v3/billing/top-up/", "post").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "buy_credits", "auth": "api_key", "server": true}`))
 	// Upstream carries the same name with another auth.
 	doc.Path("paths", "/v3/session/{session_id}/decision/", "get").Set("x-didit-sdk", mustNode(t, `{"resource": "sessions", "method": "retrieve_decision", "auth": "account_token", "server": true}`))
-	summary := f.syncVerification(doc)
+	res := f.syncDoc("verification.json", doc)
+	summary := res.summary
 
 	// Every overlay entry upstream now carries is deleted; the identical one
 	// only counts in the note.
@@ -662,10 +746,10 @@ func TestSyncOverlayEntries(t *testing.T) {
 	}
 
 	// The different name goes through the rename path; the different auth
-	// is breaking too.
-	expectContains(t, section(summary, "Breaking changes"),
-		"`billing.top_up` was renamed upstream to `billing.buy_credits` (POST /v3/billing/top-up/); the old name is a deprecated alias until version 0.5.0",
-		"`sessions.retrieve_decision` (GET /v3/session/{session_id}/decision/): x-didit-sdk auth changed from \"api_key\" to \"account_token\"")
+	// is listed for review. Neither is on the DESIGN 3.1 list.
+	expectBreaking(t, res)
+	expectContains(t, section(summary, "Changed auth or scope (1)"),
+		"- `GET /v3/session/{session_id}/decision/` (`sessions.retrieve_decision`): x-didit-sdk auth changed from \"api_key\" to \"account_token\"; check how it is called")
 	expectContains(t, section(summary, "Renamed methods (1)"),
 		"- `POST /v3/billing/top-up/`: `billing.top_up` renamed to `billing.buy_credits`")
 	methods := f.deprecated()
