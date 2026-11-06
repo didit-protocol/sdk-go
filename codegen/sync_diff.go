@@ -712,6 +712,14 @@ func (d *syncDiffer) diffNormalized(o, n *Node, oNull, nNull bool, where, path s
 	add := func(at, kind string, breaking bool) {
 		*out = append(*out, syncChange{where: where, path: at, kind: kind, breaking: breaking})
 	}
+	// A difference none of the checks below names (a limit, a pattern, a
+	// format the SDKs type alike) is still listed.
+	before := len(*out)
+	defer func() {
+		if len(*out) == before {
+			add(path, "other schema details changed", false)
+		}
+	}()
 	switch {
 	case nNull && !oNull:
 		add(path, "can now be null", true)
