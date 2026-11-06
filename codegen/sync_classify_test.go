@@ -175,7 +175,7 @@ func TestSyncPinnedDocumentationChangeReleasesNothing(t *testing.T) {
 		t.Errorf("type = %q, want chore", res.typ)
 	}
 	expectBreaking(t, res)
-	if got := section(res.summary, "Changed operations (1)"); got != "- `POST /v3/poa/`: descriptions, examples or other details changed\n\n" {
+	if got := section(res.summary, "Changed operations (1)"); got != "- `POST /v3/poa/`: descriptions, examples or other details changed\n" {
 		t.Errorf("Changed operations:\n%s", got)
 	}
 	block := syncReleaseBlock(res.typ, "2026-11-06", res.breaking)
