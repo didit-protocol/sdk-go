@@ -1007,7 +1007,8 @@ func mustSyncNode(s string) *Node {
 
 // describeChange returns the differences of one operation (with the
 // path-level parameters merged in): parameters, request body, every success
-// response, deprecation and naming. Nothing when only documentation changed;
+// response and deprecation (the caller compares the SDK naming, which can
+// come from the overlay). Nothing when only documentation changed;
 // sameOperation tells whether the rest of the operation (error responses,
 // security, headers) changed. old belongs to d.old, new to d.new.
 func (d *syncDiffer) describeChange(old, new *Node) []syncChange {
@@ -1096,9 +1097,6 @@ func (d *syncDiffer) describeChange(old, new *Node) []syncChange {
 		add(syncChange{kind: "marked deprecated upstream"})
 	case was && !now:
 		add(syncChange{kind: "no longer marked deprecated upstream"})
-	}
-	if ns := new.Get("x-didit-sdk"); ns != nil && ns.Kind != Null && !syncEqual(old.Get("x-didit-sdk"), ns) {
-		add(syncChange{kind: "x-didit-sdk now " + syncEncode(ns, syncSortedInlineStyle)})
 	}
 
 	// Two success responses can report the same change once each.

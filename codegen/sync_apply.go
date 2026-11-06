@@ -267,6 +267,14 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 	kept := map[string]bool{}
 	handWritten := func(op *syncOp) bool { return syncHandWritten[op.file] }
 	exposed := func(n *syncNaming) bool { return n != nil && n.server }
+	// namingChange notes a change of the effective SDK naming (upstream or
+	// overlay) other than the ones the sections below name.
+	namingChange := func(before, after *syncNaming) []syncChange {
+		if before == nil || after == nil || syncEqual(before.node, after.node) {
+			return nil
+		}
+		return []syncChange{{kind: "x-didit-sdk now " + syncEncode(after.node, syncSortedInlineStyle)}}
+	}
 
 	// keep records a method that would disappear as deprecated until
 	// removeIn.
@@ -422,6 +430,7 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		if len(changes) == 0 && !d.sameOperation(o.node, n.node) {
 			changes = []syncChange{{kind: syncOtherNote}}
 		}
+		changes = append(changes, namingChange(oldNaming(oldKey), newNaming(newKey))...)
 		detail := "same parameters, body and response"
 		if len(changes) > 0 {
 			detail = strings.Join(syncNotes(changes), "; ")
@@ -469,6 +478,7 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		if len(found) == 0 && !d.sameOperation(o.node, n.node) {
 			found = []syncChange{{kind: syncOtherNote}}
 		}
+		found = append(found, namingChange(oldNaming(key), newNaming(key))...)
 		if len(found) == 0 {
 			// Documentation only. An operation that is the same except for
 			// components that only changed in what documents them is not
@@ -516,12 +526,13 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		for _, name := range syncSortedKeys(syncOrEmpty(oldSchemas)) {
 			nv := newSchemas.Get(name)
 			switch {
-			case nv == nil && !syncHandWritten[up.file] && syncKeptByDeprecated(methods, up.api, name):
-				keptS = append(keptS, name)
 			case nv == nil:
 				// The operations that used it are compared above; a schema no
 				// operation uses breaks nobody.
 				goneS = append(goneS, name)
+				if !syncHandWritten[up.file] && syncKeptByDeprecated(methods, up.api, name) {
+					keptS = append(keptS, name)
+				}
 			case !syncEqual(oldSchemas.Get(name), nv):
 				changedS = append(changedS, name)
 			}
