@@ -1,0 +1,167 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The newest Go release, used by the jobs that need only one.
+  GO_STABLE: "1.27.x"
+  GOLANGCI_LINT_VERSION: "v2.15.0"
+  STATICCHECK_VERSION: "v0.8.2"
+
+jobs:
+  lint:
+    name: Lint (gofmt, go vet, staticcheck, golangci-lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_STABLE }}
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+      - name: go mod tidy is clean
+        run: |
+          go mod tidy -diff
+          (cd examples && go mod tidy -diff)
+      - name: The module has no dependencies (docs/DESIGN.md section 12)
+        run: |
+          if grep -q '^require' go.mod; then echo "go.mod must not require anything"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: staticcheck
+        run: go run "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}" ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+      - name: CLAUDE.md and AGENTS.md are identical
+        run: cmp CLAUDE.md AGENTS.md
+
+  codegen:
+    name: Generated code is up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_STABLE }}
+      - name: Regenerate and compare
+        run: go run ./codegen -check
+      - name: Generator tests
+        run: go test ./codegen/...
+      - name: A sync that removes and renames operations keeps every test green
+        # What the spec sync pull request runs after a sync that deprecates
+        # methods, on a copy of the checkout. Upstream drops the first GET
+        # server operation in path order and renames the second.
+        run: |
+          upstream="$RUNNER_TEMP/upstream"
+          synced="$RUNNER_TEMP/synced"
+          mkdir -p "$upstream"
+          jq --slurpfile overlay openapi/overlay.json '
+            . as $doc
+            | def naming($p): $doc.paths[$p].get["x-didit-sdk"] // $overlay[0].operations["GET " + $p];
+            [$doc.paths | keys[] | select($doc.paths[.].get != null and naming(.).server == true)][:2] as [$removed, $renamed]
+            | del(.paths[$removed].get)
+            | .paths[$renamed].get["x-didit-sdk"] = (naming($renamed) | .method += "_renamed")
+          ' openapi/verification.json > "$upstream/verification.json"
+          cp openapi/account.json "$upstream/account.json"
+          cp -R . "$synced"
+          cd "$synced"
+          GITHUB_OUTPUT='' go run ./codegen sync -from-dir "$upstream" -summary "$RUNNER_TEMP/summary.md" > /dev/null
+          grep -q 'was removed upstream' "$RUNNER_TEMP/summary.md"
+          grep -q 'was renamed upstream' "$RUNNER_TEMP/summary.md"
+          go run ./codegen
+          go vet ./...
+          go test ./...
+
+  test:
+    name: Test (Go ${{ matrix.go }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        go: ["1.22.x", "1.23.x", "1.24.x", "1.25.x", "1.26.x", "1.27.x"]
+        include:
+          - os: macos-latest
+            go: "1.27.x"
+          - os: windows-latest
+            go: "1.27.x"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+      - name: go test -race
+        run: go test -race ./...
+      - name: Examples build
+        # The framework examples need a newer Go than the SDK's minimum.
+        if: matrix.go == '1.27.x'
+        working-directory: examples
+        run: go vet ./...
+
+  coverage:
+    name: Core coverage (90% minimum)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_STABLE }}
+      - name: Measure
+        run: |
+          go test -coverpkg=./... -coverprofile=coverage.out ./...
+          go run ./internal/tools/corecover -min 90 coverage.out
+
+  secret-scan:
+    name: Secret scan (gitleaks, full history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # The official gitleaks-action needs a paid licence for organisations, so the
+      # release binary is downloaded and verified against its published SHA-256.
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    steps:
+      - name: Check out the repository with its full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -sSfL --retry 3 -o "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" version
+      - name: Scan every commit
+        run: '"$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --redact --verbose --no-banner .'
