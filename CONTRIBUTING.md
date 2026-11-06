@@ -8,13 +8,13 @@ Thanks for helping. This repository is one of the seven Didit server SDKs. They 
 |---|---|---|
 | `*_gen.go`, `*_gen_test.go` | Generated resources, types and one test per operation | `go run ./codegen` only |
 | `codegen/` | The generator (Go, standard library), and `codegen sync` for the spec sync | hand |
-| `openapi/verification.json`, `openapi/account.json`, `openapi/webhook-vectors.json` | Upstream copies | the spec sync workflow only |
+| `openapi/verification.json`, `openapi/account.json`, `openapi/authentication.json`, `openapi/webhook-vectors.json` | Upstream copies | the spec sync workflow only |
 | `openapi/overlay.json` | SDK naming (`x-didit-sdk`) for operations upstream does not name yet | hand, identical in all seven SDKs |
 | `openapi/deprecated-operations.json` | Removed or renamed operations kept for one minor version | `codegen sync` |
 | `openapi/compatibility.json` | Released Go names kept after the API changed the schema behind them | hand |
 | `client.go`, `core.go`, `errors.go`, `opt.go`, `page.go`, `file.go`, `params.go`, `json.go`, `option/`, `internal/` | Hand-written core | hand |
 | `webhook/` | Webhook verification and typed events | hand |
-| `authentication/` | Authentication token verification and issuer calls | hand |
+| `authentication/` | Authentication token verification and issuer calls; `contract_test.go` holds it to `openapi/authentication.json` | hand |
 | `examples/` | Runnable examples (a separate module) | hand |
 
 ## Commands
@@ -49,15 +49,20 @@ Unit tests never touch the network. Fixtures are synthetic: webhook secrets star
 
 The SDK follows the API. Never edit generated files: change the generator, or the naming in `openapi/overlay.json`, then regenerate.
 
-- **The API changed.** The change belongs in the OpenAPI documents of mintlify-docs first. The daily spec sync (`.github/workflows/spec-sync.yml`, `go run ./codegen sync`) downloads them, regenerates, runs the tests and opens a `chore(spec): sync API spec YYYY-MM-DD` pull request listing added, removed and changed operations, with breaking changes called out.
+- **The API changed.** The change belongs in the OpenAPI documents of mintlify-docs first. The daily spec sync (`.github/workflows/spec-sync.yml`, `go run ./codegen sync`) downloads them, regenerates, runs the tests and opens a `<type>(spec): sync API spec YYYY-MM-DD` pull request: `feat(spec)` when a caller can observe what changed, `chore(spec)` when only documentation changed. Its body opens with "Breaking changes" (the changes that can break typed code, docs/DESIGN.md section 3.1), then lists added, removed and changed operations, and ends with a release block for release-please. Merge it with **Squash and merge** and keep that block.
+- **The Authentication document changed.** Nothing is generated from `openapi/authentication.json`: the `authentication` module is hand-written (docs/DESIGN.md section 10). When a sync adds, removes or renames an Authentication operation, `authentication/contract_test.go` fails until the module and its `contractMethods` follow; push that change to the sync pull request.
 - **A new operation fails the generator** with a message naming it: add its `x-didit-sdk` entry to `openapi/overlay.json` in all seven SDK repositories (or upstream).
 - **Removed operations** are never deleted silently: the sync records them in `openapi/deprecated-operations.json` and the generator keeps the method, marked `Deprecated:`, for one minor version.
-- **Released Go code keeps compiling** within a major version (docs/DESIGN.md section 13). When a sync would break it, record the old names in `openapi/compatibility.json`: `type_aliases` keeps a released type name as a deprecated alias of the type that now describes the same schema, with the released constants of an enum, and `params_methods` keeps a method that was released without parameters as it was, with a companion method (`DeleteWithParams`) for the optional parameters the API added. The generator fails when an entry no longer applies, and `compat_test.go` uses every kept name.
+- **Released Go names keep working where they can.** A change that mirrors the API is a minor version even when it breaks typed code (docs/DESIGN.md section 13), but when a sync would drop a released name, record it in `openapi/compatibility.json`: `type_aliases` keeps a released type name as a deprecated alias of the type that now describes the same schema, with the released constants of an enum, and `params_methods` keeps a method that was released without parameters as it was, with a companion method (`DeleteWithParams`) for the optional parameters the API added. The generator fails when an entry no longer applies, and `compat_test.go` uses every kept name.
 - **Core behaviour** that docs/DESIGN.md describes (options, errors, retries, pagination, webhooks, Authentication) changes in all seven SDKs, one pull request each, and docs/DESIGN.md changes in all seven in the same words.
 
 ## Commits and releases
 
-Use [conventional commits](https://www.conventionalcommits.org): `feat:`, `fix:`, `docs:`, `chore:`, and `feat!:` or a `BREAKING CHANGE:` footer for breaking changes. The type decides the next version.
+Use [conventional commits](https://www.conventionalcommits.org): `feat:`, `fix:`, `docs:`, `chore:`. The type decides the next version (docs/DESIGN.md section 13):
+
+- `feat!:` or a `BREAKING CHANGE:` footer only for a change to the SDK's own design: renaming or removing a method or resource the API still has, changing client configuration, errors, retries, pagination or webhook verification, or dropping a supported Go version.
+- A change that mirrors the API is never a major version. Spec syncs are `feat(spec)` or `chore(spec)`, and their release block lists each change that can break typed code as an `api(spec):` line, which `release-please-config.json` shows under "API changes that can break typed code".
+- `chore`, `docs`, `test`, `ci`, `build`, `style` and `refactor` commits release nothing on their own.
 
 Releases are cut by release-please (`.github/workflows/release-please.yml`, on every push to `main`): it keeps a release pull request that bumps `internal/version/version.go` and generates `CHANGELOG.md` (never edit it by hand). Merging the release pull request is the release approval (Alex, 2026-10-29); nobody tags or publishes by hand. The next run pushes the `vX.Y.Z` tag and the GitHub release and starts `.github/workflows/release.yml` (tests, source archive with build provenance, Go proxy fetch). For a Go module the tag is the release.
 
