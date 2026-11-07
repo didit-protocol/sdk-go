@@ -810,6 +810,36 @@ func TestSyncReportsChangedOperationsAndSchemas(t *testing.T) {
 		"- verification.json changed: `Session`, `SessionCreate`")
 }
 
+// A field that becomes readOnly leaves the request type and one that becomes
+// writeOnly leaves the response type, although the document still has both.
+func TestSyncReportsFieldsThatLeaveTheGeneratedTypes(t *testing.T) {
+	f := newSyncFixture(t)
+	before := f.generate()["sessions_gen.go"]
+
+	doc := f.node("verification.json")
+	schemas := doc.Path("components", "schemas")
+	schemas.Path("Session", "properties", "status").Set("writeOnly", &Node{Kind: Bool, Bool: true})
+	schemas.Path("SessionCreate", "properties", "vendor_data").Set("readOnly", &Node{Kind: Bool, Bool: true})
+	res := f.syncDoc("verification.json", doc)
+
+	expectBreaking(t, res,
+		"`GET /v3/session/{session_id}/decision/` response `status`: removed (now write-only)",
+		"`POST /v3/session/` request body `vendor_data`: removed (now read-only)",
+		"`POST /v3/session/` response `status`: removed (now write-only)")
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
+	after := f.generate()["sessions_gen.go"]
+	for header, field := range map[string]string{"type Session struct {": "\tStatus ", "type SessionCreate struct {": "\tVendorData "} {
+		if !strings.Contains(decl(t, before, header), field) {
+			t.Fatalf("%s has no %q before the sync; pick another probe", header, field)
+		}
+		if strings.Contains(decl(t, after, header), field) {
+			t.Errorf("%s keeps %q after the sync", header, field)
+		}
+	}
+}
+
 func TestSyncRefusesDownloadsThatAreNotOpenAPI(t *testing.T) {
 	for _, tc := range []struct{ name, body, want string }{
 		{"html", "<html>maintenance</html>", "account.json: the download is not JSON"},
@@ -1061,6 +1091,19 @@ func TestDiffSchemaRules(t *testing.T) {
 		syncChange{path: "x.b", kind: "added"})
 	expect(diff(`{"type": "object", "additionalProperties": {"type": "string"}}`, `{"type": "object", "additionalProperties": {"type": "integer"}}`, false),
 		syncChange{path: "x{}", kind: "type changed from string to integer", breaking: true})
+	// A field the generated type leaves out (readOnly in a request, writeOnly
+	// in a response) is not there for typed code.
+	visible := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}`
+	readOnly := `{"type": "object", "properties": {"a": {"type": "string", "readOnly": true}}, "required": ["a"]}`
+	writeOnly := `{"type": "object", "properties": {"a": {"type": "string", "writeOnly": true}}, "required": ["a"]}`
+	expect(diff(visible, readOnly, true), syncChange{path: "x.a", kind: "removed (now read-only)", breaking: true})
+	expect(diff(visible, writeOnly, false), syncChange{path: "x.a", kind: "removed (now write-only)", breaking: true})
+	expect(diff(readOnly, visible, true), syncChange{path: "x.a", kind: "added (required)", breaking: true})
+	expect(diff(writeOnly, visible, false), syncChange{path: "x.a", kind: "added"})
+	expect(diff(visible, writeOnly, true), syncChange{path: "x.a", kind: "other constraints changed (format, pattern, limits or default)"})
+	expect(diff(visible, readOnly, false), syncChange{path: "x.a", kind: "other constraints changed (format, pattern, limits or default)"})
+	expect(diff(readOnly, `{"type": "object", "properties": {"a": {"type": "integer", "readOnly": true}}, "required": ["a"]}`, true),
+		syncChange{path: "x", kind: "other constraints changed (format, pattern, limits or default)"})
 	expect(diff(`{"type": "integer", "maximum": 5}`, `{"type": "integer", "maximum": 10}`, true), syncChange{path: "x", kind: "other constraints changed (format, pattern, limits or default)"})
 	documented := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"], "description": "now documented", "example": {"a": "z"}, "x-internal": 1}`
 	expect(diff(obj, documented, false))
