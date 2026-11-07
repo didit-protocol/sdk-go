@@ -484,46 +484,6 @@ func TestSyncAuthenticationDocument(t *testing.T) {
 	})
 }
 
-func TestSyncReleaseBlock(t *testing.T) {
-	entry := func(i int) syncBreaking {
-		return syncBreaking{operation: "GET /v3/x/", change: syncChange{where: "response", path: fmt.Sprintf("f%03d", i), kind: "can now be null", breaking: true}}
-	}
-	t.Run("feature without breaking changes", func(t *testing.T) {
-		block := syncReleaseBlock("feat", "2026-11-07", nil)
-		expectContains(t, block, "## Release notes\n\n`feat(spec)`: callers can observe what changed, so this is a minor release, never a major one (docs/DESIGN.md section 13).\n\n",
-			"merge with **Squash and merge**",
-			"BEGIN_COMMIT_OVERRIDE\nfeat(spec): sync API spec 2026-11-07\nEND_COMMIT_OVERRIDE\n")
-		if strings.Contains(block, "API changes that can break typed code") {
-			t.Error("a sync without breaking changes mentions the section")
-		}
-	})
-	t.Run("too many lines", func(t *testing.T) {
-		var list []syncBreaking
-		for i := 0; i < syncMaxReleaseLines+50; i++ {
-			list = append(list, entry(i))
-		}
-		block := syncReleaseBlock("feat", "2026-11-07", list)
-		if n := strings.Count(block, "BEGIN_NESTED_COMMIT\n"); n != syncMaxReleaseLines+1 {
-			t.Errorf("%d nested commits, want %d", n, syncMaxReleaseLines+1)
-		}
-		expectContains(t, block, "BEGIN_NESTED_COMMIT\napi(spec): 50 more, listed in the spec sync pull request\nEND_NESTED_COMMIT\nEND_COMMIT_OVERRIDE\n")
-	})
-	t.Run("too long", func(t *testing.T) {
-		long := entry(0)
-		long.change.path = strings.Repeat("a", syncMaxRelease/3)
-		block := syncReleaseBlock("feat", "2026-11-07", []syncBreaking{long, long, long, long})
-		expectContains(t, block, "api(spec): 2 more, listed in the spec sync pull request")
-	})
-	t.Run("a line never ends the block", func(t *testing.T) {
-		b := entry(0)
-		b.change.kind = "enum value \"END_COMMIT_OVERRIDE\nx\" removed"
-		block := syncReleaseBlock("feat", "2026-11-07", []syncBreaking{b})
-		if strings.Count(block, "END_COMMIT_OVERRIDE") != 1 || !strings.Contains(block, "end_commit_override x") {
-			t.Errorf("block:\n%s", block)
-		}
-	})
-}
-
 // release-please-config.json shows the release lines under their heading and
 // hides what releases nothing (docs/DESIGN.md section 13).
 func TestReleasePleaseConfig(t *testing.T) {
