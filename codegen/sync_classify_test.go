@@ -189,7 +189,7 @@ func TestSyncPinnedDocumentationChangeReleasesNothing(t *testing.T) {
 
 // probePaths are the operations the probes change; the probe document keeps
 // only them (and every component), so that each probe parses 1 MB, not 6.
-var probePaths = []string{"/v3/database-validation/", "/v3/webhook/destinations/"}
+var probePaths = []string{"/v3/database-validation/", "/v3/webhook/destinations/", "/v3/session/imports/"}
 
 var (
 	probeOnce sync.Once
@@ -311,6 +311,27 @@ func TestSyncReportsChangesInsideUnionsAndWrappers(t *testing.T) {
 				Set("nullable", &Node{Kind: Bool, Bool: true})
 		},
 		want: []string{"`POST /v3/database-validation/` request body `issuing_state`: can now be null"},
+	}, {
+		name: "a media type goes with a field only it carried",
+		setup: func(t *testing.T, doc *Node) {
+			// POST /v3/session/imports/ takes multipart/form-data; give it a JSON
+			// body without the file.
+			content := doc.Path("paths", "/v3/session/imports/", "post", "requestBody", "content")
+			body := mustNode(t, syncEncode(content.Get("multipart/form-data"), syncFileStyle))
+			syncDeleteKey(body.Path("schema", "properties"), "file")
+			content.Set("application/json", body)
+		},
+		edit: func(t *testing.T, doc *Node) {
+			syncDeleteKey(doc.Path("paths", "/v3/session/imports/", "post", "requestBody", "content"), "multipart/form-data")
+		},
+		want:  []string{"`POST /v3/session/imports/` request body `file`: removed"},
+		other: []string{"request body: content type application/json, multipart/form-data -> application/json"},
+	}, {
+		name: "a success status without a body",
+		edit: func(t *testing.T, doc *Node) {
+			doc.Path("paths", "/v3/database-validation/", "post", "responses").Set("204", mustNode(t, `{"description": "Nothing to validate."}`))
+		},
+		want: []string{"`POST /v3/database-validation/` response: can now be null (status 204 has no body)"},
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -349,34 +370,34 @@ func TestSyncClassifiesWhatCallersCanObserve(t *testing.T) {
 		}, "chore", ""},
 		{"a schema no operation uses", func(t *testing.T, doc *Node) {
 			doc.Path("components", "schemas").Set("Unused", mustNode(t, `{"type": "object"}`))
-		}, "chore", "- verification.json added: `Unused`"},
+		}, "feat", "- verification.json added: `Unused`"},
 		{"an error response of a server operation", func(t *testing.T, doc *Node) {
 			doc.Path("components", "schemas", "Problem", "properties").Set("code", mustNode(t, `{"type": "string"}`))
 		}, "feat", "- `GET /v3/billing/balance/`: " + syncOtherNote},
 		{"a limit of a request field", func(t *testing.T, doc *Node) {
 			doc.Path("paths", "/v3/billing/top-up/", "post", "requestBody", "content", "application/json", "schema", "properties", "amount").
 				Set("maximum", mustNode(t, `1000`))
-		}, "feat", "- `POST /v3/billing/top-up/`: request body `amount`: other schema details changed"},
+		}, "feat", "- `POST /v3/billing/top-up/`: request body `amount`: other constraints changed (format, pattern, limits or default)"},
 		{"a removed parameter", func(t *testing.T, doc *Node) {
 			syncDeleteKey(doc.Path("paths", "/v3/session/{session_id}/decision/", "get"), "parameters")
 		}, "feat", "- `GET /v3/session/{session_id}/decision/`: parameter `verbose` (query): removed"},
 		{"a new request content type", func(t *testing.T, doc *Node) {
 			content := doc.Path("paths", "/v3/billing/top-up/", "post", "requestBody", "content")
 			content.Set("multipart/form-data", content.Get("application/json"))
-		}, "feat", "request body: content types ['application/json'] changed to ['application/json', 'multipart/form-data']"},
+		}, "feat", "- `POST /v3/billing/top-up/`: request body: content type application/json -> application/json, multipart/form-data"},
 		{"marked deprecated", func(t *testing.T, doc *Node) {
 			doc.Path("paths", "/v3/session/", "post").Set("deprecated", &Node{Kind: Bool, Bool: true})
-		}, "feat", "- `POST /v3/session/`: marked deprecated upstream"},
+		}, "feat", "- `POST /v3/session/`: operation: marked deprecated upstream"},
 		{"another success status", func(t *testing.T, doc *Node) {
 			responses := doc.Path("paths", "/v3/session/", "post", "responses")
 			responses.Set("200", responses.Get("201"))
 			syncDeleteKey(responses, "201")
-		}, "feat", "- `POST /v3/session/`: response 201: removed; response 200: added"},
+		}, "feat", "- `POST /v3/session/`: response: status 201 -> 200"},
 		{"an operation server SDKs do not expose", func(t *testing.T, doc *Node) {
 			doc.Get("paths").Set("/v3/device/", mustNode(t, `{"post": {"operationId": "device_ping",
 				"x-didit-sdk": {"resource": "device", "method": "ping", "auth": "device_token", "server": false},
 				"responses": {"200": {"description": "ok"}}}}`))
-		}, "chore", "- `POST /v3/device/` (not exposed by server SDKs: device_token)"},
+		}, "feat", "- `POST /v3/device/` (not exposed by server SDKs: device_token)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -394,8 +415,8 @@ func TestSyncClassifiesWhatCallersCanObserve(t *testing.T) {
 		})
 	}
 
-	// A change to an operation server SDKs do not expose never makes a
-	// feature, nor a breaking change.
+	// An operation server SDKs do not expose is compared like any other, so
+	// that every SDK lists the same changes.
 	f := newSyncFixture(t)
 	old := f.node("verification.json")
 	old.Get("paths").Set("/v3/device/", mustNode(t, `{"post": {"operationId": "device_ping",
@@ -405,11 +426,11 @@ func TestSyncClassifiesWhatCallersCanObserve(t *testing.T) {
 	doc := f.node("verification.json")
 	doc.Path("paths", "/v3/device/", "post", "responses", "200", "content", "application/json", "schema", "properties").Set("ok", mustNode(t, `{"type": "string"}`))
 	res := f.syncDoc("verification.json", doc)
-	if res.typ != "chore" {
-		t.Errorf("type = %q, want chore", res.typ)
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
 	}
-	expectBreaking(t, res)
-	expectContains(t, res.summary, "- `POST /v3/device/` (not exposed by server SDKs): response `ok`: type changed from boolean to string")
+	expectBreaking(t, res, "`POST /v3/device/` response `ok`: type changed from boolean to string")
+	expectContains(t, res.summary, "- `POST /v3/device/` (not exposed by server SDKs) **(breaking)**: response `ok`: type changed from boolean to string (breaking)")
 }
 
 func TestSyncAuthenticationDocument(t *testing.T) {
@@ -444,7 +465,7 @@ func TestSyncAuthenticationDocument(t *testing.T) {
 		doc := f.node("authentication.json")
 		syncDeleteKey(doc.Path("paths", "/session/"), "delete")
 		res := f.syncDoc("authentication.json", doc)
-		expectBreaking(t, res, "`authentication DELETE /session/`: operation removed; `authentication.revoke_session` leaves the hand-written `authentication` module")
+		expectBreaking(t, res, "`authentication DELETE /session/`: operation removed (`authentication.revoke_session`)")
 		expectContains(t, section(res.summary, "Removed operations (1)"),
 			"- `authentication DELETE /session/` (`authentication.revoke_session`): hand-written; remove it from the `authentication` module (its contract test fails until then)")
 		if got := f.deprecated().ObjKeys(); len(got) != 0 {
@@ -473,10 +494,10 @@ func TestSyncAuthenticationDocument(t *testing.T) {
 		expectBreaking(t, res, "`authentication GET /session/` response `expires_at`: type changed from string (date-time) to string")
 	})
 
-	t.Run("an operation server SDKs do not expose releases nothing", func(t *testing.T) {
+	t.Run("documentation only releases nothing", func(t *testing.T) {
 		f := newSyncFixture(t)
 		doc := f.node("authentication.json")
-		doc.Path("paths", "/monitoring-token/", "post").Set("requestBody", mustNode(t, `{"content": {"application/json": {"schema": {"type": "object"}}}}`))
+		doc.Path("paths", "/monitoring-token/", "post").Set("description", syncString("Creates a monitoring token."))
 		res := f.syncDoc("authentication.json", doc)
 		if res.typ != "chore" {
 			t.Errorf("type = %q, want chore", res.typ)
