@@ -944,10 +944,13 @@ func syncSortedNames(m map[string]*Node) []string {
 // belongs to d.old and new to d.new; where and path locate them in their
 // operation, and request tells which side of the call they are on.
 //
-// Breaking (docs/DESIGN.md section 3.1, the same in requests and responses):
-// a type change in either direction, a value that can now be null, a removed
-// field, enum value or union variant, and in a request a field that is newly
-// required. Everything else is listed, not counted.
+// Counted (docs/DESIGN.md section 3.1), in requests and responses: a type
+// change in either direction (a typed string format and "any" included), a
+// removed field, enum value or union variant. Only in a response: a value
+// that can now be null and a field that is no longer required, which break
+// code that reads them. Only in a request: a field that is newly required.
+// Everything else is listed, not counted: a request that accepts null or
+// leaves a field out only widens what a caller may send.
 func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool, out *[]syncChange, depth int) {
 	if depth > syncMaxDepth || d.sameShape(old, new, 0) {
 		return
@@ -956,32 +959,41 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 	// A body that appears or disappears is compared field by field, not as a
 	// type change.
 	present := old != syncNoSchema && new != syncNoSchema
-	note := func(at, kind string, breaking bool) {
-		*out = append(*out, syncChange{where: where, path: at, kind: kind, breaking: breaking})
+	note := func(at, kind, code string, breaking bool) {
+		c := syncChange{where: where, path: at, kind: kind}
+		if breaking {
+			c.breaking, c.code = true, code
+		}
+		*out = append(*out, c)
 	}
-	if !syncIsObject(syncDeref(d.old, old)) || !syncIsObject(syncDeref(d.new, new)) {
-		note(path, "schema replaced", true)
-		return
+	// A schema that is not an object (true) allows any value.
+	if !syncIsObject(syncDeref(d.old, old)) {
+		old = syncObject()
+	}
+	if !syncIsObject(syncDeref(d.new, new)) {
+		new = syncObject()
 	}
 	oldNull, newNull := syncNullable(d.old, old, 0), syncNullable(d.new, new, 0)
 	switch {
 	case newNull && !oldNull:
-		note(path, "can now be null", true)
+		note(path, "can now be null", "can now be null", !request)
 	case oldNull && !newNull && request:
-		note(path, "no longer accepts null", false)
+		note(path, "no longer accepts null", "", false)
 	case oldNull && !newNull:
-		note(path, "can no longer be null", false)
+		note(path, "can no longer be null", "", false)
 	}
 	o, n := d.single(d.old, old, 0), d.single(d.new, new, 0)
 	oldKinds, newKinds := syncKinds(d.old, o, 0), syncKinds(d.new, n, 0)
-	before, after := syncTypeNames(o, oldKinds), syncTypeNames(n, newKinds)
+	before, after := syncTypeNames(o, oldKinds, " or "), syncTypeNames(n, newKinds, " or ")
 	// "any" (a schema that does not say, an interface value in Go) against a
 	// type counts too.
 	if present && (len(oldKinds) > 0 || len(newKinds) > 0) && before != after {
-		note(path, "type changed from "+before+" to "+after, true)
-		if len(oldKinds) > 0 && len(newKinds) > 0 {
-			// A union's variants can change too; the type change already
-			// covers those removed.
+		note(path, "type changed from "+before+" to "+after,
+			"type "+syncTypeNames(o, oldKinds, "|")+" -> "+syncTypeNames(n, newKinds, "|"), true)
+		// A union's variants can change too, also when an untyped variant made
+		// it "any"; the type change already covers those removed. A schema
+		// untyped as a whole has none.
+		if (len(oldKinds) > 0 || len(syncVariants(d.old, o)) > 0) && (len(newKinds) > 0 || len(syncVariants(d.new, n)) > 0) {
 			d.diffVariants(o, n, where, path, request, out, depth, true)
 		}
 		return
@@ -992,7 +1004,8 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 	case oldEnum != nil && newEnum != nil:
 		for _, v := range oldEnum {
 			if !syncContains(newEnum, v) {
-				note(path, "enum value "+syncEncode(v, syncUnicodeInlineStyle)+" removed", true)
+				kind := "enum value " + syncEncode(v, syncUnicodeInlineStyle) + " removed"
+				note(path, kind, kind, true)
 			}
 		}
 		var added []*Node
@@ -1002,12 +1015,12 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 			}
 		}
 		if len(added) > 0 {
-			note(path, "enum values added "+syncEncode(syncArray(added), syncUnicodeInlineStyle), false)
+			note(path, "enum values added "+syncEncode(syncArray(added), syncUnicodeInlineStyle), "", false)
 		}
 	case newEnum != nil:
-		note(path, "now limited to "+syncEncode(syncArray(newEnum), syncUnicodeInlineStyle), false)
+		note(path, "now limited to "+syncEncode(syncArray(newEnum), syncUnicodeInlineStyle), "", false)
 	case oldEnum != nil:
-		note(path, "no longer limited to fixed values", false)
+		note(path, "no longer limited to fixed values", "", false)
 	}
 
 	oldProps, oldReq := syncObjectProps(d.old, o)
@@ -1022,11 +1035,11 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 			switch {
 			case newSeen[name] != nil:
 			case newProps[name] != nil && request:
-				note(syncJoin(path, name), "removed (now read-only)", true)
+				note(syncJoin(path, name), "removed (now read-only)", "removed", true)
 			case newProps[name] != nil:
-				note(syncJoin(path, name), "removed (now write-only)", true)
+				note(syncJoin(path, name), "removed (now write-only)", "removed", true)
 			default:
-				note(syncJoin(path, name), "removed", true)
+				note(syncJoin(path, name), "removed", "removed", true)
 			}
 		}
 		for _, name := range syncSortedNames(newSeen) {
@@ -1034,9 +1047,9 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 				continue
 			}
 			if request && newReq[name] {
-				note(syncJoin(path, name), "added (required)", true)
+				note(syncJoin(path, name), "added (required)", "now required", true)
 			} else {
-				note(syncJoin(path, name), "added", false)
+				note(syncJoin(path, name), "added", "", false)
 			}
 		}
 		for _, name := range syncSortedNames(oldSeen) {
@@ -1046,13 +1059,14 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 			at := syncJoin(path, name)
 			switch was, now := oldReq[name], newReq[name]; {
 			case now && !was && request:
-				note(at, "now required", true)
+				note(at, "now required", "now required", true)
 			case now && !was:
-				note(at, "now always present", false)
+				note(at, "now always present", "", false)
 			case was && !now && request:
-				note(at, "no longer required", false)
+				note(at, "no longer required", "", false)
 			case was && !now:
-				note(at, "no longer always present", false)
+				// A response field that may be missing breaks code that reads it.
+				note(at, "no longer always present", "no longer required", true)
 			}
 			d.diffSchema(oldSeen[name], newSeen[name], where, at, request, out, depth+1)
 		}
@@ -1073,7 +1087,7 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 	}
 	d.diffVariants(o, n, where, path, request, out, depth, false)
 	if len(*out) == start {
-		note(path, "other constraints changed (format, pattern, limits or default)", false)
+		note(path, "other constraints changed (format, pattern, limits or default)", "", false)
 	}
 }
 
@@ -1081,8 +1095,10 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 // variant; a schema that is not a union is a union of one, so that [X, null]
 // against X loses no variant and X against [X', Y] compares X with X'. A
 // variant added or removed never hides a change inside the others. A variant
-// is named by its new position. retyped tells that a type change was
-// reported, which already covers the variants removed.
+// is named by its keyword and its position in the new union, a null variant
+// counted ("(anyOf 2)" in [null, X, Y]), and carries the fields the union
+// itself requires. retyped tells that a type change was reported, which
+// already covers the variants removed.
 func (d *syncDiffer) diffVariants(old, new *Node, where, path string, request bool, out *[]syncChange, depth int, retyped bool) {
 	oldVars, newVars := syncVariants(d.old, old), syncVariants(d.new, new)
 	if len(oldVars) == 0 {
@@ -1098,16 +1114,25 @@ func (d *syncDiffer) diffVariants(old, new *Node, where, path string, request bo
 	if keyword == "" {
 		keyword = syncUnionKeyword(d.old, old)
 	}
+	positions := syncPositions(d.new, new)
 	pairs, removed, added := d.pairVariants(oldVars, newVars)
 	for _, p := range pairs {
 		at := path
 		if len(newVars) > 1 {
-			at = fmt.Sprintf("%s(%s %d)", path, keyword, p[1]+1)
+			at = path + "(" + positions[p[1]] + ")"
 		}
-		d.diffSchema(oldVars[p[0]], newVars[p[1]], where, at, request, out, depth+1)
+		d.diffSchema(d.withRequired(d.old, oldVars[p[0]], old), d.withRequired(d.new, newVars[p[1]], new), where, at, request, out, depth+1)
+		// The variant's title names its type in the SDKs that generate one
+		// per variant, which gets another name.
+		if before, after := d.variantName(oldVars[p[0]]), d.variantName(newVars[p[1]]); before != after {
+			*out = append(*out, syncChange{where: where, path: at, kind: "variant type renamed from " + before + " to " + after})
+		}
 	}
 	if len(removed) > 0 && !retyped {
-		*out = append(*out, syncChange{where: where, path: path, kind: fmt.Sprintf("type changed: %d %s variant(s) removed", len(removed), keyword), breaking: true})
+		*out = append(*out, syncChange{
+			where: where, path: path, kind: fmt.Sprintf("type changed: %d %s variant(s) removed", len(removed), keyword), breaking: true,
+			code: "type " + d.unionNames(d.old, oldVars) + " -> " + d.unionNames(d.new, newVars),
+		})
 	}
 	if len(added) > 0 {
 		*out = append(*out, syncChange{where: where, path: path, kind: fmt.Sprintf("%d %s variant(s) added", len(added), keyword)})
@@ -1120,6 +1145,32 @@ func (d *syncDiffer) diffVariants(old, new *Node, where, path string, request bo
 			break
 		}
 	}
+}
+
+// variantName is syncVariantName of a variant as a union lists it, or "a
+// numbered name" without one; a schema single read from a component is named
+// after the component.
+func (d *syncDiffer) variantName(v *Node) string {
+	if name := syncVariantName(v); name != "" && !d.refs[v] {
+		return name
+	}
+	return "a numbered name"
+}
+
+// syncPositions returns each of syncVariants(s) as the vectors name it: its
+// keyword and its position from 1 in that keyword's list, a null variant
+// counted ("anyOf 2" in [null, X, Y]).
+func syncPositions(doc *Doc, s *Node) []string {
+	s = syncDeref(doc, s)
+	var out []string
+	for _, kw := range []string{"oneOf", "anyOf"} {
+		for i, v := range s.Get(kw).Elems() {
+			if !syncNullOnly(doc, v) {
+				out = append(out, fmt.Sprintf("%s %d", kw, i+1))
+			}
+		}
+	}
+	return out
 }
 
 // pairVariants pairs each old union variant with the new one it became: an
