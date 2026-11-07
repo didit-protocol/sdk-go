@@ -438,13 +438,13 @@ func syncHasBreaking(changes []syncChange) bool {
 
 // ---- schemas as every SDK reads them -----------------------------------------
 //
-// From here on this is a port of the comparison of sdk-python's and
-// sdk-java's codegen/spec_sync.py (_nullable, _single, _kinds, diff_schema,
+// From here on this is a port of the comparison of sdk-python's
+// codegen/spec_sync.py (_nullable, _single, _kinds, diff_schema,
 // _pair_variants, _diff_content, _diff_statuses, describe_change), with the
-// same rules and the same words, so that the seven SDKs list the same
-// breaking changes for one upstream change. Python inlines every $ref
-// first; here a reference is followed when it is read, with the document of
-// its side.
+// docs/DESIGN.md section 3.1 rules that openapi/breaking-vectors.json checks
+// and the same words, so that the seven SDKs list the same breaking changes
+// for one upstream change. Python inlines every $ref first; here a reference
+// is followed when it is read, with the document of its side.
 
 // syncTypedFormats are the string formats the shared list types apart:
 // adding, removing or changing one is a type change ("string (date-time)").
