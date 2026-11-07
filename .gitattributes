@@ -1,0 +1,12 @@
+# LF everywhere, so generated code and fixtures compare byte for byte on every OS.
+* text=auto eol=lf
+# Upstream copies stay byte for byte as downloaded.
+openapi/verification.json -text
+openapi/account.json -text
+openapi/authentication.json -text
+openapi/webhook-vectors.json -text
+# Spec sync classification fixtures: gzipped copies of upstream documents.
+*.gz binary
+# Generated code is collapsed in pull request diffs.
+*_gen.go linguist-generated=true
+*_gen_test.go linguist-generated=true
