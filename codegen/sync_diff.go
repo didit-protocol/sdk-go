@@ -750,6 +750,22 @@ func syncObjectProps(doc *Doc, s *Node) (map[string]*Node, map[string]bool) {
 	return props, required
 }
 
+// syncVisible returns the properties the generated type of a request or a
+// response has (leftOut, as the generator reads them).
+func syncVisible(doc *Doc, props map[string]*Node, request bool) map[string]*Node {
+	side := Response
+	if request {
+		side = Request
+	}
+	out := make(map[string]*Node, len(props))
+	for name, p := range props {
+		if !leftOut(doc, p, side) {
+			out[name] = p
+		}
+	}
+	return out
+}
+
 // fieldNames returns the property names of a schema read as one type.
 func (d *syncDiffer) fieldNames(doc *Doc, s *Node) map[string]bool {
 	out := map[string]bool{}
@@ -898,13 +914,23 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 	newProps, newReq := syncObjectProps(d.new, n)
 	// A union's fields live in its variants, compared below.
 	if (len(oldProps) > 0 && len(newProps) > 0) || (len(syncVariants(d.old, o)) == 0 && len(syncVariants(d.new, n)) == 0) {
-		for _, name := range syncSortedNames(oldProps) {
-			if newProps[name] == nil {
+		// A field the generated type leaves out on this side is not there for
+		// typed code: one that becomes readOnly in a request or writeOnly in
+		// a response is removed.
+		oldSeen, newSeen := syncVisible(d.old, oldProps, request), syncVisible(d.new, newProps, request)
+		for _, name := range syncSortedNames(oldSeen) {
+			switch {
+			case newSeen[name] != nil:
+			case newProps[name] != nil && request:
+				note(syncJoin(path, name), "removed (now read-only)", true)
+			case newProps[name] != nil:
+				note(syncJoin(path, name), "removed (now write-only)", true)
+			default:
 				note(syncJoin(path, name), "removed", true)
 			}
 		}
-		for _, name := range syncSortedNames(newProps) {
-			if oldProps[name] != nil {
+		for _, name := range syncSortedNames(newSeen) {
+			if oldSeen[name] != nil {
 				continue
 			}
 			if request && newReq[name] {
@@ -913,8 +939,8 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 				note(syncJoin(path, name), "added", false)
 			}
 		}
-		for _, name := range syncSortedNames(oldProps) {
-			if newProps[name] == nil {
+		for _, name := range syncSortedNames(oldSeen) {
+			if newSeen[name] == nil {
 				continue
 			}
 			at := syncJoin(path, name)
@@ -928,7 +954,7 @@ func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool
 			case was && !now:
 				note(at, "no longer always present", false)
 			}
-			d.diffSchema(oldProps[name], newProps[name], where, at, request, out, depth+1)
+			d.diffSchema(oldSeen[name], newSeen[name], where, at, request, out, depth+1)
 		}
 	}
 	for _, kw := range []struct{ key, suffix string }{{"items", "[]"}, {"additionalProperties", "{}"}} {

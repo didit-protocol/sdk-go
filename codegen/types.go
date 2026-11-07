@@ -445,6 +445,18 @@ func (g *Gen) component(doc *Doc, ref string, side Side) (*GoType, error) {
 	return t, nil
 }
 
+// leftOut reports whether the struct of side leaves out a property with
+// schema s: a request never sends a readOnly field and a response never
+// returns a writeOnly one. The spec sync reads fields the same way
+// (syncVisible).
+func leftOut(doc *Doc, s *Node, side Side) bool {
+	v := view(doc, s)
+	if side == Request {
+		return v.Get("readOnly").Truthy()
+	}
+	return v.Get("writeOnly").Truthy()
+}
+
 type propInfo struct {
 	name     string
 	schemas  []*Node
@@ -467,10 +479,7 @@ func (g *Gen) structType(doc *Doc, name string, side Side, parts []*Node, union 
 	for _, pn := range order {
 		p := props[pn]
 		first := view(doc, p.schemas[0])
-		if side == Request && first.Get("readOnly").Truthy() {
-			continue
-		}
-		if side == Response && first.Get("writeOnly").Truthy() {
+		if leftOut(doc, p.schemas[0], side) {
 			continue
 		}
 		var ft *GoType
