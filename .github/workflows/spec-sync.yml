@@ -36,7 +36,7 @@
 # requests" in the repository settings; then close and reopen the pull request, or push to
 # its branch, to start CI.
 #
-# Hand-pushed fixes: every run rebuilds chore/spec-sync from the default branch, which would
+# Hand-pushed fixes: every run rebuilds its sync branch from the branch it syncs, which would
 # drop a fix pushed to that branch by hand. While the open spec sync pull request carries a
 # commit that did not come from this workflow, the run leaves it alone; once that pull
 # request is merged or closed, the next run syncs whatever changed since. The push is a
