@@ -280,7 +280,8 @@ func syncShapeKeys(n *Node) []string {
 // syncChange is one difference of an operation.
 type syncChange struct {
 	// where is the part of the operation: "response", "request body",
-	// "parameter `limit` (query)", or "" for the operation itself.
+	// "parameter `limit` (query)", "operation" or "x-didit-sdk"; "" for a
+	// change of the whole operation (sync_apply.go).
 	where string
 	// path is the field inside it, for example
 	// "registry_checks[].company.registry_data"; "" for the whole part.
@@ -1463,6 +1464,76 @@ func (d *syncDiffer) sameObservable(a, b *Node, names bool, depth int) bool {
 			}
 		}
 		return true
+	}
+	return syncEqual(a, b)
+}
+
+// syncDocumentNameMaps are the objects of a document whose keys are names,
+// as sdk-python's NAME_MAPS lists them.
+var syncDocumentNameMaps = map[string]bool{
+	"properties": true, "patternProperties": true, "paths": true, "schemas": true, "responses": true,
+	"parameters": true, "requestBodies": true, "headers": true, "securitySchemes": true, "content": true,
+	"encoding": true, "variables": true, "mapping": true, "x-webhooks": true,
+}
+
+// syncSameDocument reports whether a caller can observe no difference
+// between two versions of an upstream document (sdk-python's observable):
+// equal without info, documentation keys and x-* keys other than
+// x-webhooks, with required and type lists in any order. References are
+// compared as written. x-didit-sdk is left out: the sync compares the
+// effective naming, overlay included, on its own.
+func syncSameDocument(a, b *Node) bool {
+	strip := func(n *Node) *Node {
+		out := syncCopyObject(n)
+		syncDeleteKey(out, "info")
+		return out
+	}
+	return syncSameObservableJSON(strip(a), strip(b), false)
+}
+
+func syncSameObservableJSON(a, b *Node, names bool) bool {
+	if a == nil || b == nil || a.Kind != b.Kind {
+		return a == nil && b == nil
+	}
+	switch a.Kind {
+	case Array:
+		if len(a.Arr) != len(b.Arr) {
+			return false
+		}
+		for i := range a.Arr {
+			if !syncSameObservableJSON(a.Arr[i], b.Arr[i], false) {
+				return false
+			}
+		}
+		return true
+	case Object:
+		keep := func(k string) bool {
+			return names || !(syncDocKeys[k] || (strings.HasPrefix(k, "x-") && k != "x-webhooks"))
+		}
+		count := 0
+		for _, k := range b.Keys {
+			if keep(k) {
+				count++
+			}
+		}
+		for _, k := range a.Keys {
+			if !keep(k) {
+				continue
+			}
+			count--
+			va, vb := a.Get(k), b.Get(k)
+			switch {
+			case vb == nil:
+				return false
+			case !names && (k == "required" || k == "type") && va.Kind == Array && vb.Kind == Array:
+				if !syncSameItems(va, vb) {
+					return false
+				}
+			case !syncSameObservableJSON(va, vb, !names && syncDocumentNameMaps[k]):
+				return false
+			}
+		}
+		return count == 0
 	}
 	return syncEqual(a, b)
 }

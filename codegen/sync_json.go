@@ -29,6 +29,8 @@ var (
 	syncFileStyle = syncJSONStyle{indent: 1}
 	// syncInlineStyle is json.dumps(value).
 	syncInlineStyle = syncJSONStyle{indent: -1, ascii: true}
+	// syncUnicodeInlineStyle is json.dumps(value, ensure_ascii=False).
+	syncUnicodeInlineStyle = syncJSONStyle{indent: -1}
 	// syncSortedInlineStyle is json.dumps(value, sort_keys=True).
 	syncSortedInlineStyle = syncJSONStyle{indent: -1, ascii: true, sortKeys: true}
 )
