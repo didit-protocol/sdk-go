@@ -125,6 +125,33 @@ const fixtureAccount = `{
  "components": {"schemas": {"Organization": {"type": "object", "properties": {"uuid": {"type": "string"}, "name": {"type": "string"}}}}}
 }`
 
+const fixtureAuthentication = `{
+ "openapi": "3.0.3",
+ "info": {"title": "Didit Authentication (fixture)", "version": "1"},
+ "paths": {
+  "/session/": {
+   "get": {
+    "operationId": "authentication_get_session",
+    "x-didit-sdk": {"resource": "authentication", "method": "get_session", "auth": "access_token", "server": true},
+    "responses": {"200": {"description": "ok", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}}}
+   },
+   "delete": {
+    "operationId": "authentication_revoke_session",
+    "x-didit-sdk": {"resource": "authentication", "method": "revoke_session", "auth": "access_token", "server": true},
+    "responses": {"204": {"description": "revoked"}}
+   }
+  },
+  "/monitoring-token/": {
+   "post": {
+    "operationId": "authentication_create_monitoring_token",
+    "x-didit-sdk": {"resource": "authentication", "method": "create_monitoring_token", "auth": "access_token", "server": false},
+    "responses": {"201": {"description": "ok"}}
+   }
+  }
+ },
+ "components": {"schemas": {"Session": {"type": "object", "properties": {"sid": {"type": "string"}, "expires_at": {"type": "string", "format": "date-time"}}, "required": ["sid"]}}}
+}`
+
 const fixtureOverlay = `{
  "description": "SDK naming (fixture).",
  "version": 1,
@@ -157,6 +184,7 @@ func newSyncFixture(t *testing.T) *syncFixture {
 	}
 	f.writeNode("verification.json", mustNode(t, fixtureVerification))
 	f.writeNode("account.json", mustNode(t, fixtureAccount))
+	f.writeNode("authentication.json", mustNode(t, fixtureAuthentication))
 	f.writeNode("overlay.json", mustNode(t, fixtureOverlay))
 	f.writeNode("SOURCE.json", mustNode(t, fixtureSource))
 	// An empty file of its own, like the one the SDK was seeded with. Not the
@@ -226,17 +254,53 @@ func (f *syncFixture) sync(downloads map[string][]byte) (syncResult, error) {
 // current account.json, and returns the summary.
 func (f *syncFixture) syncVerification(doc *Node) string {
 	f.t.Helper()
-	res, err := f.sync(map[string][]byte{
-		"verification.json": []byte(syncEncode(doc, syncFileStyle)),
-		"account.json":      f.read("account.json"),
-	})
+	return f.syncDoc("verification.json", doc).summary
+}
+
+// syncDoc syncs with doc as the new file and the current other upstream
+// documents, and returns the result.
+func (f *syncFixture) syncDoc(file string, doc *Node) syncResult {
+	f.t.Helper()
+	downloads := map[string][]byte{}
+	for _, up := range syncUpstreams {
+		downloads[up.file] = f.read(up.file)
+	}
+	downloads[file] = []byte(syncEncode(doc, syncFileStyle))
+	res, err := f.sync(downloads)
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	if !res.changed {
 		f.t.Fatal("changed = false, want true")
 	}
-	return res.summary
+	return res
+}
+
+// breakingTexts returns the entries of a result's breaking list.
+func breakingTexts(res syncResult) []string {
+	var out []string
+	for _, b := range res.breaking {
+		out = append(out, b.text())
+	}
+	return out
+}
+
+// expectBreaking fails unless the summary lists exactly want as breaking
+// changes, in this order, and the result carries the same entries.
+func expectBreaking(t *testing.T, res syncResult, want ...string) {
+	t.Helper()
+	text := "None detected.\n"
+	if len(want) > 0 {
+		text = "- " + strings.Join(want, "\n- ") + "\n"
+	}
+	// The list ends at the first blank line; the intro follows.
+	got, _, _ := strings.Cut(section(res.summary, "Breaking changes"), "\n\n")
+	if got+"\n" != text {
+		t.Errorf("Breaking changes:\n%s\nwant:\n%s", got, text)
+	}
+	if got := breakingTexts(res); !reflect.DeepEqual(got, want) && (len(got) > 0 || len(want) > 0) {
+		t.Errorf("breaking = %q, want %q", got, want)
+	}
 }
 
 // generate runs the generator on the fixture.
@@ -343,8 +407,8 @@ func TestSyncWithoutUpstreamChangeTouchesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.changed || res.summary != "No upstream change.\n" {
-		t.Fatalf("got changed=%t summary %q", res.changed, res.summary)
+	if res.changed || res.typ != "chore" || res.summary != "No upstream change.\n" {
+		t.Fatalf("got changed=%t type %q summary %q", res.changed, res.typ, res.summary)
 	}
 	if after := f.snapshot(); !reflect.DeepEqual(before, after) {
 		t.Fatal("files changed")
@@ -362,13 +426,14 @@ func TestSyncReportsAddedOperations(t *testing.T) {
 		"x-didit-sdk": {"resource": "device", "method": "ping", "auth": "device_token", "server": false},
 		"responses": {"200": {"description": "ok"}}}}`))
 	paths.Set("/v3/unnamed/", mustNode(t, `{"post": {"operationId": "unnamed_create", "responses": {"201": {"description": "ok"}}}}`))
-	summary := f.syncVerification(doc)
-	expectContains(t, section(summary, "Added operations (3)"),
+	res := f.syncDoc("verification.json", doc)
+	expectContains(t, section(res.summary, "Added operations (3)"),
 		"- `GET /v3/things/` -> `things.list`",
 		"- `POST /v3/device/` (not exposed by server SDKs: device_token)",
 		"- `POST /v3/unnamed/`: **no SDK naming**; add an entry to `openapi/overlay.json`")
-	if got := section(summary, "Breaking changes"); got != "None detected.\n" {
-		t.Errorf("breaking changes: %q", got)
+	expectBreaking(t, res)
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat (a new operation)", res.typ)
 	}
 	// The generator refuses the operation without naming, and names it.
 	_, err := LoadSpec(f.root)
@@ -389,10 +454,14 @@ func TestSyncKeepsRemovedOperationAsDeprecatedMethod(t *testing.T) {
 	syncDeleteKey(comps, "responses")
 	syncDeleteKey(comps.Get("schemas"), "BalanceBreakdown")
 	syncDeleteKey(comps.Get("schemas"), "BalanceLine")
-	summary := f.syncVerification(doc)
+	res := f.syncDoc("verification.json", doc)
+	summary := res.summary
 
-	expectContains(t, section(summary, "Breaking changes"),
-		"`billing.retrieve_balance` was removed upstream (GET /v3/billing/balance/); kept as a deprecated method until version 0.5.0")
+	expectBreaking(t, res,
+		"`GET /v3/billing/balance/`: operation removed; `billing.retrieve_balance` stays as a deprecated method until version 0.5.0")
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
 	expectContains(t, section(summary, "Removed operations (1)"),
 		"- `GET /v3/billing/balance/` (`billing.retrieve_balance`): kept as a deprecated method until version 0.5.0, recorded in `openapi/deprecated-operations.json`")
 	// The schemas it took along stay generated, so their removal breaks nobody yet.
@@ -478,10 +547,14 @@ func TestSyncKeepsRenamedMethodAsDeprecatedAlias(t *testing.T) {
 	doc := f.node("verification.json")
 	op := doc.Path("paths", "/v3/billing/balance/", "get")
 	op.Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "get_balance", "auth": "api_key", "server": true}`))
-	summary := f.syncVerification(doc)
+	res := f.syncDoc("verification.json", doc)
+	summary := res.summary
 
-	expectContains(t, section(summary, "Breaking changes"),
-		"`billing.retrieve_balance` was renamed upstream to `billing.get_balance` (GET /v3/billing/balance/); the old name is a deprecated alias until version 0.5.0")
+	// The old name stays as a deprecated alias, so nothing breaks yet.
+	expectBreaking(t, res)
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
 	expectContains(t, section(summary, "Renamed methods (1)"),
 		"- `GET /v3/billing/balance/`: `billing.retrieve_balance` renamed to `billing.get_balance`")
 	entry := f.deprecated().Get("billing.retrieve_balance")
@@ -542,13 +615,15 @@ func TestSyncMovedOperationIsNotDeprecated(t *testing.T) {
 	syncDeleteKey(paths, "/v3/billing/balance/")
 	item.Get("get").Set("x-didit-sdk", mustNode(t, fixtureOverlay).Path("operations", "GET /v3/billing/balance/"))
 	paths.Set("/v3/billing/balance-v2/", item)
-	summary := f.syncVerification(doc)
+	res := f.syncDoc("verification.json", doc)
 
-	expectContains(t, summary,
+	expectContains(t, res.summary,
 		"- `GET /v3/billing/balance/` moved to `GET /v3/billing/balance-v2/`; `billing.retrieve_balance` keeps its name",
-		"- `billing.retrieve_balance` moved from `GET /v3/billing/balance/` to `GET /v3/billing/balance-v2/`: ")
-	if got := section(summary, "Breaking changes"); got != "None detected.\n" {
-		t.Errorf("breaking changes: %q", got)
+		// Upstream now names it (the overlay did before): listed, not counted.
+		"- `billing.retrieve_balance` moved from `GET /v3/billing/balance/` to `GET /v3/billing/balance-v2/`: x-didit-sdk: now {\"auth\": \"api_key\", \"method\": \"retrieve_balance\", \"resource\": \"billing\", \"server\": true}")
+	expectBreaking(t, res)
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
 	}
 	if got := f.deprecated().ObjKeys(); len(got) != 0 {
 		t.Errorf("deprecated methods = %v", got)
@@ -570,22 +645,30 @@ func TestSyncMovedOperationReportsWhatChanged(t *testing.T) {
 		mustNode(t, `{"name": "dry_run", "in": "query", "required": true, "schema": {"type": "boolean"}}`))
 	op.Path("responses", "200", "content", "application/json").Set("schema", mustNode(t, `{"type": "array", "items": {"type": "object"}}`))
 	paths.Set("/v4/billing/balance/", item)
-	breaking := section(f.syncVerification(doc), "Breaking changes")
-	expectContains(t, breaking,
-		"`billing.retrieve_balance` moved from `GET /v3/billing/balance/` to `GET /v4/billing/balance/`",
-		"parameter added: dry_run (query, required) (breaking)",
-		"response: type object -> array (breaking)")
+	res := f.syncDoc("verification.json", doc)
+	// The changes of a moved method count under its new path.
+	expectBreaking(t, res,
+		"`GET /v4/billing/balance/` parameter `dry_run` (query): added (required)",
+		"`GET /v4/billing/balance/` response: type changed from object to array")
+	expectContains(t, section(res.summary, "Moved or reassigned methods (1)"),
+		"- `billing.retrieve_balance` **(breaking)** moved from `GET /v3/billing/balance/` to `GET /v4/billing/balance/`: parameter `dry_run` (query): added (required) (breaking); response: type changed from object to array (breaking)")
 }
 
-func TestSyncSwappedNamesAreBreaking(t *testing.T) {
+func TestSyncSwappedNamesAreListedForReview(t *testing.T) {
 	f := newSyncFixture(t)
 	doc := f.node("verification.json")
 	doc.Path("paths", "/v3/billing/balance/", "get").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "top_up", "auth": "api_key", "server": true}`))
 	doc.Path("paths", "/v3/billing/top-up/", "post").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "retrieve_balance", "auth": "api_key", "server": true}`))
-	breaking := section(f.syncVerification(doc), "Breaking changes")
-	expectContains(t, breaking,
-		"`billing.top_up` now calls `GET /v3/billing/balance/` instead of `POST /v3/billing/top-up/`",
-		"`billing.retrieve_balance` now calls `POST /v3/billing/top-up/` instead of `GET /v3/billing/balance/`")
+	res := f.syncDoc("verification.json", doc)
+	// A reassigned method is not on the DESIGN 3.1 list: it is listed for
+	// review, and the sync is a feature.
+	expectBreaking(t, res)
+	expectContains(t, section(res.summary, "Moved or reassigned methods (2)"),
+		"- `billing.top_up` **(review)** now calls `GET /v3/billing/balance/` instead of `POST /v3/billing/top-up/`",
+		"- `billing.retrieve_balance` **(review)** now calls `POST /v3/billing/top-up/` instead of `GET /v3/billing/balance/`")
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
 	if got := f.deprecated().ObjKeys(); len(got) != 0 {
 		t.Errorf("deprecated methods = %v", got)
 	}
@@ -595,8 +678,8 @@ func TestSyncOperationThatStopsBeingServerIsRemoved(t *testing.T) {
 	f := newSyncFixture(t)
 	doc := f.node("verification.json")
 	doc.Path("paths", "/v3/billing/balance/", "get").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "retrieve_balance", "auth": "device_token", "server": false}`))
-	breaking := section(f.syncVerification(doc), "Breaking changes")
-	expectContains(t, breaking, "`billing.retrieve_balance` (GET /v3/billing/balance/) is removed: the operation now needs device_token")
+	res := f.syncDoc("verification.json", doc)
+	expectBreaking(t, res, "`GET /v3/billing/balance/`: operation removed from server SDKs: it now needs device_token, and `billing.retrieve_balance` is removed")
 	// Never kept: server SDKs do not expose device-token operations (DESIGN 4).
 	if got := f.deprecated().ObjKeys(); len(got) != 0 {
 		t.Errorf("deprecated methods = %v", got)
@@ -619,9 +702,12 @@ func TestSyncOperationThatLosesItsNamingIsCalledOut(t *testing.T) {
 
 	doc := f.node("verification.json")
 	syncDeleteKey(doc.Path("paths", "/v3/billing/balance/", "get"), "x-didit-sdk")
-	summary := f.syncVerification(doc)
-	expectContains(t, summary, "lost its SDK naming")
-	expectContains(t, section(summary, "Breaking changes"), "`billing.retrieve_balance` (GET /v3/billing/balance/) has no SDK naming any more")
+	res := f.syncDoc("verification.json", doc)
+	// The generator fails until the operation is named again, so nothing
+	// ships; the summary says what to do.
+	expectContains(t, section(res.summary, "Renamed methods (1)"),
+		"- `GET /v3/billing/balance/` lost its SDK naming: add `billing.retrieve_balance` back to `openapi/overlay.json` (the generator fails until it is named)")
+	expectBreaking(t, res)
 	if got := f.deprecated().ObjKeys(); len(got) != 0 {
 		t.Errorf("deprecated methods = %v", got)
 	}
@@ -639,7 +725,8 @@ func TestSyncOverlayEntries(t *testing.T) {
 	doc.Path("paths", "/v3/billing/top-up/", "post").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "buy_credits", "auth": "api_key", "server": true}`))
 	// Upstream carries the same name with another auth.
 	doc.Path("paths", "/v3/session/{session_id}/decision/", "get").Set("x-didit-sdk", mustNode(t, `{"resource": "sessions", "method": "retrieve_decision", "auth": "account_token", "server": true}`))
-	summary := f.syncVerification(doc)
+	res := f.syncDoc("verification.json", doc)
+	summary := res.summary
 
 	// Every overlay entry upstream now carries is deleted; the identical one
 	// only counts in the note.
@@ -662,10 +749,10 @@ func TestSyncOverlayEntries(t *testing.T) {
 	}
 
 	// The different name goes through the rename path; the different auth
-	// is breaking too.
-	expectContains(t, section(summary, "Breaking changes"),
-		"`billing.top_up` was renamed upstream to `billing.buy_credits` (POST /v3/billing/top-up/); the old name is a deprecated alias until version 0.5.0",
-		"`sessions.retrieve_decision` (GET /v3/session/{session_id}/decision/): x-didit-sdk auth changed from \"api_key\" to \"account_token\"")
+	// is listed for review. Neither is on the DESIGN 3.1 list.
+	expectBreaking(t, res)
+	expectContains(t, section(summary, "Changed auth or scope (1)"),
+		"- `GET /v3/session/{session_id}/decision/` (`sessions.retrieve_decision`): x-didit-sdk auth changed from \"api_key\" to \"account_token\"; check how it is called")
 	expectContains(t, section(summary, "Renamed methods (1)"),
 		"- `POST /v3/billing/top-up/`: `billing.top_up` renamed to `billing.buy_credits`")
 	methods := f.deprecated()
@@ -702,16 +789,20 @@ func TestSyncReportsChangedOperationsAndSchemas(t *testing.T) {
 	schemas.Path("Session", "properties", "status").Set("enum", mustNode(t, `["Approved"]`))
 	doc.Path("paths", "/v3/session/", "post").Set("parameters", mustNode(t, `[{"name": "dry_run", "in": "query", "required": true, "schema": {"type": "boolean"}}]`))
 	doc.Path("paths", "/v3/billing/top-up/", "post").Set("description", mustNode(t, `"Now documented."`))
-	summary := f.syncVerification(doc)
+	res := f.syncDoc("verification.json", doc)
+	summary := res.summary
 
-	breaking := section(summary, "Breaking changes")
-	expectContains(t, breaking,
-		"`POST /v3/session/`: parameter added: dry_run (query, required) (breaking); body.workflow_id: type string -> integer (breaking)",
-		"verification.json: schema `LegacyUnusedThing` removed (its type leaves package didit)")
+	// A schema no operation uses breaks nobody; a removed enum value breaks
+	// typed code on both sides (DESIGN 3.1).
+	expectBreaking(t, res,
+		"`GET /v3/session/{session_id}/decision/` response `status`: enum value \"Declined\" removed",
+		"`POST /v3/session/` parameter `dry_run` (query): added (required)",
+		"`POST /v3/session/` request body `workflow_id`: type changed from string to integer",
+		"`POST /v3/session/` response `status`: enum value \"Declined\" removed")
 	changed := section(summary, "Changed operations (3)")
 	expectContains(t, changed,
-		"- `POST /v3/session/` **(breaking)**: parameter added: dry_run (query, required) (breaking); body.workflow_id: type string -> integer (breaking); response.status: values removed [\"Declined\"]",
-		"- `GET /v3/session/{session_id}/decision/`: response.status: values removed [\"Declined\"]",
+		"- `POST /v3/session/` **(breaking)**: parameter `dry_run` (query): added (required) (breaking); request body `workflow_id`: type changed from string to integer (breaking); response `status`: enum value \"Declined\" removed (breaking)",
+		"- `GET /v3/session/{session_id}/decision/` **(breaking)**: response `status`: enum value \"Declined\" removed (breaking)",
 		"- `POST /v3/billing/top-up/`: descriptions, examples or other details changed")
 	expectContains(t, section(summary, "Schemas"),
 		"- verification.json added: `Brand`",
@@ -759,8 +850,12 @@ func TestSyncWritesDownloadsAndSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(res.summary, "Spec sync 2026-10-18. Upstream files changed: verification.json.\n\n## Breaking changes\nNone detected.\n") {
+	if want := "## Breaking changes\nNone detected.\n\nSpec sync 2026-10-18. Upstream files changed: verification.json.\n" +
+		"`chore(spec)`: only descriptions, examples or other documentation changed, so this releases nothing on its own; it ships with the next release.\n\n"; !strings.HasPrefix(res.summary, want) {
 		t.Errorf("summary starts with %q", res.summary)
+	}
+	if res.typ != "chore" {
+		t.Errorf("type = %q, want chore", res.typ)
 	}
 	if !bytes.Equal(f.read("verification.json"), download) {
 		t.Error("verification.json is not the download byte for byte")
@@ -796,9 +891,11 @@ func TestSyncCommand(t *testing.T) {
 	f := newSyncFixture(t)
 	out := filepath.Join(t.TempDir(), "github_output")
 	summary := filepath.Join(t.TempDir(), "summary.md")
+	release := filepath.Join(t.TempDir(), "release.md")
+	message := filepath.Join(t.TempDir(), "commit-message.txt")
 	var stdout bytes.Buffer
 	cmd := syncCommand{
-		dir: f.root, summary: summary, fromDir: filepath.Join(f.root, "openapi"),
+		dir: f.root, summary: summary, release: release, message: message, fromDir: filepath.Join(f.root, "openapi"),
 		version: syncTestVersion, githubOutput: out, stdout: &stdout,
 		now: func() time.Time { return syncTestNow },
 		fetch: func(string) ([]byte, error) {
@@ -809,19 +906,25 @@ func TestSyncCommand(t *testing.T) {
 	if err := cmd.run(); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(out); string(got) != "changed=false\ndate=2026-10-18\n" {
+	if got, _ := os.ReadFile(out); string(got) != "changed=false\ndate=2026-10-18\ntype=chore\nbreaking=0\n" {
 		t.Errorf("GITHUB_OUTPUT = %q", got)
 	}
 	if got, _ := os.ReadFile(summary); string(got) != "No upstream change.\n" || stdout.String() != string(got) {
 		t.Errorf("summary = %q, stdout %q", got, stdout.String())
+	}
+	for _, file := range []string{release, message} {
+		if got, err := os.ReadFile(file); err != nil || len(got) != 0 {
+			t.Errorf("%s = %q, %v; want an empty file", filepath.Base(file), got, err)
+		}
 	}
 
 	// Downloading: an httptest server stands in for docs.didit.me.
 	doc := f.node("verification.json")
 	syncDeleteKey(doc.Get("paths"), "/v3/billing/balance/")
 	served := map[string][]byte{
-		"/openapi-25.json":   []byte(syncEncode(doc, syncFileStyle)),
-		"/openapi-auth.json": f.read("account.json"),
+		"/openapi-25.json":             []byte(syncEncode(doc, syncFileStyle)),
+		"/openapi-auth.json":           f.read("account.json"),
+		"/openapi-authentication.json": f.read("authentication.json"),
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ua := r.Header.Get("User-Agent"); ua != "didit-sdk-go spec-sync" {
@@ -835,11 +938,19 @@ func TestSyncCommand(t *testing.T) {
 	if err := cmd.run(); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(out); string(got) != "changed=false\ndate=2026-10-18\nchanged=true\ndate=2026-10-18\n" {
+	if got, _ := os.ReadFile(out); string(got) != "changed=false\ndate=2026-10-18\ntype=chore\nbreaking=0\nchanged=true\ndate=2026-10-18\ntype=feat\nbreaking=1\n" {
 		t.Errorf("GITHUB_OUTPUT = %q", got)
 	}
-	if got, _ := os.ReadFile(summary); !strings.Contains(string(got), "`billing.retrieve_balance` was removed upstream") {
+	if got, _ := os.ReadFile(summary); !strings.Contains(string(got), "operation removed; `billing.retrieve_balance` stays as a deprecated method") {
 		t.Errorf("summary = %s", got)
+	}
+	if got, _ := os.ReadFile(release); !strings.Contains(string(got), "BEGIN_COMMIT_OVERRIDE\nfeat(spec): sync API spec 2026-10-18\n\nBEGIN_NESTED_COMMIT\napi(spec): `GET /v3/billing/balance/`: operation removed;") {
+		t.Errorf("release = %s", got)
+	}
+	// The sync commit carries the same lines, and never a major version.
+	want := "feat(spec): sync API spec 2026-10-18\n\nBEGIN_NESTED_COMMIT\napi(spec): `GET /v3/billing/balance/`: operation removed; `billing.retrieve_balance` stays as a deprecated method until version 0.5.0\nEND_NESTED_COMMIT\n"
+	if got, _ := os.ReadFile(message); string(got) != want {
+		t.Errorf("commit message = %q, want %q", got, want)
 	}
 	if !bytes.Equal(f.read("verification.json"), served["/openapi-25.json"]) {
 		t.Error("verification.json is not the download")
@@ -885,44 +996,77 @@ func TestRunSyncRejectsBadArguments(t *testing.T) {
 
 func TestDiffSchemaRules(t *testing.T) {
 	doc := &Doc{Name: "verification", Root: mustNode(t, `{}`)}
-	diff := func(old, new string, request bool) []syncNote {
+	diff := func(old, new string, request bool) []syncChange {
 		t.Helper()
-		var notes []syncNote
-		newSyncDiffer(doc, doc).diffSchema(mustNode(t, old), mustNode(t, new), "x", request, &notes, 0)
-		return notes
+		var changes []syncChange
+		newSyncDiffer(doc, doc).diffSchema(mustNode(t, old), mustNode(t, new), "response", "x", request, &changes, 0)
+		return changes
 	}
-	expect := func(got []syncNote, want ...syncNote) {
+	expect := func(got []syncChange, want ...syncChange) {
 		t.Helper()
+		for i := range want {
+			want[i].where = "response"
+		}
 		if len(got) == 0 && len(want) == 0 {
 			return
 		}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("notes = %v, want %v", got, want)
+			t.Errorf("changes = %+v, want %+v", got, want)
 		}
 	}
 	status := `{"type": "string", "enum": ["a", "b"]}`
-	expect(diff(status, `{"type": "string", "enum": ["a"]}`, true), syncNote{`x: values removed ["b"]`, true})
-	expect(diff(status, `{"type": "string", "enum": ["a"]}`, false), syncNote{`x: values removed ["b"]`, false})
-	expect(diff(status, `{"type": "string", "enum": ["a", "b", "ü"]}`, false), syncNote{`x: values added ["\u00fc"]`, false})
+	// A removed enum value breaks typed code on both sides (DESIGN 3.1).
+	expect(diff(status, `{"type": "string", "enum": ["a"]}`, true), syncChange{path: "x", kind: `enum value "b" removed`, breaking: true})
+	expect(diff(status, `{"type": "string", "enum": ["a"]}`, false), syncChange{path: "x", kind: `enum value "b" removed`, breaking: true})
+	expect(diff(status, `{"type": "string", "enum": ["a", "b", "ü"]}`, false), syncChange{path: "x", kind: `enum values added ["ü"]`})
+	expect(diff(`{"type": "string"}`, status, true), syncChange{path: "x", kind: `now limited to ["a", "b"]`})
+	expect(diff(status, `{"type": "string"}`, false), syncChange{path: "x", kind: "no longer limited to fixed values"})
 	obj := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}`
 	optional := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": []}`
-	expect(diff(obj, optional, false), syncNote{"x.a: no longer always present", true})
-	expect(diff(optional, obj, true), syncNote{"x.a: now required", true})
-	expect(diff(`{"type": "integer"}`, `{"type": "number"}`, true), syncNote{"x: type integer -> number", false})
-	expect(diff(`{"type": "integer"}`, `{"type": "number"}`, false), syncNote{"x: type integer -> number", true})
-	expect(diff(`{"type": "string"}`, `{"type": "string", "nullable": true}`, false), syncNote{"x: can now be null", true})
-	expect(diff(`{"type": ["string", "null"]}`, `{"type": "string"}`, true), syncNote{"x: no longer accepts null", true})
+	expect(diff(obj, optional, false), syncChange{path: "x.a", kind: "no longer always present"})
+	expect(diff(optional, obj, false), syncChange{path: "x.a", kind: "now always present"})
+	expect(diff(optional, obj, true), syncChange{path: "x.a", kind: "now required", breaking: true})
+	expect(diff(obj, optional, true), syncChange{path: "x.a", kind: "no longer required"})
+	// Any type change counts, in either direction and on either side.
+	expect(diff(`{"type": "integer"}`, `{"type": "number"}`, true), syncChange{path: "x", kind: "type changed from integer to number", breaking: true})
+	expect(diff(`{"type": "number"}`, `{"type": "integer"}`, false), syncChange{path: "x", kind: "type changed from number to integer", breaking: true})
+	expect(diff(`{"type": "string"}`, `{"type": "string", "format": "date-time"}`, false), syncChange{path: "x", kind: "type changed from string to string (date-time)", breaking: true})
+	expect(diff(`{"type": "string"}`, `{}`, false), syncChange{path: "x", kind: "type changed from string to any", breaking: true})
+	// date-time, date and binary are types of their own in the shared list;
+	// other formats are constraints.
+	expect(diff(`{"type": "string"}`, `{"type": "string", "format": "date"}`, true), syncChange{path: "x", kind: "type changed from string to string (date)", breaking: true})
+	expect(diff(`{"type": "string", "format": "uuid"}`, `{"type": "string", "format": "email"}`, false), syncChange{path: "x", kind: "other constraints changed (format, pattern, limits or default)"})
+	// Required names in another order are the same.
+	expect(diff(`{"type": "object", "properties": {"a": {}, "b": {}}, "required": ["a", "b"]}`, `{"type": "object", "properties": {"a": {}, "b": {}}, "required": ["b", "a"]}`, true))
+	// Unions: a removed variant, and variants paired by title although they
+	// moved, named by their new position.
+	card := `{"title": "Card", "type": "object", "properties": {"n": {"type": "string"}}}`
+	bank := `{"title": "Bank", "type": "object", "properties": {"iban": {"type": "string"}}}`
+	expect(diff(`{"oneOf": [`+card+`, `+bank+`]}`, `{"oneOf": [`+card+`]}`, false),
+		syncChange{path: "x", kind: "type changed: 1 oneOf variant(s) removed", breaking: true})
+	expect(diff(`{"oneOf": [`+card+`, `+bank+`]}`, `{"oneOf": [`+bank+`, {"title": "Card", "type": "object", "properties": {"n": {"type": "integer"}}}]}`, false),
+		syncChange{path: "x(oneOf 2).n", kind: "type changed from string to integer", breaking: true},
+		syncChange{path: "x", kind: "oneOf variants reordered"})
+	// Null, in responses and requests alike.
+	expect(diff(`{"type": "string"}`, `{"type": "string", "nullable": true}`, false), syncChange{path: "x", kind: "can now be null", breaking: true})
+	expect(diff(`{"type": "string"}`, `{"type": ["string", "null"]}`, true), syncChange{path: "x", kind: "can now be null", breaking: true})
+	expect(diff(`{"type": "string"}`, `{"anyOf": [{"type": "string"}, {"type": "null"}]}`, false), syncChange{path: "x", kind: "can now be null", breaking: true})
+	expect(diff(`{"type": ["string", "null"]}`, `{"type": "string"}`, true), syncChange{path: "x", kind: "no longer accepts null"})
+	expect(diff(`{"type": ["string", "null"]}`, `{"type": "string"}`, false), syncChange{path: "x", kind: "can no longer be null"})
 	expect(diff(`{"type": "array", "items": `+obj+`}`, `{"type": "array", "items": {"type": "object", "properties": {}}}`, false),
-		syncNote{"x[].a: removed", true})
-	expect(diff(`{"oneOf": [`+obj+`, `+status+`]}`, `{"oneOf": [`+obj+`]}`, false), syncNote{"x: 1 oneOf variant(s) removed", true})
+		syncChange{path: "x[].a", kind: "removed", breaking: true})
 	expect(diff(`{"type": "object", "properties": {}}`, `{"type": "object", "properties": {"b": {"type": "string"}}, "required": ["b"]}`, true),
-		syncNote{"x.b: added (required)", true})
+		syncChange{path: "x.b", kind: "added (required)", breaking: true})
+	expect(diff(`{"type": "object", "properties": {}}`, `{"type": "object", "properties": {"b": {"type": "string"}}, "required": ["b"]}`, false),
+		syncChange{path: "x.b", kind: "added"})
+	expect(diff(`{"type": "object", "additionalProperties": {"type": "string"}}`, `{"type": "object", "additionalProperties": {"type": "integer"}}`, false),
+		syncChange{path: "x{}", kind: "type changed from string to integer", breaking: true})
+	expect(diff(`{"type": "integer", "maximum": 5}`, `{"type": "integer", "maximum": 10}`, true), syncChange{path: "x", kind: "other constraints changed (format, pattern, limits or default)"})
 	documented := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"], "description": "now documented", "example": {"a": "z"}, "x-internal": 1}`
 	expect(diff(obj, documented, false))
-	// A property called like a documentation keyword still counts (the
-	// Python reference misses this one).
+	// A property called like a documentation keyword still counts.
 	expect(diff(`{"type": "object", "properties": {"title": {"type": "string"}}}`, `{"type": "object", "properties": {"title": {"type": "integer"}}}`, false),
-		syncNote{"x.title: type string -> integer", true})
+		syncChange{path: "x.title", kind: "type changed from string to integer", breaking: true})
 }
 
 func TestDiffFollowsRecursiveReferences(t *testing.T) {
@@ -932,15 +1076,15 @@ func TestDiffFollowsRecursiveReferences(t *testing.T) {
 	if !newSyncDiffer(old, old).sameShape(ref, ref, 0) {
 		t.Error("a recursive schema differs from itself")
 	}
-	var notes []syncNote
-	newSyncDiffer(old, new).diffSchema(ref, ref, "response", false, &notes, 0)
+	var changes []syncChange
+	newSyncDiffer(old, new).diffSchema(ref, ref, "response", "", false, &changes, 0)
 	texts := map[string]bool{}
-	for _, n := range notes {
-		texts[n.text] = true
+	for _, c := range changes {
+		texts[c.text()] = true
 	}
 	// Reported at every level down to the depth limit, and no further.
-	if !texts["response.name: type string -> integer"] || !texts["response.children[].name: type string -> integer"] || len(notes) > 20 {
-		t.Errorf("notes = %v", notes)
+	if !texts["response `name`: type changed from string to integer"] || !texts["response `children[].name`: type changed from string to integer"] || len(changes) > 20 {
+		t.Errorf("changes = %v", changes)
 	}
 }
 
@@ -953,9 +1097,10 @@ func TestDescribeChangeCapsNotes(t *testing.T) {
 	}
 	old := mustNode(t, `{"responses": {"200": {"content": {"application/json": {"schema": {"type": "object", "properties": {`+strings.Join(props, ",")+`}}}}}}}`)
 	new := mustNode(t, `{"parameters": [`+strings.Join(params, ",")+`], "responses": {"200": {"content": {"application/json": {"schema": {"type": "object"}}}}}}`)
-	notes, breaking := newSyncDiffer(doc, doc).describeChange(old, new)
-	if !breaking || len(notes) != syncMaxNotes+1 || notes[syncMaxNotes] != "and 35 more differences" {
-		t.Errorf("breaking=%t, %d notes, last %q", breaking, len(notes), notes[len(notes)-1])
+	changes := newSyncDiffer(doc, doc).describeChange(old, new)
+	notes := syncNotes(changes)
+	if !syncHasBreaking(changes) || len(notes) != syncMaxNotes+1 || notes[syncMaxNotes] != "and 35 more differences" {
+		t.Errorf("breaking=%t, %d notes, last %q", syncHasBreaking(changes), len(notes), notes[len(notes)-1])
 	}
 }
 

@@ -312,11 +312,15 @@ Go 1.22 and later. CI tests Go 1.22 to 1.27 on Linux, and the newest Go on macOS
 
 ## Versioning
 
-Semantic versioning. Releases are cut by release-please from conventional commits; [CHANGELOG.md](CHANGELOG.md) is generated. Until the first public release the version stays `0.x`. A future major version follows Go's semantic import versioning (`github.com/didit-protocol/sdk-go/v2`).
+This module follows [semantic versioning](https://semver.org), with one rule for API changes shared by every Didit server SDK ([docs/DESIGN.md](docs/DESIGN.md) section 13):
 
-Code that compiles against a 1.x release keeps compiling on later 1.x releases. When the API changes the schema behind a released name, the old name stays as an alias marked `Deprecated:`. A method released without parameters keeps that signature, and a `WithParams` companion takes the optional parameters the API added later: `client.RegulatoryReports.Delete(ctx, reportUUID)` deletes a draft or validated report, and `DeleteWithParams` with `ConfirmDelete: didit.Bool(true)` deletes a finalized one.
+- A change that mirrors the Didit API is a minor version, even when it can break typed code: a type change, a field that can now be null, or a removed field, operation or enum value. The API already behaves that way for every caller, so an older version of this module is not safer. The release notes list such changes under "API changes that can break typed code"; read them before you upgrade.
+- A major version is only for a change to the SDK's own design: renaming or removing a method or resource the API still has, changing client configuration, errors, retries, pagination or webhook verification, or dropping a supported Go version. Only such a change would need a new module path (`github.com/didit-protocol/sdk-go/v2`); an API change never does.
+- An API update that only changes documentation releases nothing on its own.
 
-The SDK is generated from Didit's OpenAPI documents (`openapi/`), and a daily job opens a pull request when the API changes. Removed operations stay available, marked deprecated, for one minor version.
+Releases are cut by release-please from conventional commits; [CHANGELOG.md](CHANGELOG.md) is generated.
+
+The SDK is generated from Didit's OpenAPI documents (`openapi/`), and a daily job opens a pull request when the API changes. Released names keep working where the API allows it. Removed operations stay available, marked deprecated, for one minor version. When the API changes the schema behind a released name, the old name stays as an alias marked `Deprecated:`. A method released without parameters keeps that signature, and a `WithParams` companion takes the optional parameters the API added later: `client.RegulatoryReports.Delete(ctx, reportUUID)` deletes a draft or validated report, and `DeleteWithParams` with `ConfirmDelete: didit.Bool(true)` deletes a finalized one.
 
 ## Contributing and security
 
