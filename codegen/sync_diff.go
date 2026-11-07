@@ -1506,7 +1506,7 @@ func syncSameObservableJSON(a, b *Node, names bool) bool {
 		return true
 	case Object:
 		keep := func(k string) bool {
-			return names || !(syncDocKeys[k] || (strings.HasPrefix(k, "x-") && k != "x-webhooks"))
+			return names || (!syncDocKeys[k] && (!strings.HasPrefix(k, "x-") || k == "x-webhooks"))
 		}
 		count := 0
 		for _, k := range b.Keys {
