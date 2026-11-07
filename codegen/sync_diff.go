@@ -10,19 +10,17 @@ import (
 // Operations are compared field by field, in parameters, request bodies (per
 // media type) and every success response, following $refs, allOf, array
 // items and every oneOf/anyOf variant. Each difference is a syncChange; the
-// ones of the docs/DESIGN.md section 3.1 list (a field or parameter whose
-// type changed, a field or parameter that can now be null, a removed field,
-// enum value or union variant, a newly required parameter or request field)
-// are breaking: they can break typed code, and the pull request and the
-// release notes list them. A removed operation is breaking too
-// (sync_apply.go). The rules are sdk-python's and sdk-java's, so that every
-// SDK lists the same changes.
+// ones the docs/DESIGN.md section 3.1 rules count are breaking: they can
+// break typed code, and the pull request and the release notes list them.
+// A removed operation is breaking too (sync_apply.go). The rules are
+// checked by the shared vectors of openapi/breaking-vectors.json
+// (sync_vectors_test.go), so that every SDK lists the same changes.
 //
 // References are followed lazily while comparing, so recursive schemas are
 // never copied.
 
-// syncMaxNotes caps the notes of one operation so that a huge change stays
-// readable.
+// syncMaxNotes caps the notes of one operation in the summary so that a huge
+// change stays readable. The breaking changes are never capped.
 const syncMaxNotes = 25
 
 // syncUnchangedNote describes an operation whose changes are documentation
@@ -279,30 +277,53 @@ func syncShapeKeys(n *Node) []string {
 
 // syncChange is one difference of an operation.
 type syncChange struct {
-	// where is the part of the operation: "response", "request body",
-	// "parameter `limit` (query)", "operation" or "x-didit-sdk"; "" for a
-	// change of the whole operation (sync_apply.go).
+	// where is the part of the operation: "response", "request body", a
+	// parameter's location ("query", "path", "header" or "cookie"),
+	// "operation" or "x-didit-sdk"; "" for a change of the whole operation
+	// (sync_apply.go).
 	where string
 	// path is the field inside it, for example
-	// "registry_checks[].company.registry_data"; "" for the whole part.
+	// "registry_checks[].company.registry_data"; for a parameter its name,
+	// then the field in it ("ids[]"); "" for the whole part.
 	path string
 	// kind says what changed: "can now be null", "type changed from string
 	// to object", "removed", ...
 	kind string
-	// breaking marks a change of the docs/DESIGN.md section 3.1 list: one
-	// that can break typed code.
+	// breaking marks a change the docs/DESIGN.md section 3.1 rules count:
+	// one that can break typed code.
 	breaking bool
+	// code is a counted change's kind as the shared vectors spell it:
+	// "removed", "type string -> object", "now required", "body now
+	// required", "operation removed"... (syncBreaking.normalized); "" when
+	// the change is not counted.
+	code string
 }
 
-// target is where the change is: "response `a.b`", "request body".
+// syncParameterLocations are the values of a parameter's in.
+var syncParameterLocations = map[string]bool{"path": true, "query": true, "header": true, "cookie": true}
+
+// syncOperationKinds are the codes of a change of the operation itself,
+// which the vectors write without where and field.
+var syncOperationKinds = map[string]bool{"operation removed": true, "body now required": true}
+
+// target is where the change is: "response `a.b`", "request body", "query
+// parameter `limit`".
 func (c syncChange) target() string {
 	switch {
+	case syncParameterLocations[c.where]:
+		return c.where + " parameter `" + c.path + "`"
 	case c.path == "":
 		return c.where
 	case c.where == "":
 		return "`" + c.path + "`"
 	}
 	return c.where + " `" + c.path + "`"
+}
+
+// listed returns the change as one that is listed, not counted.
+func (c syncChange) listed() syncChange {
+	c.breaking, c.code = false, ""
+	return c
 }
 
 // text renders the change for the summary.
@@ -327,6 +348,23 @@ func (b syncBreaking) text() string {
 		return fmt.Sprintf("`%s` %s: %s", b.operation, t, b.change.kind)
 	}
 	return fmt.Sprintf("`%s`: %s", b.operation, b.change.kind)
+}
+
+// normalized renders the entry as openapi/breaking-vectors.json spells it in
+// every SDK: "<METHOD> <path> <where> <field>: <kind>", without the field for
+// a whole body and without where and field for the operation itself
+// ("GET /x/: operation removed").
+func (b syncBreaking) normalized() string {
+	if syncOperationKinds[b.change.code] {
+		return b.operation + ": " + b.change.code
+	}
+	target := b.operation
+	for _, part := range []string{b.change.where, b.change.path} {
+		if part != "" {
+			target += " " + part
+		}
+	}
+	return target + ": " + b.change.code
 }
 
 // syncDedupBreaking drops repeated entries (a moved method and its new path
