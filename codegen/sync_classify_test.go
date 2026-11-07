@@ -248,9 +248,10 @@ func TestSyncReportsChangesInsideUnionsAndWrappers(t *testing.T) {
 			v.Arr = append(v.Arr, mustNode(t, `{"type": "string"}`))
 		},
 		want: []string{
-			op + "`database_validation.validations`: type changed from array/object to array/object/string",
-			op + "`database_validation.validations[].service_id`: type changed from string to integer",
+			op + "`database_validation.validations`: type changed from array or object to array or object or string",
+			op + "`database_validation.validations(oneOf 1)[].service_id`: type changed from string to integer",
 		},
+		other: []string{"response `database_validation.validations`: 1 oneOf variant(s) added"},
 	}, {
 		name: "a retained variant changes while a variant of the same type is added",
 		edit: func(t *testing.T, doc *Node) {
@@ -258,31 +259,31 @@ func TestSyncReportsChangesInsideUnionsAndWrappers(t *testing.T) {
 			v.Arr[0].Path("items", "properties", "service_id").Set("type", syncString("integer"))
 			v.Arr = append(v.Arr, mustNode(t, `{"type": "object", "properties": {"note": {"type": "string"}}}`))
 		},
-		want:  []string{op + "`database_validation.validations[].service_id`: type changed from string to integer"},
-		other: []string{"response `database_validation.validations`: variant `object` added"},
+		want:  []string{op + "`database_validation.validations(oneOf 1)[].service_id`: type changed from string to integer"},
+		other: []string{"response `database_validation.validations`: 1 oneOf variant(s) added"},
 	}, {
 		name: "a field of a variant can now be null",
 		edit: func(t *testing.T, doc *Node) {
 			validations(doc).Get("oneOf").Arr[0].Path("items", "properties", "service_id").Set("nullable", &Node{Kind: Bool, Bool: true})
 		},
-		want: []string{op + "`database_validation.validations[].service_id`: can now be null"},
+		want: []string{op + "`database_validation.validations(oneOf 1)[].service_id`: can now be null"},
 	}, {
 		name: "an enum value of a variant is removed",
 		edit: func(t *testing.T, doc *Node) {
 			validations(doc).Get("oneOf").Arr[1].Path("additionalProperties").Set("enum", mustNode(t, `["full_match", "no_match"]`))
 		},
-		want: []string{op + "`database_validation.validations{}`: enum value \"partial_match\" removed"},
+		want: []string{op + "`database_validation.validations(oneOf 2){}`: enum value \"partial_match\" removed"},
 	}, {
 		name: "a variant is removed",
 		edit: func(t *testing.T, doc *Node) {
 			v := validations(doc).Get("oneOf")
 			v.Arr = v.Arr[:1]
 		},
-		want: []string{op + "`database_validation.validations`: type changed from array/object to array"},
+		want: []string{op + "`database_validation.validations`: type changed from array or object to array"},
 	}, {
 		name:  "a variant of a type that is already there is added",
 		edit:  note,
-		other: []string{"response `database_validation.validations`: variant `object` added"},
+		other: []string{"response `database_validation.validations`: 1 oneOf variant(s) added"},
 	}, {
 		name:  "a variant of a type that stays is removed",
 		setup: note,
@@ -290,7 +291,7 @@ func TestSyncReportsChangesInsideUnionsAndWrappers(t *testing.T) {
 			v := validations(doc).Get("oneOf")
 			v.Arr = v.Arr[:2]
 		},
-		want: []string{op + "`database_validation.validations`: variant `object` removed"},
+		want: []string{op + "`database_validation.validations`: type changed: 1 oneOf variant(s) removed"},
 	}, {
 		name: "the items of an array behind an allOf change",
 		edit: func(t *testing.T, doc *Node) {
