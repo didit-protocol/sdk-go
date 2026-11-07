@@ -1423,10 +1423,19 @@ func (d *syncDiffer) diffStatuses(old, new map[string]syncMedia, removed, added 
 	add := func(kind, code string) {
 		found = append(found, syncChange{where: "response", kind: kind, breaking: code != "", code: code})
 	}
-	// returned reports whether another body of responses (of doc) is body.
-	returned := func(responses map[string]syncMedia, body syncMedia, bodyIsOld bool) bool {
-		for _, c := range responses {
-			if len(c) > 0 && ((bodyIsOld && d.sameContent(body, c)) || (!bodyIsOld && d.sameContent(c, body))) {
+	// returnedBefore reports whether a status of old returns body (of d.new),
+	// returnedAfter whether a status of new returns body (of d.old).
+	returnedBefore := func(body syncMedia) bool {
+		for _, c := range old {
+			if len(c) > 0 && d.sameContent(c, body) {
+				return true
+			}
+		}
+		return false
+	}
+	returnedAfter := func(body syncMedia) bool {
+		for _, c := range new {
+			if len(c) > 0 && d.sameContent(body, c) {
 				return true
 			}
 		}
@@ -1451,7 +1460,7 @@ func (d *syncDiffer) diffStatuses(old, new map[string]syncMedia, removed, added 
 			add(fmt.Sprintf("can now be null (status %s %s)", status, label), "can now be null")
 		case kept:
 			// A body that appeared or disappeared: said with the old side below.
-		case len(body) > 0 && !returned(old, body, false):
+		case len(body) > 0 && !returnedBefore(body):
 			add(fmt.Sprintf("status %s added with another body", status), "")
 		default:
 			add(fmt.Sprintf("status %s added", status), "")
@@ -1468,7 +1477,7 @@ func (d *syncDiffer) diffStatuses(old, new map[string]syncMedia, removed, added 
 		switch {
 		case len(body) == 0 && syncAnyBody(new) && !returnsNull(new):
 			add(fmt.Sprintf("can no longer be null (status %s %s)", status, change), "")
-		case len(body) > 0 && !returned(new, body, true):
+		case len(body) > 0 && !returnedAfter(body):
 			add(fmt.Sprintf("type changed: status %s %s, and no other status returns its body", status, change),
 				"type "+d.bodyTypes(d.old, old)+" -> "+d.bodyTypes(d.new, new))
 		default:
