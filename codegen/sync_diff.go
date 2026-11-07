@@ -1768,6 +1768,16 @@ func syncSameObservableJSON(a, b *Node, names bool) bool {
 				if !syncSameItems(va, vb) {
 					return false
 				}
+			case !names && (k == "oneOf" || k == "anyOf") && va.Kind == Array && vb.Kind == Array:
+				// A union variant's title names its type.
+				if len(va.Arr) != len(vb.Arr) {
+					return false
+				}
+				for i := range va.Arr {
+					if syncVariantName(va.Arr[i]) != syncVariantName(vb.Arr[i]) || !syncSameObservableJSON(va.Arr[i], vb.Arr[i], false) {
+						return false
+					}
+				}
 			case !syncSameObservableJSON(va, vb, !names && syncDocumentNameMaps[k]):
 				return false
 			}
