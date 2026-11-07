@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/didit-protocol/sdk-go/internal/naming"
 )
 
 // Comparison of operations and schemas for the spec sync summary.
@@ -222,6 +224,10 @@ func (d *syncDiffer) compareSchemas(a, b *Node, depth int) bool {
 				return false
 			}
 			for i := range va.Arr {
+				// A union variant's title names its type.
+				if (k == "oneOf" || k == "anyOf") && syncVariantName(va.Arr[i]) != syncVariantName(vb.Arr[i]) {
+					return false
+				}
 				if !d.sameShape(va.Arr[i], vb.Arr[i], depth+1) {
 					return false
 				}
@@ -260,6 +266,20 @@ func syncSameItems(a, b *Node) bool {
 		}
 	}
 	return true
+}
+
+// syncVariantName is the type name an inline oneOf/anyOf variant's title
+// gives it in the SDKs that generate a type per variant, so a renamed title
+// is listed (docs/DESIGN.md section 3.1); "" without a title, or for a $ref,
+// which is named after its component.
+func syncVariantName(v *Node) string {
+	if !syncIsObject(v) || v.Has("$ref") || strings.TrimSpace(v.Get("title").Text()) == "" {
+		return ""
+	}
+	if name := naming.Pascal(v.Get("title").Text()); name != "" {
+		return name
+	}
+	return "Value"
 }
 
 // syncShapeKeys returns the keys of a schema that are not documentation.
@@ -570,8 +590,9 @@ func syncHasString(arr *Node, s string) bool {
 // (its own properties win, then each part's in order; required names are
 // joined; any other keyword comes from the first that has it), and a
 // oneOf/anyOf with a single variant other than null replaced by that
-// variant with the schema's own keywords on top, so that anyOf [X, null]
-// reads as a nullable X rather than as X's fields removed.
+// variant with the schema's own keywords on top (its required names added to
+// the variant's), so that anyOf [X, null] reads as a nullable X rather than
+// as X's fields removed.
 //
 // It records in d.refs the results that come from a component, which Python
 // marks with x-didit-ref: a component's title is not a union variant's own.
@@ -627,13 +648,12 @@ func (d *syncDiffer) single(doc *Doc, s *Node, depth int) *Node {
 	if len(variants) != 1 {
 		return s
 	}
-	v := syncDeref(doc, variants[0])
-	if !syncIsObject(v) {
+	if !syncIsObject(syncDeref(doc, variants[0])) {
 		return s
 	}
-	out := syncCopyObject(v)
+	out := syncCopyObject(syncDeref(doc, d.withRequired(doc, variants[0], s)))
 	for _, k := range s.Keys {
-		if k != "oneOf" && k != "anyOf" {
+		if k != "oneOf" && k != "anyOf" && k != "required" {
 			out.Set(k, s.Get(k))
 		}
 	}
@@ -641,6 +661,31 @@ func (d *syncDiffer) single(doc *Doc, s *Node, depth int) *Node {
 		d.refs[out] = true
 	}
 	return d.single(doc, out, depth+1)
+}
+
+// withRequired returns a variant of union with the fields the union itself
+// lists in required added to its own: JSON Schema applies them to every
+// variant, so dropping one from the union drops it from each variant.
+func (d *syncDiffer) withRequired(doc *Doc, variant, union *Node) *Node {
+	inherited := syncDeref(doc, union).Get("required").Strings()
+	v := syncDeref(doc, variant)
+	if len(inherited) == 0 || !syncIsObject(v) {
+		return variant
+	}
+	names := map[string]bool{}
+	for _, name := range append(v.Get("required").Strings(), inherited...) {
+		names[name] = true
+	}
+	var list []*Node
+	for _, name := range syncSortedSet(names) {
+		list = append(list, syncString(name))
+	}
+	out := syncCopyObject(v)
+	out.Set("required", syncArray(list))
+	if d.refs[variant] || variant.Has("$ref") || d.refs[v] {
+		d.refs[out] = true
+	}
+	return out
 }
 
 // syncAllObjects reports whether every schema of list is an object.
