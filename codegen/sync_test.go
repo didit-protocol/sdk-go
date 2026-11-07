@@ -619,7 +619,8 @@ func TestSyncMovedOperationIsNotDeprecated(t *testing.T) {
 
 	expectContains(t, res.summary,
 		"- `GET /v3/billing/balance/` moved to `GET /v3/billing/balance-v2/`; `billing.retrieve_balance` keeps its name",
-		"- `billing.retrieve_balance` moved from `GET /v3/billing/balance/` to `GET /v3/billing/balance-v2/`: same parameters, body and response")
+		// Upstream now names it (the overlay did before): listed, not counted.
+		"- `billing.retrieve_balance` moved from `GET /v3/billing/balance/` to `GET /v3/billing/balance-v2/`: x-didit-sdk: now {\"auth\": \"api_key\", \"method\": \"retrieve_balance\", \"resource\": \"billing\", \"server\": true}")
 	expectBreaking(t, res)
 	if res.typ != "feat" {
 		t.Errorf("type = %q, want feat", res.typ)
@@ -647,10 +648,10 @@ func TestSyncMovedOperationReportsWhatChanged(t *testing.T) {
 	res := f.syncDoc("verification.json", doc)
 	// The changes of a moved method count under its new path.
 	expectBreaking(t, res,
-		"`GET /v4/billing/balance/` parameter `dry_run` (query): added, required",
+		"`GET /v4/billing/balance/` parameter `dry_run` (query): added (required)",
 		"`GET /v4/billing/balance/` response: type changed from object to array")
 	expectContains(t, section(res.summary, "Moved or reassigned methods (1)"),
-		"- `billing.retrieve_balance` **(breaking)** moved from `GET /v3/billing/balance/` to `GET /v4/billing/balance/`: parameter `dry_run` (query): added, required (breaking); response: type changed from object to array (breaking)")
+		"- `billing.retrieve_balance` **(breaking)** moved from `GET /v3/billing/balance/` to `GET /v4/billing/balance/`: parameter `dry_run` (query): added (required) (breaking); response: type changed from object to array (breaking)")
 }
 
 func TestSyncSwappedNamesAreListedForReview(t *testing.T) {
@@ -678,7 +679,7 @@ func TestSyncOperationThatStopsBeingServerIsRemoved(t *testing.T) {
 	doc := f.node("verification.json")
 	doc.Path("paths", "/v3/billing/balance/", "get").Set("x-didit-sdk", mustNode(t, `{"resource": "billing", "method": "retrieve_balance", "auth": "device_token", "server": false}`))
 	res := f.syncDoc("verification.json", doc)
-	expectBreaking(t, res, "`GET /v3/billing/balance/`: operation removed from the server SDKs (it now needs device_token); `billing.retrieve_balance` is removed")
+	expectBreaking(t, res, "`GET /v3/billing/balance/`: operation removed from server SDKs: it now needs device_token, and `billing.retrieve_balance` is removed")
 	// Never kept: server SDKs do not expose device-token operations (DESIGN 4).
 	if got := f.deprecated().ObjKeys(); len(got) != 0 {
 		t.Errorf("deprecated methods = %v", got)
@@ -795,12 +796,12 @@ func TestSyncReportsChangedOperationsAndSchemas(t *testing.T) {
 	// typed code on both sides (DESIGN 3.1).
 	expectBreaking(t, res,
 		"`GET /v3/session/{session_id}/decision/` response `status`: enum value \"Declined\" removed",
-		"`POST /v3/session/` parameter `dry_run` (query): added, required",
+		"`POST /v3/session/` parameter `dry_run` (query): added (required)",
 		"`POST /v3/session/` request body `workflow_id`: type changed from string to integer",
 		"`POST /v3/session/` response `status`: enum value \"Declined\" removed")
 	changed := section(summary, "Changed operations (3)")
 	expectContains(t, changed,
-		"- `POST /v3/session/` **(breaking)**: parameter `dry_run` (query): added, required (breaking); request body `workflow_id`: type changed from string to integer (breaking); response `status`: enum value \"Declined\" removed (breaking)",
+		"- `POST /v3/session/` **(breaking)**: parameter `dry_run` (query): added (required) (breaking); request body `workflow_id`: type changed from string to integer (breaking); response `status`: enum value \"Declined\" removed (breaking)",
 		"- `GET /v3/session/{session_id}/decision/` **(breaking)**: response `status`: enum value \"Declined\" removed (breaking)",
 		"- `POST /v3/billing/top-up/`: descriptions, examples or other details changed")
 	expectContains(t, section(summary, "Schemas"),
@@ -1009,7 +1010,7 @@ func TestDiffSchemaRules(t *testing.T) {
 	// A removed enum value breaks typed code on both sides (DESIGN 3.1).
 	expect(diff(status, `{"type": "string", "enum": ["a"]}`, true), syncChange{path: "x", kind: `enum value "b" removed`, breaking: true})
 	expect(diff(status, `{"type": "string", "enum": ["a"]}`, false), syncChange{path: "x", kind: `enum value "b" removed`, breaking: true})
-	expect(diff(status, `{"type": "string", "enum": ["a", "b", "ü"]}`, false), syncChange{path: "x", kind: `enum value "\u00fc" added`})
+	expect(diff(status, `{"type": "string", "enum": ["a", "b", "ü"]}`, false), syncChange{path: "x", kind: `enum values added ["ü"]`})
 	expect(diff(`{"type": "string"}`, status, true), syncChange{path: "x", kind: `now limited to ["a", "b"]`})
 	expect(diff(status, `{"type": "string"}`, false), syncChange{path: "x", kind: "no longer limited to fixed values"})
 	obj := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}`
@@ -1032,12 +1033,12 @@ func TestDiffSchemaRules(t *testing.T) {
 	expect(diff(`{"type": "array", "items": `+obj+`}`, `{"type": "array", "items": {"type": "object", "properties": {}}}`, false),
 		syncChange{path: "x[].a", kind: "removed", breaking: true})
 	expect(diff(`{"type": "object", "properties": {}}`, `{"type": "object", "properties": {"b": {"type": "string"}}, "required": ["b"]}`, true),
-		syncChange{path: "x.b", kind: "added, required", breaking: true})
+		syncChange{path: "x.b", kind: "added (required)", breaking: true})
 	expect(diff(`{"type": "object", "properties": {}}`, `{"type": "object", "properties": {"b": {"type": "string"}}, "required": ["b"]}`, false),
 		syncChange{path: "x.b", kind: "added"})
 	expect(diff(`{"type": "object", "additionalProperties": {"type": "string"}}`, `{"type": "object", "additionalProperties": {"type": "integer"}}`, false),
 		syncChange{path: "x{}", kind: "type changed from string to integer", breaking: true})
-	expect(diff(`{"type": "integer", "maximum": 5}`, `{"type": "integer", "maximum": 10}`, true), syncChange{path: "x", kind: "other schema details changed"})
+	expect(diff(`{"type": "integer", "maximum": 5}`, `{"type": "integer", "maximum": 10}`, true), syncChange{path: "x", kind: "other constraints changed (format, pattern, limits or default)"})
 	documented := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"], "description": "now documented", "example": {"a": "z"}, "x-internal": 1}`
 	expect(diff(obj, documented, false))
 	// A property called like a documentation keyword still counts.
