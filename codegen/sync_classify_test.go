@@ -388,6 +388,12 @@ func TestSyncClassifiesWhatCallersCanObserve(t *testing.T) {
 		{"a schema no operation uses", func(t *testing.T, doc *Node) {
 			doc.Path("components", "schemas").Set("Unused", mustNode(t, `{"type": "object"}`))
 		}, "feat", "- verification.json added: `Unused`"},
+		{"tags", func(t *testing.T, doc *Node) {
+			doc.Path("paths", "/v3/session/", "post").Set("tags", mustNode(t, `["Sessions"]`))
+		}, "chore", "- `POST /v3/session/`: " + syncUnchangedNote},
+		{"an operationId", func(t *testing.T, doc *Node) {
+			doc.Path("paths", "/v3/session/", "post").Set("operationId", syncString("create_session_v2"))
+		}, "feat", "- `POST /v3/session/`: " + syncOtherNote},
 		{"an error response of a server operation", func(t *testing.T, doc *Node) {
 			doc.Path("components", "schemas", "Problem", "properties").Set("code", mustNode(t, `{"type": "string"}`))
 		}, "feat", "- `GET /v3/billing/balance/`: " + syncOtherNote},

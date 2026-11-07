@@ -1405,9 +1405,9 @@ var syncNameMaps = map[string]bool{
 
 // sameOperation reports whether two operations send and receive the same
 // thing: equal once references are followed and documentation (summaries,
-// descriptions, examples, tags, operationId, x-* keys) is ignored. Unlike
-// describeChange it covers the whole operation, error responses and
-// security included.
+// descriptions, examples, tags, x-* keys) is ignored. Unlike describeChange
+// it covers the whole operation, error responses, security and operationId
+// included, as syncSameDocument does.
 func (d *syncDiffer) sameOperation(old, new *Node) bool {
 	return d.sameObservable(old, new, false, 0)
 }
@@ -1435,7 +1435,7 @@ func (d *syncDiffer) sameObservable(a, b *Node, names bool, depth int) bool {
 		keys := func(n *Node) []string {
 			var out []string
 			for _, k := range n.Keys {
-				if names || (!syncDocKeys[k] && !strings.HasPrefix(k, "x-") && k != "tags" && k != "operationId") {
+				if names || (!syncDocKeys[k] && !strings.HasPrefix(k, "x-")) {
 					out = append(out, k)
 				}
 			}
