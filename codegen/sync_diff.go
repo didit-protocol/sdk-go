@@ -360,82 +360,63 @@ func syncHasBreaking(changes []syncChange) bool {
 	return false
 }
 
-// ---- schemas as the generators type them -------------------------------------
 
-// syncNormalize returns a schema the way the generators type it: $refs
-// followed, a single-part allOf without properties of its own and a
-// oneOf/anyOf with a single non-null variant unwrapped (an allOf wraps a
-// reference to add a description or nullable; [X, null] is a nullable X).
-// null reports whether null is allowed anywhere on the way, or by a variant
-// of the union it ends on.
-func syncNormalize(doc *Doc, s *Node) (*Node, bool) {
-	return syncNormalizeDepth(doc, s, 0)
-}
+// ---- schemas as every SDK reads them -----------------------------------------
+//
+// From here on this is a port of the comparison of sdk-python's and
+// sdk-java's codegen/spec_sync.py (_nullable, _single, _kinds, diff_schema,
+// _pair_variants, _diff_content, _diff_statuses, describe_change), with the
+// same rules and the same words, so that the seven SDKs list the same
+// breaking changes for one upstream change. Python inlines every $ref
+// first; here a reference is followed when it is read, with the document of
+// its side.
 
-func syncNormalizeDepth(doc *Doc, s *Node, depth int) (*Node, bool) {
-	null := false
-	s = syncOrEmpty(s)
-	for i := 0; i < 32; i++ {
-		s = syncDeref(doc, s)
-		if !syncIsObject(s) {
-			break
-		}
-		if syncAllowsNull(doc, s) {
-			null = true
-		}
-		if all := s.Get("allOf"); all != nil && len(all.Arr) == 1 && !s.Has("properties") {
-			s = all.Arr[0]
-			continue
-		}
-		v := syncUnion(doc, s)
-		if len(v) == 1 {
-			s = v[0]
-			continue
-		}
-		for _, variant := range v {
-			if depth < 8 {
-				if _, n := syncNormalizeDepth(doc, variant, depth+1); n {
-					null = true
-				}
-			}
-		}
-		break
-	}
-	return s, null
-}
+// syncTypedFormats are the string formats the shared list types apart:
+// adding, removing or changing one is a type change ("string (date-time)").
+// Go types date-time as time.Time and binary as a file; date stays a string
+// in Go but has its own type in other languages, and every SDK reports the
+// same list.
+var syncTypedFormats = map[string]bool{"date-time": true, "date": true, "binary": true}
 
-// syncAllowsNull reports whether a schema itself allows null: nullable, a
-// "null" type, a null enum value or a null oneOf/anyOf variant.
-func syncAllowsNull(doc *Doc, s *Node) bool {
-	if s.Get("nullable").Truthy() {
-		return true
+// syncMaxDepth bounds how deep a comparison follows schemas.
+const syncMaxDepth = 32
+
+// syncNoSchema stands for a request body or response without content (no
+// media type at all): compared with the other side field by field, never as
+// a type change. It is compared by identity and never modified.
+var syncNoSchema = syncObject()
+
+// syncOrObject is Python's `value or {}`: a missing or falsy value (null,
+// false, 0, "", [] or {}) becomes an empty object.
+func syncOrObject(n *Node) *Node {
+	if n == nil {
+		return syncObject()
 	}
-	switch t := s.Get("type"); {
-	case t == nil:
-	case t.Kind == String:
-		if t.Str == "null" {
-			return true
+	switch n.Kind {
+	case Null:
+		return syncObject()
+	case Bool:
+		if !n.Bool {
+			return syncObject()
 		}
-	case t.Kind == Array:
-		for _, v := range t.Strings() {
-			if v == "null" {
-				return true
-			}
+	case Number:
+		if syncNumberEqual(n.Str, "0") {
+			return syncObject()
+		}
+	case String:
+		if n.Str == "" {
+			return syncObject()
+		}
+	case Array:
+		if len(n.Arr) == 0 {
+			return syncObject()
+		}
+	case Object:
+		if len(n.Keys) == 0 {
+			return syncObject()
 		}
 	}
-	for _, v := range s.Get("enum").Elems() {
-		if v.Kind == Null {
-			return true
-		}
-	}
-	for _, kw := range []string{"oneOf", "anyOf"} {
-		for _, v := range s.Get(kw).Elems() {
-			if syncNullOnly(doc, v) {
-				return true
-			}
-		}
-	}
-	return false
+	return n
 }
 
 // syncNullOnly reports whether a schema allows null and nothing else.
@@ -444,101 +425,237 @@ func syncNullOnly(doc *Doc, s *Node) bool {
 	if !syncIsObject(r) {
 		return false
 	}
-	if r.Get("type").Text() == "null" {
+	if t := r.Get("type"); t != nil && t.Kind == String && t.Str == "null" {
 		return true
 	}
 	e := r.Get("enum")
-	return e != nil && len(e.Arr) == 1 && e.Arr[0].Kind == Null
+	return e != nil && e.Kind == Array && len(e.Arr) == 1 && e.Arr[0].Kind == Null
 }
 
-// syncUnion returns the non-null variants of a schema's oneOf (or else
-// anyOf), or nil when it is not a union. Like the generators, an allOf with
-// parts takes precedence.
-func syncUnion(doc *Doc, s *Node) []*Node {
-	if all := s.Get("allOf"); all != nil && len(all.Arr) > 0 {
-		return nil
+// syncVariants returns the oneOf and anyOf variants of a schema other than
+// null (of keyword only, when given).
+func syncVariants(doc *Doc, s *Node, keywords ...string) []*Node {
+	if len(keywords) == 0 {
+		keywords = []string{"oneOf", "anyOf"}
 	}
-	for _, kw := range []string{"oneOf", "anyOf"} {
-		parts := s.Get(kw)
-		if parts == nil || len(parts.Arr) == 0 {
-			continue
-		}
-		out := []*Node{}
-		for _, v := range parts.Arr {
+	s = syncDeref(doc, s)
+	var out []*Node
+	for _, kw := range keywords {
+		for _, v := range s.Get(kw).Elems() {
 			if !syncNullOnly(doc, v) {
 				out = append(out, v)
 			}
 		}
-		return out
-	}
-	return nil
-}
-
-// syncKinds returns the JSON types a normalized schema allows besides null,
-// empty when it allows any value. A string format the SDKs type apart is
-// part of the type: "string (date-time)", "string (binary)".
-func syncKinds(doc *Doc, s *Node, depth int) map[string]bool {
-	out := map[string]bool{}
-	if !syncIsObject(s) || depth > 16 {
-		return out
-	}
-	switch t := s.Get("type"); {
-	case t == nil:
-	case t.Kind == String:
-		if t.Str != "null" {
-			out[t.Str] = true
-		}
-	case t.Kind == Array:
-		for _, v := range t.Strings() {
-			if v != "null" {
-				out[v] = true
-			}
-		}
-	}
-	if len(out) == 0 {
-		all := s.Get("allOf")
-		switch {
-		case s.Has("properties") || s.Has("additionalProperties") || s.Has("patternProperties"):
-			out["object"] = true
-		case s.Has("items"):
-			out["array"] = true
-		case s.Has("enum") || s.Has("const"):
-			values := s.Get("enum").Elems()
-			if c := s.Get("const"); c != nil {
-				values = append(values, c)
-			}
-			for _, v := range values {
-				if k := syncValueKind(v); k != "" {
-					out[k] = true
-				}
-			}
-		case all != nil && len(all.Arr) > 0:
-			for _, p := range all.Arr {
-				n, _ := syncNormalize(doc, p)
-				for k := range syncKinds(doc, n, depth+1) {
-					out[k] = true
-				}
-			}
-		default:
-			for _, v := range syncUnion(doc, s) {
-				n, _ := syncNormalize(doc, v)
-				kinds := syncKinds(doc, n, depth+1)
-				if len(kinds) == 0 {
-					return map[string]bool{} // a variant that allows any value
-				}
-				for k := range kinds {
-					out[k] = true
-				}
-			}
-		}
-	}
-	if len(out) == 1 && out["string"] {
-		switch f := s.Get("format").Text(); f {
-		case "date-time", "binary":
-			return map[string]bool{"string (" + f + ")": true}
-		}
 	}
 	return out
+}
+
+// syncUnionKeyword returns the first of oneOf and anyOf that has a variant
+// other than null, or "".
+func syncUnionKeyword(doc *Doc, s *Node) string {
+	for _, kw := range []string{"oneOf", "anyOf"} {
+		if len(syncVariants(doc, s, kw)) > 0 {
+			return kw
+		}
+	}
+	return ""
+}
+
+// syncNullable reports whether a schema accepts null: a null type, nullable,
+// null in its enum, an allOf without a type of its own whose parts all
+// accept it, or a oneOf/anyOf variant that accepts it.
+func syncNullable(doc *Doc, s *Node, depth int) bool {
+	s = syncDeref(doc, s)
+	if !syncIsObject(s) || depth > syncMaxDepth {
+		return false
+	}
+	if t := s.Get("type"); t != nil && ((t.Kind == String && t.Str == "null") || (t.Kind == Array && syncHasString(t, "null"))) {
+		return true
+	}
+	if s.Get("nullable").Truthy() {
+		return true
+	}
+	if e := s.Get("enum"); e != nil && e.Kind == Array {
+		for _, v := range e.Arr {
+			if v.Kind == Null {
+				return true
+			}
+		}
+	}
+	if all := s.Get("allOf"); !s.Has("type") && all != nil && len(all.Arr) > 0 {
+		every := true
+		for _, m := range all.Arr {
+			every = every && syncNullable(doc, m, depth+1)
+		}
+		if every {
+			return true
+		}
+	}
+	for _, kw := range []string{"oneOf", "anyOf"} {
+		for _, v := range s.Get(kw).Elems() {
+			if syncNullable(doc, v, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// syncHasString reports whether an array holds the string s.
+func syncHasString(arr *Node, s string) bool {
+	for _, v := range arr.Strings() {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// single reads a schema as one type: the parts of an allOf merged into it
+// (its own properties win, then each part's in order; required names are
+// joined; any other keyword comes from the first that has it), and a
+// oneOf/anyOf with a single variant other than null replaced by that
+// variant with the schema's own keywords on top, so that anyOf [X, null]
+// reads as a nullable X rather than as X's fields removed.
+//
+// It records in d.refs the results that come from a component, which Python
+// marks with x-didit-ref: a component's title is not a union variant's own.
+func (d *syncDiffer) single(doc *Doc, s *Node, depth int) *Node {
+	ref := d.refs[s] || (syncIsObject(s) && s.Has("$ref"))
+	s = syncDeref(doc, s)
+	if !syncIsObject(s) || depth > syncMaxDepth {
+		return s
+	}
+	if all := s.Get("allOf"); all != nil && all.Kind == Array && syncAllObjects(doc, all.Arr) {
+		merged := syncObject()
+		for _, k := range s.Keys {
+			if k != "allOf" {
+				merged.Set(k, s.Get(k))
+			}
+		}
+		for _, m := range all.Arr {
+			part := d.single(doc, m, depth+1)
+			ref = ref || d.refs[part]
+			for _, k := range part.Keys {
+				v := part.Get(k)
+				switch {
+				case k == "properties" && syncIsObject(v):
+					props := syncCopyObject(v)
+					own := merged.Get("properties")
+					if syncIsObject(own) {
+						for _, name := range own.Keys {
+							props.Set(name, own.Get(name))
+						}
+					}
+					merged.Set("properties", props)
+				case k == "required" && v.Kind == Array:
+					names := map[string]bool{}
+					for _, r := range append(merged.Get("required").Strings(), v.Strings()...) {
+						names[r] = true
+					}
+					var list []*Node
+					for _, r := range syncSortedSet(names) {
+						list = append(list, syncString(r))
+					}
+					merged.Set("required", syncArray(list))
+				case !merged.Has(k):
+					merged.Set(k, v)
+				}
+			}
+		}
+		s = merged
+	}
+	if ref {
+		d.refs[s] = true
+	}
+	variants := syncVariants(doc, s)
+	if len(variants) != 1 {
+		return s
+	}
+	v := syncDeref(doc, variants[0])
+	if !syncIsObject(v) {
+		return s
+	}
+	out := syncCopyObject(v)
+	for _, k := range s.Keys {
+		if k != "oneOf" && k != "anyOf" {
+			out.Set(k, s.Get(k))
+		}
+	}
+	if ref || variants[0].Has("$ref") || d.refs[variants[0]] {
+		d.refs[out] = true
+	}
+	return d.single(doc, out, depth+1)
+}
+
+// syncAllObjects reports whether every schema of list is an object.
+func syncAllObjects(doc *Doc, list []*Node) bool {
+	for _, m := range list {
+		if !syncIsObject(syncDeref(doc, m)) {
+			return false
+		}
+	}
+	return true
+}
+
+// syncKinds returns the JSON types a schema allows besides null, inferred
+// when it has no type (a union allows its variants' types); empty when it
+// does not say.
+func syncKinds(doc *Doc, s *Node, depth int) map[string]bool {
+	s = syncDeref(doc, s)
+	kinds := map[string]bool{}
+	if !syncIsObject(s) || depth > syncMaxDepth {
+		return kinds
+	}
+	if t := s.Get("type"); t != nil && t.Kind == String {
+		kinds[t.Str] = true
+	} else if t != nil && t.Kind == Array {
+		for _, v := range t.Strings() {
+			kinds[v] = true
+		}
+	}
+	delete(kinds, "null")
+	if len(kinds) > 0 {
+		return kinds
+	}
+	if s.Has("properties") || s.Has("additionalProperties") || s.Has("patternProperties") {
+		return map[string]bool{"object": true}
+	}
+	if s.Has("items") {
+		return map[string]bool{"array": true}
+	}
+	if variants := syncVariants(doc, s); len(variants) > 0 {
+		for _, v := range variants {
+			found := syncKinds(doc, v, depth+1)
+			if len(found) == 0 {
+				return map[string]bool{}
+			}
+			for k := range found {
+				kinds[k] = true
+			}
+		}
+		return kinds
+	}
+	for _, m := range s.Get("allOf").Elems() {
+		for k := range syncKinds(doc, m, depth+1) {
+			kinds[k] = true
+		}
+	}
+	if len(kinds) == 0 {
+		var values []*Node
+		if e := s.Get("enum"); e != nil && e.Kind == Array {
+			values = e.Arr
+		}
+		if c := s.Get("const"); c != nil {
+			values = []*Node{c}
+		}
+		for _, v := range values {
+			if v.Kind != Null {
+				kinds[syncValueKind(v)] = true
+			}
+		}
+	}
+	return kinds
 }
 
 // syncValueKind returns the JSON type of an enum or const value.
@@ -553,53 +670,32 @@ func syncValueKind(v *Node) string {
 			return "number"
 		}
 		return "integer"
-	case Object:
-		return "object"
 	case Array:
 		return "array"
 	}
-	return ""
+	return "object"
 }
 
-// syncKindLabel renders a set of kinds: "string", "integer/string", "any".
-func syncKindLabel(kinds map[string]bool) string {
+// syncTypeNames names kinds as the summary does: a string with a typed format
+// is its own type, and a schema that does not say allows any value.
+func syncTypeNames(s *Node, kinds map[string]bool) string {
 	if len(kinds) == 0 {
 		return "any"
 	}
-	return syncJoinSorted(kinds)
-}
-
-// syncSubset reports whether every kind of a is in b.
-func syncSubset(a, b map[string]bool) bool {
-	for k := range a {
-		if !b[k] {
-			return false
+	format := s.Get("format").Text()
+	names := syncSortedSet(kinds)
+	for i, k := range names {
+		if k == "string" && syncTypedFormats[format] {
+			names[i] = "string (" + format + ")"
 		}
 	}
-	return true
+	return strings.Join(names, " or ")
 }
 
-// syncMember returns keyword of a normalized schema, or else of the first of
-// its allOf parts that has it.
-func syncMember(doc *Doc, s *Node, keyword string) *Node {
-	if v := s.Get(keyword); v != nil {
-		return v
-	}
-	for _, p := range s.Get("allOf").Elems() {
-		n, _ := syncNormalize(doc, p)
-		if syncIsObject(n) {
-			if v := n.Get(keyword); v != nil {
-				return v
-			}
-		}
-	}
-	return nil
-}
-
-// syncEnum returns the enum values of a normalized schema without null, or
-// nil when it has no enum.
-func syncEnum(doc *Doc, s *Node) []*Node {
-	e := syncMember(doc, s, "enum")
+// syncEnum returns the enum values of a schema other than null, or nil when
+// it has no enum.
+func syncEnum(s *Node) []*Node {
+	e := s.Get("enum")
 	if e == nil || e.Kind != Array {
 		return nil
 	}
@@ -612,25 +708,8 @@ func syncEnum(doc *Doc, s *Node) []*Node {
 	return out
 }
 
-// syncRefName returns the component a schema references (directly or
-// through a single-part allOf), or "".
-func syncRefName(s *Node) string {
-	for i := 0; syncIsObject(s) && i < 8; i++ {
-		if ref := s.Get("$ref"); ref != nil && ref.Kind == String {
-			return ref.Str[strings.LastIndex(ref.Str, "/")+1:]
-		}
-		all := s.Get("allOf")
-		if all == nil || len(all.Arr) != 1 {
-			break
-		}
-		s = all.Arr[0]
-	}
-	return ""
-}
-
-// syncObjectProps returns the properties and required names of an object
-// schema, following allOf (in the Python reference's order, so the same
-// definition wins when parts repeat a property).
+// syncObjectProps returns the properties and required names of a schema,
+// following allOf.
 func syncObjectProps(doc *Doc, s *Node) (map[string]*Node, map[string]bool) {
 	props := map[string]*Node{}
 	required := map[string]bool{}
@@ -641,9 +720,10 @@ func syncObjectProps(doc *Doc, s *Node) (map[string]*Node, map[string]bool) {
 		if !syncIsObject(cur) {
 			continue
 		}
-		ps := cur.Get("properties")
-		for _, k := range ps.ObjKeys() {
-			props[k] = ps.Get(k)
+		if ps := cur.Get("properties"); syncIsObject(ps) {
+			for _, k := range ps.Keys {
+				props[k] = ps.Get(k)
+			}
 		}
 		for _, r := range cur.Get("required").Strings() {
 			required[r] = true
@@ -651,6 +731,19 @@ func syncObjectProps(doc *Doc, s *Node) (map[string]*Node, map[string]bool) {
 		stack = append(stack, cur.Get("allOf").Elems()...)
 	}
 	return props, required
+}
+
+// fieldNames returns the property names of a schema read as one type.
+func (d *syncDiffer) fieldNames(doc *Doc, s *Node) map[string]bool {
+	out := map[string]bool{}
+	if !syncIsObject(syncDeref(doc, s)) {
+		return out
+	}
+	props, _ := syncObjectProps(doc, d.single(doc, s, 0))
+	for k := range props {
+		out[k] = true
+	}
+	return out
 }
 
 // syncJoin appends a property name to a field path.
@@ -661,12 +754,16 @@ func syncJoin(path, name string) string {
 	return path + "." + name
 }
 
-func syncJoinSorted(set map[string]bool) string {
-	return strings.Join(syncSortedSet(set), "/")
-}
-
 func syncSameSet(a, b map[string]bool) bool {
-	return len(a) == len(b) && syncSubset(a, b)
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
 }
 
 func syncSortedSet(set map[string]bool) []string {
@@ -676,6 +773,17 @@ func syncSortedSet(set map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// syncCommon counts the names a and b share.
+func syncCommon(a, b map[string]bool) int {
+	n := 0
+	for k := range a {
+		if b[k] {
+			n++
+		}
+	}
+	return n
 }
 
 // syncContains reports whether list has an item equal to v.
@@ -688,204 +796,6 @@ func syncContains(list []*Node, v *Node) bool {
 	return false
 }
 
-// ---- schema comparison ------------------------------------------------------
-
-// diffSchema appends the differences between two schemas to out. where and
-// path locate the schema in its operation; request tells which side it is
-// on (a field that becomes required matters to callers that send it, one
-// that is no longer always present to callers that read it).
-func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool, out *[]syncChange, depth int) {
-	if depth > 16 {
-		return
-	}
-	o, oNull := syncNormalize(d.old, old)
-	n, nNull := syncNormalize(d.new, new)
-	d.diffNormalized(o, n, oNull, nNull, where, path, request, out, depth)
-}
-
-// diffNormalized compares two normalized schemas (syncNormalize) and whether
-// each allows null.
-func (d *syncDiffer) diffNormalized(o, n *Node, oNull, nNull bool, where, path string, request bool, out *[]syncChange, depth int) {
-	if oNull == nNull && d.sameShape(o, n, 0) {
-		return
-	}
-	add := func(at, kind string, breaking bool) {
-		*out = append(*out, syncChange{where: where, path: at, kind: kind, breaking: breaking})
-	}
-	// A difference none of the checks below names (a limit, a pattern, a
-	// format the SDKs type alike) is still listed.
-	before := len(*out)
-	defer func() {
-		if len(*out) == before {
-			add(path, "other schema details changed", false)
-		}
-	}()
-	switch {
-	case nNull && !oNull:
-		add(path, "can now be null", true)
-	case oNull && !nNull && request:
-		add(path, "no longer accepts null", false)
-	case oNull && !nNull:
-		add(path, "can no longer be null", false)
-	}
-	if !syncIsObject(o) || !syncIsObject(n) {
-		if !syncEqual(o, n) {
-			add(path, "schema replaced", true)
-		}
-		return
-	}
-
-	oKinds, nKinds := syncKinds(d.old, o, 0), syncKinds(d.new, n, 0)
-	typeChanged := syncKindLabel(oKinds) != syncKindLabel(nKinds)
-	if typeChanged {
-		add(path, fmt.Sprintf("type changed from %s to %s", syncKindLabel(oKinds), syncKindLabel(nKinds)), true)
-	}
-	oVars, nVars := syncUnion(d.old, o), syncUnion(d.new, n)
-	if len(oVars) > 1 || len(nVars) > 1 {
-		// A union on either side: compare variant by variant, a plain schema
-		// being the only variant of its side. Null was compared above.
-		if len(oVars) <= 1 {
-			oVars = []*Node{o}
-		}
-		if len(nVars) <= 1 {
-			nVars = []*Node{n}
-		}
-		d.diffVariants(oVars, nVars, oKinds, nKinds, where, path, request, out, depth)
-		return
-	}
-	if typeChanged {
-		return
-	}
-
-	oEnum, nEnum := syncEnum(d.old, o), syncEnum(d.new, n)
-	switch {
-	case oEnum != nil && nEnum != nil:
-		for _, v := range oEnum {
-			if !syncContains(nEnum, v) {
-				add(path, fmt.Sprintf("enum value %s removed", syncEncode(v, syncInlineStyle)), true)
-			}
-		}
-		for _, v := range nEnum {
-			if !syncContains(oEnum, v) {
-				add(path, fmt.Sprintf("enum value %s added", syncEncode(v, syncInlineStyle)), false)
-			}
-		}
-	case nEnum != nil:
-		add(path, "now limited to "+syncEncode(syncArray(nEnum), syncInlineStyle), false)
-	case oEnum != nil:
-		add(path, "no longer limited to fixed values", false)
-	}
-
-	oProps, oReq := syncObjectProps(d.old, o)
-	nProps, nReq := syncObjectProps(d.new, n)
-	for _, name := range syncSortedNames(oProps) {
-		if nProps[name] == nil {
-			add(syncJoin(path, name), "removed", true)
-		}
-	}
-	for _, name := range syncSortedNames(nProps) {
-		if oProps[name] != nil {
-			continue
-		}
-		if request && nReq[name] {
-			add(syncJoin(path, name), "added, required", true)
-		} else {
-			add(syncJoin(path, name), "added", false)
-		}
-	}
-	for _, name := range syncSortedNames(oProps) {
-		if nProps[name] == nil {
-			continue
-		}
-		at := syncJoin(path, name)
-		switch was, now := oReq[name], nReq[name]; {
-		case request && now && !was:
-			add(at, "now required", true)
-		case request && was && !now:
-			add(at, "no longer required", false)
-		case !request && was && !now:
-			add(at, "no longer always present", false)
-		case !request && now && !was:
-			add(at, "now always present", false)
-		}
-		d.diffSchema(oProps[name], nProps[name], where, at, request, out, depth+1)
-	}
-
-	for _, kw := range []struct{ key, suffix string }{{"items", "[]"}, {"additionalProperties", "{}"}} {
-		ov, nv := syncMember(d.old, o, kw.key), syncMember(d.new, n, kw.key)
-		if syncIsObject(ov) || syncIsObject(nv) {
-			d.diffSchema(syncFalsyEmpty(ov), syncFalsyEmpty(nv), where, path+kw.suffix, request, out, depth+1)
-		}
-	}
-}
-
-// diffVariants compares the variants of two unions. Variants pair up when
-// they are equal, then when they reference the same component, then by type
-// in order, and the changes inside each pair are reported like any other:
-// a variant added or removed next to a changed one never hides the change.
-// A removed variant is breaking unless the type change already reported
-// covers it. Whether null is allowed was compared for the whole union, so a
-// pair is compared without it.
-func (d *syncDiffer) diffVariants(old, new []*Node, oKinds, nKinds map[string]bool, where, path string, request bool, out *[]syncChange, depth int) {
-	kindsOf := func(doc *Doc, vs []*Node) []map[string]bool {
-		out := make([]map[string]bool, len(vs))
-		for i, v := range vs {
-			n, _ := syncNormalize(doc, v)
-			out[i] = syncKinds(doc, n, 0)
-		}
-		return out
-	}
-	oK, nK := kindsOf(d.old, old), kindsOf(d.new, new)
-	pair := make([]int, len(old))
-	for i := range pair {
-		pair[i] = -1
-	}
-	taken := make([]bool, len(new))
-	match := func(same func(i, j int) bool) {
-		for i := range old {
-			for j := 0; pair[i] < 0 && j < len(new); j++ {
-				if !taken[j] && same(i, j) {
-					pair[i], taken[j] = j, true
-				}
-			}
-		}
-	}
-	match(func(i, j int) bool { return d.sameShape(old[i], new[j], 0) })
-	match(func(i, j int) bool { r := syncRefName(old[i]); return r != "" && r == syncRefName(new[j]) })
-	match(func(i, j int) bool { return syncKindLabel(oK[i]) == syncKindLabel(nK[j]) })
-	name := func(v *Node, kinds map[string]bool) string {
-		if r := syncRefName(v); r != "" {
-			return r
-		}
-		return syncKindLabel(kinds)
-	}
-	for i, j := range pair {
-		if j >= 0 {
-			vo, _ := syncNormalize(d.old, old[i])
-			vn, _ := syncNormalize(d.new, new[j])
-			d.diffNormalized(vo, vn, false, false, where, path, request, out, depth+1)
-			continue
-		}
-		if len(oK[i]) == 0 || syncSubset(oK[i], nKinds) {
-			*out = append(*out, syncChange{where: where, path: path, kind: fmt.Sprintf("variant `%s` removed", name(old[i], oK[i])), breaking: true})
-		}
-	}
-	for j := range new {
-		if !taken[j] && (len(nK[j]) == 0 || syncSubset(nK[j], oKinds)) {
-			*out = append(*out, syncChange{where: where, path: path, kind: fmt.Sprintf("variant `%s` added", name(new[j], nK[j]))})
-		}
-	}
-}
-
-// syncFalsyEmpty is Python's `value or {}`: nil and false become an empty
-// object.
-func syncFalsyEmpty(n *Node) *Node {
-	if n == nil || (n.Kind == Bool && !n.Bool) {
-		return syncObject()
-	}
-	return n
-}
-
 func syncSortedNames(m map[string]*Node) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -893,6 +803,270 @@ func syncSortedNames(m map[string]*Node) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// ---- schema comparison ------------------------------------------------------
+
+// diffSchema appends a change for every difference between two schemas. old
+// belongs to d.old and new to d.new; where and path locate them in their
+// operation, and request tells which side of the call they are on.
+//
+// Breaking (docs/DESIGN.md section 3.1, the same in requests and responses):
+// a type change in either direction, a value that can now be null, a removed
+// field, enum value or union variant, and in a request a field that is newly
+// required. Everything else is listed, not counted.
+func (d *syncDiffer) diffSchema(old, new *Node, where, path string, request bool, out *[]syncChange, depth int) {
+	if depth > syncMaxDepth || d.sameShape(old, new, 0) {
+		return
+	}
+	start := len(*out)
+	// A body that appears or disappears is compared field by field, not as a
+	// type change.
+	present := old != syncNoSchema && new != syncNoSchema
+	note := func(at, kind string, breaking bool) {
+		*out = append(*out, syncChange{where: where, path: at, kind: kind, breaking: breaking})
+	}
+	if !syncIsObject(syncDeref(d.old, old)) || !syncIsObject(syncDeref(d.new, new)) {
+		note(path, "schema replaced", true)
+		return
+	}
+	oldNull, newNull := syncNullable(d.old, old, 0), syncNullable(d.new, new, 0)
+	switch {
+	case newNull && !oldNull:
+		note(path, "can now be null", true)
+	case oldNull && !newNull && request:
+		note(path, "no longer accepts null", false)
+	case oldNull && !newNull:
+		note(path, "can no longer be null", false)
+	}
+	o, n := d.single(d.old, old, 0), d.single(d.new, new, 0)
+	oldKinds, newKinds := syncKinds(d.old, o, 0), syncKinds(d.new, n, 0)
+	before, after := syncTypeNames(o, oldKinds), syncTypeNames(n, newKinds)
+	// "any" (a schema that does not say, an interface value in Go) against a
+	// type counts too.
+	if present && (len(oldKinds) > 0 || len(newKinds) > 0) && before != after {
+		note(path, "type changed from "+before+" to "+after, true)
+		if len(oldKinds) > 0 && len(newKinds) > 0 {
+			// A union's variants can change too; the type change already
+			// covers those removed.
+			d.diffVariants(o, n, where, path, request, out, depth, true)
+		}
+		return
+	}
+
+	oldEnum, newEnum := syncEnum(o), syncEnum(n)
+	switch {
+	case oldEnum != nil && newEnum != nil:
+		for _, v := range oldEnum {
+			if !syncContains(newEnum, v) {
+				note(path, "enum value "+syncEncode(v, syncUnicodeInlineStyle)+" removed", true)
+			}
+		}
+		var added []*Node
+		for _, v := range newEnum {
+			if !syncContains(oldEnum, v) {
+				added = append(added, v)
+			}
+		}
+		if len(added) > 0 {
+			note(path, "enum values added "+syncEncode(syncArray(added), syncUnicodeInlineStyle), false)
+		}
+	case newEnum != nil:
+		note(path, "now limited to "+syncEncode(syncArray(newEnum), syncUnicodeInlineStyle), false)
+	case oldEnum != nil:
+		note(path, "no longer limited to fixed values", false)
+	}
+
+	oldProps, oldReq := syncObjectProps(d.old, o)
+	newProps, newReq := syncObjectProps(d.new, n)
+	// A union's fields live in its variants, compared below.
+	if (len(oldProps) > 0 && len(newProps) > 0) || (len(syncVariants(d.old, o)) == 0 && len(syncVariants(d.new, n)) == 0) {
+		for _, name := range syncSortedNames(oldProps) {
+			if newProps[name] == nil {
+				note(syncJoin(path, name), "removed", true)
+			}
+		}
+		for _, name := range syncSortedNames(newProps) {
+			if oldProps[name] != nil {
+				continue
+			}
+			if request && newReq[name] {
+				note(syncJoin(path, name), "added (required)", true)
+			} else {
+				note(syncJoin(path, name), "added", false)
+			}
+		}
+		for _, name := range syncSortedNames(oldProps) {
+			if newProps[name] == nil {
+				continue
+			}
+			at := syncJoin(path, name)
+			switch was, now := oldReq[name], newReq[name]; {
+			case now && !was && request:
+				note(at, "now required", true)
+			case now && !was:
+				note(at, "now always present", false)
+			case was && !now && request:
+				note(at, "no longer required", false)
+			case was && !now:
+				note(at, "no longer always present", false)
+			}
+			d.diffSchema(oldProps[name], newProps[name], where, at, request, out, depth+1)
+		}
+	}
+	for _, kw := range []struct{ key, suffix string }{{"items", "[]"}, {"additionalProperties", "{}"}} {
+		ov, nv := o.Get(kw.key), n.Get(kw.key)
+		oObj, nObj := syncIsObject(syncDeref(d.old, ov)), syncIsObject(syncDeref(d.new, nv))
+		if !oObj && !nObj {
+			continue
+		}
+		if !oObj {
+			ov = syncObject()
+		}
+		if !nObj {
+			nv = syncObject()
+		}
+		d.diffSchema(ov, nv, where, path+kw.suffix, request, out, depth+1)
+	}
+	d.diffVariants(o, n, where, path, request, out, depth, false)
+	if len(*out) == start {
+		note(path, "other constraints changed (format, pattern, limits or default)", false)
+	}
+}
+
+// diffVariants compares two schemas read as one type (single) variant by
+// variant; a schema that is not a union is a union of one, so that [X, null]
+// against X loses no variant and X against [X', Y] compares X with X'. A
+// variant added or removed never hides a change inside the others. A variant
+// is named by its new position. retyped tells that a type change was
+// reported, which already covers the variants removed.
+func (d *syncDiffer) diffVariants(old, new *Node, where, path string, request bool, out *[]syncChange, depth int, retyped bool) {
+	oldVars, newVars := syncVariants(d.old, old), syncVariants(d.new, new)
+	if len(oldVars) == 0 {
+		oldVars = []*Node{old}
+	}
+	if len(newVars) == 0 {
+		newVars = []*Node{new}
+	}
+	if len(oldVars) == 1 && len(newVars) == 1 {
+		return // compared as the schema itself
+	}
+	keyword := syncUnionKeyword(d.new, new)
+	if keyword == "" {
+		keyword = syncUnionKeyword(d.old, old)
+	}
+	pairs, removed, added := d.pairVariants(oldVars, newVars)
+	for _, p := range pairs {
+		at := path
+		if len(newVars) > 1 {
+			at = fmt.Sprintf("%s(%s %d)", path, keyword, p[1]+1)
+		}
+		d.diffSchema(oldVars[p[0]], newVars[p[1]], where, at, request, out, depth+1)
+	}
+	if len(removed) > 0 && !retyped {
+		*out = append(*out, syncChange{where: where, path: path, kind: fmt.Sprintf("type changed: %d %s variant(s) removed", len(removed), keyword), breaking: true})
+	}
+	if len(added) > 0 {
+		*out = append(*out, syncChange{where: where, path: path, kind: fmt.Sprintf("%d %s variant(s) added", len(added), keyword)})
+	}
+	byOld := append([][2]int(nil), pairs...)
+	sort.Slice(byOld, func(i, j int) bool { return byOld[i][0] < byOld[j][0] })
+	for i := 1; i < len(byOld); i++ {
+		if byOld[i][1] < byOld[i-1][1] {
+			*out = append(*out, syncChange{where: where, path: path, kind: keyword + " variants reordered"})
+			break
+		}
+	}
+}
+
+// pairVariants pairs each old union variant with the new one it became: an
+// unchanged one first, then one with the same title, then one of the same
+// type with the most fields in common. It returns the pairs (old and new
+// position, in new order) and the positions left over on each side (the
+// variants removed and added).
+func (d *syncDiffer) pairVariants(old, new []*Node) (pairs [][2]int, leftOld, leftNew []int) {
+	for i := range old {
+		leftOld = append(leftOld, i)
+	}
+	for j := range new {
+		leftNew = append(leftNew, j)
+	}
+	without := func(list []int, v int) []int {
+		out := list[:0:0]
+		for _, x := range list {
+			if x != v {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	pair := func(i, j int) {
+		pairs = append(pairs, [2]int{i, j})
+		leftOld, leftNew = without(leftOld, i), without(leftNew, j)
+	}
+	// A component's title is not the variant's own.
+	title := func(doc *Doc, v *Node) *Node {
+		if d.refs[v] || (syncIsObject(v) && v.Has("$ref")) {
+			return nil
+		}
+		t := syncDeref(doc, v).Get("title")
+		if t == nil || t.Kind == Null {
+			return nil
+		}
+		return t
+	}
+	sameShape := func(i, j int) bool { return d.sameShape(old[i], new[j], 0) }
+	sameTitle := func(i, j int) bool {
+		t := title(d.old, old[i])
+		return t != nil && syncEqual(t, title(d.new, new[j]))
+	}
+	for _, same := range []func(i, j int) bool{sameShape, sameTitle} {
+		for _, i := range append([]int(nil), leftOld...) {
+			for _, j := range leftNew {
+				if same(i, j) {
+					pair(i, j)
+					break
+				}
+			}
+		}
+	}
+	type candidate struct{ common, i, j int }
+	var candidates []candidate
+	for _, i := range leftOld {
+		oldKinds, oldFields := syncKinds(d.old, old[i], 0), d.fieldNames(d.old, old[i])
+		for _, j := range leftNew {
+			newKinds := syncKinds(d.new, new[j], 0)
+			if len(oldKinds) > 0 && len(newKinds) > 0 && !syncSameSet(oldKinds, newKinds) {
+				continue
+			}
+			candidates = append(candidates, candidate{syncCommon(oldFields, d.fieldNames(d.new, new[j])), i, j})
+		}
+	}
+	sort.Slice(candidates, func(a, b int) bool {
+		x, y := candidates[a], candidates[b]
+		if x.common != y.common {
+			return x.common > y.common
+		}
+		if x.i != y.i {
+			return x.i < y.i
+		}
+		return x.j < y.j
+	})
+	has := func(list []int, v int) bool {
+		for _, x := range list {
+			if x == v {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range candidates {
+		if has(leftOld, c.i) && has(leftNew, c.j) {
+			pair(c.i, c.j)
+		}
+	}
+	sort.SliceStable(pairs, func(a, b int) bool { return pairs[a][1] < pairs[b][1] })
+	return pairs, leftOld, leftNew
 }
 
 // ---- operations ---------------------------------------------------------------
@@ -907,6 +1081,9 @@ func (d *syncDiffer) params(doc *Doc, op *Node) (map[syncParamKey]*Node, []syncP
 	out := map[syncParamKey]*Node{}
 	for _, p := range op.Get("parameters").Elems() {
 		p = syncDeref(doc, p)
+		if !syncIsObject(p) {
+			continue
+		}
 		k := syncParamKey{p.Get("in").Text(), p.Get("name").Text()}
 		out[k] = p // a later definition (the operation's own) wins
 	}
@@ -923,103 +1100,209 @@ func (d *syncDiffer) params(doc *Doc, op *Node) (map[syncParamKey]*Node, []syncP
 	return out, keys
 }
 
-// syncBodyTypes are the request content types whose schema is compared, in
-// order of preference.
-var syncBodyTypes = []string{"application/json", "multipart/form-data", "application/x-www-form-urlencoded"}
+// syncMedia is a request body or response: the schema of each media type.
+type syncMedia map[string]*Node
 
-// syncRequestBody returns the request body, its content types and the
-// schema of its preferred content type (syncBodyTypes).
-func syncRequestBody(doc *Doc, op *Node) (*Node, map[string]bool, *Node) {
-	rb := syncDeref(doc, op.Get("requestBody"))
-	content := rb.Get("content")
-	types := map[string]bool{}
-	for _, ct := range content.ObjKeys() {
-		types[ct] = true
+func (m syncMedia) sorted() []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
-	var schema *Node
-	for _, ct := range syncBodyTypes {
-		if media := content.Get(ct); syncIsObject(media) && len(media.Keys) > 0 {
-			schema = media.Get("schema")
-			break
-		}
-	}
-	return rb, types, schema
+	sort.Strings(out)
+	return out
 }
 
-// syncResponse is one success response of an operation.
-type syncResponse struct {
-	types  map[string]bool // content types
-	schema *Node           // of the JSON content, or nil
-}
-
-// syncSuccessResponses returns the 2xx responses of an operation by status,
-// and the statuses in order.
-func syncSuccessResponses(doc *Doc, op *Node) (map[string]syncResponse, []string) {
-	out := map[string]syncResponse{}
-	var codes []string
-	responses := op.Get("responses")
-	for _, code := range syncSortedKeys(syncOrEmpty(responses)) {
-		if !strings.HasPrefix(code, "2") {
-			continue
-		}
-		content := syncDeref(doc, responses.Get(code)).Get("content")
-		types := map[string]bool{}
-		for _, ct := range content.ObjKeys() {
-			types[ct] = true
-		}
-		out[code] = syncResponse{types: types, schema: content.Path("application/json", "schema")}
-		codes = append(codes, code)
+// syncContent returns the schema of each media type of a request body or
+// response (an empty object for a media type without one).
+func syncContent(doc *Doc, n *Node) syncMedia {
+	out := syncMedia{}
+	content := syncDeref(doc, n).Get("content")
+	if !syncIsObject(content) {
+		return out
 	}
-	return out, codes
+	for _, media := range content.Keys {
+		if entry := syncDeref(doc, content.Get(media)); syncIsObject(entry) {
+			out[media] = syncOrObject(entry.Get("schema"))
+		}
+	}
+	return out
 }
 
-// diffBody compares two body schemas (request or response). A body that
-// appears or disappears is compared with an empty object when the other side
-// is an object, so its fields show as added or removed.
-func (d *syncDiffer) diffBody(old, new *Node, where string, request bool, out *[]syncChange) {
-	if old == nil && new == nil {
+// syncSuccesses returns the 2xx responses of an operation by status.
+func syncSuccesses(doc *Doc, op *Node) map[string]syncMedia {
+	out := map[string]syncMedia{}
+	responses := syncOrObject(op.Get("responses"))
+	for _, code := range responses.ObjKeys() {
+		if strings.HasPrefix(code, "2") {
+			out[code] = syncContent(doc, responses.Get(code))
+		}
+	}
+	return out
+}
+
+func syncSortedStatuses(m map[string]syncMedia) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// sameContent reports whether two bodies (old from d.old, new from d.new)
+// have the same media types with the same schemas.
+func (d *syncDiffer) sameContent(old, new syncMedia) bool {
+	if len(old) != len(new) {
+		return false
+	}
+	for media, s := range old {
+		if n, ok := new[media]; !ok || !d.sameShape(s, n, 0) {
+			return false
+		}
+	}
+	return true
+}
+
+// diffContent compares a body per media type. A media type the new body no
+// longer has is compared with the one that replaces it (an added one first,
+// then the one with the most fields in common), so that a field only it
+// carried (a multipart file) is not lost; against a media type both bodies
+// have, only what breaks counts, since that one's own changes are compared
+// directly. A body that appears or disappears is compared field by field.
+func (d *syncDiffer) diffContent(old, new syncMedia, where string, request bool, out *[]syncChange) {
+	oldTypes, newTypes := old.sorted(), new.sorted()
+	if len(old) > 0 && len(new) > 0 && strings.Join(oldTypes, "\n") != strings.Join(newTypes, "\n") {
+		*out = append(*out, syncChange{where: where, kind: fmt.Sprintf("content type %s -> %s", strings.Join(oldTypes, ", "), strings.Join(newTypes, ", "))})
+	}
+	if len(old) == 0 {
+		for _, media := range newTypes {
+			d.diffSchema(syncNoSchema, new[media], where, "", request, out, 0)
+		}
 		return
 	}
-	empty := mustSyncNode(`{"type": "object"}`)
-	if old == nil {
-		if n, _ := syncNormalize(d.new, new); !syncKinds(d.new, n, 0)["object"] {
-			return
+	var added []string
+	for _, media := range newTypes {
+		if old[media] == nil {
+			added = append(added, media)
 		}
-		old = empty
 	}
-	if new == nil {
-		if o, _ := syncNormalize(d.old, old); !syncKinds(d.old, o, 0)["object"] {
-			return
+	for _, media := range oldTypes {
+		if n := new[media]; n != nil || len(new) == 0 {
+			if n == nil {
+				n = syncNoSchema
+			}
+			d.diffSchema(old[media], n, where, "", request, out, 0)
+			continue
 		}
-		new = empty
+		fields := d.fieldNames(d.old, old[media])
+		candidates := added
+		if len(candidates) == 0 {
+			candidates = newTypes
+		}
+		after, best := "", -1
+		for _, m := range candidates {
+			if c := syncCommon(fields, d.fieldNames(d.new, new[m])); c > best {
+				after, best = m, c
+			}
+		}
+		if i := sort.SearchStrings(added, after); i < len(added) && added[i] == after {
+			added = append(added[:i:i], added[i+1:]...)
+			d.diffSchema(old[media], new[after], where, "", request, out, 0)
+			continue
+		}
+		var found []syncChange
+		d.diffSchema(old[media], new[after], where, "", request, &found, 0)
+		for _, c := range found {
+			if c.breaking {
+				*out = append(*out, c)
+			}
+		}
 	}
-	d.diffSchema(old, new, where, "", request, out, 0)
 }
 
-// mustSyncNode parses a JSON literal of the code.
-func mustSyncNode(s string) *Node {
-	n, err := ParseNode([]byte(s))
-	if err != nil {
-		panic(err)
+// diffStatuses lists the success statuses only one side has. A method
+// returns every 2xx body, nullable when one has none: a status without a
+// body makes it nullable, and a removed status whose body no other one
+// returns removes a variant of it (docs/DESIGN.md section 3.1).
+func (d *syncDiffer) diffStatuses(old, new map[string]syncMedia) []syncChange {
+	var found []syncChange
+	add := func(kind string, breaking bool) {
+		found = append(found, syncChange{where: "response", kind: kind, breaking: breaking})
 	}
-	return n
+	returnsNull := func(responses map[string]syncMedia) bool {
+		for _, c := range responses {
+			if len(c) == 0 {
+				return true
+			}
+		}
+		return false
+	}
+	for _, status := range syncSortedStatuses(new) {
+		if _, ok := old[status]; ok {
+			continue
+		}
+		body := new[status]
+		returned := false
+		for _, c := range old {
+			returned = returned || (len(c) > 0 && d.sameContent(c, body))
+		}
+		switch {
+		case len(body) == 0 && syncAnyBody(old) && !returnsNull(old):
+			add(fmt.Sprintf("can now be null (status %s has no body)", status), true)
+		case len(body) > 0 && !returned:
+			add(fmt.Sprintf("status %s added with another body", status), false)
+		default:
+			add(fmt.Sprintf("status %s added", status), false)
+		}
+	}
+	for _, status := range syncSortedStatuses(old) {
+		if _, ok := new[status]; ok {
+			continue
+		}
+		body := old[status]
+		returned := false
+		for _, c := range new {
+			returned = returned || (len(c) > 0 && d.sameContent(body, c))
+		}
+		switch {
+		case len(body) == 0 && syncAnyBody(new) && !returnsNull(new):
+			add(fmt.Sprintf("can no longer be null (status %s removed)", status), false)
+		case len(body) > 0 && !returned:
+			add(fmt.Sprintf("type changed: status %s removed, and no other status returns its body", status), true)
+		default:
+			add(fmt.Sprintf("status %s removed", status), false)
+		}
+	}
+	return found
 }
 
-// describeChange returns the differences of one operation (with the
-// path-level parameters merged in): parameters, request body, every success
-// response and deprecation (the caller compares the SDK naming, which can
-// come from the overlay). Nothing when only documentation changed;
-// sameOperation tells whether the rest of the operation (error responses,
-// security, headers) changed. old belongs to d.old, new to d.new.
+// syncAnyBody reports whether a response of responses has a body.
+func syncAnyBody(responses map[string]syncMedia) bool {
+	for _, c := range responses {
+		if len(c) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// describeChange returns every difference of one operation, or of a method
+// that moved to another one (both with their path-level parameters merged
+// in): parameters, request body, every success response, deprecation and
+// x-didit-sdk. Nothing when only documentation changed; sameOperation tells
+// whether the rest of the operation (error responses, security, headers)
+// changed. old belongs to d.old, new to d.new.
 func (d *syncDiffer) describeChange(old, new *Node) []syncChange {
 	var found []syncChange
-	add := func(c syncChange) { found = append(found, c) }
+	add := func(where, kind string, breaking bool) {
+		found = append(found, syncChange{where: where, kind: kind, breaking: breaking})
+	}
 
 	oldParams, oldKeys := d.params(d.old, old)
 	newParams, newKeys := d.params(d.new, new)
 	for _, k := range oldKeys {
 		if newParams[k] == nil {
-			add(syncChange{where: k.where(), kind: "removed"})
+			add(k.where(), "removed", false)
 		}
 	}
 	for _, k := range newKeys {
@@ -1027,9 +1310,9 @@ func (d *syncDiffer) describeChange(old, new *Node) []syncChange {
 			continue
 		}
 		if newParams[k].Get("required").Truthy() {
-			add(syncChange{where: k.where(), kind: "added, required", breaking: true})
+			add(k.where(), "added (required)", true)
 		} else {
-			add(syncChange{where: k.where(), kind: "added"})
+			add(k.where(), "added", false)
 		}
 	}
 	for _, k := range oldKeys {
@@ -1037,82 +1320,66 @@ func (d *syncDiffer) describeChange(old, new *Node) []syncChange {
 		if np == nil {
 			continue
 		}
-		switch was, now := oldParams[k].Get("required").Truthy(), np.Get("required").Truthy(); {
-		case now && !was:
-			add(syncChange{where: k.where(), kind: "now required", breaking: true})
-		case was && !now:
-			add(syncChange{where: k.where(), kind: "no longer required"})
+		if !oldParams[k].Get("required").Truthy() && np.Get("required").Truthy() {
+			add(k.where(), "now required", true)
 		}
-		d.diffSchema(oldParams[k].Get("schema"), np.Get("schema"), k.where(), "", true, &found, 0)
+		d.diffSchema(syncOrObject(oldParams[k].Get("schema")), syncOrObject(np.Get("schema")), k.where(), "", true, &found, 0)
 	}
 
-	oldRB, oldTypes, oldBody := syncRequestBody(d.old, old)
-	newRB, newTypes, newBody := syncRequestBody(d.new, new)
-	switch {
-	case syncSameSet(oldTypes, newTypes):
-	case len(oldTypes) == 0:
-		add(syncChange{where: "request body", kind: "added"})
-	case len(newTypes) == 0:
-		add(syncChange{where: "request body", kind: "removed"})
-	default:
-		add(syncChange{where: "request body", kind: fmt.Sprintf("content types %s changed to %s", syncPyList(syncSortedSet(oldTypes)), syncPyList(syncSortedSet(newTypes)))})
+	oldBody, newBody := syncOrObject(old.Get("requestBody")), syncOrObject(new.Get("requestBody"))
+	if !syncDeref(d.old, oldBody).Get("required").Truthy() && syncDeref(d.new, newBody).Get("required").Truthy() {
+		add("request body", "now required", false)
 	}
-	switch was, now := oldRB.Get("required").Truthy(), newRB.Get("required").Truthy(); {
-	case now && !was:
-		add(syncChange{where: "request body", kind: "now required"})
-	case was && !now && len(newTypes) > 0:
-		add(syncChange{where: "request body", kind: "no longer required"})
-	}
-	d.diffBody(oldBody, newBody, "request body", true, &found)
+	d.diffContent(syncContent(d.old, oldBody), syncContent(d.new, newBody), "request body", true, &found)
 
-	oldResp, oldCodes := syncSuccessResponses(d.old, old)
-	newResp, newCodes := syncSuccessResponses(d.new, new)
-	var pairs [][2]string
-	for _, code := range oldCodes {
-		if _, ok := newResp[code]; ok {
-			pairs = append(pairs, [2]string{code, code})
-		} else {
-			add(syncChange{where: "response " + code, kind: "removed"})
+	// Every 2xx response both have; when the only success status changed
+	// (200 to 201), the old body against the new one; otherwise the statuses
+	// only one side has.
+	oldResponses, newResponses := syncSuccesses(d.old, old), syncSuccesses(d.new, new)
+	var statuses [][2]string
+	for _, s := range syncSortedStatuses(oldResponses) {
+		if _, ok := newResponses[s]; ok {
+			statuses = append(statuses, [2]string{s, s})
 		}
 	}
-	for _, code := range newCodes {
-		if _, ok := oldResp[code]; !ok {
-			add(syncChange{where: "response " + code, kind: "added"})
-		}
+	if len(statuses) == 0 && len(oldResponses) == 1 && len(newResponses) == 1 {
+		statuses = append(statuses, [2]string{syncSortedStatuses(oldResponses)[0], syncSortedStatuses(newResponses)[0]})
+		add("response", fmt.Sprintf("status %s -> %s", statuses[0][0], statuses[0][1]), false)
+	} else {
+		found = append(found, d.diffStatuses(oldResponses, newResponses)...)
 	}
-	if len(pairs) == 0 && len(oldCodes) > 0 && len(newCodes) > 0 {
-		// The success status changed: compare what each one returns.
-		pairs = append(pairs, [2]string{oldCodes[0], newCodes[0]})
-	}
-	for _, p := range pairs {
-		o, n := oldResp[p[0]], newResp[p[1]]
-		if !syncSameSet(o.types, n.types) {
-			add(syncChange{where: "response", kind: fmt.Sprintf("content types %s changed to %s", syncPyList(syncSortedSet(o.types)), syncPyList(syncSortedSet(n.types)))})
-		}
-		d.diffBody(o.schema, n.schema, "response", false, &found)
+	for _, s := range statuses {
+		d.diffContent(oldResponses[s[0]], newResponses[s[1]], "response", false, &found)
 	}
 
-	switch was, now := old.Get("deprecated").Truthy(), new.Get("deprecated").Truthy(); {
-	case now && !was:
-		add(syncChange{kind: "marked deprecated upstream"})
-	case was && !now:
-		add(syncChange{kind: "no longer marked deprecated upstream"})
+	if !old.Get("deprecated").Truthy() && new.Get("deprecated").Truthy() {
+		add("operation", "marked deprecated upstream", false)
+	}
+	if was, now := syncNotNull(old.Get("x-didit-sdk")), syncNotNull(new.Get("x-didit-sdk")); now != nil && !syncEqual(was, now) {
+		add("x-didit-sdk", "now "+syncEncode(now, syncSortedInlineStyle), false)
 	}
 
-	// Two success responses can report the same change once each.
-	seen := map[[3]string]int{}
+	// One entry per change, even when several responses or media types share
+	// it.
+	seen := map[syncChange]bool{}
 	var out []syncChange
 	for _, c := range found {
-		k := [3]string{c.where, c.path, c.kind}
-		if i, dup := seen[k]; dup {
-			out[i].breaking = out[i].breaking || c.breaking
-			continue
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
 		}
-		seen[k] = len(out)
-		out = append(out, c)
 	}
 	return out
 }
+
+// syncNotNull returns n, or nil for JSON null.
+func syncNotNull(n *Node) *Node {
+	if n == nil || n.Kind == Null {
+		return nil
+	}
+	return n
+}
+
 
 // syncNameMaps are the objects of an operation whose keys are names (status
 // codes, media types, headers), not keywords.
