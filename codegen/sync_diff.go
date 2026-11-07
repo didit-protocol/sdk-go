@@ -7,14 +7,16 @@ import (
 )
 
 // Comparison of operations and schemas for the spec sync summary.
-// Operations are compared field by field, in parameters, request bodies and
-// every success response, following $refs, allOf wrappers, array items and
-// every oneOf/anyOf variant. Each difference is a syncChange; the ones of
-// the docs/DESIGN.md section 3.1 list (a field or parameter whose type
-// changed, a field or parameter that can now be null, a removed field, enum
-// value or union variant, a newly required parameter or request field) are
-// breaking: they can break typed code, and the pull request and the release
-// notes list them. A removed operation is breaking too (sync_apply.go).
+// Operations are compared field by field, in parameters, request bodies (per
+// media type) and every success response, following $refs, allOf, array
+// items and every oneOf/anyOf variant. Each difference is a syncChange; the
+// ones of the docs/DESIGN.md section 3.1 list (a field or parameter whose
+// type changed, a field or parameter that can now be null, a removed field,
+// enum value or union variant, a newly required parameter or request field)
+// are breaking: they can break typed code, and the pull request and the
+// release notes list them. A removed operation is breaking too
+// (sync_apply.go). The rules are sdk-python's and sdk-java's, so that every
+// SDK lists the same changes.
 //
 // References are followed lazily while comparing, so recursive schemas are
 // never copied.
@@ -31,10 +33,12 @@ const syncUnchangedNote = "descriptions, examples or other details changed"
 // describeChange compares (error responses, security, headers...).
 const syncOtherNote = "other request or response details changed"
 
-// syncDocKeys document a schema without changing what is sent or received.
+// syncDocKeys document without changing what is sent or received. In a map
+// of names (properties, ...) a key is a name: a property called
+// "description" is a field.
 var syncDocKeys = map[string]bool{
 	"description": true, "summary": true, "title": true,
-	"example": true, "examples": true, "externalDocs": true,
+	"example": true, "examples": true, "externalDocs": true, "tags": true,
 }
 
 // syncOp is one operation of a document as the sync sees it.
@@ -137,20 +141,20 @@ type syncDiffer struct {
 	active  map[[2]*Node]bool
 	settled map[[2]*Node]bool
 	assumed int
+	// refs are the schemas single read from a component (see single).
+	refs map[*Node]bool
 }
 
 func newSyncDiffer(old, new *Doc) *syncDiffer {
-	return &syncDiffer{old: old, new: new, active: map[[2]*Node]bool{}, settled: map[[2]*Node]bool{}}
+	return &syncDiffer{old: old, new: new, active: map[[2]*Node]bool{}, settled: map[[2]*Node]bool{}, refs: map[*Node]bool{}}
 }
 
 // sameShape reports whether two schemas send and receive the same thing:
 // equal once references are followed and documentation keywords (syncDocKeys,
-// x-*) are ignored. a belongs to the old document, b to the new one.
-//
-// Documentation keywords are only ignored where they are keywords: a
-// property called "title" inside "properties" still counts. (The Python
-// reference drops such keys at every level, so it misses changes to
-// properties with those names.)
+// x-*) are ignored, with required and type lists in any order. a belongs to
+// the old document, b to the new one. Documentation keywords are only
+// ignored where they are keywords: a property called "title" inside
+// "properties" still counts.
 func (d *syncDiffer) sameShape(a, b *Node, depth int) bool {
 	if depth > 64 {
 		d.assumed++
@@ -228,10 +232,33 @@ func (d *syncDiffer) compareSchemas(a, b *Node, depth int) bool {
 			if !d.sameShape(va, vb, depth+1) {
 				return false
 			}
+		case (k == "required" || k == "type") && va.Kind == Array && vb.Kind == Array:
+			if !syncSameItems(va, vb) {
+				return false
+			}
 		default:
 			if !syncEqual(va, vb) {
 				return false
 			}
+		}
+	}
+	return true
+}
+
+// syncSameItems reports whether two arrays hold the same items in any order.
+func syncSameItems(a, b *Node) bool {
+	if len(a.Arr) != len(b.Arr) {
+		return false
+	}
+	sorted := func(n *Node) []*Node {
+		out := append([]*Node(nil), n.Arr...)
+		sort.SliceStable(out, func(i, j int) bool { return out[i].SortedJSON() < out[j].SortedJSON() })
+		return out
+	}
+	x, y := sorted(a), sorted(b)
+	for i := range x {
+		if !syncEqual(x[i], y[i]) {
+			return false
 		}
 	}
 	return true
@@ -301,28 +328,18 @@ func (b syncBreaking) text() string {
 	return fmt.Sprintf("`%s`: %s", b.operation, b.change.kind)
 }
 
-// syncSortBreaking sorts entries by operation, part, field and kind, and
-// drops repeated ones (two success responses can report the same change), so
-// that every sync lists the same change the same way.
-func syncSortBreaking(list []syncBreaking) []syncBreaking {
-	key := func(b syncBreaking) [4]string {
-		return [4]string{b.operation, b.change.where, b.change.path, b.change.kind}
-	}
-	sort.SliceStable(list, func(i, j int) bool {
-		a, b := key(list[i]), key(list[j])
-		for k := range a {
-			if a[k] != b[k] {
-				return a[k] < b[k]
-			}
-		}
-		return false
-	})
+// syncDedupBreaking drops repeated entries (a moved method and its new path
+// can report the same change), keeping the first of each in order: removed
+// operations, then moved methods, then changed operations in key order.
+func syncDedupBreaking(list []syncBreaking) []syncBreaking {
+	seen := map[[4]string]bool{}
 	var out []syncBreaking
-	for i, b := range list {
-		if i > 0 && key(b) == key(list[i-1]) {
-			continue
+	for _, b := range list {
+		k := [4]string{b.operation, b.change.where, b.change.path, b.change.kind}
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, b)
 		}
-		out = append(out, b)
 	}
 	return out
 }
