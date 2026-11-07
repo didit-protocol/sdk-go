@@ -892,9 +892,10 @@ func TestSyncCommand(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "github_output")
 	summary := filepath.Join(t.TempDir(), "summary.md")
 	release := filepath.Join(t.TempDir(), "release.md")
+	message := filepath.Join(t.TempDir(), "commit-message.txt")
 	var stdout bytes.Buffer
 	cmd := syncCommand{
-		dir: f.root, summary: summary, release: release, fromDir: filepath.Join(f.root, "openapi"),
+		dir: f.root, summary: summary, release: release, message: message, fromDir: filepath.Join(f.root, "openapi"),
 		version: syncTestVersion, githubOutput: out, stdout: &stdout,
 		now: func() time.Time { return syncTestNow },
 		fetch: func(string) ([]byte, error) {
@@ -911,8 +912,10 @@ func TestSyncCommand(t *testing.T) {
 	if got, _ := os.ReadFile(summary); string(got) != "No upstream change.\n" || stdout.String() != string(got) {
 		t.Errorf("summary = %q, stdout %q", got, stdout.String())
 	}
-	if got, err := os.ReadFile(release); err != nil || len(got) != 0 {
-		t.Errorf("release = %q, %v; want an empty file", got, err)
+	for _, file := range []string{release, message} {
+		if got, err := os.ReadFile(file); err != nil || len(got) != 0 {
+			t.Errorf("%s = %q, %v; want an empty file", filepath.Base(file), got, err)
+		}
 	}
 
 	// Downloading: an httptest server stands in for docs.didit.me.
@@ -943,6 +946,11 @@ func TestSyncCommand(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(release); !strings.Contains(string(got), "BEGIN_COMMIT_OVERRIDE\nfeat(spec): sync API spec 2026-10-18\n\nBEGIN_NESTED_COMMIT\napi(spec): `GET /v3/billing/balance/`: operation removed;") {
 		t.Errorf("release = %s", got)
+	}
+	// The sync commit carries the same lines, and never a major version.
+	want := "feat(spec): sync API spec 2026-10-18\n\nBEGIN_NESTED_COMMIT\napi(spec): `GET /v3/billing/balance/`: operation removed; `billing.retrieve_balance` stays as a deprecated method until version 0.5.0\nEND_NESTED_COMMIT\n"
+	if got, _ := os.ReadFile(message); string(got) != want {
+		t.Errorf("commit message = %q, want %q", got, want)
 	}
 	if !bytes.Equal(f.read("verification.json"), served["/openapi-25.json"]) {
 		t.Error("verification.json is not the download")
@@ -1024,6 +1032,21 @@ func TestDiffSchemaRules(t *testing.T) {
 	expect(diff(`{"type": "number"}`, `{"type": "integer"}`, false), syncChange{path: "x", kind: "type changed from number to integer", breaking: true})
 	expect(diff(`{"type": "string"}`, `{"type": "string", "format": "date-time"}`, false), syncChange{path: "x", kind: "type changed from string to string (date-time)", breaking: true})
 	expect(diff(`{"type": "string"}`, `{}`, false), syncChange{path: "x", kind: "type changed from string to any", breaking: true})
+	// date-time, date and binary are types of their own in the shared list;
+	// other formats are constraints.
+	expect(diff(`{"type": "string"}`, `{"type": "string", "format": "date"}`, true), syncChange{path: "x", kind: "type changed from string to string (date)", breaking: true})
+	expect(diff(`{"type": "string", "format": "uuid"}`, `{"type": "string", "format": "email"}`, false), syncChange{path: "x", kind: "other constraints changed (format, pattern, limits or default)"})
+	// Required names in another order are the same.
+	expect(diff(`{"type": "object", "properties": {"a": {}, "b": {}}, "required": ["a", "b"]}`, `{"type": "object", "properties": {"a": {}, "b": {}}, "required": ["b", "a"]}`, true))
+	// Unions: a removed variant, and variants paired by title although they
+	// moved, named by their new position.
+	card := `{"title": "Card", "type": "object", "properties": {"n": {"type": "string"}}}`
+	bank := `{"title": "Bank", "type": "object", "properties": {"iban": {"type": "string"}}}`
+	expect(diff(`{"oneOf": [`+card+`, `+bank+`]}`, `{"oneOf": [`+card+`]}`, false),
+		syncChange{path: "x", kind: "type changed: 1 oneOf variant(s) removed", breaking: true})
+	expect(diff(`{"oneOf": [`+card+`, `+bank+`]}`, `{"oneOf": [`+bank+`, {"title": "Card", "type": "object", "properties": {"n": {"type": "integer"}}}]}`, false),
+		syncChange{path: "x(oneOf 2).n", kind: "type changed from string to integer", breaking: true},
+		syncChange{path: "x", kind: "oneOf variants reordered"})
 	// Null, in responses and requests alike.
 	expect(diff(`{"type": "string"}`, `{"type": "string", "nullable": true}`, false), syncChange{path: "x", kind: "can now be null", breaking: true})
 	expect(diff(`{"type": "string"}`, `{"type": ["string", "null"]}`, true), syncChange{path: "x", kind: "can now be null", breaking: true})
