@@ -377,11 +377,10 @@ func TestSyncReportsChangesInsideUnionsAndWrappers(t *testing.T) {
 
 func TestSyncClassifiesWhatCallersCanObserve(t *testing.T) {
 	tests := []struct {
-		name     string
-		edit     func(t *testing.T, doc *Node)
-		typ      string
-		note     string   // in the summary
-		breaking []string // counted
+		name string
+		edit func(t *testing.T, doc *Node)
+		typ  string
+		note string // in the summary
 	}{
 		{"documentation only", func(t *testing.T, doc *Node) {
 			doc.Path("paths", "/v3/session/", "post").Set("summary", syncString("Create a verification session"))
@@ -403,10 +402,6 @@ func TestSyncClassifiesWhatCallersCanObserve(t *testing.T) {
 			doc.Path("paths", "/v3/billing/top-up/", "post", "requestBody", "content", "application/json", "schema", "properties", "amount").
 				Set("maximum", mustNode(t, `1000`))
 		}, "feat", "- `POST /v3/billing/top-up/`: request body `amount`: other constraints changed (format, pattern, limits or default)"},
-		{"a removed parameter", func(t *testing.T, doc *Node) {
-			syncDeleteKey(doc.Path("paths", "/v3/session/{session_id}/decision/", "get"), "parameters")
-		}, "feat", "- `GET /v3/session/{session_id}/decision/` **(breaking)**: query parameter `verbose`: removed (breaking)",
-			[]string{"`GET /v3/session/{session_id}/decision/` query parameter `verbose`: removed"}},
 		{"a new request content type", func(t *testing.T, doc *Node) {
 			content := doc.Path("paths", "/v3/billing/top-up/", "post", "requestBody", "content")
 			content.Set("multipart/form-data", content.Get("application/json"))
@@ -434,24 +429,38 @@ func TestSyncClassifiesWhatCallersCanObserve(t *testing.T) {
 			if res.typ != tt.typ {
 				t.Errorf("type = %q, want %q\n%s", res.typ, tt.typ, res.summary)
 			}
-			expectBreaking(t, res, tt.breaking...)
+			expectBreaking(t, res)
 			if tt.note != "" {
 				expectContains(t, res.summary, tt.note)
 			}
 		})
 	}
 
+	// A removed parameter counts (DESIGN 3.1).
+	f := newSyncFixture(t)
+	doc := f.node("verification.json")
+	syncDeleteKey(doc.Path("paths", "/v3/session/{session_id}/decision/", "get"), "parameters")
+	res := f.syncDoc("verification.json", doc)
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
+	expectBreaking(t, res, "`GET /v3/session/{session_id}/decision/` query parameter `verbose`: removed")
+	expectContains(t, res.summary, "- `GET /v3/session/{session_id}/decision/` **(breaking)**: query parameter `verbose`: removed (breaking)\n")
+	if got := res.breaking[0].normalized(); got != "GET /v3/session/{session_id}/decision/ query verbose: removed" {
+		t.Errorf("normalized = %q", got)
+	}
+
 	// An operation server SDKs do not expose is compared like any other, and
 	// its changes are listed, never counted (DESIGN 3.1).
-	f := newSyncFixture(t)
+	f = newSyncFixture(t)
 	old := f.node("verification.json")
 	old.Get("paths").Set("/v3/device/", mustNode(t, `{"post": {"operationId": "device_ping",
 		"x-didit-sdk": {"resource": "device", "method": "ping", "auth": "device_token", "server": false},
 		"responses": {"200": {"description": "ok", "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}}}}}}}}`))
 	f.writeNode("verification.json", old)
-	doc := f.node("verification.json")
+	doc = f.node("verification.json")
 	doc.Path("paths", "/v3/device/", "post", "responses", "200", "content", "application/json", "schema", "properties").Set("ok", mustNode(t, `{"type": "string"}`))
-	res := f.syncDoc("verification.json", doc)
+	res = f.syncDoc("verification.json", doc)
 	if res.typ != "feat" {
 		t.Errorf("type = %q, want feat", res.typ)
 	}

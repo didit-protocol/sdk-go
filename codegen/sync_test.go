@@ -1086,7 +1086,8 @@ func TestDiffSchemaRules(t *testing.T) {
 	// A variant is numbered with the null variant before it, and carries the
 	// fields the union requires.
 	expect(diff(`{"anyOf": [{"type": "null"}, `+card+`, `+bank+`], "required": ["n"]}`, `{"anyOf": [{"type": "null"}, `+card+`, `+bank+`]}`, false),
-		syncChange{path: "x(anyOf 2).n", kind: "no longer always present", breaking: true, code: "no longer required"})
+		syncChange{path: "x(anyOf 2).n", kind: "no longer always present", breaking: true, code: "no longer required"},
+		syncChange{path: "x(anyOf 3)", kind: "other constraints changed (format, pattern, limits or default)"})
 	// Null counts in a response; a request that accepts it only widens what
 	// a caller may send.
 	expect(diff(`{"type": "string"}`, `{"type": "string", "nullable": true}`, false), syncChange{path: "x", kind: "can now be null", breaking: true, code: "can now be null"})
