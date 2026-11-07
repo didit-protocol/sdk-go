@@ -2,7 +2,8 @@ package main
 
 // The spec sync (docs/DESIGN.md section 3.1):
 //
-//	go run ./codegen sync -summary spec-sync-summary.md -release spec-sync-release.md
+//	go run ./codegen sync -summary spec-sync-summary.md -release spec-sync-release.md \
+//	  -commit-message spec-sync-commit.txt
 //
 // downloads https://docs.didit.me/openapi-25.json, openapi-auth.json and
 // openapi-authentication.json and, when any of them changed:
@@ -30,9 +31,9 @@ package main
 //   - classifies the sync: feat when a caller can observe what changed, chore
 //     when only documentation changed. Never a major version (DESIGN section
 //     13);
-//   - writes the release block of the pull request (sync_release.go), which
-//     gives release-please the type and one line per breaking change for the
-//     release notes.
+//   - writes the release block of the pull request and the message of the
+//     sync commit (sync_release.go), which give release-please the type and
+//     one line per breaking change for the release notes.
 //
 // authentication.json is never generated from: its operations belong to the
 // hand-written authentication module (DESIGN section 10), whose contract test
@@ -89,6 +90,7 @@ type syncCommand struct {
 	dir     string // repository root
 	summary string // file for the Markdown summary, or ""
 	release string // file for the release block of the pull request, or ""
+	message string // file for the message of the sync commit, or ""
 	fromDir string // read the upstream files from here instead of downloading
 	version string // the SDK version (internal/version)
 	// githubOutput is the $GITHUB_OUTPUT file, or "".
@@ -104,6 +106,7 @@ func runSync(args []string) error {
 	fs := flag.NewFlagSet("codegen sync", flag.ContinueOnError)
 	summary := fs.String("summary", "", "write the Markdown summary to this file")
 	release := fs.String("release", "", "write the release block of the pull request to this file (empty when nothing changed)")
+	message := fs.String("commit-message", "", "write the message of the sync commit to this file (empty when nothing changed)")
 	fromDir := fs.String("from-dir", "", "read verification.json, account.json and authentication.json from this directory instead of downloading them")
 	dir := fs.String("dir", ".", "repository root")
 	if err := fs.Parse(args); err != nil {
@@ -120,6 +123,7 @@ func runSync(args []string) error {
 		dir:          *dir,
 		summary:      *summary,
 		release:      *release,
+		message:      *message,
 		fromDir:      *fromDir,
 		version:      version.Version,
 		githubOutput: os.Getenv("GITHUB_OUTPUT"),
@@ -156,12 +160,18 @@ func (c syncCommand) run() error {
 			return err
 		}
 	}
-	if c.release != "" {
-		block := ""
-		if res.changed {
-			block = syncReleaseBlock(res.typ, date, res.breaking)
+	for _, out := range []struct {
+		file   string
+		render func(typ, date string, breaking []syncBreaking) string
+	}{{c.release, syncReleaseBlock}, {c.message, syncCommitMessage}} {
+		if out.file == "" {
+			continue
 		}
-		if err := os.WriteFile(c.release, []byte(block), 0o644); err != nil {
+		text := ""
+		if res.changed {
+			text = out.render(res.typ, date, res.breaking)
+		}
+		if err := os.WriteFile(out.file, []byte(text), 0o644); err != nil {
 			return err
 		}
 	}

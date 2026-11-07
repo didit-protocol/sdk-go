@@ -150,16 +150,6 @@ func syncWriteString(b *strings.Builder, s string, ascii bool) {
 	b.WriteByte('"')
 }
 
-// syncPyList renders a list of strings like Python's repr of a list
-// (['a', 'b']), as the reference summary does for content types.
-func syncPyList(items []string) string {
-	quoted := make([]string, len(items))
-	for i, s := range items {
-		quoted[i] = "'" + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "'", `\'`) + "'"
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
-}
-
 // syncEqual reports whether a and b are the same JSON value with Python's
 // equality: object key order does not matter, and numbers compare by value
 // (1 equals 1.0). nil equals nil only.

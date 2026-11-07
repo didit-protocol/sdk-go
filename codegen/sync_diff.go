@@ -378,7 +378,6 @@ func syncHasBreaking(changes []syncChange) bool {
 	return false
 }
 
-
 // ---- schemas as every SDK reads them -----------------------------------------
 //
 // From here on this is a port of the comparison of sdk-python's and
@@ -1397,7 +1396,6 @@ func syncNotNull(n *Node) *Node {
 	}
 	return n
 }
-
 
 // syncNameMaps are the objects of an operation whose keys are names (status
 // codes, media types, headers), not keywords.
