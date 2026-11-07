@@ -776,9 +776,10 @@ func syncValueKind(v *Node) string {
 	return "object"
 }
 
-// syncTypeNames names kinds as the summary does: a string with a typed format
-// is its own type, and a schema that does not say allows any value.
-func syncTypeNames(s *Node, kinds map[string]bool) string {
+// syncTypeNames names kinds as the summary does (sep " or ") or the vectors
+// do (sep "|"): a string with a typed format is its own type, and a schema
+// that does not say allows any value.
+func syncTypeNames(s *Node, kinds map[string]bool, sep string) string {
 	if len(kinds) == 0 {
 		return "any"
 	}
@@ -789,7 +790,23 @@ func syncTypeNames(s *Node, kinds map[string]bool) string {
 			names[i] = "string (" + format + ")"
 		}
 	}
-	return strings.Join(names, " or ")
+	return strings.Join(names, sep)
+}
+
+// unionNames names the types of a union's variants, or of a method's 2xx
+// bodies, as the vectors do: one per variant, sorted, so that losing one of
+// two objects reads "object|object -> object"; "" for none.
+func (d *syncDiffer) unionNames(doc *Doc, schemas []*Node) string {
+	var names []string
+	for _, s := range schemas {
+		single := syncObject()
+		if syncIsObject(syncDeref(doc, s)) {
+			single = d.single(doc, s, 0)
+		}
+		names = append(names, strings.Split(syncTypeNames(single, syncKinds(doc, single, 0), "|"), "|")...)
+	}
+	sort.Strings(names)
+	return strings.Join(names, "|")
 }
 
 // syncEnum returns the enum values of a schema other than null, or nil when
