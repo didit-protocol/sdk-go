@@ -23,7 +23,13 @@ const syncDeprecatedDescription = "Public SDK methods kept for one more minor ve
 // syncResult is the outcome of one spec sync.
 type syncResult struct {
 	changed bool
-	summary string
+	// typ is the conventional commit type of the sync (docs/DESIGN.md
+	// section 3.1): "feat" when a caller can observe what changed, "chore"
+	// when only documentation changed.
+	typ string
+	// breaking lists the changes that can break typed code.
+	breaking []syncBreaking
+	summary  string
 }
 
 // syncRefusal reports a download the SDK cannot be generated from (an error
@@ -158,7 +164,7 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		}
 	}
 	if len(changedFiles) == 0 {
-		return syncResult{summary: "No upstream change.\n"}, nil
+		return syncResult{typ: "chore", summary: "No upstream change.\n"}, nil
 	}
 
 	removeIn := syncNextMinor(sdkVersion)
@@ -225,15 +231,17 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 	sort.Strings(added)
 	sort.Strings(removed)
 	sort.Strings(common)
-	// Server method name -> the operation that provides it, after and before.
+	// Generated server method name -> the operation that provides it, after
+	// and before. The hand-written module's methods are never moved, renamed
+	// or deprecated by the sync.
 	newServerNames, oldServerNames := map[string]string{}, map[string]string{}
 	for _, key := range newOps.keys {
-		if n := newNaming(key); n != nil && n.server {
+		if n := newNaming(key); n != nil && n.server && !syncHandWritten[newOps.byKey[key].file] {
 			newServerNames[n.name] = key
 		}
 	}
 	for _, key := range oldOps.keys {
-		if n := oldNaming(key); n != nil && n.server {
+		if n := oldNaming(key); n != nil && n.server && !syncHandWritten[oldOps.byKey[key].file] {
 			oldServerNames[n.name] = key
 		}
 	}
@@ -249,12 +257,17 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		return differs[k]
 	}
 
-	lines := []string{
-		fmt.Sprintf("Spec sync %s. Upstream files changed: %s.", today, strings.Join(changedFiles, ", ")),
-		"",
+	var lines []string
+	// breaking collects the changes of the docs/DESIGN.md section 3.1 list,
+	// in the order every SDK lists them.
+	var breaking []syncBreaking
+	count := func(op string, c syncChange) {
+		c.breaking = true
+		breaking = append(breaking, syncBreaking{operation: op, change: c})
 	}
-	var breaking []string
 	kept := map[string]bool{}
+	handWritten := func(op *syncOp) bool { return syncHandWritten[op.file] }
+	exposed := func(n *syncNaming) bool { return n != nil && n.server }
 
 	// keep records a method that would disappear as deprecated until
 	// removeIn.
@@ -287,9 +300,14 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 
 	lines = append(lines, fmt.Sprintf("## Added operations (%d)", len(added)))
 	for _, key := range added {
+		hand := handWritten(newOps.byKey[key])
 		switch n := newNaming(key); {
+		case n == nil && hand:
+			lines = append(lines, fmt.Sprintf("- `%s`: **no SDK naming**; the Authentication contract test fails until upstream names it", key))
 		case n == nil:
 			lines = append(lines, fmt.Sprintf("- `%s`: **no SDK naming**; add an entry to `openapi/overlay.json` (DESIGN section 4)", key))
+		case n.server && hand:
+			lines = append(lines, fmt.Sprintf("- `%s` -> `%s`: hand-written; add it to the `authentication` module (its contract test fails until then)", key, n.name))
 		case n.server:
 			lines = append(lines, fmt.Sprintf("- `%s` -> `%s`", key, n.name))
 		default:
@@ -306,10 +324,13 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 			lines = append(lines, fmt.Sprintf("- `%s`", key))
 		case !n.server:
 			lines = append(lines, fmt.Sprintf("- `%s` (not exposed by server SDKs)", key))
+		case handWritten(oldOps.byKey[key]):
+			count(key, syncChange{kind: fmt.Sprintf("operation removed (`%s`)", n.name)})
+			lines = append(lines, fmt.Sprintf("- `%s` (`%s`): hand-written; remove it from the `authentication` module (its contract test fails until then)", key, n.name))
 		case newServerNames[n.name] != "":
 			lines = append(lines, fmt.Sprintf("- `%s` moved to `%s`; `%s` keeps its name", key, newServerNames[n.name], n.name))
 		default:
-			breaking = append(breaking, fmt.Sprintf("`%s` was removed upstream (%s); kept as a deprecated method until version %s", n.name, key, removeIn))
+			count(key, syncChange{kind: fmt.Sprintf("operation removed; `%s` stays as a deprecated method until version %s", n.name, removeIn)})
 			lines = append(lines, fmt.Sprintf("- `%s` (`%s`): kept as a deprecated method until version %s, recorded in `openapi/deprecated-operations.json`", key, n.name, removeIn))
 			keep(n, key, "removed", "")
 		}
@@ -317,52 +338,66 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 	}
 	lines = append(lines, "")
 
-	var renames []string
+	// Renamed methods, and methods whose naming changed otherwise. Only an
+	// operation that leaves the server SDKs is breaking; a renamed method
+	// keeps its old name as a deprecated alias, and the rest is for review.
+	// The hand-written module is only listed: its contract test fails until
+	// the module follows.
+	var renames, namingChanges []string
 	for _, key := range common {
 		before, after := oldNaming(key), newNaming(key)
-		if before == nil || !before.server {
+		if !exposed(before) {
 			continue
 		}
-		if after != nil && after.server && after.name == before.name {
+		hand := handWritten(oldOps.byKey[key])
+		if exposed(after) && after.name == before.name {
 			// Same method; a different auth or scope still changes how it is
 			// called (credentials, or the organization and application ids).
 			for _, field := range []string{"auth", "scope"} {
 				was, now := before.node.Get(field).Text(), after.node.Get(field).Text()
 				if was != now {
-					breaking = append(breaking, fmt.Sprintf("`%s` (%s): x-didit-sdk %s changed from %q to %q", before.name, key, field, was, now))
+					namingChanges = append(namingChanges, fmt.Sprintf("- `%s` (`%s`): x-didit-sdk %s changed from %q to %q; check how it is called", key, before.name, field, was, now))
 				}
 			}
 			continue
 		}
-		if newServerNames[before.name] != "" {
+		if !hand && newServerNames[before.name] != "" {
 			continue // another operation now provides the name (swapped or moved)
 		}
 		switch {
+		case hand && exposed(after):
+			renames = append(renames, fmt.Sprintf("- `%s`: `%s` renamed to `%s`; hand-written: rename it in the `authentication` module (its contract test fails until then)", key, before.name, after.name))
+		case hand:
+			renames = append(renames, fmt.Sprintf("- `%s` (`%s`) is no longer a named server operation; hand-written: remove it from the `authentication` module (its contract test fails until then)", key, before.name))
 		case after == nil:
 			// The generator fails until the operation is named again, so this
 			// cannot ship silently; the overlay entry decides whether the name
 			// survives.
 			renames = append(renames, fmt.Sprintf("- `%s` lost its SDK naming: add `%s` back to `openapi/overlay.json` (the generator fails until it is named)", key, before.name))
-			breaking = append(breaking, fmt.Sprintf("`%s` (%s) has no SDK naming any more", before.name, key))
 		case !after.server:
 			// Server SDKs never expose device or end-user token operations
 			// (DESIGN 4), and an API key could not call it any more, so the
 			// method goes now.
 			renames = append(renames, fmt.Sprintf("- `%s` (`%s`) is no longer a server operation (auth %s); the method is removed", key, before.name, after.auth))
-			breaking = append(breaking, fmt.Sprintf("`%s` (%s) is removed: the operation now needs %s and server SDKs do not expose it", before.name, key, after.auth))
+			count(key, syncChange{kind: fmt.Sprintf("operation removed from server SDKs: it now needs %s, and `%s` is removed", after.auth, before.name)})
 		default:
 			renames = append(renames, fmt.Sprintf("- `%s`: `%s` renamed to `%s`; the old name stays as a deprecated alias until version %s", key, before.name, after.name, removeIn))
-			breaking = append(breaking, fmt.Sprintf("`%s` was renamed upstream to `%s` (%s); the old name is a deprecated alias until version %s", before.name, after.name, key, removeIn))
 			keep(before, key, "renamed", after.name)
 		}
 	}
 	lines = append(lines, fmt.Sprintf("## Renamed methods (%d)", len(renames)))
 	lines = append(lines, renames...)
 	lines = append(lines, "")
+	if len(namingChanges) > 0 {
+		lines = append(lines, fmt.Sprintf("## Changed auth or scope (%d)", len(namingChanges)))
+		lines = append(lines, namingChanges...)
+		lines = append(lines, "")
+	}
 
 	// A name that stays but now belongs to another operation: moved to a new
 	// path, or reassigned (swapped, or reused by another operation). Compare
-	// what the method sends and receives before and after.
+	// what the method sends and receives before and after; the changes of a
+	// moved method count under its new path.
 	var moves []string
 	var stayed []string
 	for name := range oldServerNames {
@@ -377,23 +412,28 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 			continue
 		}
 		o, n := oldOps.byKey[oldKey], newOps.byKey[newKey]
-		notes, isBreaking := differFor(o, n).describeChange(o.node, n.node)
-		if len(notes) == 1 && notes[0] == syncUnchangedNote {
-			notes = []string{"same parameters, body and response"}
+		d := differFor(o, n)
+		changes := d.describeChange(o.node, n.node)
+		if len(changes) == 0 && !d.sameOperation(o.node, n.node) {
+			changes = []syncChange{{kind: syncOtherNote}}
 		}
-		detail := strings.Join(notes, "; ")
+		detail := "same parameters, body and response"
+		if len(changes) > 0 {
+			detail = strings.Join(syncNotes(changes), "; ")
+		}
 		if newOps.byKey[oldKey] != nil {
-			moves = append(moves, fmt.Sprintf("- `%s` **(breaking)** now calls `%s` instead of `%s` (which is still in the API): %s", method, newKey, oldKey, detail))
-			breaking = append(breaking, fmt.Sprintf("`%s` now calls `%s` instead of `%s`, a different operation", method, newKey, oldKey))
+			moves = append(moves, fmt.Sprintf("- `%s` **(review)** now calls `%s` instead of `%s` (which is still in the API): %s", method, newKey, oldKey, detail))
 			continue
 		}
 		marker := ""
-		if isBreaking {
+		if syncHasBreaking(changes) {
 			marker = " **(breaking)**"
 		}
 		moves = append(moves, fmt.Sprintf("- `%s`%s moved from `%s` to `%s`: %s", method, marker, oldKey, newKey, detail))
-		if isBreaking {
-			breaking = append(breaking, fmt.Sprintf("`%s` moved from `%s` to `%s`: %s", method, oldKey, newKey, strings.Join(syncBreakingNotes(notes), "; ")))
+		for _, c := range changes {
+			if c.breaking {
+				count(newKey, c)
+			}
 		}
 	}
 	lines = append(lines, fmt.Sprintf("## Moved or reassigned methods (%d)", len(moves)))
@@ -418,17 +458,34 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		if same && componentsSame[o.file] {
 			continue
 		}
-		notes, isBreaking := differFor(o, n).describeChange(o.node, n.node)
-		if same && len(notes) == 1 && notes[0] == syncUnchangedNote {
+		d := differFor(o, n)
+		found := d.describeChange(o.node, n.node)
+		if len(found) == 0 && !d.sameOperation(o.node, n.node) {
+			found = []syncChange{{kind: syncOtherNote}}
+		}
+		if len(found) == 0 {
+			// Documentation only. An operation that is the same except for
+			// components that only changed in what documents them is not
+			// listed: the Schemas section lists them.
+			if !same {
+				changes = append(changes, fmt.Sprintf("- `%s`: %s", key, syncUnchangedNote))
+			}
 			continue
 		}
+		// Every SDK counts the changes of every operation, the ones server
+		// SDKs do not expose included, so that the seven lists are the same.
 		marker := ""
-		if isBreaking {
-			marker = " **(breaking)**"
+		if !exposed(oldNaming(key)) && !exposed(newNaming(key)) {
+			marker = " (not exposed by server SDKs)"
 		}
-		changes = append(changes, fmt.Sprintf("- `%s`%s: %s", key, marker, strings.Join(notes, "; ")))
-		if isBreaking {
-			breaking = append(breaking, fmt.Sprintf("`%s`: %s", key, strings.Join(syncBreakingNotes(notes), "; ")))
+		if syncHasBreaking(found) {
+			marker += " **(breaking)**"
+		}
+		changes = append(changes, fmt.Sprintf("- `%s`%s: %s", key, marker, strings.Join(syncNotes(found), "; ")))
+		for _, c := range found {
+			if c.breaking {
+				count(key, c)
+			}
 		}
 	}
 	lines = append(lines, fmt.Sprintf("## Changed operations (%d)", len(changes)))
@@ -449,11 +506,11 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 			nv := newSchemas.Get(name)
 			switch {
 			case nv == nil:
+				// The operations that used it are compared above; a schema no
+				// operation uses breaks nobody.
 				goneS = append(goneS, name)
-				if syncKeptByDeprecated(methods, up.api, name) {
+				if !syncHandWritten[up.file] && syncKeptByDeprecated(methods, up.api, name) {
 					keptS = append(keptS, name)
-				} else {
-					breaking = append(breaking, fmt.Sprintf("%s: schema `%s` removed (its type leaves package didit)", up.file, name))
 				}
 			case !syncEqual(oldSchemas.Get(name), nv):
 				changedS = append(changedS, name)
@@ -477,7 +534,7 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 	// the upstream value wins (DESIGN section 3). A different value changes
 	// the effective naming, which the sections above already handle (a
 	// rename keeps the old name as a deprecated alias, a changed auth or
-	// scope is breaking).
+	// scope is listed for review).
 	var overlayLines []string
 	dropped := 0
 	for _, key := range append([]string(nil), overlayOps.Keys...) {
@@ -509,11 +566,44 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		lines = append(lines, "")
 	}
 
-	breakingText := "None detected."
-	if len(breaking) > 0 {
-		breakingText = "- " + strings.Join(breaking, "\n- ")
+	// feat when a caller can observe anything (DESIGN sections 3.1 and 13):
+	// an added or removed operation, a breaking change, another effective
+	// naming (upstream adopting an overlay entry unchanged is no change), or
+	// anything in the documents but documentation.
+	breaking = syncDedupBreaking(breaking)
+	observable := len(breaking) > 0 || len(added) > 0 || len(removed) > 0
+	for _, key := range common {
+		before, after := oldNaming(key), newNaming(key)
+		if (before == nil) != (after == nil) || (before != nil && !syncEqual(before.node, after.node)) {
+			observable = true
+		}
 	}
-	lines = append(lines[:2:2], append([]string{"## Breaking changes", breakingText, ""}, lines[2:]...)...)
+	for _, file := range changedFiles {
+		if !syncSameDocument(oldDocs[file].Root, newDocs[file].Root) {
+			observable = true
+		}
+	}
+	// The summary opens with the breaking changes (DESIGN section 3.1), then
+	// says which files changed and what the sync releases.
+	typ := "chore"
+	release := "`chore(spec)`: only descriptions, examples or other documentation changed, so this releases nothing on its own; it ships with the next release."
+	if observable {
+		typ = "feat"
+		release = "`feat(spec)`: callers can observe what changed, so this is a minor release, never a major one (docs/DESIGN.md section 13)."
+	}
+	head := []string{"## Breaking changes"}
+	if len(breaking) == 0 {
+		head = append(head, "None detected.")
+	}
+	for _, b := range breaking {
+		head = append(head, "- "+b.text())
+	}
+	head = append(head, "",
+		fmt.Sprintf("Spec sync %s. Upstream files changed: %s.", today, strings.Join(changedFiles, ", ")),
+		release,
+		"",
+	)
+	lines = append(head, lines...)
 
 	// Everything is computed; write the files.
 	source, err := syncReadJSON(filepath.Join(openapiDir, "SOURCE.json"))
@@ -552,18 +642,12 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 			return syncResult{}, err
 		}
 	}
-	return syncResult{changed: true, summary: strings.TrimRight(strings.Join(lines, "\n"), " \t\r\n") + "\n"}, nil
-}
-
-// syncBreakingNotes returns the notes flagged as breaking.
-func syncBreakingNotes(notes []string) []string {
-	var out []string
-	for _, n := range notes {
-		if strings.HasSuffix(n, "(breaking)") {
-			out = append(out, n)
-		}
-	}
-	return out
+	return syncResult{
+		changed:  true,
+		typ:      typ,
+		breaking: breaking,
+		summary:  strings.TrimRight(strings.Join(lines, "\n"), " \t\r\n") + "\n",
+	}, nil
 }
 
 func syncCodeList(names []string) string {

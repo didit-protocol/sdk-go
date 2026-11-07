@@ -250,9 +250,15 @@ func TestDeprecatingSyncOfTheRepositorySpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	removedKey, renamedKey := removedRes+"."+removedMethod, renamedRes+"."+renamedMethod
+	// The removed operation is breaking; the renamed method keeps its old
+	// name as a deprecated alias, so it is listed with the renames.
 	expectContains(t, section(res.summary, "Breaking changes"),
-		"`"+removedKey+"` was removed upstream",
-		"`"+renamedKey+"` was renamed upstream to `"+renamedKey+"_renamed`")
+		"`GET "+picked[0]+"`: operation removed; `"+removedKey+"` stays as a deprecated method until version")
+	expectContains(t, section(res.summary, "Renamed methods (1)"),
+		"`"+renamedKey+"` renamed to `"+renamedKey+"_renamed`; the old name stays as a deprecated alias until version")
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
 	methods := mustNode(t, string(read("deprecated-operations.json"))).Get("methods")
 	for _, key := range []string{removedKey, renamedKey} {
 		if !methods.Has(key) {

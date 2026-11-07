@@ -85,12 +85,25 @@ jobs:
             | del(.paths[$removed].get)
             | .paths[$renamed].get["x-didit-sdk"] = (naming($renamed) | .method += "_renamed")
           ' openapi/verification.json > "$upstream/verification.json"
-          cp openapi/account.json "$upstream/account.json"
+          cp openapi/account.json openapi/authentication.json "$upstream/"
           cp -R . "$synced"
           cd "$synced"
-          GITHUB_OUTPUT='' go run ./codegen sync -from-dir "$upstream" -summary "$RUNNER_TEMP/summary.md" > /dev/null
-          grep -q 'was removed upstream' "$RUNNER_TEMP/summary.md"
-          grep -q 'was renamed upstream' "$RUNNER_TEMP/summary.md"
+          GITHUB_OUTPUT="$RUNNER_TEMP/outputs" go run ./codegen sync -from-dir "$upstream" \
+            -summary "$RUNNER_TEMP/summary.md" -release "$RUNNER_TEMP/release.md" \
+            -commit-message "$RUNNER_TEMP/commit.txt" > /dev/null
+          grep -q 'operation removed; .* stays as a deprecated method' "$RUNNER_TEMP/summary.md"
+          grep -q 'renamed to .*; the old name stays as a deprecated alias' "$RUNNER_TEMP/summary.md"
+          # A removed operation is a minor release that lists it (docs/DESIGN.md section 13).
+          grep -qx 'type=feat' "$RUNNER_TEMP/outputs"
+          grep -qx 'breaking=1' "$RUNNER_TEMP/outputs"
+          for file in release.md commit.txt; do
+            grep -q '^feat(spec): sync API spec ' "$RUNNER_TEMP/$file"
+            grep -q '^api(spec): .*operation removed' "$RUNNER_TEMP/$file"
+            if grep -q 'BREAKING CHANGE\|^feat(spec)!' "$RUNNER_TEMP/$file"; then
+              echo "::error::$file announces a major version"
+              exit 1
+            fi
+          done
           go run ./codegen
           go vet ./...
           go test ./...
