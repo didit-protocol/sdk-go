@@ -486,7 +486,7 @@ func TestSyncAuthenticationDocument(t *testing.T) {
 
 func TestSyncReleaseBlock(t *testing.T) {
 	entry := func(i int) syncBreaking {
-		return syncBreaking{operation: "GET /v3/x/", change: syncChange{where: "response", path: fmt.Sprintf("f%03d", i), kind: "can now be null", breaking: true}}
+		return syncBreaking{operation: "GET /v3/x/", change: syncChange{where: "response", path: fmt.Sprintf("f%04d", i), kind: "can now be null", breaking: true}}
 	}
 	t.Run("feature without breaking changes", func(t *testing.T) {
 		block := syncReleaseBlock("feat", "2026-11-07", nil)
@@ -497,22 +497,37 @@ func TestSyncReleaseBlock(t *testing.T) {
 			t.Error("a sync without breaking changes mentions the section")
 		}
 	})
-	t.Run("too many lines", func(t *testing.T) {
+	t.Run("every breaking change gets a line", func(t *testing.T) {
 		var list []syncBreaking
-		for i := 0; i < syncMaxReleaseLines+50; i++ {
+		for i := 0; i < 300; i++ {
 			list = append(list, entry(i))
 		}
 		block := syncReleaseBlock("feat", "2026-11-07", list)
-		if n := strings.Count(block, "BEGIN_NESTED_COMMIT\n"); n != syncMaxReleaseLines+1 {
-			t.Errorf("%d nested commits, want %d", n, syncMaxReleaseLines+1)
+		if n := strings.Count(block, "BEGIN_NESTED_COMMIT\napi(spec): "); n != len(list) {
+			t.Errorf("%d nested commits, want %d", n, len(list))
 		}
-		expectContains(t, block, "BEGIN_NESTED_COMMIT\napi(spec): 50 more, listed in the spec sync pull request\nEND_NESTED_COMMIT\nEND_COMMIT_OVERRIDE\n")
+		expectContains(t, block, "api(spec): `GET /v3/x/` response `f0299`: can now be null\nEND_NESTED_COMMIT\nEND_COMMIT_OVERRIDE\n")
+		if message := syncCommitMessage("feat", "2026-11-07", list); !strings.Contains(block, "BEGIN_COMMIT_OVERRIDE\n"+message+"END_COMMIT_OVERRIDE\n") {
+			t.Error("the block does not carry the sync commit's message")
+		}
 	})
-	t.Run("too long", func(t *testing.T) {
-		long := entry(0)
-		long.change.path = strings.Repeat("a", syncMaxRelease/3)
-		block := syncReleaseBlock("feat", "2026-11-07", []syncBreaking{long, long, long, long})
-		expectContains(t, block, "api(spec): 2 more, listed in the spec sync pull request")
+	t.Run("a block that does not fit the description", func(t *testing.T) {
+		var list []syncBreaking
+		for i := 0; i < 1000; i++ {
+			list = append(list, entry(i))
+		}
+		block := syncReleaseBlock("feat", "2026-11-07", list)
+		// release-please takes any occurrence of the marker as the start of a
+		// block, so the prose never names it.
+		if strings.Contains(block, "COMMIT_OVERRIDE") || strings.Contains(block, "api(spec)") || len(block) > syncMaxRelease {
+			t.Errorf("block (%d bytes):\n%s", len(block), block)
+		}
+		expectContains(t, block, "The 1000 lines for \"API changes that can break typed code\" do not fit this description",
+			"use the message of this branch's sync commit as the commit message")
+		message := syncCommitMessage("feat", "2026-11-07", list)
+		if n := strings.Count(message, "BEGIN_NESTED_COMMIT\napi(spec): "); n != len(list) || !strings.HasPrefix(message, "feat(spec): sync API spec 2026-11-07\n\n") {
+			t.Errorf("commit message has %d lines:\n%.300s", n, message)
+		}
 	})
 	t.Run("a line never ends the block", func(t *testing.T) {
 		b := entry(0)
@@ -520,6 +535,11 @@ func TestSyncReleaseBlock(t *testing.T) {
 		block := syncReleaseBlock("feat", "2026-11-07", []syncBreaking{b})
 		if strings.Count(block, "END_COMMIT_OVERRIDE") != 1 || !strings.Contains(block, "end_commit_override x") {
 			t.Errorf("block:\n%s", block)
+		}
+	})
+	t.Run("documentation only", func(t *testing.T) {
+		if got := syncCommitMessage("chore", "2026-11-07", nil); got != "chore(spec): sync API spec 2026-11-07\n" {
+			t.Errorf("commit message = %q", got)
 		}
 	})
 }
