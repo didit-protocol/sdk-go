@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,11 +36,25 @@ var syncPinned = map[string]string{
 	"ccc799410f82eee1c25c7ce5abc6caa53846be6b": "1b0c7bdd8d7957bdf314651ebd7ecc491457810dd7a1430bce84feac9caea305",
 }
 
+// syncPinnedDir holds the pinned documents. They are in this repository but
+// not in the module users download (the directory has its own go.mod).
+var syncPinnedDir = filepath.Join("testdata", "spec-sync")
+
+// skipWithoutPinned skips a test outside this repository, where the pinned
+// documents are missing.
+func skipWithoutPinned(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(syncPinnedDir, "go.mod")); errors.Is(err, fs.ErrNotExist) {
+		t.Skip("the spec sync fixtures are not part of the downloaded module")
+	}
+}
+
 // readPinned returns the upstream document of commit, checked against its
 // SHA-256.
 func readPinned(t *testing.T, commit string) []byte {
 	t.Helper()
-	f, err := os.Open(filepath.Join("testdata", "spec-sync", "verification-"+commit+".json.gz"))
+	skipWithoutPinned(t)
+	f, err := os.Open(filepath.Join(syncPinnedDir, "verification-"+commit+".json.gz"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,6 +216,7 @@ var (
 // changed by setup (when set), against a copy changed by setup and edit.
 func probeAfter(t *testing.T, setup, edit func(doc *Node)) syncResult {
 	t.Helper()
+	skipWithoutPinned(t)
 	probeOnce.Do(func() {
 		full := mustNode(t, string(readPinned(t, "e002a815773bbd1599256e2774046ee76520c6c8")))
 		paths := syncObject()
