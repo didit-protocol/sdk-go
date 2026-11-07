@@ -258,12 +258,16 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 	}
 
 	var lines []string
-	// breaking collects the changes of the docs/DESIGN.md section 3.1 list,
-	// in the order every SDK lists them.
+	// breaking collects the changes the docs/DESIGN.md section 3.1 rules
+	// count, in the order every SDK lists them.
 	var breaking []syncBreaking
 	count := func(op string, c syncChange) {
 		c.breaking = true
 		breaking = append(breaking, syncBreaking{operation: op, change: c})
+	}
+	// removedOperation counts a server method that goes.
+	removedOperation := func(op, kind string) {
+		count(op, syncChange{kind: kind, code: "operation removed"})
 	}
 	kept := map[string]bool{}
 	handWritten := func(op *syncOp) bool { return syncHandWritten[op.file] }
@@ -325,12 +329,12 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 		case !n.server:
 			lines = append(lines, fmt.Sprintf("- `%s` (not exposed by server SDKs)", key))
 		case handWritten(oldOps.byKey[key]):
-			count(key, syncChange{kind: fmt.Sprintf("operation removed (`%s`)", n.name)})
+			removedOperation(key, fmt.Sprintf("operation removed (`%s`)", n.name))
 			lines = append(lines, fmt.Sprintf("- `%s` (`%s`): hand-written; remove it from the `authentication` module (its contract test fails until then)", key, n.name))
 		case newServerNames[n.name] != "":
 			lines = append(lines, fmt.Sprintf("- `%s` moved to `%s`; `%s` keeps its name", key, newServerNames[n.name], n.name))
 		default:
-			count(key, syncChange{kind: fmt.Sprintf("operation removed; `%s` stays as a deprecated method until version %s", n.name, removeIn)})
+			removedOperation(key, fmt.Sprintf("operation removed; `%s` stays as a deprecated method until version %s", n.name, removeIn))
 			lines = append(lines, fmt.Sprintf("- `%s` (`%s`): kept as a deprecated method until version %s, recorded in `openapi/deprecated-operations.json`", key, n.name, removeIn))
 			keep(n, key, "removed", "")
 		}
@@ -379,7 +383,7 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 			// (DESIGN 4), and an API key could not call it any more, so the
 			// method goes now.
 			renames = append(renames, fmt.Sprintf("- `%s` (`%s`) is no longer a server operation (auth %s); the method is removed", key, before.name, after.auth))
-			count(key, syncChange{kind: fmt.Sprintf("operation removed from server SDKs: it now needs %s, and `%s` is removed", after.auth, before.name)})
+			removedOperation(key, fmt.Sprintf("operation removed from server SDKs: it now needs %s, and `%s` is removed", after.auth, before.name))
 		default:
 			renames = append(renames, fmt.Sprintf("- `%s`: `%s` renamed to `%s`; the old name stays as a deprecated alias until version %s", key, before.name, after.name, removeIn))
 			keep(before, key, "renamed", after.name)
@@ -472,11 +476,16 @@ func syncSpecs(openapiDir string, downloads map[string][]byte, now time.Time, sd
 			}
 			continue
 		}
-		// Every SDK counts the changes of every operation, the ones server
-		// SDKs do not expose included, so that the seven lists are the same.
+		// The changes of an operation with server: false, before or after,
+		// are listed and never counted (DESIGN section 3.1); its method going
+		// counts above. One without naming counts: the generator fails until
+		// it is named.
 		marker := ""
-		if !exposed(oldNaming(key)) && !exposed(newNaming(key)) {
+		if before, after := oldNaming(key), newNaming(key); (before != nil && !before.server) || (after != nil && !after.server) {
 			marker = " (not exposed by server SDKs)"
+			for i := range found {
+				found[i] = found[i].listed()
+			}
 		}
 		if syncHasBreaking(found) {
 			marker += " **(breaking)**"

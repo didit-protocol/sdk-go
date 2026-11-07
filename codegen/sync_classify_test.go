@@ -322,12 +322,13 @@ func TestSyncReportsChangesInsideUnionsAndWrappers(t *testing.T) {
 		},
 		want: []string{"`POST /v3/webhook/destinations/` request body `subscribed_events[]`: type changed from string to integer"},
 	}, {
-		name: "a request field can now be null",
+		// It only widens what a caller may send (DESIGN 3.1).
+		name: "a request field that can now be null is listed",
 		edit: func(t *testing.T, doc *Node) {
 			doc.Path("paths", "/v3/database-validation/", "post", "requestBody", "content", "application/json", "schema", "properties", "issuing_state").
 				Set("nullable", &Node{Kind: Bool, Bool: true})
 		},
-		want: []string{"`POST /v3/database-validation/` request body `issuing_state`: can now be null"},
+		other: []string{"request body `issuing_state`: can now be null"},
 	}, {
 		name: "a media type goes with a field only it carried",
 		setup: func(t *testing.T, doc *Node) {
@@ -401,9 +402,6 @@ func TestSyncClassifiesWhatCallersCanObserve(t *testing.T) {
 			doc.Path("paths", "/v3/billing/top-up/", "post", "requestBody", "content", "application/json", "schema", "properties", "amount").
 				Set("maximum", mustNode(t, `1000`))
 		}, "feat", "- `POST /v3/billing/top-up/`: request body `amount`: other constraints changed (format, pattern, limits or default)"},
-		{"a removed parameter", func(t *testing.T, doc *Node) {
-			syncDeleteKey(doc.Path("paths", "/v3/session/{session_id}/decision/", "get"), "parameters")
-		}, "feat", "- `GET /v3/session/{session_id}/decision/`: parameter `verbose` (query): removed"},
 		{"a new request content type", func(t *testing.T, doc *Node) {
 			content := doc.Path("paths", "/v3/billing/top-up/", "post", "requestBody", "content")
 			content.Set("multipart/form-data", content.Get("application/json"))
@@ -438,22 +436,36 @@ func TestSyncClassifiesWhatCallersCanObserve(t *testing.T) {
 		})
 	}
 
-	// An operation server SDKs do not expose is compared like any other, so
-	// that every SDK lists the same changes.
+	// A removed parameter counts (DESIGN 3.1).
 	f := newSyncFixture(t)
+	doc := f.node("verification.json")
+	syncDeleteKey(doc.Path("paths", "/v3/session/{session_id}/decision/", "get"), "parameters")
+	res := f.syncDoc("verification.json", doc)
+	if res.typ != "feat" {
+		t.Errorf("type = %q, want feat", res.typ)
+	}
+	expectBreaking(t, res, "`GET /v3/session/{session_id}/decision/` query parameter `verbose`: removed")
+	expectContains(t, res.summary, "- `GET /v3/session/{session_id}/decision/` **(breaking)**: query parameter `verbose`: removed (breaking)\n")
+	if got := res.breaking[0].normalized(); got != "GET /v3/session/{session_id}/decision/ query verbose: removed" {
+		t.Errorf("normalized = %q", got)
+	}
+
+	// An operation server SDKs do not expose is compared like any other, and
+	// its changes are listed, never counted (DESIGN 3.1).
+	f = newSyncFixture(t)
 	old := f.node("verification.json")
 	old.Get("paths").Set("/v3/device/", mustNode(t, `{"post": {"operationId": "device_ping",
 		"x-didit-sdk": {"resource": "device", "method": "ping", "auth": "device_token", "server": false},
 		"responses": {"200": {"description": "ok", "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}}}}}}}}`))
 	f.writeNode("verification.json", old)
-	doc := f.node("verification.json")
+	doc = f.node("verification.json")
 	doc.Path("paths", "/v3/device/", "post", "responses", "200", "content", "application/json", "schema", "properties").Set("ok", mustNode(t, `{"type": "string"}`))
-	res := f.syncDoc("verification.json", doc)
+	res = f.syncDoc("verification.json", doc)
 	if res.typ != "feat" {
 		t.Errorf("type = %q, want feat", res.typ)
 	}
-	expectBreaking(t, res, "`POST /v3/device/` response `ok`: type changed from boolean to string")
-	expectContains(t, res.summary, "- `POST /v3/device/` (not exposed by server SDKs) **(breaking)**: response `ok`: type changed from boolean to string (breaking)")
+	expectBreaking(t, res)
+	expectContains(t, res.summary, "- `POST /v3/device/` (not exposed by server SDKs): response `ok`: type changed from boolean to string\n")
 }
 
 func TestSyncAuthenticationDocument(t *testing.T) {
