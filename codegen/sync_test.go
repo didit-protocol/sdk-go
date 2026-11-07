@@ -648,10 +648,10 @@ func TestSyncMovedOperationReportsWhatChanged(t *testing.T) {
 	res := f.syncDoc("verification.json", doc)
 	// The changes of a moved method count under its new path.
 	expectBreaking(t, res,
-		"`GET /v4/billing/balance/` parameter `dry_run` (query): added (required)",
+		"`GET /v4/billing/balance/` query parameter `dry_run`: added (required)",
 		"`GET /v4/billing/balance/` response: type changed from object to array")
 	expectContains(t, section(res.summary, "Moved or reassigned methods (1)"),
-		"- `billing.retrieve_balance` **(breaking)** moved from `GET /v3/billing/balance/` to `GET /v4/billing/balance/`: parameter `dry_run` (query): added (required) (breaking); response: type changed from object to array (breaking)")
+		"- `billing.retrieve_balance` **(breaking)** moved from `GET /v3/billing/balance/` to `GET /v4/billing/balance/`: query parameter `dry_run`: added (required) (breaking); response: type changed from object to array (breaking)")
 }
 
 func TestSyncSwappedNamesAreListedForReview(t *testing.T) {
@@ -796,12 +796,12 @@ func TestSyncReportsChangedOperationsAndSchemas(t *testing.T) {
 	// typed code on both sides (DESIGN 3.1).
 	expectBreaking(t, res,
 		"`GET /v3/session/{session_id}/decision/` response `status`: enum value \"Declined\" removed",
-		"`POST /v3/session/` parameter `dry_run` (query): added (required)",
+		"`POST /v3/session/` query parameter `dry_run`: added (required)",
 		"`POST /v3/session/` request body `workflow_id`: type changed from string to integer",
 		"`POST /v3/session/` response `status`: enum value \"Declined\" removed")
 	changed := section(summary, "Changed operations (3)")
 	expectContains(t, changed,
-		"- `POST /v3/session/` **(breaking)**: parameter `dry_run` (query): added (required) (breaking); request body `workflow_id`: type changed from string to integer (breaking); response `status`: enum value \"Declined\" removed (breaking)",
+		"- `POST /v3/session/` **(breaking)**: query parameter `dry_run`: added (required) (breaking); request body `workflow_id`: type changed from string to integer (breaking); response `status`: enum value \"Declined\" removed (breaking)",
 		"- `GET /v3/session/{session_id}/decision/` **(breaking)**: response `status`: enum value \"Declined\" removed (breaking)",
 		"- `POST /v3/billing/top-up/`: descriptions, examples or other details changed")
 	expectContains(t, section(summary, "Schemas"),
@@ -1046,59 +1046,71 @@ func TestDiffSchemaRules(t *testing.T) {
 	}
 	status := `{"type": "string", "enum": ["a", "b"]}`
 	// A removed enum value breaks typed code on both sides (DESIGN 3.1).
-	expect(diff(status, `{"type": "string", "enum": ["a"]}`, true), syncChange{path: "x", kind: `enum value "b" removed`, breaking: true})
-	expect(diff(status, `{"type": "string", "enum": ["a"]}`, false), syncChange{path: "x", kind: `enum value "b" removed`, breaking: true})
+	expect(diff(status, `{"type": "string", "enum": ["a"]}`, true), syncChange{path: "x", kind: `enum value "b" removed`, breaking: true, code: `enum value "b" removed`})
+	expect(diff(status, `{"type": "string", "enum": ["a"]}`, false), syncChange{path: "x", kind: `enum value "b" removed`, breaking: true, code: `enum value "b" removed`})
 	expect(diff(status, `{"type": "string", "enum": ["a", "b", "ü"]}`, false), syncChange{path: "x", kind: `enum values added ["ü"]`})
 	expect(diff(`{"type": "string"}`, status, true), syncChange{path: "x", kind: `now limited to ["a", "b"]`})
 	expect(diff(status, `{"type": "string"}`, false), syncChange{path: "x", kind: "no longer limited to fixed values"})
 	obj := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}`
 	optional := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": []}`
-	expect(diff(obj, optional, false), syncChange{path: "x.a", kind: "no longer always present"})
+	// A response field that may be missing breaks code that reads it; a
+	// request field that may be left out only widens what a caller may send.
+	expect(diff(obj, optional, false), syncChange{path: "x.a", kind: "no longer always present", breaking: true, code: "no longer required"})
 	expect(diff(optional, obj, false), syncChange{path: "x.a", kind: "now always present"})
-	expect(diff(optional, obj, true), syncChange{path: "x.a", kind: "now required", breaking: true})
+	expect(diff(optional, obj, true), syncChange{path: "x.a", kind: "now required", breaking: true, code: "now required"})
 	expect(diff(obj, optional, true), syncChange{path: "x.a", kind: "no longer required"})
 	// Any type change counts, in either direction and on either side.
-	expect(diff(`{"type": "integer"}`, `{"type": "number"}`, true), syncChange{path: "x", kind: "type changed from integer to number", breaking: true})
-	expect(diff(`{"type": "number"}`, `{"type": "integer"}`, false), syncChange{path: "x", kind: "type changed from number to integer", breaking: true})
-	expect(diff(`{"type": "string"}`, `{"type": "string", "format": "date-time"}`, false), syncChange{path: "x", kind: "type changed from string to string (date-time)", breaking: true})
-	expect(diff(`{"type": "string"}`, `{}`, false), syncChange{path: "x", kind: "type changed from string to any", breaking: true})
+	expect(diff(`{"type": "integer"}`, `{"type": "number"}`, true), syncChange{path: "x", kind: "type changed from integer to number", breaking: true, code: "type integer -> number"})
+	expect(diff(`{"type": "number"}`, `{"type": "integer"}`, false), syncChange{path: "x", kind: "type changed from number to integer", breaking: true, code: "type number -> integer"})
+	expect(diff(`{"type": "string"}`, `{"type": "string", "format": "date-time"}`, false), syncChange{path: "x", kind: "type changed from string to string (date-time)", breaking: true, code: "type string -> string (date-time)"})
+	expect(diff(`{"type": "string"}`, `{}`, false), syncChange{path: "x", kind: "type changed from string to any", breaking: true, code: "type string -> any"})
 	// date-time, date and binary are types of their own in the shared list;
 	// other formats are constraints.
-	expect(diff(`{"type": "string"}`, `{"type": "string", "format": "date"}`, true), syncChange{path: "x", kind: "type changed from string to string (date)", breaking: true})
+	expect(diff(`{"type": "string"}`, `{"type": "string", "format": "date"}`, true), syncChange{path: "x", kind: "type changed from string to string (date)", breaking: true, code: "type string -> string (date)"})
 	expect(diff(`{"type": "string", "format": "uuid"}`, `{"type": "string", "format": "email"}`, false), syncChange{path: "x", kind: "other constraints changed (format, pattern, limits or default)"})
 	// Required names in another order are the same.
 	expect(diff(`{"type": "object", "properties": {"a": {}, "b": {}}, "required": ["a", "b"]}`, `{"type": "object", "properties": {"a": {}, "b": {}}, "required": ["b", "a"]}`, true))
-	// Unions: a removed variant, and variants paired by title although they
-	// moved, named by their new position.
+	// Unions: a removed variant (one type per variant), and variants paired by
+	// title although they moved, named by their new position.
 	card := `{"title": "Card", "type": "object", "properties": {"n": {"type": "string"}}}`
 	bank := `{"title": "Bank", "type": "object", "properties": {"iban": {"type": "string"}}}`
 	expect(diff(`{"oneOf": [`+card+`, `+bank+`]}`, `{"oneOf": [`+card+`]}`, false),
-		syncChange{path: "x", kind: "type changed: 1 oneOf variant(s) removed", breaking: true})
+		syncChange{path: "x", kind: "type changed: 1 oneOf variant(s) removed", breaking: true, code: "type object|object -> object"})
 	expect(diff(`{"oneOf": [`+card+`, `+bank+`]}`, `{"oneOf": [`+bank+`, {"title": "Card", "type": "object", "properties": {"n": {"type": "integer"}}}]}`, false),
-		syncChange{path: "x(oneOf 2).n", kind: "type changed from string to integer", breaking: true},
+		syncChange{path: "x(oneOf 2).n", kind: "type changed from string to integer", breaking: true, code: "type string -> integer"},
 		syncChange{path: "x", kind: "oneOf variants reordered"})
-	// Null, in responses and requests alike.
-	expect(diff(`{"type": "string"}`, `{"type": "string", "nullable": true}`, false), syncChange{path: "x", kind: "can now be null", breaking: true})
-	expect(diff(`{"type": "string"}`, `{"type": ["string", "null"]}`, true), syncChange{path: "x", kind: "can now be null", breaking: true})
-	expect(diff(`{"type": "string"}`, `{"anyOf": [{"type": "string"}, {"type": "null"}]}`, false), syncChange{path: "x", kind: "can now be null", breaking: true})
+	// A renamed inline variant title is listed: it names the variant's type in
+	// the SDKs that generate one per variant.
+	expect(diff(`{"oneOf": [`+card+`, `+bank+`]}`, `{"oneOf": [{"title": "Card payment", "type": "object", "properties": {"n": {"type": "string"}}}, `+bank+`]}`, false),
+		syncChange{path: "x(oneOf 1)", kind: "variant type renamed from Card to CardPayment"})
+	// A variant is numbered with the null variant before it, and carries the
+	// fields the union requires.
+	expect(diff(`{"anyOf": [{"type": "null"}, `+card+`, `+bank+`], "required": ["n"]}`, `{"anyOf": [{"type": "null"}, `+card+`, `+bank+`]}`, false),
+		syncChange{path: "x(anyOf 2).n", kind: "no longer always present", breaking: true, code: "no longer required"},
+		syncChange{path: "x(anyOf 3)", kind: "other constraints changed (format, pattern, limits or default)"})
+	// Null counts in a response; a request that accepts it only widens what
+	// a caller may send.
+	expect(diff(`{"type": "string"}`, `{"type": "string", "nullable": true}`, false), syncChange{path: "x", kind: "can now be null", breaking: true, code: "can now be null"})
+	expect(diff(`{"type": "string"}`, `{"type": ["string", "null"]}`, true), syncChange{path: "x", kind: "can now be null"})
+	expect(diff(`{"type": "string"}`, `{"anyOf": [{"type": "string"}, {"type": "null"}]}`, false), syncChange{path: "x", kind: "can now be null", breaking: true, code: "can now be null"})
 	expect(diff(`{"type": ["string", "null"]}`, `{"type": "string"}`, true), syncChange{path: "x", kind: "no longer accepts null"})
 	expect(diff(`{"type": ["string", "null"]}`, `{"type": "string"}`, false), syncChange{path: "x", kind: "can no longer be null"})
 	expect(diff(`{"type": "array", "items": `+obj+`}`, `{"type": "array", "items": {"type": "object", "properties": {}}}`, false),
-		syncChange{path: "x[].a", kind: "removed", breaking: true})
+		syncChange{path: "x[].a", kind: "removed", breaking: true, code: "removed"})
 	expect(diff(`{"type": "object", "properties": {}}`, `{"type": "object", "properties": {"b": {"type": "string"}}, "required": ["b"]}`, true),
-		syncChange{path: "x.b", kind: "added (required)", breaking: true})
+		syncChange{path: "x.b", kind: "added (required)", breaking: true, code: "now required"})
 	expect(diff(`{"type": "object", "properties": {}}`, `{"type": "object", "properties": {"b": {"type": "string"}}, "required": ["b"]}`, false),
 		syncChange{path: "x.b", kind: "added"})
 	expect(diff(`{"type": "object", "additionalProperties": {"type": "string"}}`, `{"type": "object", "additionalProperties": {"type": "integer"}}`, false),
-		syncChange{path: "x{}", kind: "type changed from string to integer", breaking: true})
+		syncChange{path: "x{}", kind: "type changed from string to integer", breaking: true, code: "type string -> integer"})
 	// A field the generated type leaves out (readOnly in a request, writeOnly
 	// in a response) is not there for typed code.
 	visible := `{"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}`
 	readOnly := `{"type": "object", "properties": {"a": {"type": "string", "readOnly": true}}, "required": ["a"]}`
 	writeOnly := `{"type": "object", "properties": {"a": {"type": "string", "writeOnly": true}}, "required": ["a"]}`
-	expect(diff(visible, readOnly, true), syncChange{path: "x.a", kind: "removed (now read-only)", breaking: true})
-	expect(diff(visible, writeOnly, false), syncChange{path: "x.a", kind: "removed (now write-only)", breaking: true})
-	expect(diff(readOnly, visible, true), syncChange{path: "x.a", kind: "added (required)", breaking: true})
+	expect(diff(visible, readOnly, true), syncChange{path: "x.a", kind: "removed (now read-only)", breaking: true, code: "removed"})
+	expect(diff(visible, writeOnly, false), syncChange{path: "x.a", kind: "removed (now write-only)", breaking: true, code: "removed"})
+	expect(diff(readOnly, visible, true), syncChange{path: "x.a", kind: "added (required)", breaking: true, code: "now required"})
 	expect(diff(writeOnly, visible, false), syncChange{path: "x.a", kind: "added"})
 	expect(diff(visible, writeOnly, true), syncChange{path: "x.a", kind: "other constraints changed (format, pattern, limits or default)"})
 	expect(diff(visible, readOnly, false), syncChange{path: "x.a", kind: "other constraints changed (format, pattern, limits or default)"})
@@ -1109,7 +1121,7 @@ func TestDiffSchemaRules(t *testing.T) {
 	expect(diff(obj, documented, false))
 	// A property called like a documentation keyword still counts.
 	expect(diff(`{"type": "object", "properties": {"title": {"type": "string"}}}`, `{"type": "object", "properties": {"title": {"type": "integer"}}}`, false),
-		syncChange{path: "x.title", kind: "type changed from string to integer", breaking: true})
+		syncChange{path: "x.title", kind: "type changed from string to integer", breaking: true, code: "type string -> integer"})
 }
 
 func TestDiffFollowsRecursiveReferences(t *testing.T) {

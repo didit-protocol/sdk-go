@@ -9,6 +9,7 @@ Thanks for helping. This repository is one of the seven Didit server SDKs. They 
 | `*_gen.go`, `*_gen_test.go` | Generated resources, types and one test per operation | `go run ./codegen` only |
 | `codegen/` | The generator (Go, standard library), and `codegen sync` for the spec sync | hand |
 | `openapi/verification.json`, `openapi/account.json`, `openapi/authentication.json`, `openapi/webhook-vectors.json` | Upstream copies | the spec sync workflow only |
+| `openapi/breaking-vectors.json` | The breaking-change rules of docs/DESIGN.md section 3.1 as cases; `codegen/sync_vectors_test.go` runs each through `codegen sync` | copied byte for byte from sdk-python only |
 | `openapi/overlay.json` | SDK naming (`x-didit-sdk`) for operations upstream does not name yet | hand, identical in all seven SDKs |
 | `openapi/deprecated-operations.json` | Removed or renamed operations kept for one minor version | `codegen sync` |
 | `openapi/compatibility.json` | Released Go names kept after the API changed the schema behind them | hand |
