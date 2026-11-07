@@ -1265,11 +1265,9 @@ func (d *syncDiffer) pairVariants(old, new []*Node) (pairs [][2]int, leftOld, le
 
 // ---- operations ---------------------------------------------------------------
 
-// syncParamKey identifies a parameter.
+// syncParamKey identifies a parameter. A change of it has its location as
+// where, and its name (then the field in it) as path.
 type syncParamKey struct{ in, name string }
-
-// where names the parameter in a change.
-func (k syncParamKey) where() string { return fmt.Sprintf("parameter `%s` (%s)", k.name, k.in) }
 
 func (d *syncDiffer) params(doc *Doc, op *Node) (map[syncParamKey]*Node, []syncParamKey) {
 	out := map[syncParamKey]*Node{}
@@ -1414,14 +1412,25 @@ func (d *syncDiffer) diffContent(old, new syncMedia, where string, request bool,
 	}
 }
 
-// diffStatuses lists the success statuses only one side has. A method
-// returns every 2xx body, nullable when one has none: a status without a
-// body makes it nullable, and a removed status whose body no other one
-// returns removes a variant of it (docs/DESIGN.md section 3.1).
-func (d *syncDiffer) diffStatuses(old, new map[string]syncMedia) []syncChange {
+// diffStatuses lists the success statuses not compared body by body:
+// removed (only old has them, or their body disappeared) and added (only new
+// has them, or their body appeared). A method returns every 2xx body,
+// nullable when one has none: a status without a body makes it nullable, and
+// a removed status whose body no other one returns removes a variant of it,
+// null when no body is left (docs/DESIGN.md section 3.1).
+func (d *syncDiffer) diffStatuses(old, new map[string]syncMedia, removed, added []string) []syncChange {
 	var found []syncChange
-	add := func(kind string, breaking bool) {
-		found = append(found, syncChange{where: "response", kind: kind, breaking: breaking})
+	add := func(kind, code string) {
+		found = append(found, syncChange{where: "response", kind: kind, breaking: code != "", code: code})
+	}
+	// returned reports whether another body of responses (of doc) is body.
+	returned := func(responses map[string]syncMedia, body syncMedia, bodyIsOld bool) bool {
+		for _, c := range responses {
+			if len(c) > 0 && ((bodyIsOld && d.sameContent(body, c)) || (!bodyIsOld && d.sameContent(c, body))) {
+				return true
+			}
+		}
+		return false
 	}
 	returnsNull := func(responses map[string]syncMedia) bool {
 		for _, c := range responses {
@@ -1431,43 +1440,74 @@ func (d *syncDiffer) diffStatuses(old, new map[string]syncMedia) []syncChange {
 		}
 		return false
 	}
-	for _, status := range syncSortedStatuses(new) {
-		if _, ok := old[status]; ok {
-			continue
-		}
-		body := new[status]
-		returned := false
-		for _, c := range old {
-			returned = returned || (len(c) > 0 && d.sameContent(c, body))
-		}
-		switch {
+	for _, status := range added {
+		_, kept := old[status]
+		switch body := new[status]; {
 		case len(body) == 0 && syncAnyBody(old) && !returnsNull(old):
-			add(fmt.Sprintf("can now be null (status %s has no body)", status), true)
-		case len(body) > 0 && !returned:
-			add(fmt.Sprintf("status %s added with another body", status), false)
+			label := "has no body"
+			if kept {
+				label = "lost its body"
+			}
+			add(fmt.Sprintf("can now be null (status %s %s)", status, label), "can now be null")
+		case kept:
+			// A body that appeared or disappeared: said with the old side below.
+		case len(body) > 0 && !returned(old, body, false):
+			add(fmt.Sprintf("status %s added with another body", status), "")
 		default:
-			add(fmt.Sprintf("status %s added", status), false)
+			add(fmt.Sprintf("status %s added", status), "")
 		}
 	}
-	for _, status := range syncSortedStatuses(old) {
-		if _, ok := new[status]; ok {
-			continue
-		}
+	for _, status := range removed {
 		body := old[status]
-		returned := false
-		for _, c := range new {
-			returned = returned || (len(c) > 0 && d.sameContent(body, c))
+		change := "removed"
+		if _, kept := new[status]; kept && len(body) > 0 {
+			change = "lost its body"
+		} else if kept {
+			change = "now has a body"
 		}
 		switch {
 		case len(body) == 0 && syncAnyBody(new) && !returnsNull(new):
-			add(fmt.Sprintf("can no longer be null (status %s removed)", status), false)
-		case len(body) > 0 && !returned:
-			add(fmt.Sprintf("type changed: status %s removed, and no other status returns its body", status), true)
+			add(fmt.Sprintf("can no longer be null (status %s %s)", status, change), "")
+		case len(body) > 0 && !returned(new, body, true):
+			add(fmt.Sprintf("type changed: status %s %s, and no other status returns its body", status, change),
+				"type "+d.bodyTypes(d.old, old)+" -> "+d.bodyTypes(d.new, new))
 		default:
-			add(fmt.Sprintf("status %s removed", status), false)
+			add(fmt.Sprintf("status %s %s", status, change), "")
 		}
 	}
 	return found
+}
+
+// bodyTypes names what a method returns from responses (of doc) as the
+// vectors do: one type per distinct body (its JSON media type, or else the
+// first), "null" when none has one.
+func (d *syncDiffer) bodyTypes(doc *Doc, responses map[string]syncMedia) string {
+	same := newSyncDiffer(doc, doc)
+	var distinct []syncMedia
+	var schemas []*Node
+	for _, status := range syncSortedStatuses(responses) {
+		c := responses[status]
+		if len(c) == 0 {
+			continue
+		}
+		seen := false
+		for _, other := range distinct {
+			seen = seen || same.sameContent(other, c)
+		}
+		if seen {
+			continue
+		}
+		distinct = append(distinct, c)
+		main := c["application/json"]
+		if main == nil {
+			main = c[c.sorted()[0]]
+		}
+		schemas = append(schemas, main)
+	}
+	if names := d.unionNames(doc, schemas); names != "" {
+		return names
+	}
+	return "null"
 }
 
 // syncAnyBody reports whether a response of responses has a body.
@@ -1488,15 +1528,18 @@ func syncAnyBody(responses map[string]syncMedia) bool {
 // changed. old belongs to d.old, new to d.new.
 func (d *syncDiffer) describeChange(old, new *Node) []syncChange {
 	var found []syncChange
-	add := func(where, kind string, breaking bool) {
-		found = append(found, syncChange{where: where, kind: kind, breaking: breaking})
+	add := func(where, path, kind, code string) {
+		found = append(found, syncChange{where: where, path: path, kind: kind, breaking: code != "", code: code})
 	}
 
+	// A removed parameter, a new required one and one that becomes required
+	// count; one that stops being required only widens what a caller may
+	// send.
 	oldParams, oldKeys := d.params(d.old, old)
 	newParams, newKeys := d.params(d.new, new)
 	for _, k := range oldKeys {
 		if newParams[k] == nil {
-			add(k.where(), "removed", false)
+			add(k.in, k.name, "removed", "removed")
 		}
 	}
 	for _, k := range newKeys {
@@ -1504,9 +1547,9 @@ func (d *syncDiffer) describeChange(old, new *Node) []syncChange {
 			continue
 		}
 		if newParams[k].Get("required").Truthy() {
-			add(k.where(), "added (required)", true)
+			add(k.in, k.name, "added (required)", "now required")
 		} else {
-			add(k.where(), "added", false)
+			add(k.in, k.name, "added", "")
 		}
 	}
 	for _, k := range oldKeys {
@@ -1514,43 +1557,64 @@ func (d *syncDiffer) describeChange(old, new *Node) []syncChange {
 		if np == nil {
 			continue
 		}
-		if !oldParams[k].Get("required").Truthy() && np.Get("required").Truthy() {
-			add(k.where(), "now required", true)
+		switch was, now := oldParams[k].Get("required").Truthy(), np.Get("required").Truthy(); {
+		case now && !was:
+			add(k.in, k.name, "now required", "now required")
+		case was && !now:
+			add(k.in, k.name, "no longer required", "")
 		}
-		d.diffSchema(syncOrObject(oldParams[k].Get("schema")), syncOrObject(np.Get("schema")), k.where(), "", true, &found, 0)
+		d.diffSchema(syncOrObject(oldParams[k].Get("schema")), syncOrObject(np.Get("schema")), k.in, k.name, true, &found, 0)
 	}
 
 	oldBody, newBody := syncOrObject(old.Get("requestBody")), syncOrObject(new.Get("requestBody"))
-	if !syncDeref(d.old, oldBody).Get("required").Truthy() && syncDeref(d.new, newBody).Get("required").Truthy() {
-		add("request body", "now required", false)
+	switch was, now := syncDeref(d.old, oldBody).Get("required").Truthy(), syncDeref(d.new, newBody).Get("required").Truthy(); {
+	case now && !was:
+		add("request body", "", "now required", "body now required")
+	case was && !now:
+		add("request body", "", "no longer required", "")
 	}
 	d.diffContent(syncContent(d.old, oldBody), syncContent(d.new, newBody), "request body", true, &found)
 
-	// Every 2xx response both have; when the only success status changed
-	// (200 to 201), the old body against the new one; otherwise the statuses
-	// only one side has.
+	// Every 2xx response both have, with a body on both sides or on neither;
+	// when the only success status changed (200 to 201), the old body
+	// against the new one. The other statuses, and a body that appeared or
+	// disappeared, change what the method returns.
 	oldResponses, newResponses := syncSuccesses(d.old, old), syncSuccesses(d.new, new)
 	var statuses [][2]string
+	compared := map[string]bool{}
 	for _, s := range syncSortedStatuses(oldResponses) {
-		if _, ok := newResponses[s]; ok {
+		if n, ok := newResponses[s]; ok && (len(oldResponses[s]) > 0) == (len(n) > 0) {
 			statuses = append(statuses, [2]string{s, s})
+			compared[s] = true
 		}
 	}
-	if len(statuses) == 0 && len(oldResponses) == 1 && len(newResponses) == 1 {
-		statuses = append(statuses, [2]string{syncSortedStatuses(oldResponses)[0], syncSortedStatuses(newResponses)[0]})
-		add("response", fmt.Sprintf("status %s -> %s", statuses[0][0], statuses[0][1]), false)
+	oldOnly, newOnly := syncSortedStatuses(oldResponses), syncSortedStatuses(newResponses)
+	if len(statuses) == 0 && len(oldResponses) == 1 && len(newResponses) == 1 && (len(oldResponses[oldOnly[0]]) > 0) == (len(newResponses[newOnly[0]]) > 0) {
+		statuses = append(statuses, [2]string{oldOnly[0], newOnly[0]})
+		add("response", "", fmt.Sprintf("status %s -> %s", oldOnly[0], newOnly[0]), "")
 	} else {
-		found = append(found, d.diffStatuses(oldResponses, newResponses)...)
+		var removed, added []string
+		for _, s := range oldOnly {
+			if !compared[s] {
+				removed = append(removed, s)
+			}
+		}
+		for _, s := range newOnly {
+			if !compared[s] {
+				added = append(added, s)
+			}
+		}
+		found = append(found, d.diffStatuses(oldResponses, newResponses, removed, added)...)
 	}
 	for _, s := range statuses {
 		d.diffContent(oldResponses[s[0]], newResponses[s[1]], "response", false, &found)
 	}
 
 	if !old.Get("deprecated").Truthy() && new.Get("deprecated").Truthy() {
-		add("operation", "marked deprecated upstream", false)
+		add("operation", "", "marked deprecated upstream", "")
 	}
 	if was, now := syncNotNull(old.Get("x-didit-sdk")), syncNotNull(new.Get("x-didit-sdk")); now != nil && !syncEqual(was, now) {
-		add("x-didit-sdk", "now "+syncEncode(now, syncSortedInlineStyle), false)
+		add("x-didit-sdk", "", "now "+syncEncode(now, syncSortedInlineStyle), "")
 	}
 
 	// One entry per change, even when several responses or media types share
