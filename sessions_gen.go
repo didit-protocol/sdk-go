@@ -4115,9 +4115,7 @@ type SessionDecision struct {
 	// `account_lookup` (account check), or a `statement` or `microdeposits`
 	// fallback, and `none` when the person continued without a bank before any
 	// attempt was evaluated (`continued_without_bank`). See [Bank verification
-	// methods](/core-technology/bank-verification/verification-methods). Bank
-	// Verification is not enabled in production yet, so this stays `null` on
-	// production sessions until it is.
+	// methods](/core-technology/bank-verification/verification-methods).
 	BankVerifications []BankVerificationResult `json:"bank_verifications"`
 
 	// E-signature results, one item per signer and signature step, for User and
