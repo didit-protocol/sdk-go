@@ -73,7 +73,10 @@ func (r *AccountService) ResendOTP(ctx context.Context, params AccountResendOTPP
 // VerifyEmail: Verify Email and Issue Credentials.
 //
 // Step 2 of onboarding. Exchanges the 6-char code for a verified account, a
-// default org+app, and a JWT pair. Persist the returned `api_key`.
+// default org+app, and a JWT pair. Persist the returned `api_key`. An account
+// that already has an authenticator app or a passkey gets the same
+// second-factor step as the login instead: `2fa_required: true` and a
+// `temp_token`, with no tokens and no application keys.
 //
 //	POST /programmatic/verify-email/
 func (r *AccountService) VerifyEmail(ctx context.Context, params VerifyEmailRequest, opts ...option.RequestOption) (*VerifyEmailResponse, error) {
@@ -319,6 +322,21 @@ type VerifyEmailResponse struct {
 	ExpiresIn    int64                         `json:"expires_in"`
 	Organization OrganizationSummary           `json:"organization"`
 	Application  ApplicationCredentialsSummary `json:"application"`
+
+	// Present and `true` when the account already has an authenticator app or a
+	// passkey. The response then carries `temp_token` instead of tokens and
+	// application keys.
+	Field2faRequired bool `json:"2fa_required"`
+
+	// Short-lived token for the second-factor step, sent only with `2fa_required`.
+	// It is not an access token.
+	TempToken string `json:"temp_token"`
+
+	// With `2fa_required`: whether the account has an authenticator app.
+	HasAuthenticator bool `json:"has_authenticator"`
+
+	// With `2fa_required`: whether the account has a passkey.
+	HasPasskeys bool `json:"has_passkeys"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
