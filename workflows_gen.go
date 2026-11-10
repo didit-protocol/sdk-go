@@ -237,7 +237,13 @@ const (
 // WorkflowDetail: The fields below are typed; the object also carries every
 // other column of the workflow configuration (feature toggles, thresholds,
 // warning actions, allowed documents, callbacks) as additional properties.
-// Fields that do not apply to the `workflow_type` are `null`.
+// Fields that do not apply to the `workflow_type` are `null`. For a workflow
+// built from a `workflow_graph`, `face_match_score_decline_threshold` and
+// `face_match_score_review_threshold` report the thresholds its Face Match step
+// applies: the step's own values, or the defaults `30` and `60` when the step
+// sets none (the step's `config` in `workflow_graph` states the same values).
+// When the workflow has several Face Match steps with different thresholds,
+// read each step's `config`.
 type WorkflowDetail struct {
 	// Per-version identifier (`settings_uuid`). Every version of a workflow has its
 	// own.
