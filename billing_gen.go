@@ -5,6 +5,7 @@ package didit
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/didit-protocol/sdk-go/option"
 )
@@ -31,11 +32,45 @@ func (r *BillingService) RetrieveBalance(ctx context.Context, opts ...option.Req
 
 // TopUp: Top up credits.
 //
-// Add credits via a hosted Stripe Checkout session (**\$50 to \$20,000** per
-// top-up). Top-ups are available on the Free, Growth and Scale plans, added at
-// face value with no discount or bonus, and last 12 months; Enterprise annual
-// contracts cannot top up. Redirect the customer to the returned
-// `checkout_session_url`.
+// Add credits to the organization's balance (**\$50 to \$20,000** per top-up).
+// Top-ups are available on the Free, Growth and Scale plans, added at face
+// value with no discount or bonus, and last 12 months; Enterprise annual
+// contracts cannot top up.
+//
+// Two payment methods, chosen with `payment_method`:
+//
+//   - `checkout` (default): creates a hosted Stripe Checkout session. Redirect
+//     the customer to the returned `checkout_session_url` (`200`).
+//   - `saved_card`: charges the organization's saved primary card off-session,
+//     now, at the normal self-serve amounts. Send an `Idempotency-Key` header
+//     (required for this method). It answers `201` when the card was charged,
+//     and `202` when a request with the same key is still being processed.
+//
+// **Agent top-ups (`saved_card`).** One switch controls them: "Connected AI
+// agents can top up with your saved card". It is off by default and only a
+// person signed in to the console can turn it on (Billing > Payment methods),
+// never an API key or an agent. While it is on, agents and API keys can top up
+// with the primary saved card. When it is off, the request returns `403`
+// `agent_top_up_not_enabled` with a link a person can use to top up in the
+// console.
+//
+// The balance is credited once the payment is confirmed, usually within
+// seconds, and tax is added to the amount charged when it applies, so `total`
+// can be higher than `credit_amount`. Read `GET /v3/billing/balance/` to
+// confirm.
+//
+// **Idempotency.** Retrying with the same `Idempotency-Key` and the same amount
+// returns the same top-up and never charges twice. The same key with another
+// amount returns `409` `idempotency_key_conflict`.
+//
+// Every error of a `saved_card` request carries a `code` and a `detail`, and
+// most also a `next_step` (read it only when it is present). When the step
+// needs a person (for example `authentication_required`, where the card's bank
+// asks the cardholder to approve and nothing is charged), `next_step.url` is a
+// signed link to the console that opens the Top up dialog with the amount
+// filled in and says which agent asked; nothing is charged until the person
+// pays. Each top-up is marked with the agent's name in billing history and in
+// the ordinary receipt email.
 //
 //	POST /v3/billing/top-up/
 func (r *BillingService) TopUp(ctx context.Context, params BillingTopUpParams, opts ...option.RequestOption) (*BillingTopUpResponse, error) {
@@ -66,6 +101,11 @@ type BillingRetrieveBalanceResponse struct {
 	// value. `null` when auto-refill is disabled or unset.
 	AutoRefillThreshold string `json:"auto_refill_threshold"`
 
+	// Whether agents can top up this organization with its saved card. Off by
+	// default; a person signed in to the console turns on "Connected AI agents can
+	// top up with your saved card" in Billing > Payment methods.
+	AgentTopUp AgentTopUpSettings `json:"agent_top_up"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -76,30 +116,82 @@ func (r *BillingRetrieveBalanceResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// AgentTopUpSettings: Whether agents can top up this organization with its
+// saved card. One switch, "Connected AI agents can top up with your saved
+// card", off by default.
+type AgentTopUpSettings struct {
+	// `true` once a person signed in to the console turned on "Connected AI agents
+	// can top up with your saved card" in Billing > Payment methods. Off by
+	// default.
+	Enabled bool `json:"enabled"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AgentTopUpSettings leniently.
+func (r *AgentTopUpSettings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // BillingTopUpParams holds the parameters of Client.Billing.TopUp.
 type BillingTopUpParams struct {
 	// Amount to charge, in USD. **Must be from 50 to 20,000.** The balance receives
-	// the same amount, with no discount or bonus. Tax is added automatically at
-	// checkout based on the customer's billing address. Required.
+	// the same amount, with no discount or bonus. Tax is added automatically, at
+	// checkout or to the saved card charge, based on the customer's billing
+	// address. Required.
 	AmountInDollars float64 `json:"amount_in_dollars"`
 
-	// URL the hosted checkout redirects the customer to after a successful payment.
-	// Currently defaults to `https://console.didit.me`. Pass a working URL
-	// explicitly; the default host is unavailable. Append the literal placeholder
-	// `{CHECKOUT_SESSION_ID}` if you want the hosted checkout to substitute the
-	// session ID.
+	// Checkout only. URL the hosted checkout redirects the customer to after a
+	// successful payment. Currently defaults to `https://console.didit.me`. Pass a
+	// working URL explicitly; the default host is unavailable. Append the literal
+	// placeholder `{CHECKOUT_SESSION_ID}` if you want the hosted checkout to
+	// substitute the session ID.
 	SuccessURL Opt[string] `json:"success_url"`
 
-	// URL the hosted checkout redirects the customer to when they abort or close
-	// the Checkout window. Currently defaults to `https://console.didit.me`. Pass a
-	// working URL explicitly; the default host is unavailable.
+	// Checkout only. URL the hosted checkout redirects the customer to when they
+	// abort or close the Checkout window. Currently defaults to
+	// `https://console.didit.me`. Pass a working URL explicitly; the default host
+	// is unavailable.
 	CancelURL Opt[string] `json:"cancel_url"`
+
+	// How the top-up is paid. `checkout` (default) creates a hosted Checkout
+	// session and answers `200`. `saved_card` charges the organization's saved
+	// primary card off-session, requires the `Idempotency-Key` header and
+	// "Connected AI agents can top up with your saved card" to be on, and answers
+	// `201` or `202`. `success_url` and `cancel_url` apply to `checkout` only.
+	PaymentMethod Opt[BillingTopUpParamsPaymentMethod] `json:"payment_method"`
+
+	// Retry-safety key, 1 to 255 characters. **Required when `payment_method` is
+	// `saved_card`** (a request without it returns `400`
+	// `idempotency_key_required`); ignored for `checkout`. Reusing the same key
+	// with the same amount returns the original top-up and never charges twice.
+	// Reusing the key with another amount returns `409` `idempotency_key_conflict`.
+	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
 // MarshalJSON encodes the fields that are set.
 func (r BillingTopUpParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
+
+// BillingTopUpParamsPaymentMethod: How the top-up is paid. `checkout` (default)
+// creates a hosted Checkout session and answers `200`. `saved_card` charges the
+// organization's saved primary card off-session, requires the `Idempotency-Key`
+// header and "Connected AI agents can top up with your saved card" to be on,
+// and answers `201` or `202`. `success_url` and `cancel_url` apply to
+// `checkout` only.
+//
+// BillingTopUpParamsPaymentMethod is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type BillingTopUpParamsPaymentMethod string
+
+// Known values of BillingTopUpParamsPaymentMethod.
+const (
+	BillingTopUpParamsPaymentMethodCheckout  BillingTopUpParamsPaymentMethod = "checkout"
+	BillingTopUpParamsPaymentMethodSavedCard BillingTopUpParamsPaymentMethod = "saved_card"
+)
 
 // BillingTopUpResponse is a response object.
 type BillingTopUpResponse struct {
@@ -111,6 +203,16 @@ type BillingTopUpResponse struct {
 	// payment.
 	CheckoutSessionURL string `json:"checkout_session_url"`
 
+	// `paid`: the card was charged and the credit follows within seconds.
+	// `processing`: a request with the same `Idempotency-Key` is still being
+	// processed; retry with the same key.
+	Outcome BillingTopUpResponseOutcome `json:"outcome"`
+	TopUp   AgentTopUp                  `json:"top_up"`
+
+	// On a 202: why the top-up is still being processed. Retry with the same
+	// `Idempotency-Key`.
+	Detail string `json:"detail"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -120,3 +222,133 @@ type BillingTopUpResponse struct {
 func (r *BillingTopUpResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// BillingTopUpResponseOutcome: `paid`: the card was charged and the credit
+// follows within seconds. `processing`: a request with the same
+// `Idempotency-Key` is still being processed; retry with the same key.
+//
+// BillingTopUpResponseOutcome is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type BillingTopUpResponseOutcome string
+
+// Known values of BillingTopUpResponseOutcome.
+const (
+	BillingTopUpResponseOutcomePaid       BillingTopUpResponseOutcome = "paid"
+	BillingTopUpResponseOutcomeProcessing BillingTopUpResponseOutcome = "processing"
+)
+
+// AgentTopUp: A top-up made with the organization's saved card.
+type AgentTopUp struct {
+	// Top-up identifier.
+	ID string `json:"id"`
+
+	// `paid`: the card was charged. `open`: the payment is still being confirmed.
+	// `declined`: nothing was charged.
+	Status AgentTopUpStatus `json:"status"`
+
+	// USD added to the balance once the payment is confirmed, as a decimal string.
+	CreditAmount string `json:"credit_amount"`
+
+	// USD amount before tax, as a decimal string. `null` until the invoice exists.
+	Subtotal string `json:"subtotal"`
+
+	// USD tax added when it applies, as a decimal string. `0.00` when no tax
+	// applies.
+	Tax string `json:"tax"`
+
+	// USD charged to the card, tax included, as a decimal string.
+	Total string `json:"total"`
+
+	// Lowercase ISO 4217 currency code, `usd`.
+	Currency string `json:"currency"`
+
+	// The saved card that was charged.
+	Card  AgentTopUpCard `json:"card"`
+	Agent AgentIdentity  `json:"agent"`
+
+	// When the top-up was requested (UTC, ISO 8601).
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AgentTopUp leniently.
+func (r *AgentTopUp) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AgentTopUpStatus: `paid`: the card was charged. `open`: the payment is still
+// being confirmed. `declined`: nothing was charged.
+//
+// AgentTopUpStatus is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type AgentTopUpStatus string
+
+// Known values of AgentTopUpStatus.
+const (
+	AgentTopUpStatusPaid     AgentTopUpStatus = "paid"
+	AgentTopUpStatusOpen     AgentTopUpStatus = "open"
+	AgentTopUpStatusDeclined AgentTopUpStatus = "declined"
+)
+
+// AgentTopUpCard: The saved card that was charged.
+type AgentTopUpCard struct {
+	// Card brand, for example `visa`.
+	Brand string `json:"brand"`
+
+	// Last four digits of the card number.
+	Last4 string `json:"last4"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AgentTopUpCard leniently.
+func (r *AgentTopUpCard) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AgentIdentity: The agent that made a top-up, derived by Didit from the
+// credential used and never from the request body.
+type AgentIdentity struct {
+	// `api_key` is a full-access API key, `mcp_connection` is an MCP client signed
+	// in with Log in with Didit, and `member_token` is a member's programmatic
+	// token (used by the local MCP server).
+	Type AgentIdentityType `json:"type"`
+
+	// For `api_key`, the key's uuid, or `primary:<application uuid>` for an
+	// application's primary secret. For `mcp_connection`, the grant id. For
+	// `member_token`, the member's email.
+	ID string `json:"id"`
+
+	// Human-readable name shown in billing history, for example the key's label
+	// (`Primary` for the primary secret) or the member's email.
+	Label string `json:"label"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes AgentIdentity leniently.
+func (r *AgentIdentity) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// AgentIdentityType: `api_key` is a full-access API key, `mcp_connection` is an
+// MCP client signed in with Log in with Didit, and `member_token` is a member's
+// programmatic token (used by the local MCP server).
+//
+// AgentIdentityType is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type AgentIdentityType string
+
+// Known values of AgentIdentityType.
+const (
+	AgentIdentityTypeAPIKey        AgentIdentityType = "api_key"
+	AgentIdentityTypeMcpConnection AgentIdentityType = "mcp_connection"
+	AgentIdentityTypeMemberToken   AgentIdentityType = "member_token"
+)
