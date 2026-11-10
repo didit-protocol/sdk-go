@@ -864,7 +864,12 @@ type CasesRegulatoryReportsService struct {
 //
 // Create a draft FIU report for the case: DRAFT status, auto-populated from the
 // optional template plus the case's subject, linked transactions, and
-// narrative. Validate then finalize to produce the goAML XML and PDF.
+// narrative. Validate then finalize to produce the goAML XML and PDF. FFR
+// (Confirmed Name Match Report, formerly the Funds Freeze Report) and PNMR
+// (Partial Name Match Report) are activity reports: they report the case's
+// subject, not transactions, so a draft links no transactions by default and
+// the narrative, reason and action are written from the sanctions matches on
+// the case's AML screenings.
 //
 // The organization and application ids come from the client options.
 //
@@ -3780,7 +3785,8 @@ type CasesRegulatoryReportsCreateParams struct {
 	// data is merged in.
 	Template Opt[string] `json:"template"`
 
-	// Transactions to attach; defaults to the case's linked transactions.
+	// Transactions to attach; defaults to the case's linked transactions. For FFR
+	// and PNMR reports it defaults to none and none are required.
 	Transactions      Opt[[]string]                                         `json:"transactions"`
 	RentityID         Opt[string]                                           `json:"rentity_id"`
 	RentityBranch     Opt[string]                                           `json:"rentity_branch"`
@@ -3813,14 +3819,16 @@ type CasesRegulatoryReportsCreateParamsReportType string
 
 // Known values of CasesRegulatoryReportsCreateParamsReportType.
 const (
-	CasesRegulatoryReportsCreateParamsReportTypeSar CasesRegulatoryReportsCreateParamsReportType = "SAR"
-	CasesRegulatoryReportsCreateParamsReportTypeStr CasesRegulatoryReportsCreateParamsReportType = "STR"
-	CasesRegulatoryReportsCreateParamsReportTypeCtr CasesRegulatoryReportsCreateParamsReportType = "CTR"
-	CasesRegulatoryReportsCreateParamsReportTypeTtr CasesRegulatoryReportsCreateParamsReportType = "TTR"
-	CasesRegulatoryReportsCreateParamsReportTypeUtr CasesRegulatoryReportsCreateParamsReportType = "UTR"
-	CasesRegulatoryReportsCreateParamsReportTypeIft CasesRegulatoryReportsCreateParamsReportType = "IFT"
-	CasesRegulatoryReportsCreateParamsReportTypeCbr CasesRegulatoryReportsCreateParamsReportType = "CBR"
-	CasesRegulatoryReportsCreateParamsReportTypeTfr CasesRegulatoryReportsCreateParamsReportType = "TFR"
+	CasesRegulatoryReportsCreateParamsReportTypeSar  CasesRegulatoryReportsCreateParamsReportType = "SAR"
+	CasesRegulatoryReportsCreateParamsReportTypeStr  CasesRegulatoryReportsCreateParamsReportType = "STR"
+	CasesRegulatoryReportsCreateParamsReportTypeCtr  CasesRegulatoryReportsCreateParamsReportType = "CTR"
+	CasesRegulatoryReportsCreateParamsReportTypeTtr  CasesRegulatoryReportsCreateParamsReportType = "TTR"
+	CasesRegulatoryReportsCreateParamsReportTypeUtr  CasesRegulatoryReportsCreateParamsReportType = "UTR"
+	CasesRegulatoryReportsCreateParamsReportTypeIft  CasesRegulatoryReportsCreateParamsReportType = "IFT"
+	CasesRegulatoryReportsCreateParamsReportTypeCbr  CasesRegulatoryReportsCreateParamsReportType = "CBR"
+	CasesRegulatoryReportsCreateParamsReportTypeTfr  CasesRegulatoryReportsCreateParamsReportType = "TFR"
+	CasesRegulatoryReportsCreateParamsReportTypeFfr  CasesRegulatoryReportsCreateParamsReportType = "FFR"
+	CasesRegulatoryReportsCreateParamsReportTypePnmr CasesRegulatoryReportsCreateParamsReportType = "PNMR"
 )
 
 // CasesRegulatoryReportsCreateParamsSubmissionCode is a string with known

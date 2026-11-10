@@ -10,7 +10,7 @@ import (
 )
 
 func TestBillingRetrieveBalance(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"balance":"1234.5600","auto_refill_enabled":true,"auto_refill_amount":"500.00","auto_refill_threshold":"100.00"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"balance":"1234.5600","auto_refill_enabled":true,"auto_refill_amount":"500.00","auto_refill_threshold":"100.00","agent_top_up":{"enabled":true}}`)
 	res, err := client.Billing.RetrieveBalance(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -18,13 +18,14 @@ func TestBillingRetrieveBalance(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/billing/balance/")
 	req.expectAPIKey(t)
-	expectFields(t, res.JSON, []string{"balance", "auto_refill_enabled", "auto_refill_amount", "auto_refill_threshold"})
+	expectFields(t, res.JSON, []string{"balance", "auto_refill_enabled", "auto_refill_amount", "auto_refill_threshold", "agent_top_up"})
 }
 
 func TestBillingTopUp(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"checkout_session_id":"cs_test_a1B2c3D4e5F6g7H8i9J0","checkout_session_url":"https://checkout.example.com/c/pay/cs_test_a1B2c3D4e5F6g7H8i9J0"}`)
 	var params didit.BillingTopUpParams
 	mustUnmarshal(t, `{"amount_in_dollars":50}`, &params)
+	params.IdempotencyKey = didit.String("value")
 	res, err := client.Billing.TopUp(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -32,6 +33,7 @@ func TestBillingTopUp(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "POST", "/v3/billing/top-up/")
 	req.expectAPIKey(t)
+	req.expectHeader(t, "Idempotency-Key", "value")
 	req.expectJSON(t, `{"amount_in_dollars":50}`)
 	expectFields(t, res.JSON, []string{"checkout_session_id", "checkout_session_url"})
 }

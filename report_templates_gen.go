@@ -132,14 +132,16 @@ type ReportTemplatesCreateParamsReportType string
 
 // Known values of ReportTemplatesCreateParamsReportType.
 const (
-	ReportTemplatesCreateParamsReportTypeSar ReportTemplatesCreateParamsReportType = "SAR"
-	ReportTemplatesCreateParamsReportTypeStr ReportTemplatesCreateParamsReportType = "STR"
-	ReportTemplatesCreateParamsReportTypeCtr ReportTemplatesCreateParamsReportType = "CTR"
-	ReportTemplatesCreateParamsReportTypeTtr ReportTemplatesCreateParamsReportType = "TTR"
-	ReportTemplatesCreateParamsReportTypeUtr ReportTemplatesCreateParamsReportType = "UTR"
-	ReportTemplatesCreateParamsReportTypeIft ReportTemplatesCreateParamsReportType = "IFT"
-	ReportTemplatesCreateParamsReportTypeCbr ReportTemplatesCreateParamsReportType = "CBR"
-	ReportTemplatesCreateParamsReportTypeTfr ReportTemplatesCreateParamsReportType = "TFR"
+	ReportTemplatesCreateParamsReportTypeSar  ReportTemplatesCreateParamsReportType = "SAR"
+	ReportTemplatesCreateParamsReportTypeStr  ReportTemplatesCreateParamsReportType = "STR"
+	ReportTemplatesCreateParamsReportTypeCtr  ReportTemplatesCreateParamsReportType = "CTR"
+	ReportTemplatesCreateParamsReportTypeTtr  ReportTemplatesCreateParamsReportType = "TTR"
+	ReportTemplatesCreateParamsReportTypeUtr  ReportTemplatesCreateParamsReportType = "UTR"
+	ReportTemplatesCreateParamsReportTypeIft  ReportTemplatesCreateParamsReportType = "IFT"
+	ReportTemplatesCreateParamsReportTypeCbr  ReportTemplatesCreateParamsReportType = "CBR"
+	ReportTemplatesCreateParamsReportTypeTfr  ReportTemplatesCreateParamsReportType = "TFR"
+	ReportTemplatesCreateParamsReportTypeFfr  ReportTemplatesCreateParamsReportType = "FFR"
+	ReportTemplatesCreateParamsReportTypePnmr ReportTemplatesCreateParamsReportType = "PNMR"
 )
 
 // ReportTemplateDetail is a response object.
@@ -178,14 +180,16 @@ type ReportTemplateDetailReportType string
 
 // Known values of ReportTemplateDetailReportType.
 const (
-	ReportTemplateDetailReportTypeSar ReportTemplateDetailReportType = "SAR"
-	ReportTemplateDetailReportTypeStr ReportTemplateDetailReportType = "STR"
-	ReportTemplateDetailReportTypeCtr ReportTemplateDetailReportType = "CTR"
-	ReportTemplateDetailReportTypeTtr ReportTemplateDetailReportType = "TTR"
-	ReportTemplateDetailReportTypeUtr ReportTemplateDetailReportType = "UTR"
-	ReportTemplateDetailReportTypeIft ReportTemplateDetailReportType = "IFT"
-	ReportTemplateDetailReportTypeCbr ReportTemplateDetailReportType = "CBR"
-	ReportTemplateDetailReportTypeTfr ReportTemplateDetailReportType = "TFR"
+	ReportTemplateDetailReportTypeSar  ReportTemplateDetailReportType = "SAR"
+	ReportTemplateDetailReportTypeStr  ReportTemplateDetailReportType = "STR"
+	ReportTemplateDetailReportTypeCtr  ReportTemplateDetailReportType = "CTR"
+	ReportTemplateDetailReportTypeTtr  ReportTemplateDetailReportType = "TTR"
+	ReportTemplateDetailReportTypeUtr  ReportTemplateDetailReportType = "UTR"
+	ReportTemplateDetailReportTypeIft  ReportTemplateDetailReportType = "IFT"
+	ReportTemplateDetailReportTypeCbr  ReportTemplateDetailReportType = "CBR"
+	ReportTemplateDetailReportTypeTfr  ReportTemplateDetailReportType = "TFR"
+	ReportTemplateDetailReportTypeFfr  ReportTemplateDetailReportType = "FFR"
+	ReportTemplateDetailReportTypePnmr ReportTemplateDetailReportType = "PNMR"
 )
 
 // ReportTemplatesListParams holds the parameters of
@@ -232,12 +236,14 @@ type ReportTemplatesUpdateParamsReportType string
 
 // Known values of ReportTemplatesUpdateParamsReportType.
 const (
-	ReportTemplatesUpdateParamsReportTypeSar ReportTemplatesUpdateParamsReportType = "SAR"
-	ReportTemplatesUpdateParamsReportTypeStr ReportTemplatesUpdateParamsReportType = "STR"
-	ReportTemplatesUpdateParamsReportTypeCtr ReportTemplatesUpdateParamsReportType = "CTR"
-	ReportTemplatesUpdateParamsReportTypeTtr ReportTemplatesUpdateParamsReportType = "TTR"
-	ReportTemplatesUpdateParamsReportTypeUtr ReportTemplatesUpdateParamsReportType = "UTR"
-	ReportTemplatesUpdateParamsReportTypeIft ReportTemplatesUpdateParamsReportType = "IFT"
-	ReportTemplatesUpdateParamsReportTypeCbr ReportTemplatesUpdateParamsReportType = "CBR"
-	ReportTemplatesUpdateParamsReportTypeTfr ReportTemplatesUpdateParamsReportType = "TFR"
+	ReportTemplatesUpdateParamsReportTypeSar  ReportTemplatesUpdateParamsReportType = "SAR"
+	ReportTemplatesUpdateParamsReportTypeStr  ReportTemplatesUpdateParamsReportType = "STR"
+	ReportTemplatesUpdateParamsReportTypeCtr  ReportTemplatesUpdateParamsReportType = "CTR"
+	ReportTemplatesUpdateParamsReportTypeTtr  ReportTemplatesUpdateParamsReportType = "TTR"
+	ReportTemplatesUpdateParamsReportTypeUtr  ReportTemplatesUpdateParamsReportType = "UTR"
+	ReportTemplatesUpdateParamsReportTypeIft  ReportTemplatesUpdateParamsReportType = "IFT"
+	ReportTemplatesUpdateParamsReportTypeCbr  ReportTemplatesUpdateParamsReportType = "CBR"
+	ReportTemplatesUpdateParamsReportTypeTfr  ReportTemplatesUpdateParamsReportType = "TFR"
+	ReportTemplatesUpdateParamsReportTypeFfr  ReportTemplatesUpdateParamsReportType = "FFR"
+	ReportTemplatesUpdateParamsReportTypePnmr ReportTemplatesUpdateParamsReportType = "PNMR"
 )

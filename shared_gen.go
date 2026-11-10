@@ -1185,7 +1185,9 @@ type RegulatoryReportDetail struct {
 	ReportType        RegulatoryReportDetailReportType `json:"report_type"`
 	ReportTypeDisplay string                           `json:"report_type_display"`
 
-	// goAML report code derived from report_type, e.g. STR, CTR, BCR.
+	// goAML report code derived from report_type and jurisdiction, e.g. STR, CTR,
+	// BCR, FFR, PNMR. For jurisdiction AE, the UAE FIU's codes: STR, SAR, CNMRA for
+	// FFR and PNMRA for PNMR.
 	ReportCode    string                       `json:"report_code"`
 	ReportNumber  string                       `json:"report_number"`
 	Status        RegulatoryReportDetailStatus `json:"status"`
@@ -1238,14 +1240,16 @@ type RegulatoryReportDetailReportType string
 
 // Known values of RegulatoryReportDetailReportType.
 const (
-	RegulatoryReportDetailReportTypeSar RegulatoryReportDetailReportType = "SAR"
-	RegulatoryReportDetailReportTypeStr RegulatoryReportDetailReportType = "STR"
-	RegulatoryReportDetailReportTypeCtr RegulatoryReportDetailReportType = "CTR"
-	RegulatoryReportDetailReportTypeTtr RegulatoryReportDetailReportType = "TTR"
-	RegulatoryReportDetailReportTypeUtr RegulatoryReportDetailReportType = "UTR"
-	RegulatoryReportDetailReportTypeIft RegulatoryReportDetailReportType = "IFT"
-	RegulatoryReportDetailReportTypeCbr RegulatoryReportDetailReportType = "CBR"
-	RegulatoryReportDetailReportTypeTfr RegulatoryReportDetailReportType = "TFR"
+	RegulatoryReportDetailReportTypeSar  RegulatoryReportDetailReportType = "SAR"
+	RegulatoryReportDetailReportTypeStr  RegulatoryReportDetailReportType = "STR"
+	RegulatoryReportDetailReportTypeCtr  RegulatoryReportDetailReportType = "CTR"
+	RegulatoryReportDetailReportTypeTtr  RegulatoryReportDetailReportType = "TTR"
+	RegulatoryReportDetailReportTypeUtr  RegulatoryReportDetailReportType = "UTR"
+	RegulatoryReportDetailReportTypeIft  RegulatoryReportDetailReportType = "IFT"
+	RegulatoryReportDetailReportTypeCbr  RegulatoryReportDetailReportType = "CBR"
+	RegulatoryReportDetailReportTypeTfr  RegulatoryReportDetailReportType = "TFR"
+	RegulatoryReportDetailReportTypeFfr  RegulatoryReportDetailReportType = "FFR"
+	RegulatoryReportDetailReportTypePnmr RegulatoryReportDetailReportType = "PNMR"
 )
 
 // RegulatoryReportDetailStatus is a string with known values below. The set is
