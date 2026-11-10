@@ -390,10 +390,10 @@ func (r *ApplicationCredentialsSummary) UnmarshalJSON(data []byte) error {
 
 // ApplicationDataLocation: Where the application's verification data is stored
 // and processed, chosen when the application is created. `eu` is the European
-// Union (Ireland), the default. `au` (Australia, Sydney) and `mx` (Mexico) are
-// coming soon: a request that names them answers 400 `This data location is not
-// available yet.` An organization's Sandbox application is always in the
-// European Union.
+// Union (Ireland), the default. `au` (Australia, Sydney), `mx` (Mexico) and
+// `ae` (United Arab Emirates) are coming soon: a request that names them
+// answers 400 `This data location is not available yet.` An organization's
+// Sandbox application is always in the European Union.
 //
 // ApplicationDataLocation is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -404,6 +404,7 @@ const (
 	ApplicationDataLocationEu ApplicationDataLocation = "eu"
 	ApplicationDataLocationAu ApplicationDataLocation = "au"
 	ApplicationDataLocationMx ApplicationDataLocation = "mx"
+	ApplicationDataLocationAe ApplicationDataLocation = "ae"
 )
 
 // ApplicationCreateRequest: All fields are optional. Sending an empty body
