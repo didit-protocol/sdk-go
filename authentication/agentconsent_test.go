@@ -515,6 +515,15 @@ func TestConsentRedactionStructural(t *testing.T) {
 			}
 		}
 	})
+	t.Run("a very deeply nested body is not JSON", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(strings.Repeat("[", 20000) + strings.Repeat("]", 20000)))
+		})
+		if status.Body != "[redacted]" || string(status.RawBody) != "[redacted]" {
+			t.Fatalf("body = %v raw = %q", status.Body, status.RawBody)
+		}
+	})
 	t.Run("a body that is not JSON", func(t *testing.T) {
 		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
 			w.WriteHeader(http.StatusBadGateway)
