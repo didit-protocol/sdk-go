@@ -319,9 +319,18 @@ type VerifyEmailResponse struct {
 	RefreshToken string `json:"refresh_token"`
 
 	// Lifetime of the access token in seconds (default 86400).
-	ExpiresIn    int64                         `json:"expires_in"`
-	Organization OrganizationSummary           `json:"organization"`
-	Application  ApplicationCredentialsSummary `json:"application"`
+	ExpiresIn    int64               `json:"expires_in"`
+	Organization OrganizationSummary `json:"organization"`
+
+	// The organization's live application (`mode: live`): the credentials a
+	// production integration ships with. Every check created with its key is billed
+	// from the organization's balance.
+	Application ApplicationCredentialsSummary `json:"application"`
+
+	// The organization's sandbox application (`mode: sandbox`). Use its `api_key`
+	// to build and test the integration for free: every check is mocked and never
+	// billed. Switch to the live `application` key to go live.
+	SandboxApplication ApplicationCredentialsSummary `json:"sandbox_application"`
 
 	// Present and `true` when the account already has an authenticator app or a
 	// passkey. The response then carries `temp_token` instead of tokens and
@@ -378,6 +387,13 @@ type ApplicationCredentialsSummary struct {
 	APIKey       string                  `json:"api_key"`
 	DataLocation ApplicationDataLocation `json:"data_location"`
 
+	// The application's environment. A `live` application bills every verification
+	// session and check created with its key. A `sandbox` application mocks every
+	// check and is never billed, so it is where you test (each sandbox application
+	// can create 500 test sessions every 24 hours). Read this field to pick the
+	// application: never infer the environment from the name.
+	Mode ApplicationCredentialsSummaryMode `json:"mode"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -405,6 +421,23 @@ const (
 	ApplicationDataLocationAu ApplicationDataLocation = "au"
 	ApplicationDataLocationMx ApplicationDataLocation = "mx"
 	ApplicationDataLocationAe ApplicationDataLocation = "ae"
+)
+
+// ApplicationCredentialsSummaryMode: The application's environment. A `live`
+// application bills every verification session and check created with its key.
+// A `sandbox` application mocks every check and is never billed, so it is where
+// you test (each sandbox application can create 500 test sessions every 24
+// hours). Read this field to pick the application: never infer the environment
+// from the name.
+//
+// ApplicationCredentialsSummaryMode is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type ApplicationCredentialsSummaryMode string
+
+// Known values of ApplicationCredentialsSummaryMode.
+const (
+	ApplicationCredentialsSummaryModeLive    ApplicationCredentialsSummaryMode = "live"
+	ApplicationCredentialsSummaryModeSandbox ApplicationCredentialsSummaryMode = "sandbox"
 )
 
 // ApplicationCreateRequest: All fields are optional. Sending an empty body
@@ -482,6 +515,13 @@ type Application struct {
 	// Read-only: a `products` key in a create or update body is ignored.
 	Products []ApplicationProduct `json:"products"`
 
+	// The application's environment. A `live` application bills every verification
+	// session and check created with its key. A `sandbox` application mocks every
+	// check and is never billed, so it is where you test (each sandbox application
+	// can create 500 test sessions every 24 hours). Read this field to pick the
+	// application: never infer the environment from the name.
+	Mode ApplicationMode `json:"mode"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -547,6 +587,23 @@ const (
 	ApplicationProductStatusEnabled     ApplicationProductStatus = "enabled"
 	ApplicationProductStatusEarlyAccess ApplicationProductStatus = "early_access"
 	ApplicationProductStatusDisabled    ApplicationProductStatus = "disabled"
+)
+
+// ApplicationMode: The application's environment. A `live` application bills
+// every verification session and check created with its key. A `sandbox`
+// application mocks every check and is never billed, so it is where you test
+// (each sandbox application can create 500 test sessions every 24 hours). Read
+// this field to pick the application: never infer the environment from the
+// name.
+//
+// ApplicationMode is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type ApplicationMode string
+
+// Known values of ApplicationMode.
+const (
+	ApplicationModeLive    ApplicationMode = "live"
+	ApplicationModeSandbox ApplicationMode = "sandbox"
 )
 
 // AccountApplicationsListParams holds the parameters of
