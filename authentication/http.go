@@ -104,10 +104,13 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 		if ok {
 			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil)
 		}
-		data = data[:maxResponseBytes]
 	}
 	if !ok {
+		// Redact the whole read first: the cap must not cut a secret in two and leave its prefix.
 		data = redactSecrets(data, r.secrets)
+		if len(data) > maxResponseBytes {
+			data = trimPartialSecret(data[:maxResponseBytes], r.secrets)
+		}
 		return nil, didit.NewAPIStatusError(&didit.APIStatusError{
 			StatusCode: resp.StatusCode,
 			Body:       parseBody(data),
@@ -340,6 +343,23 @@ func secretForms(s string) []string {
 	}
 	forms = append(forms, ascii.String())
 	return forms
+}
+
+// trimPartialSecret drops a trailing prefix of a secret that a length cap cut
+// off, so no part of one survives the cap.
+func trimPartialSecret(data []byte, secrets []string) []byte {
+	longest := 0
+	for _, s := range secrets {
+		for _, f := range secretForms(s) {
+			for k := min(len(f)-1, len(data)); k > longest; k-- {
+				if bytes.HasSuffix(data, []byte(f[:k])) {
+					longest = k
+					break
+				}
+			}
+		}
+	}
+	return data[:len(data)-longest]
 }
 
 // redactSecrets replaces every secret in an error body, in raw text and in

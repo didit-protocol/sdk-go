@@ -295,3 +295,25 @@ func TestSubmitAgentConsentRejectsUnencodableAssertionBeforeSending(t *testing.T
 		}
 	}
 }
+
+func TestAssertionStraddlingTheErrorBodyCapLeavesNoPrefix(t *testing.T) {
+	secret := "Zq9ClientDataJSONSecretValue-0123456789"
+	stub := newStub(t)
+	stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(strings.Repeat("x", maxResponseBytes-16) + secret + strings.Repeat("y", 64)))
+	})
+	c := newTestClient(t, stub, newClock())
+	_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+		Challenge: testAgentChallenge,
+		Decision:  AgentConsentApprove,
+		Assertion: &AgentPasskeyAssertion{ID: "Y3JlZA", RawID: "Y3JlZA", Response: AgentAuthenticatorResponse{ClientDataJSON: secret, AuthenticatorData: "YXV0aA", Signature: "c2ln"}},
+	})
+	var bad *didit.BadRequestError
+	if !errors.As(err, &bad) {
+		t.Fatalf("error = %v (%T)", err, err)
+	}
+	if strings.Contains(string(bad.RawBody), secret[:16]) || strings.Contains(err.Error(), secret[:16]) {
+		t.Fatalf("a prefix of the assertion survived the body cap")
+	}
+}
