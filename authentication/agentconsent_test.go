@@ -273,3 +273,25 @@ func TestCreateAgentApprovalOptionsNeverEchoesChallenge(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestSubmitAgentConsentRejectsUnencodableAssertionBeforeSending(t *testing.T) {
+	stub := newStub(t)
+	c := newTestClient(t, stub, newClock())
+	_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+		Challenge: testAgentChallenge,
+		Decision:  AgentConsentApprove,
+		Assertion: &AgentPasskeyAssertion{
+			ID:                     "ID-m4rk",
+			ClientExtensionResults: map[string]any{"bad": make(chan int), "leak": "EXT-m4rk"},
+		},
+	})
+	wantConfigError(t, err, "cannot be encoded")
+	if n := stub.count("/agents/consent/"); n != 0 {
+		t.Fatalf("%d requests sent, want none", n)
+	}
+	for _, secret := range []string{testAgentChallenge, "ID-m4rk", "EXT-m4rk"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("error %q leaks %q", err, secret)
+		}
+	}
+}

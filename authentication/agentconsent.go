@@ -160,7 +160,11 @@ func (c *Client) SubmitAgentConsent(ctx context.Context, accessToken string, par
 		a.Type = "public-key"
 		params.Assertion = &a
 	}
-	body, _ := json.Marshal(agentConsentBody(params)) // plain values: cannot fail
+	body, err := json.Marshal(agentConsentBody(params))
+	if err != nil {
+		// The marshal error can quote a value; report only that the input is unusable.
+		return nil, configError("agent consent assertion cannot be encoded as JSON (check ClientExtensionResults)")
+	}
 	r := request{
 		method:      http.MethodPost,
 		url:         c.endpoint("agents/consent/"),
