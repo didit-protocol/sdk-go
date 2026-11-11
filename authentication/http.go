@@ -105,12 +105,14 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 	ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
 	if len(data) > maxResponseBytes {
 		if ok {
-			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil)
+			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil, data[:maxResponseBytes])
 		}
 	}
 	if !ok {
+		var kept []byte // the content the error's response carries: only ever redacted bytes
 		if len(r.secrets) > 0 {
 			data = redactBody(data[:min(len(data), maxResponseBytes)], r.secrets)
+			kept = data
 		} else if len(data) > maxResponseBytes {
 			data = data[:maxResponseBytes]
 		}
@@ -122,7 +124,7 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 			RequestID:  resp.Header.Get("X-Request-Id"),
 			Method:     r.method,
 			URL:        redactURL(r.url),
-			Response:   redactedResponse(resp),
+			Response:   redactedResponse(resp, kept),
 		})
 	}
 	return &response{header: resp.Header, body: data, http: resp}, nil
@@ -160,18 +162,23 @@ func (c *Client) backoff(ctx context.Context) error {
 // *didit.UnexpectedResponseError.
 func decodeJSON(r request, resp *response, v any) error {
 	if err := json.Unmarshal(resp.body, v); err != nil {
-		return unexpectedResponse(r, resp.http, "is not valid JSON", err)
+		return unexpectedResponse(r, resp.http, "is not valid JSON", err, resp.body)
 	}
 	return nil
 }
 
 // unexpectedResponse reports a 2xx response the package cannot use, with a
 // redacted copy of the response.
-func unexpectedResponse(r request, resp *http.Response, problem string, cause error) error {
+func unexpectedResponse(r request, resp *http.Response, problem string, cause error, body []byte) error {
+	if len(r.secrets) > 0 {
+		body = redactBody(body, r.secrets)
+	} else {
+		body = nil
+	}
 	return &didit.UnexpectedResponseError{
 		Message:  fmt.Sprintf("%s %s: the %d response %s", r.method, redactURL(r.url), resp.StatusCode, problem),
 		Cause:    cause,
-		Response: redactedResponse(resp),
+		Response: redactedResponse(resp, body),
 	}
 }
 
@@ -219,9 +226,22 @@ func redactURL(raw string) string {
 // and refresh tokens) through resp.Request. After a redirect,
 // resp.Request.Response is the redirect response, whose Request is the
 // original request; it is dropped too.
-func redactedResponse(resp *http.Response) *http.Response {
+//
+// body is the already redacted content the copy carries (nil for none), with the
+// length headers made to match.
+func redactedResponse(resp *http.Response, body []byte) *http.Response {
 	copied := *resp
 	copied.Body = http.NoBody
+	if len(body) > 0 {
+		copied.Body = io.NopCloser(bytes.NewReader(body))
+	}
+	copied.ContentLength = int64(len(body))
+	copied.Header = resp.Header.Clone()
+	copied.Header.Del("Content-Length")
+	copied.Header.Del("Content-Encoding")
+	copied.Header.Del("Transfer-Encoding")
+	copied.TransferEncoding = nil
+	copied.Uncompressed = false
 	if resp.Request != nil {
 		req := resp.Request.WithContext(context.Background())
 		req.Header = resp.Request.Header.Clone()

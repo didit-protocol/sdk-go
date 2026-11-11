@@ -435,6 +435,22 @@ func TestConsentRedactionStructural(t *testing.T) {
 			t.Fatalf("body = %v", status.Body)
 		}
 	})
+	t.Run("the error response carries the redacted body", func(t *testing.T) {
+		secret := "credential-string-0123456789"
+		status := structuredConsentError(t, assertion(secret, "s"), func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant", "echo": "x " + secret})
+		})
+		got, _ := io.ReadAll(status.Response.Body)
+		if string(got) != `{"echo":"[redacted]","error":"invalid_grant"}` {
+			t.Fatalf("response body = %q", got)
+		}
+		if status.Response.ContentLength != int64(len(got)) || status.Response.Header.Get("Content-Length") != "" {
+			t.Fatalf("length headers do not match: %d %v", status.Response.ContentLength, status.Response.Header)
+		}
+		if strings.Contains(string(got), "credential-str") {
+			t.Fatal("prefix left")
+		}
+	})
 	t.Run("a body that is not JSON", func(t *testing.T) {
 		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
 			w.WriteHeader(http.StatusBadGateway)

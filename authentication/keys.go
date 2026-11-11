@@ -224,7 +224,7 @@ func (c *Client) fetchKeys(ctx context.Context) error {
 		return err
 	}
 	if set.Keys == nil {
-		return unexpectedResponse(r, resp.http, "has no keys array", nil)
+		return unexpectedResponse(r, resp.http, "has no keys array", nil, resp.body)
 	}
 	keys := make(map[string]*ecdsa.PublicKey, len(set.Keys))
 	for _, raw := range set.Keys {
