@@ -1841,12 +1841,20 @@ type TravelRuleSettingsDetail struct {
 	// `travelRule` transactions on this application.
 	IsEnabled bool `json:"is_enabled"`
 
-	// Your VASP's operating jurisdiction code. Default `"EU"`. Didit maps it to the
+	// Your VASP's regulatory regime code. Default `"EU"`. Didit maps it to the
 	// regime it stamps on your Travel Rule transactions as `travel_rule_regime`
 	// (for example `EU` or an EU member code becomes `eu`), which transaction rules
-	// can key on. Other Didit customers see it as your jurisdiction in the VASP
-	// directory once the Didit network lists your profile.
+	// can key on, and it decides which data fields the exchange must share. Other
+	// Didit customers see `vasp_jurisdiction` in the VASP directory; while
+	// `vasp_jurisdiction` is empty, the directory shows this value instead.
 	Jurisdiction string `json:"jurisdiction"`
+
+	// Your VASP profile's own jurisdiction, up to 3 characters (for example `GB` or
+	// `USA`), shown to other Didit customers in the VASP directory. It is
+	// independent of `jurisdiction`, the regulatory regime Didit stamps on your
+	// transfers; while `vasp_jurisdiction` is empty, the directory shows
+	// `jurisdiction`. Empty until you set it.
+	VASPJurisdiction string `json:"vasp_jurisdiction"`
 
 	// How strictly beneficiary names must match before a transfer can reach
 	// COMPLETED. `CONTAINS` accepts one name whose words all appear in the other.
@@ -2851,6 +2859,13 @@ type TravelRuleSettingsUpdate struct {
 	Lei          Opt[string] `json:"lei"`
 	Jurisdiction Opt[string] `json:"jurisdiction"`
 
+	// Your VASP profile's own jurisdiction, up to 3 characters (for example `GB` or
+	// `USA`), shown to other Didit customers in the VASP directory. Independent of
+	// `jurisdiction`, which sets the regulatory regime Didit stamps on your
+	// transfers. Send an empty string to clear it; the directory then shows
+	// `jurisdiction`.
+	VASPJurisdiction Opt[string] `json:"vasp_jurisdiction"`
+
 	// `CONTAINS` accepts one name whose words all appear in the other.
 	NameMatchingStrictness   Opt[TravelRuleSettingsUpdateNameMatchingStrictness] `json:"name_matching_strictness"`
 	ConfirmationTimeoutHours Opt[int64]                                          `json:"confirmation_timeout_hours"`
@@ -3684,6 +3699,17 @@ type TravelRuleTransferRow struct {
 
 	// The other side of a deposit you matched to an announced transfer by hand.
 	MatchedTransactionID string `json:"matched_transaction_id"`
+
+	// The sandbox scenario that answered this transfer, only when `rail` is
+	// `TEST_VASP` (for example `accept`, `decline` or `name_mismatch`). `null` for
+	// every other transfer, including a live one.
+	Scenario string `json:"scenario"`
+
+	// How many webhook delivery attempts Didit recorded for this transfer's
+	// transaction, across every event type. Each retry and each manual resend is a
+	// separate attempt and counts. Scoped to the calling application; deleted
+	// transactions are not counted.
+	WebhooksCount int64 `json:"webhooks_count"`
 
 	// When the transfer expires if it is still waiting on its counterparty. Set on
 	// every transfer you create with `POST /v3/transactions/` that needs an

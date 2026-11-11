@@ -16,6 +16,9 @@
 //     [Client.RevokeSession] signs the person out.
 //   - [Client.CreateStepUp] and [Client.RetrieveStepUp] ask for a verification
 //     before a sensitive action.
+//   - [Client.SubmitAgentConsent] and [Client.CreateAgentApprovalOptions]
+//     record a person's approval or denial of an agent request, with a fresh
+//     passkey assertion when the application requires humans only.
 //
 // Create one Client per issuer and reuse it: it is safe for concurrent use and
 // it holds the key cache.

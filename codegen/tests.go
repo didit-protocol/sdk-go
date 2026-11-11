@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,7 +65,7 @@ func (g *Gen) emitTests(root *Service) ([]File, error) {
 		for _, imp := range imports {
 			src.WriteString("\t" + imp + "\n")
 		}
-		if strings.Contains(body, "didit.") {
+		if diditIdentifier.MatchString(body) {
 			src.WriteString("\n\t\"github.com/didit-protocol/sdk-go\"\n")
 		}
 		src.WriteString(")\n\n")
@@ -452,3 +453,7 @@ func sliceLiteral(items []string) string {
 	}
 	return "[]string{" + strings.Join(parts, ", ") + "}"
 }
+
+// diditIdentifier matches a use of the package (didit.Some, didit.String), not
+// the text "didit." inside a string literal such as an address on didit.test.
+var diditIdentifier = regexp.MustCompile(`(^|[^\w@.\-/])didit\.[A-Z]`)
