@@ -167,6 +167,7 @@ func (c *Client) SubmitAgentConsent(ctx context.Context, accessToken string, par
 		bearer:      accessToken,
 		contentType: contentTypeJSON,
 		body:        body,
+		secrets:     assertionSecrets(body, accessToken, params.Challenge),
 	}
 	resp, err := c.send(ctx, r)
 	if err != nil {
@@ -205,6 +206,7 @@ func (c *Client) CreateAgentApprovalOptions(ctx context.Context, accessToken, ch
 		bearer:      accessToken,
 		contentType: contentTypeJSON,
 		body:        body,
+		secrets:     []string{challenge, accessToken},
 	}
 	resp, err := c.send(ctx, r)
 	if err != nil {

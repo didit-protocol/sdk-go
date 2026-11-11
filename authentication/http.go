@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -42,6 +43,9 @@ type request struct {
 	// retry allows one retry after a connection error or a 5xx answer. Only
 	// requests that are safe to repeat set it.
 	retry bool
+	// secrets are strings that must never reach an error: they are replaced
+	// by "[redacted]" in an error body, raw and JSON-escaped, at any depth.
+	secrets []string
 }
 
 type response struct {
@@ -103,6 +107,7 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 		data = data[:maxResponseBytes]
 	}
 	if !ok {
+		data = redactSecrets(data, r.secrets)
 		return nil, didit.NewAPIStatusError(&didit.APIStatusError{
 			StatusCode: resp.StatusCode,
 			Body:       parseBody(data),
@@ -272,4 +277,124 @@ func checkBearer(token string) error {
 		}
 	}
 	return nil
+}
+
+const redactedMarker = "[redacted]"
+
+// collectStrings appends every string value (map keys excluded) found in v.
+func collectStrings(v any, out []string) []string {
+	switch t := v.(type) {
+	case string:
+		if t != "" {
+			return append(out, t)
+		}
+	case []any:
+		for _, e := range t {
+			out = collectStrings(e, out)
+		}
+	case map[string]any:
+		for _, e := range t {
+			out = collectStrings(e, out)
+		}
+	}
+	return out
+}
+
+// assertionSecrets returns every string value of the passkey assertion in the
+// JSON document body, at any depth, followed by extra. The decision, scopes
+// and organization ids are not secrets and stay readable in errors.
+func assertionSecrets(body []byte, extra ...string) []string {
+	var doc struct {
+		Assertion any `json:"assertion"`
+	}
+	_ = json.Unmarshal(body, &doc)
+	return append(collectStrings(doc.Assertion, nil), extra...)
+}
+
+// secretForms returns the spellings of s a JSON or text body can carry it in.
+func secretForms(s string) []string {
+	forms := []string{s}
+	add := func(b []byte, err error) {
+		if err == nil && len(b) >= 2 {
+			forms = append(forms, string(b[1:len(b)-1]))
+		}
+	}
+	add(json.Marshal(s))
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s)
+	add(bytes.TrimSpace(buf.Bytes()), nil)
+	forms = append(forms, strings.ReplaceAll(forms[len(forms)-1], "/", `\/`))
+	var ascii strings.Builder
+	for _, r := range s {
+		switch {
+		case r < 0x7f && r >= 0x20 && r != '"' && r != '\\':
+			ascii.WriteRune(r)
+		case r > 0xffff:
+			r -= 0x10000
+			fmt.Fprintf(&ascii, `\u%04x\u%04x`, 0xd800+(r>>10), 0xdc00+(r&0x3ff))
+		default:
+			fmt.Fprintf(&ascii, `\u%04x`, r)
+		}
+	}
+	forms = append(forms, ascii.String())
+	return forms
+}
+
+// redactSecrets replaces every secret in an error body, in raw text and in
+// each JSON-escaped spelling, then in the parsed strings, and returns the
+// redacted bytes (always valid for the same parse as the original).
+func redactSecrets(data []byte, secrets []string) []byte {
+	if len(secrets) == 0 || len(data) == 0 {
+		return data
+	}
+	var forms []string
+	for _, s := range secrets {
+		if s != "" {
+			forms = append(forms, secretForms(s)...)
+		}
+	}
+	// Longest first, so a secret that contains another is replaced whole.
+	sort.Slice(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
+	text := string(data)
+	for _, f := range forms {
+		if f != "" {
+			text = strings.ReplaceAll(text, f, redactedMarker)
+		}
+	}
+	// Any other escaping that decodes to a secret: redact the parsed strings.
+	var v any
+	if json.Unmarshal([]byte(text), &v) == nil {
+		changed := false
+		v = redactValue(v, secrets, &changed)
+		if changed {
+			if b, err := json.Marshal(v); err == nil {
+				return b
+			}
+		}
+	}
+	return []byte(text)
+}
+
+func redactValue(v any, secrets []string, changed *bool) any {
+	switch t := v.(type) {
+	case string:
+		for _, s := range secrets {
+			if s != "" && strings.Contains(t, s) {
+				t = strings.ReplaceAll(t, s, redactedMarker)
+				*changed = true
+			}
+		}
+		return t
+	case []any:
+		for i := range t {
+			t[i] = redactValue(t[i], secrets, changed)
+		}
+	case map[string]any:
+		for k, e := range t {
+			t[k] = redactValue(e, secrets, changed)
+		}
+	}
+	return v
 }

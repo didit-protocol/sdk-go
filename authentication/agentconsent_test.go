@@ -2,7 +2,10 @@ package authentication
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -179,5 +182,94 @@ func TestCreateAgentApprovalOptions(t *testing.T) {
 	_, err = c.CreateAgentApprovalOptions(ctx, testAccessToken, testAgentChallenge)
 	if !errors.As(err, new(*didit.InternalServerError)) || stub.count("/agents/consent/passkey/") != before+1 {
 		t.Fatalf("error = %v; POST agents/consent/passkey/ must not be retried", err)
+	}
+}
+
+// echoSecrets are distinct markers for every position of the consent call.
+var echoSecrets = []string{
+	"CHALLENGE-m4rk", "TOKEN-m4rk", "ID-m4rk", "RAWID-m4rk", "CDJ-m4rk", "AUTHDATA-m4rk", "SIG-m4rk",
+	"HANDLE-m4rk", "EXT-top-m4rk", "EXT-deep-m4rk", "EXT-list-m4rk", "EXT-q\"uo<te>-m4rk",
+}
+
+func TestSubmitAgentConsentNeverEchoesSecrets(t *testing.T) {
+	handle := "HANDLE-m4rk"
+	params := AgentConsentParams{
+		Challenge: echoSecrets[0],
+		Decision:  AgentConsentApprove,
+		Assertion: &AgentPasskeyAssertion{
+			ID: "ID-m4rk", RawID: "RAWID-m4rk",
+			Response: AgentAuthenticatorResponse{
+				ClientDataJSON: "CDJ-m4rk", AuthenticatorData: "AUTHDATA-m4rk", Signature: "SIG-m4rk", UserHandle: &handle,
+			},
+			ClientExtensionResults: map[string]any{
+				"top": "EXT-top-m4rk", "n": map[string]any{"deep": "EXT-deep-m4rk", "l": []any{"EXT-list-m4rk"}},
+				"q": "EXT-q\"uo<te>-m4rk",
+			},
+		},
+	}
+	echoJSON := map[string]any{"detail": "passkey_required", "echo": echoSecrets, "nested": map[string]any{"a": echoSecrets[2:]}}
+	escaped, _ := json.Marshal(echoJSON)
+	slashed := strings.ReplaceAll(string(escaped), "/", `\/`)
+	cases := map[string]func(w http.ResponseWriter){
+		"400 json": func(w http.ResponseWriter) { writeJSON(w, http.StatusBadRequest, echoJSON) },
+		"400 raw text": func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("bad " + strings.Join(echoSecrets, " ") + " " + string(escaped) + slashed))
+		},
+		"200 malformed": func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"code":` + string(escaped)))
+		},
+		"200 wrong type": func(w http.ResponseWriter) { writeJSON(w, http.StatusOK, map[string]any{"code": echoJSON}) },
+	}
+	for name, respond := range cases {
+		t.Run(name, func(t *testing.T) {
+			stub := newStub(t)
+			stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) { respond(w) })
+			c := newTestClient(t, stub, newClock())
+			_, err := c.SubmitAgentConsent(context.Background(), "TOKEN-m4rk", params)
+			if err == nil {
+				t.Fatal("want an error")
+			}
+			var status *didit.APIStatusError
+			var unexpected *didit.UnexpectedResponseError
+			texts := []string{err.Error(), fmt.Sprintf("%v %+v %#v", err, err, err)}
+			if errors.As(err, &status) {
+				texts = append(texts, string(status.RawBody), fmt.Sprintf("%v", status.Body), status.Method+status.URL)
+				if status.Response != nil && status.Response.Body != nil {
+					b, _ := io.ReadAll(status.Response.Body)
+					texts = append(texts, string(b))
+				}
+				if name == "400 json" {
+					if m, _ := status.Body.(map[string]any); m["detail"] != "passkey_required" {
+						t.Fatalf("non-secret detail lost: %v", status.Body)
+					}
+				}
+			}
+			if errors.As(err, &unexpected) {
+				texts = append(texts, unexpected.Message, fmt.Sprint(unexpected.Cause))
+			}
+			for _, text := range texts {
+				for _, secret := range echoSecrets {
+					esc, _ := json.Marshal(secret)
+					if strings.Contains(text, secret) || strings.Contains(text, strings.Trim(string(esc), `"`)) {
+						t.Fatalf("%q leaks %q", text, secret)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCreateAgentApprovalOptionsNeverEchoesChallenge(t *testing.T) {
+	stub := newStub(t)
+	stub.handle("/agents/consent/passkey/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "x", "echo": "CHALLENGE-m4rk TOKEN-m4rk"})
+	})
+	c := newTestClient(t, stub, newClock())
+	_, err := c.CreateAgentApprovalOptions(context.Background(), "TOKEN-m4rk", "CHALLENGE-m4rk")
+	var status *didit.APIStatusError
+	if !errors.As(err, &status) || strings.Contains(err.Error()+string(status.RawBody)+fmt.Sprint(status.Body), "m4rk") {
+		t.Fatalf("error = %v", err)
 	}
 }
