@@ -37,6 +37,9 @@ var contractMethods = map[string][]string{
 	"revoke_session":           {"RevokeSession"},
 	"create_step_up":           {"CreateStepUp"},
 	"retrieve_step_up":         {"RetrieveStepUp"},
+
+	"submit_agent_consent":          {"SubmitAgentConsent"},
+	"create_agent_approval_options": {"CreateAgentApprovalOptions"},
 }
 
 // contractLocal are the Client methods that call no issuer operation.
@@ -221,6 +224,14 @@ func TestContractAuthenticationCalls(t *testing.T) {
 			_, err := c.RetrieveStepUp(ctx, testAccessToken, stepUpID)
 			return err
 		},
+		"SubmitAgentConsent": func(ctx context.Context, c *Client) error {
+			_, err := c.SubmitAgentConsent(ctx, testAccessToken, AgentConsentParams{Challenge: "pending-request", Decision: AgentConsentDeny})
+			return err
+		},
+		"CreateAgentApprovalOptions": func(ctx context.Context, c *Client) error {
+			_, err := c.CreateAgentApprovalOptions(ctx, testAccessToken, "pending-request")
+			return err
+		},
 	}
 	var methods []string
 	for m := range server {
@@ -250,6 +261,12 @@ func TestContractAuthenticationCalls(t *testing.T) {
 				})
 				stub.handle("/step-up/"+stepUpID+"/", func(w http.ResponseWriter, r *http.Request) {
 					writeJSON(w, http.StatusOK, stepUpRecord())
+				})
+				stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) {
+					writeJSON(w, http.StatusOK, map[string]any{"status": "denied"})
+				})
+				stub.handle("/agents/consent/passkey/", func(w http.ResponseWriter, r *http.Request) {
+					writeJSON(w, http.StatusOK, map[string]any{"options": map[string]any{}})
 				})
 				c := newTestClient(t, stub, newClock(), WithClientID(testAudience))
 				if err := call(context.Background(), c); err != nil {

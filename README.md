@@ -291,6 +291,7 @@ fmt.Println(claims.Subject, claims.VendorData)
 - `ExchangeCode` and `Refresh` call the token endpoint. Serialise refreshes for one session: reusing a consumed refresh token revokes the session.
 - `GetSession` checks a session instantly (revocation), `RevokeSession` signs it out.
 - `CreateStepUp` and `RetrieveStepUp` drive step-up verification. Act only on status `approved`.
+- `SubmitAgentConsent` records a person's approval or denial of an agent request, and `CreateAgentApprovalOptions` returns the passkey options for the fresh assertion an approval may need.
 
 ## Language notes
 
