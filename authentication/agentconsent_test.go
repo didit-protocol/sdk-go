@@ -670,3 +670,34 @@ func TestConsentEncodingFailureHasAFixedMessage(t *testing.T) {
 		t.Fatalf("error carries the serializer's text: %v", err)
 	}
 }
+
+type brokenBody struct{}
+
+func (brokenBody) Read([]byte) (int, error) {
+	return 0, errors.New("credential-string-0123456789 broken stream")
+}
+func (brokenBody) Close() error { return nil }
+
+type brokenBodyTransport struct{}
+
+func (brokenBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: 200, Header: http.Header{}, Body: brokenBody{}, Request: req}, nil
+}
+
+func TestConsentBodyReadFailureHasNoUnderlyingText(t *testing.T) {
+	stub := newStub(t)
+	c := newTestClient(t, stub, newClock(), WithHTTPClient(&http.Client{Transport: brokenBodyTransport{}}))
+	_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+		Challenge: testAgentChallenge, Decision: AgentConsentApprove,
+		Assertion: &AgentPasskeyAssertion{ID: "x", RawID: "r", Response: AgentAuthenticatorResponse{Signature: "s"}},
+	})
+	var conn *didit.APIConnectionError
+	if !errors.As(err, &conn) {
+		t.Fatalf("error = %v (%T)", err, err)
+	}
+	for e := error(err); e != nil; e = errors.Unwrap(e) {
+		if strings.Contains(e.Error(), "credential-string") {
+			t.Fatalf("%q carries the underlying text", e.Error())
+		}
+	}
+}
