@@ -3303,6 +3303,98 @@ const (
 	TravelRuleChainDetailsNotApplicableReasonLightningLnurlNamesNoPayee  TravelRuleChainDetailsNotApplicableReason = "LIGHTNING_LNURL_NAMES_NO_PAYEE"
 )
 
+// TravelRuleDeliveryLogEntry: One supplier-neutral entry in the delivery
+// history.
+type TravelRuleDeliveryLogEntry struct {
+	// Delivery identifier.
+	UUID string `json:"uuid"`
+
+	// What the message carries. `SEND`: the transfer's first message to the
+	// counterparty (outbound; the rail is chosen when it is sent). `ANSWER`: your
+	// accept or decline, owed to the network that asked (inbound). `TXID`: the
+	// on-chain transaction hash, after you finish the transfer. `CANCEL`: the
+	// cancellation, after you cancel it. `POLL`: a status query to a network that
+	// offers one, repeated every 5 minutes while the transfer waits on the
+	// counterparty.
+	Kind TravelRuleDeliveryLogEntryKind `json:"kind"`
+
+	// Current delivery status.
+	Status TravelRuleDeliveryLogEntryStatus `json:"status"`
+
+	// Supplier-neutral transport type; null until selected.
+	Rail TravelRuleDeliveryLogEntryRail `json:"rail"`
+
+	// When the delivery was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// When delivery completed, or null.
+	DeliveredAt time.Time `json:"delivered_at"`
+
+	// Human-readable message kind and delivery status. Does not expose transport
+	// payloads or raw errors.
+	DetailLines []string `json:"detail_lines"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDeliveryLogEntry leniently.
+func (r *TravelRuleDeliveryLogEntry) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDeliveryLogEntryKind: What the message carries. `SEND`: the
+// transfer's first message to the counterparty (outbound; the rail is chosen
+// when it is sent). `ANSWER`: your accept or decline, owed to the network that
+// asked (inbound). `TXID`: the on-chain transaction hash, after you finish the
+// transfer. `CANCEL`: the cancellation, after you cancel it. `POLL`: a status
+// query to a network that offers one, repeated every 5 minutes while the
+// transfer waits on the counterparty.
+//
+// TravelRuleDeliveryLogEntryKind is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleDeliveryLogEntryKind string
+
+// Known values of TravelRuleDeliveryLogEntryKind.
+const (
+	TravelRuleDeliveryLogEntryKindSend   TravelRuleDeliveryLogEntryKind = "SEND"
+	TravelRuleDeliveryLogEntryKindAnswer TravelRuleDeliveryLogEntryKind = "ANSWER"
+	TravelRuleDeliveryLogEntryKindTxid   TravelRuleDeliveryLogEntryKind = "TXID"
+	TravelRuleDeliveryLogEntryKindCancel TravelRuleDeliveryLogEntryKind = "CANCEL"
+	TravelRuleDeliveryLogEntryKindPoll   TravelRuleDeliveryLogEntryKind = "POLL"
+)
+
+// TravelRuleDeliveryLogEntryStatus: Current delivery status.
+//
+// TravelRuleDeliveryLogEntryStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleDeliveryLogEntryStatus string
+
+// Known values of TravelRuleDeliveryLogEntryStatus.
+const (
+	TravelRuleDeliveryLogEntryStatusQueued    TravelRuleDeliveryLogEntryStatus = "QUEUED"
+	TravelRuleDeliveryLogEntryStatusSending   TravelRuleDeliveryLogEntryStatus = "SENDING"
+	TravelRuleDeliveryLogEntryStatusRetrying  TravelRuleDeliveryLogEntryStatus = "RETRYING"
+	TravelRuleDeliveryLogEntryStatusDelivered TravelRuleDeliveryLogEntryStatus = "DELIVERED"
+	TravelRuleDeliveryLogEntryStatusFailed    TravelRuleDeliveryLogEntryStatus = "FAILED"
+)
+
+// TravelRuleDeliveryLogEntryRail: Supplier-neutral transport type; null until
+// selected.
+//
+// TravelRuleDeliveryLogEntryRail is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleDeliveryLogEntryRail string
+
+// Known values of TravelRuleDeliveryLogEntryRail.
+const (
+	TravelRuleDeliveryLogEntryRailEmail    TravelRuleDeliveryLogEntryRail = "EMAIL"
+	TravelRuleDeliveryLogEntryRailTrp      TravelRuleDeliveryLogEntryRail = "TRP"
+	TravelRuleDeliveryLogEntryRailInternal TravelRuleDeliveryLogEntryRail = "INTERNAL"
+	TravelRuleDeliveryLogEntryRailNetwork  TravelRuleDeliveryLogEntryRail = "NETWORK"
+)
+
 // TravelRuleTransferDetail: Full transfer object returned by the
 // ownership-confirmation and finish/cancel endpoints. While an inbound
 // transfer's wallet ownership is unconfirmed, the counterparty's
@@ -3393,6 +3485,16 @@ type TravelRuleTransferDetail struct {
 	// `resend`.
 	NextActions  []TravelRuleNextAction `json:"next_actions"`
 	ChainDetails TravelRuleChainDetails `json:"chain_details"`
+
+	// Newest 100 delivery entries, presented oldest first (creation time, then
+	// identifier). Empty when no messages exist. Use the paginated delivery
+	// endpoint for complete history.
+	Deliveries []TravelRuleDeliveryLogEntry `json:"deliveries"`
+
+	// True when older entries were omitted from deliveries. Follow GET
+	// /v3/transactions/{transaction_id}/travel-rule/deliveries/ for the complete
+	// history.
+	DeliveriesTruncated bool `json:"deliveries_truncated"`
 
 	// Null when required is true. Otherwise below_threshold, the recorded chain
 	// exemption (for example LIGHTNING_NO_PAYEE_IDENTIFIER,

@@ -537,6 +537,29 @@ func (r *TransactionsTravelRuleService) CreateMessage(ctx context.Context, trans
 	return res, nil
 }
 
+// ListDeliveries: List Travel Rule delivery history.
+//
+// Read the complete delivery history for a transaction, oldest first. Requires
+// transaction read permission. Unlike the newest 100 entries embedded in
+// detail, this endpoint paginates the full history. See [delivery
+// history](/management-api/travel-rule/list-deliveries).
+//
+// It returns one page; ListDeliveriesAutoPaging iterates over every item of
+// every page.
+//
+//	GET /v3/transactions/{transaction_id}/travel-rule/deliveries/
+func (r *TransactionsTravelRuleService) ListDeliveries(ctx context.Context, transactionID string, params TransactionsTravelRuleListDeliveriesParams, opts ...option.RequestOption) (*Page[TravelRuleDeliveryLogEntry], error) {
+	return getPage[TravelRuleDeliveryLogEntry](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/transactions/{transaction_id}/travel-rule/deliveries/", pathParams: []string{"transaction_id", transactionID}, params: params}, opts)
+}
+
+// ListDeliveriesAutoPaging iterates over every item of every page of
+// ListDeliveries, fetching pages as needed.
+func (r *TransactionsTravelRuleService) ListDeliveriesAutoPaging(ctx context.Context, transactionID string, params TransactionsTravelRuleListDeliveriesParams, opts ...option.RequestOption) *PageIterator[TravelRuleDeliveryLogEntry] {
+	return newPageIterator(ctx, func() (*Page[TravelRuleDeliveryLogEntry], error) {
+		return r.ListDeliveries(ctx, transactionID, params, opts...)
+	})
+}
+
 // ListMessages: List Travel Rule messages.
 //
 // Messages and document requests exchanged with the counterparty VASP about
@@ -2002,13 +2025,9 @@ const (
 	TransactionDetailProviderResultsResultTypeCustom               TransactionDetailProviderResultsResultType = "CUSTOM"
 )
 
-// TransactionTravelRule: A transaction's Travel Rule transfer, as `GET
-// /v3/transactions/{transaction_id}/`, the `201` of `POST /v3/transactions/`
-// and each row of `GET /v3/transactions/` return it. `direction`, `rail`,
-// `counterparty_vasp`, `delivery`, `discovery`, `reason` and `next_actions`
-// have the same shape as on `PATCH
-// /v3/transactions/{transaction_id}/travel-rule/`, so one read of a transaction
-// says why its transfer is stuck and what moves it on.
+// TransactionTravelRule: Travel Rule transfer on transaction detail and
+// creation responses. Includes latest delivery and bounded delivery history.
+// Transaction lists omit the history fields.
 type TransactionTravelRule struct {
 	UUID             string `json:"uuid"`
 	Status           string `json:"status"`
@@ -2083,6 +2102,16 @@ type TransactionTravelRule struct {
 	// `resend`.
 	NextActions  []TravelRuleNextAction `json:"next_actions"`
 	ChainDetails TravelRuleChainDetails `json:"chain_details"`
+
+	// Newest 100 delivery entries, presented oldest first (creation time, then
+	// identifier). Empty when no messages exist. Use the paginated delivery
+	// endpoint for complete history.
+	Deliveries []TravelRuleDeliveryLogEntry `json:"deliveries"`
+
+	// True when older entries were omitted from deliveries. Follow GET
+	// /v3/transactions/{transaction_id}/travel-rule/deliveries/ for the complete
+	// history.
+	DeliveriesTruncated bool `json:"deliveries_truncated"`
 
 	// Null when required is true. Otherwise below_threshold, the recorded chain
 	// exemption (for example LIGHTNING_NO_PAYEE_IDENTIFIER,
@@ -2453,10 +2482,9 @@ type TransactionsListResponseResults struct {
 	// or `null` when it has none.
 	TravelRuleStatus string `json:"travel_rule_status"`
 
-	// The transaction's Travel Rule transfer, the same block as `travel_rule` on
-	// `GET /v3/transactions/{transaction_id}/`, or `null` when the transaction has
-	// none.
-	TravelRule TransactionTravelRule `json:"travel_rule"`
+	// Travel Rule summary with latest delivery, or null when absent. Unlike
+	// transaction detail, this block omits deliveries and deliveries_truncated.
+	TravelRule TransactionListTravelRule `json:"travel_rule"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -2543,6 +2571,192 @@ type TransactionsListResponseResultsTagsSource string
 const (
 	TransactionsListResponseResultsTagsSourceDidit  TransactionsListResponseResultsTagsSource = "didit"
 	TransactionsListResponseResultsTagsSourceCustom TransactionsListResponseResultsTagsSource = "custom"
+)
+
+// TransactionListTravelRule: Travel Rule summary on a transaction list item.
+// Includes latest delivery but omits deliveries and deliveries_truncated.
+type TransactionListTravelRule struct {
+	UUID             string `json:"uuid"`
+	Status           string `json:"status"`
+	Protocol         string `json:"protocol"`
+	Required         bool   `json:"required"`
+	ObligationsCount int64  `json:"obligations_count"`
+
+	// Originator party. For an inbound transfer the counterparty's values are
+	// masked until ownership is confirmed.
+	OriginatorData map[string]any `json:"originator_data"`
+
+	// Beneficiary party. For an inbound transfer the counterparty's values are
+	// masked until ownership is confirmed.
+	BeneficiaryData map[string]any `json:"beneficiary_data"`
+
+	// The name comparison that decided the transfer (score and strictness). Null
+	// until one ran. The compared names are masked together with the parties.
+	NameMatch map[string]any      `json:"name_match"`
+	DataMatch TravelRuleDataMatch `json:"data_match"`
+
+	// Shortcut for `data_match.mismatched_fields`. Empty when nothing differs.
+	MismatchedFields []string               `json:"mismatched_fields"`
+	DataUnmasked     TravelRuleDataUnmasked `json:"data_unmasked"`
+
+	// True while the counterparty's personal data is masked in this response.
+	DataMasked bool           `json:"data_masked"`
+	Metadata   map[string]any `json:"metadata"`
+
+	// Which side of the exchange this transfer is.
+	Direction TransactionListTravelRuleDirection `json:"direction"`
+
+	// The rail the transfer went over: `INTERNAL`, `TRP`, `GTR`, `TRUST`,
+	// `VERIFYVASP`, `SYGNA` or `EMAIL` (`TEST_VASP` on a sandbox application, when
+	// the Didit Test VASP answered), or `null` until a rail is chosen.
+	Rail string `json:"rail"`
+
+	// The counterparty's directory entry, or `null` when the transfer links none.
+	CounterpartyVASP TransactionListTravelRuleCounterpartyVASP `json:"counterparty_vasp"`
+
+	// The newest message the transfer owes another party. `null` when it has owed
+	// none, for example below `threshold_amount` or for a declared self-hosted
+	// wallet.
+	Delivery TravelRuleDelivery `json:"delivery"`
+
+	// How Didit looked for the counterparty, one entry per step that ran. Empty
+	// when no discovery ran, for example on an inbound transfer.
+	Discovery []TravelRuleDiscoveryStep `json:"discovery"`
+
+	// Why a `COUNTERPARTY_VASP_NOT_FOUND` or `COUNTERPARTY_VASP_NOT_REACHABLE`
+	// transfer is stuck; `""` for any other status. A failed delivery decides it
+	// first, on `COUNTERPARTY_VASP_NOT_REACHABLE` only: `email_undeliverable` (the
+	// mail provider refused the compliance email and no address is left to try:
+	// when it was sent, on a reminder, or as a permanent bounce reported later) or
+	// `delivery_failed` (the rail that was delivering failed for good: a network
+	// rail refused the message or ran out of retries, a `TRP` identity host did not
+	// answer, or the counterparty's `TRP` host did not accept the inquiry).
+	// Otherwise the `discovery` trace decides it: `awaiting_end_user` (no step
+	// named a counterparty Didit can reach), `directory_match_no_route` (a step
+	// named a directory VASP that has no route),
+	// `picked_member_without_proven_wallet` (the end user picked a Didit customer
+	// that has not proven control of the wallet), or `no_directory_match` when the
+	// trace gives no other reason. A resend moves the transfer on, so the reason
+	// clears. See [Why a transfer is
+	// stuck](/transaction-monitoring/travel-rule#why-a-transfer-is-stuck).
+	Reason string `json:"reason"`
+
+	// What moves the transfer on; `[]` for any status but
+	// `COUNTERPARTY_VASP_NOT_FOUND` or `COUNTERPARTY_VASP_NOT_REACHABLE`.
+	// `email_undeliverable` offers `update_compliance_email`, then `resend`.
+	// `delivery_failed` offers `resend`. A discovery reason offers
+	// `select_counterparty_vasp`, `declare_self_hosted`, `add_vasp_hint` and
+	// `resend`.
+	NextActions  []TravelRuleNextAction `json:"next_actions"`
+	ChainDetails TravelRuleChainDetails `json:"chain_details"`
+
+	// Null when required is true. Otherwise below_threshold, the recorded chain
+	// exemption (for example LIGHTNING_NO_PAYEE_IDENTIFIER,
+	// LIGHTNING_BOLT12_BLINDED_PAYEE or LIGHTNING_LNURL_NAMES_NO_PAYEE), or unknown
+	// for legacy transfers without a recorded reason.
+	NotRequiredReason string `json:"not_required_reason"`
+
+	// not_required when the transfer is not required; otherwise confirmed or
+	// not_confirmed follows ownership_confirmed. With no verdict, requested means
+	// an active outbound ownership widget matches this transfer and subject;
+	// otherwise not_requested. A request is not completed proof.
+	ProofState TransactionListTravelRuleProofState `json:"proof_state"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionListTravelRule leniently.
+func (r *TransactionListTravelRule) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionListTravelRuleDirection: Which side of the exchange this transfer
+// is.
+//
+// TransactionListTravelRuleDirection is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TransactionListTravelRuleDirection string
+
+// Known values of TransactionListTravelRuleDirection.
+const (
+	TransactionListTravelRuleDirectionInbound  TransactionListTravelRuleDirection = "INBOUND"
+	TransactionListTravelRuleDirectionOutbound TransactionListTravelRuleDirection = "OUTBOUND"
+)
+
+// TransactionListTravelRuleCounterpartyVASP: The counterparty's directory
+// entry, or `null` when the transfer links none.
+type TransactionListTravelRuleCounterpartyVASP struct {
+	Name string `json:"name"`
+	Lei  string `json:"lei"`
+
+	// Due-diligence score from 0 to 100, where higher is better. Same scale as in
+	// the VASP directory.
+	DdScore int64 `json:"dd_score"`
+
+	// Per-component contributions to dd_score, one object per component as in the
+	// VASP directory (jurisdiction, verification, protocol, lei, history,
+	// essentials, responsiveness), each {points, max, reason, detail}. {} until the
+	// counterparty has been assessed.
+	DdScoreBreakdown map[string]TransactionListTravelRuleCounterpartyVASPDdScoreBreakdown `json:"dd_score_breakdown"`
+
+	// When the due-diligence assessment last ran. Null until the counterparty has
+	// been assessed.
+	DdAssessedAt time.Time `json:"dd_assessed_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionListTravelRuleCounterpartyVASP leniently.
+func (r *TransactionListTravelRuleCounterpartyVASP) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionListTravelRuleCounterpartyVASPDdScoreBreakdown is a response
+// object.
+type TransactionListTravelRuleCounterpartyVASPDdScoreBreakdown struct {
+	// Points awarded for this component.
+	Points float64 `json:"points"`
+
+	// Maximum points this component can award.
+	Max int64 `json:"max"`
+
+	// Machine-readable code of the component's verdict.
+	Reason string `json:"reason"`
+
+	// Human-readable reason for the awarded points.
+	Detail string `json:"detail"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionListTravelRuleCounterpartyVASPDdScoreBreakdown leniently.
+func (r *TransactionListTravelRuleCounterpartyVASPDdScoreBreakdown) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionListTravelRuleProofState: not_required when the transfer is not
+// required; otherwise confirmed or not_confirmed follows ownership_confirmed.
+// With no verdict, requested means an active outbound ownership widget matches
+// this transfer and subject; otherwise not_requested. A request is not
+// completed proof.
+//
+// TransactionListTravelRuleProofState is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TransactionListTravelRuleProofState string
+
+// Known values of TransactionListTravelRuleProofState.
+const (
+	TransactionListTravelRuleProofStateNotRequired  TransactionListTravelRuleProofState = "not_required"
+	TransactionListTravelRuleProofStateConfirmed    TransactionListTravelRuleProofState = "confirmed"
+	TransactionListTravelRuleProofStateNotConfirmed TransactionListTravelRuleProofState = "not_confirmed"
+	TransactionListTravelRuleProofStateRequested    TransactionListTravelRuleProofState = "requested"
+	TransactionListTravelRuleProofStateNotRequested TransactionListTravelRuleProofState = "not_requested"
 )
 
 // TransactionsListRelatedParams holds the parameters of
@@ -2972,6 +3186,10 @@ type TransactionRuleBacktestRequest struct {
 	EvaluationMode Opt[TransactionRuleBacktestRequestEvaluationMode] `json:"evaluation_mode"`
 	Scope          Opt[TransactionRuleScopeParam]                    `json:"scope"`
 	PeriodDays     Opt[int64]                                        `json:"period_days"`
+
+	// Optional ID of the rule being edited. Excludes that rule from overlap
+	// comparisons; does not change the candidate configuration.
+	RuleID Opt[string] `json:"rule_id"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -3257,6 +3475,21 @@ type TransactionRuleBacktestResult struct {
 	AffectedEntities int64 `json:"affected_entities"`
 	PeriodDays       int64 `json:"period_days"`
 
+	// True only when additional transactions in the requested period were omitted
+	// by the replay cap.
+	Truncated bool `json:"truncated"`
+
+	// Active rules matching the candidate hits, excluding rule_id. Empty when none
+	// matched within the comparison bounds.
+	OverlappingRules []TransactionRuleOverlap `json:"overlapping_rules"`
+
+	// True when the overlap comparison is partial: more than 50 eligible active
+	// rules, more than 1000 rule/transaction comparisons, or a truncated replay
+	// with candidate hits and eligible rules. False when there are no candidate
+	// hits or no eligible rules, even if truncated is true. Counts are not
+	// exhaustive when true.
+	OverlappingRulesTruncated bool `json:"overlapping_rules_truncated"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -3266,6 +3499,108 @@ type TransactionRuleBacktestResult struct {
 func (r *TransactionRuleBacktestResult) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// TransactionRuleOverlap is a response object.
+type TransactionRuleOverlap struct {
+	// Other active rule that matched candidate hits.
+	RuleID string `json:"rule_id"`
+
+	// Title of the overlapping rule.
+	Name string `json:"name"`
+
+	// All actions configured on the overlapping rule.
+	Actions []TransactionRuleAction `json:"actions"`
+
+	// Candidate matches also matched by this rule within the comparison bounds. May
+	// be partial when overlapping_rules_truncated is true.
+	OverlapCount int64 `json:"overlap_count"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionRuleOverlap leniently.
+func (r *TransactionRuleOverlap) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionRuleAction: One rule action. A rule can carry several; all are
+// applied together when it matches. Rules in TEST mode record what they would
+// have done without applying any action.
+type TransactionRuleAction struct {
+	Type TransactionRuleActionType `json:"type"`
+
+	// Points added to the transaction's risk score. May be negative.
+	Value any `json:"value"`
+
+	// REQUIRED when value is AWAITING_USER: the verification workflow the subject
+	// is asked to complete. Alias key: remediation_workflow_id. Didit creates a
+	// hosted remediation session for the subject when the rule fires.
+	WorkflowID string `json:"workflow_id"`
+
+	// Existing application tag to attach.
+	TagUUID string `json:"tag_uuid"`
+
+	// Tag name to attach; created on first use (stored uppercased). Provide
+	// tag_uuid or tag_name.
+	TagName string `json:"tag_name"`
+
+	// Hex color used when tag_name creates a new tag, e.g. #007AFE.
+	TagColor string `json:"tag_color"`
+
+	// Note text attached to the transaction (author: Rule Engine). Alias key:
+	// value.
+	Note string `json:"note"`
+
+	// List to add the subject's vendor_data to.
+	ListID string `json:"list_id"`
+
+	// Case blueprint UUID; defaults to the application's default blueprint.
+	Blueprint string `json:"blueprint"`
+
+	// Whether repeat matches join one case per applicant or one per rule+applicant.
+	Grouping TransactionRuleActionGrouping `json:"grouping"`
+
+	// Attach the matched transaction to the case.
+	AttachMatchedTransaction bool `json:"attach_matched_transaction"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionRuleAction leniently.
+func (r *TransactionRuleAction) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionRuleActionType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionRuleActionType string
+
+// Known values of TransactionRuleActionType.
+const (
+	TransactionRuleActionTypeAddScore     TransactionRuleActionType = "add_score"
+	TransactionRuleActionTypeChangeStatus TransactionRuleActionType = "change_status"
+	TransactionRuleActionTypeAddTags      TransactionRuleActionType = "add_tags"
+	TransactionRuleActionTypeAddNote      TransactionRuleActionType = "add_note"
+	TransactionRuleActionTypeAddToList    TransactionRuleActionType = "add_to_list"
+	TransactionRuleActionTypeOpenCase     TransactionRuleActionType = "open_case"
+)
+
+// TransactionRuleActionGrouping: Whether repeat matches join one case per
+// applicant or one per rule+applicant.
+//
+// TransactionRuleActionGrouping is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TransactionRuleActionGrouping string
+
+// Known values of TransactionRuleActionGrouping.
+const (
+	TransactionRuleActionGroupingByApplicant        TransactionRuleActionGrouping = "by_applicant"
+	TransactionRuleActionGroupingByRuleAndApplicant TransactionRuleActionGrouping = "by_rule_and_applicant"
+)
 
 // TransactionRuleCreateRequest: Creates a CUSTOM rule. Rules in ACTIVE mode
 // take effect immediately for new transactions - create in TEST mode and
@@ -3377,33 +3712,6 @@ type TransactionRuleActionParam struct {
 func (r TransactionRuleActionParam) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
-
-// TransactionRuleActionType is a string with known values below. The set is
-// open: other values may appear and never cause an error.
-type TransactionRuleActionType string
-
-// Known values of TransactionRuleActionType.
-const (
-	TransactionRuleActionTypeAddScore     TransactionRuleActionType = "add_score"
-	TransactionRuleActionTypeChangeStatus TransactionRuleActionType = "change_status"
-	TransactionRuleActionTypeAddTags      TransactionRuleActionType = "add_tags"
-	TransactionRuleActionTypeAddNote      TransactionRuleActionType = "add_note"
-	TransactionRuleActionTypeAddToList    TransactionRuleActionType = "add_to_list"
-	TransactionRuleActionTypeOpenCase     TransactionRuleActionType = "open_case"
-)
-
-// TransactionRuleActionGrouping: Whether repeat matches join one case per
-// applicant or one per rule+applicant.
-//
-// TransactionRuleActionGrouping is a string with known values below. The set is
-// open: other values may appear and never cause an error.
-type TransactionRuleActionGrouping string
-
-// Known values of TransactionRuleActionGrouping.
-const (
-	TransactionRuleActionGroupingByApplicant        TransactionRuleActionGrouping = "by_applicant"
-	TransactionRuleActionGroupingByRuleAndApplicant TransactionRuleActionGrouping = "by_rule_and_applicant"
-)
 
 // TransactionRuleDetail is a response object.
 type TransactionRuleDetail struct {
@@ -3638,56 +3946,6 @@ type TransactionRuleAggregation struct {
 
 // UnmarshalJSON decodes TransactionRuleAggregation leniently.
 func (r *TransactionRuleAggregation) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// TransactionRuleAction: One rule action. A rule can carry several; all are
-// applied together when it matches. Rules in TEST mode record what they would
-// have done without applying any action.
-type TransactionRuleAction struct {
-	Type TransactionRuleActionType `json:"type"`
-
-	// Points added to the transaction's risk score. May be negative.
-	Value any `json:"value"`
-
-	// REQUIRED when value is AWAITING_USER: the verification workflow the subject
-	// is asked to complete. Alias key: remediation_workflow_id. Didit creates a
-	// hosted remediation session for the subject when the rule fires.
-	WorkflowID string `json:"workflow_id"`
-
-	// Existing application tag to attach.
-	TagUUID string `json:"tag_uuid"`
-
-	// Tag name to attach; created on first use (stored uppercased). Provide
-	// tag_uuid or tag_name.
-	TagName string `json:"tag_name"`
-
-	// Hex color used when tag_name creates a new tag, e.g. #007AFE.
-	TagColor string `json:"tag_color"`
-
-	// Note text attached to the transaction (author: Rule Engine). Alias key:
-	// value.
-	Note string `json:"note"`
-
-	// List to add the subject's vendor_data to.
-	ListID string `json:"list_id"`
-
-	// Case blueprint UUID; defaults to the application's default blueprint.
-	Blueprint string `json:"blueprint"`
-
-	// Whether repeat matches join one case per applicant or one per rule+applicant.
-	Grouping TransactionRuleActionGrouping `json:"grouping"`
-
-	// Attach the matched transaction to the case.
-	AttachMatchedTransaction bool `json:"attach_matched_transaction"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes TransactionRuleAction leniently.
-func (r *TransactionRuleAction) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -4087,6 +4345,22 @@ type TravelRuleMessageAttachmentFiles struct {
 // UnmarshalJSON decodes TravelRuleMessageAttachmentFiles leniently.
 func (r *TravelRuleMessageAttachmentFiles) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionsTravelRuleListDeliveriesParams holds the parameters of
+// Client.Transactions.TravelRule.ListDeliveries.
+type TransactionsTravelRuleListDeliveriesParams struct {
+	// Entries per page. Defaults to 100 and larger values are capped at 100; a
+	// value above 1,000,000 returns `400`.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Number of entries to skip, up to 1,000,000. A larger value returns `400`.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TransactionsTravelRuleListDeliveriesParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
 }
 
 // TravelRuleTestVASPInboundRequest is a request object.

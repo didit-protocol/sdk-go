@@ -104,7 +104,10 @@ type AccountApplicationsService struct {
 // hostname, or an empty string to disable admin-sent sign-in links. Changing
 // website_url also revalidates the saved sign-in URI. Invalid values return 400
 // with an initiate_login_uri field error; hostname and URI policy failures use
-// https_url_on_registered_website_required.
+// https_url_on_registered_website_required. An MCP token (a "Log in with Didit"
+// grant, `token_use` `mcp`) also needs the `didit:management` scope, which
+// carries the `applications` resource; a grant limited to `didit:verification`
+// is refused with 403 before anything is created.
 //
 //	POST /organizations/me/{org_id}/applications/
 func (r *AccountApplicationsService) Create(ctx context.Context, orgID string, params ApplicationCreateRequest, opts ...option.RequestOption) (*Application, error) {
@@ -120,7 +123,10 @@ func (r *AccountApplicationsService) Create(ctx context.Context, orgID string, p
 // List the organization's applications, 50 per page by default. Use this to
 // discover `app_id` values when recovering credentials from a new machine, then
 // call `GET /organizations/me/{org_id}/applications/{app_id}/` for the API key.
-// Requires an owner or admin Bearer token.
+// Requires an owner or admin Bearer token. An MCP token (a "Log in with Didit"
+// grant, `token_use` `mcp`) also needs the `didit:management` scope, which
+// carries the `applications` resource; a grant limited to `didit:verification`
+// is refused with 403 before any application is listed.
 //
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
@@ -140,7 +146,10 @@ func (r *AccountApplicationsService) ListAutoPaging(ctx context.Context, orgID s
 // Retrieve: Get Application Credentials.
 //
 // Read one application's full record including `client_id` and `api_key`. Use
-// this to recover a lost `api_key`.
+// this to recover a lost `api_key`. An MCP token (a "Log in with Didit" grant,
+// `token_use` `mcp`) also needs the `didit:management` scope, which carries the
+// `applications` resource; a grant limited to `didit:verification` is refused
+// with 403 before the application is read.
 //
 //	GET /organizations/me/{org_id}/applications/{app_id}/
 func (r *AccountApplicationsService) Retrieve(ctx context.Context, orgID string, appID string, opts ...option.RequestOption) (*Application, error) {
@@ -164,7 +173,10 @@ func (r *AccountApplicationsService) Retrieve(ctx context.Context, orgID string,
 // hostname, or an empty string to disable admin-sent sign-in links. Changing
 // website_url also revalidates the saved sign-in URI. Invalid values return 400
 // with an initiate_login_uri field error; hostname and URI policy failures use
-// https_url_on_registered_website_required.
+// https_url_on_registered_website_required. An MCP token (a "Log in with Didit"
+// grant, `token_use` `mcp`) also needs the `didit:management` scope, which
+// carries the `applications` resource; a grant limited to `didit:verification`
+// is refused with 403 before anything is changed.
 //
 //	PATCH /organizations/me/{org_id}/applications/{app_id}/
 func (r *AccountApplicationsService) Update(ctx context.Context, orgID string, appID string, params ApplicationUpdateRequest, opts ...option.RequestOption) (*Application, error) {
