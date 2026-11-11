@@ -5,8 +5,6 @@ package didit_test
 import (
 	"context"
 	"testing"
-
-	"github.com/didit-protocol/sdk-go"
 )
 
 func TestSandboxListScenarios(t *testing.T) {
