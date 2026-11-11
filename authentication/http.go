@@ -103,41 +103,51 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 		return nil, requestError(r, err)
 	}
 	ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
-	if len(data) > maxResponseBytes {
+	if len(r.secrets) > 0 {
+		// Sanitized once, on receipt: every error of this call, on any status, is built from this response only.
+		resp, data = sanitizeResponse(resp, data, r.secrets)
+	} else if len(data) > maxResponseBytes {
 		if ok {
-			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil, data[:maxResponseBytes])
+			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil, nil)
 		}
+		data = data[:maxResponseBytes]
 	}
 	if !ok {
-		var kept []byte // the content the error's response carries: only ever redacted bytes
+		var kept []byte // the content the error's response carries: only ever sanitized bytes
 		if len(r.secrets) > 0 {
-			if len(data) > maxResponseBytes {
-				// Cut at the size limit: never JSON, whatever its first MiB looks like.
-				data = []byte(redactedMarker)
-			} else {
-				data = redactBody(data, r.secrets)
-			}
 			kept = data
-		} else if len(data) > maxResponseBytes {
-			data = data[:maxResponseBytes]
-		}
-		header, requestID := resp.Header, resp.Header.Get("X-Request-Id")
-		if len(r.secrets) > 0 {
-			header = redactHeader(resp.Header, r.secrets)
-			requestID = redactString(requestID, r.secrets)
 		}
 		return nil, didit.NewAPIStatusError(&didit.APIStatusError{
 			StatusCode: resp.StatusCode,
 			Body:       parseBody(data),
 			RawBody:    data,
-			Header:     header,
-			RequestID:  requestID,
+			Header:     resp.Header,
+			RequestID:  resp.Header.Get("X-Request-Id"),
 			Method:     r.method,
 			URL:        redactURL(r.url),
-			Response:   redactedResponse(resp, kept, r.secrets),
+			Response:   redactedResponse(resp, kept),
 		})
 	}
 	return &response{header: resp.Header, body: data, http: resp}, nil
+}
+
+// sanitizeResponse returns the response of a call whose answer may echo secrets
+// (agent consent) sanitized as a whole: the status code kept, the status text
+// redacted, each header whose name contains a secret dropped, the other values
+// redacted, and the body redacted by redactBody ("[redacted]" when it is cut at
+// the size limit, not JSON or empty). Every error of these calls is built from
+// the result only.
+func sanitizeResponse(resp *http.Response, data []byte, secrets []string) (*http.Response, []byte) {
+	if len(data) > maxResponseBytes {
+		// Cut at the size limit: never JSON, whatever its first MiB looks like.
+		data = []byte(redactedMarker)
+	} else {
+		data = redactBody(data, secrets)
+	}
+	copied := *resp
+	copied.Status = redactString(resp.Status, secrets)
+	copied.Header = redactHeader(resp.Header, secrets)
+	return &copied, data
 }
 
 // retryable reports whether a failed GET may be sent once more: the
@@ -180,15 +190,13 @@ func decodeJSON(r request, resp *response, v any) error {
 // unexpectedResponse reports a 2xx response the package cannot use, with a
 // redacted copy of the response.
 func unexpectedResponse(r request, resp *http.Response, problem string, cause error, body []byte) error {
-	if len(r.secrets) > 0 {
-		body = redactBody(body, r.secrets)
-	} else {
+	if len(r.secrets) == 0 {
 		body = nil
 	}
 	return &didit.UnexpectedResponseError{
 		Message:  fmt.Sprintf("%s %s: the %d response %s", r.method, redactURL(r.url), resp.StatusCode, problem),
 		Cause:    cause,
-		Response: redactedResponse(resp, body, r.secrets),
+		Response: redactedResponse(resp, body),
 	}
 }
 
@@ -267,7 +275,7 @@ func redactURL(raw string) string {
 //
 // body is the already redacted content the copy carries (nil for none), with the
 // length headers made to match.
-func redactedResponse(resp *http.Response, body []byte, secrets []string) *http.Response {
+func redactedResponse(resp *http.Response, body []byte) *http.Response {
 	copied := *resp
 	copied.Body = http.NoBody
 	if len(body) > 0 {
@@ -275,11 +283,6 @@ func redactedResponse(resp *http.Response, body []byte, secrets []string) *http.
 	}
 	copied.ContentLength = int64(len(body))
 	copied.Header = resp.Header.Clone()
-	if len(secrets) > 0 {
-		// The status text and every header value are issuer-controlled: one that contains a secret is replaced whole.
-		copied.Status = redactString(copied.Status, secrets)
-		copied.Header = redactHeader(copied.Header, secrets)
-	}
 	copied.Header.Del("Content-Length")
 	copied.Header.Del("Content-Encoding")
 	copied.Header.Del("Transfer-Encoding")
@@ -466,15 +469,18 @@ func redactValue(v any, secrets []string) any {
 	return v
 }
 
-// redactHeader copies h with every name and value that contains a secret replaced whole.
+// redactHeader copies h without the headers whose name contains a secret, and with every value that contains one replaced whole.
 func redactHeader(h http.Header, secrets []string) http.Header {
 	out := make(http.Header, len(h))
 	for name, values := range h {
+		if redactString(name, secrets) != name {
+			continue
+		}
 		clean := make([]string, len(values))
 		for i, v := range values {
 			clean[i] = redactString(v, secrets)
 		}
-		out[redactString(name, secrets)] = clean
+		out[name] = clean
 	}
 	return out
 }

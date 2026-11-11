@@ -502,6 +502,19 @@ func TestConsentRedactionStructural(t *testing.T) {
 			t.Fatal("credential left in the message or status text")
 		}
 	})
+	t.Run("a header named after a secret is dropped", func(t *testing.T) {
+		credential := "credential-string-0123456789"
+		status := structuredConsentError(t, assertion(credential, "s"), func(w http.ResponseWriter) {
+			w.Header().Set("X-"+credential, credential)
+			w.Header().Set("X-Keep", "fine")
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant"})
+		})
+		for _, h := range []http.Header{status.Header, status.Response.Header} {
+			if h.Get("X-Keep") != "fine" || strings.Contains(fmt.Sprint(h), credential) {
+				t.Fatalf("headers = %v", h)
+			}
+		}
+	})
 	t.Run("a body that is not JSON", func(t *testing.T) {
 		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
 			w.WriteHeader(http.StatusBadGateway)
@@ -572,5 +585,28 @@ func TestConsentTransportFailureCarriesNoTransportText(t *testing.T) {
 				t.Fatalf("error = %v, want a timeout error", err)
 			}
 		})
+	}
+}
+
+func TestConsentMalformed2xxKeepsTheRequestIDRedacted(t *testing.T) {
+	credential := "credential-string-0123456789"
+	stub := newStub(t)
+	stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Request-Id", "req-"+credential)
+		_, _ = w.Write([]byte("not json " + credential))
+	})
+	c := newTestClient(t, stub, newClock())
+	_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+		Challenge: testAgentChallenge, Decision: AgentConsentApprove,
+		Assertion: &AgentPasskeyAssertion{ID: credential, RawID: "r", Response: AgentAuthenticatorResponse{Signature: "s"}},
+	})
+	var unexpected *didit.UnexpectedResponseError
+	if !errors.As(err, &unexpected) {
+		t.Fatalf("error = %v (%T)", err, err)
+	}
+	body, _ := io.ReadAll(unexpected.Response.Body)
+	shown := err.Error() + unexpected.Message + fmt.Sprint(unexpected.Response.Header) + string(body)
+	if strings.Contains(shown, credential) || unexpected.Response.Header.Get("X-Request-Id") != "[redacted]" {
+		t.Fatalf("leak in %q", shown)
 	}
 }
