@@ -70,7 +70,7 @@ func (c *Client) send(ctx context.Context, r request) (*response, error) {
 			return resp, err
 		}
 		if waitErr := c.backoff(ctx); waitErr != nil {
-			return nil, connectionError(r.method, r.url, waitErr)
+			return nil, requestError(r, waitErr)
 		}
 	}
 }
@@ -82,7 +82,7 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, r.method, r.url, body)
 	if err != nil {
-		return nil, connectionError(r.method, r.url, err)
+		return nil, requestError(r, err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("X-Didit-Client", clientHeader)
@@ -95,12 +95,12 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, connectionError(r.method, r.url, err)
+		return nil, requestError(r, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
-		return nil, connectionError(r.method, r.url, err)
+		return nil, requestError(r, err)
 	}
 	ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
 	if len(data) > maxResponseBytes {
@@ -111,7 +111,12 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 	if !ok {
 		var kept []byte // the content the error's response carries: only ever redacted bytes
 		if len(r.secrets) > 0 {
-			data = redactBody(data[:min(len(data), maxResponseBytes)], r.secrets)
+			if len(data) > maxResponseBytes {
+				// Cut at the size limit: never JSON, whatever its first MiB looks like.
+				data = []byte(redactedMarker)
+			} else {
+				data = redactBody(data, r.secrets)
+			}
 			kept = data
 		} else if len(data) > maxResponseBytes {
 			data = data[:maxResponseBytes]
@@ -181,6 +186,34 @@ func unexpectedResponse(r request, resp *http.Response, problem string, cause er
 		Response: redactedResponse(resp, body),
 	}
 }
+
+// requestError is the connection or timeout error of request r. A request that
+// carries secrets (agent consent) reports a fixed cause: a transport may quote
+// the serialized body in its error, in a spelling no decoded-string match finds.
+func requestError(r request, cause error) error {
+	if len(r.secrets) > 0 {
+		cause = withheldCause(cause)
+	}
+	return connectionError(r.method, r.url, cause)
+}
+
+// withheldCause keeps what callers branch on (cancellation, deadline, timeout)
+// and drops the underlying text.
+func withheldCause(cause error) error {
+	switch {
+	case errors.Is(cause, context.Canceled):
+		return context.Canceled
+	case errors.Is(cause, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	}
+	return withheldError{timeout: isTimeout(cause)}
+}
+
+type withheldError struct{ timeout bool }
+
+func (withheldError) Error() string   { return "transport failure (details withheld)" }
+func (e withheldError) Timeout() bool { return e.timeout }
+func (withheldError) Temporary() bool { return false }
 
 func connectionError(method, rawURL string, cause error) error {
 	e := &didit.APIConnectionError{Method: method, URL: redactURL(rawURL), Cause: cause}
@@ -350,15 +383,17 @@ func assertionSecrets(body []byte, extra ...string) []string {
 // redactBody returns an error body with the secrets removed from the parsed
 // value, never from its raw text: valid JSON comes back re-encoded with
 // redactValue applied, anything else (an HTML error page, a body cut at the
-// size limit) comes back as "[redacted]". An empty body stays empty.
+// size limit, an empty body) comes back as "[redacted]".
 func redactBody(data []byte, secrets []string) []byte {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return data
+		// An empty body is not JSON.
+		return []byte(redactedMarker)
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	var v any
-	if err := dec.Decode(&v); err != nil || dec.More() {
+	// Anything after the first value, a closing delimiter included, means the body is not JSON.
+	if err := dec.Decode(&v); err != nil || dec.Decode(&struct{}{}) != io.EOF {
 		return []byte(redactedMarker)
 	}
 	var buf bytes.Buffer
@@ -390,14 +425,29 @@ func redactValue(v any, secrets []string) any {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
+		// Reserve every safe key name first, so a placeholder never takes one.
 		out := make(map[string]any, len(t))
+		taken := make(map[string]bool, len(t))
 		for _, k := range keys {
-			name := redactString(k, secrets)
-			for n := 2; ; n++ {
-				if _, taken := out[name]; !taken {
-					break
+			if redactString(k, secrets) == k {
+				taken[k] = true
+			}
+		}
+		next := 1
+		for _, k := range keys {
+			name := k
+			if redactString(k, secrets) != k {
+				for {
+					name = redactedMarker
+					if next > 1 {
+						name += strconv.Itoa(next)
+					}
+					next++
+					if !taken[name] {
+						break
+					}
 				}
-				name = redactedMarker + strconv.Itoa(n)
+				taken[name] = true
 			}
 			out[name] = redactValue(t[k], secrets)
 		}

@@ -451,6 +451,43 @@ func TestConsentRedactionStructural(t *testing.T) {
 			t.Fatal("prefix left")
 		}
 	})
+	t.Run("a body with trailing content is not JSON", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"detail":"safe"}]`))
+		})
+		if status.Body != "[redacted]" || string(status.RawBody) != "[redacted]" {
+			t.Fatalf("body = %v raw = %q", status.Body, status.RawBody)
+		}
+	})
+	t.Run("a body cut at the size limit is never parsed", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"detail":"safe"}` + strings.Repeat(" ", maxResponseBytes) + testAgentChallenge))
+		})
+		if status.Body != "[redacted]" || strings.Contains(shownError(status), testAgentChallenge) {
+			t.Fatalf("body = %v", status.Body)
+		}
+	})
+	t.Run("an empty body is redacted, not left empty", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadGateway)
+		})
+		got, _ := io.ReadAll(status.Response.Body)
+		if status.Body != "[redacted]" || string(status.RawBody) != "[redacted]" || string(got) != "[redacted]" {
+			t.Fatalf("body = %v raw = %q response = %q", status.Body, status.RawBody, got)
+		}
+	})
+	t.Run("a safe key named [redacted] after a secret key keeps its name", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("SECRET-0123456789abcdef", "s"), func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"a-SECRET-0123456789abcdef":"x","[redacted]":"safe"}`))
+		})
+		body := status.Body.(map[string]any)
+		if body["[redacted]"] != "safe" || body["[redacted]2"] != "x" || len(body) != 2 {
+			t.Fatalf("body = %v", body)
+		}
+	})
 	t.Run("a body that is not JSON", func(t *testing.T) {
 		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
 			w.WriteHeader(http.StatusBadGateway)
@@ -486,4 +523,40 @@ func (f *flipping) MarshalJSON() ([]byte, error) {
 		return json.Marshal("a-different-credential-string-0123")
 	}
 	return json.Marshal(f.first)
+}
+
+func TestConsentTransportFailureCarriesNoTransportText(t *testing.T) {
+	credential := `cred"ential\string-0123456789`
+	for name, failure := range map[string]error{
+		"plain":   errors.New(`write failed: {"id":"cred\"ential\\string-0123456789"} ` + testAccessToken),
+		"timeout": timeoutError{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stub := newStub(t)
+			stub.setTransportError(func(*http.Request) error { return failure })
+			c := newTestClient(t, stub, newClock())
+			_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+				Challenge: testAgentChallenge, Decision: AgentConsentApprove,
+				Assertion: &AgentPasskeyAssertion{ID: credential, RawID: "r", Response: AgentAuthenticatorResponse{Signature: "s"}},
+			})
+			if err == nil {
+				t.Fatal("want an error")
+			}
+			var conn *didit.APIConnectionError
+			if !errors.As(err, &conn) {
+				t.Fatalf("error = %v (%T)", err, err)
+			}
+			for e := error(err); e != nil; e = errors.Unwrap(e) {
+				text := e.Error()
+				for _, bad := range []string{"ential", testAccessToken, "write failed"} {
+					if strings.Contains(text, bad) {
+						t.Fatalf("%q carries %q", text, bad)
+					}
+				}
+			}
+			if name == "timeout" && !errors.As(err, new(*didit.APITimeoutError)) {
+				t.Fatalf("error = %v, want a timeout error", err)
+			}
+		})
+	}
 }
