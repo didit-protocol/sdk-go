@@ -9181,9 +9181,27 @@ type SignatureResultDocuments struct {
 	ID string `json:"id"`
 
 	// Same as `id`.
-	UUID     string `json:"uuid"`
-	Title    string `json:"title"`
-	FileName string `json:"file_name"`
+	UUID  string `json:"uuid"`
+	Title string `json:"title"`
+
+	// Language of the document version selected for this signing attempt, not
+	// necessarily the requested interface language. A complete translation matching
+	// the signer language (or session language when unset) is selected; otherwise
+	// the original is used. Null when the selected version has no language set.
+	// Frozen when the attempt starts; once signed, this is the language actually
+	// signed.
+	Language string `json:"language"`
+
+	// UUID of the source document revision copied into this signing attempt,
+	// including when a translated variant is selected. Distinct from id, which
+	// identifies the signer's document copy. Frozen when the attempt starts.
+	SourceRevision string `json:"source_revision"`
+
+	// UUID of the selected translated variant, or null when the original document
+	// is selected. Frozen with the document copy when the attempt starts; later
+	// language or translation changes do not replace it.
+	TranslationID string `json:"translation_id"`
+	FileName      string `json:"file_name"`
 
 	// Pages of the document signed. For Word, of the converted PDF.
 	Pages     int64 `json:"pages"`

@@ -3910,7 +3910,10 @@ type CustomerMessagingCaseRequestConfirmRequest struct {
 	// Required.
 	RequestID string `json:"request_id"`
 
-	// Required.
+	// Use the expiry covered by the preview token. Source-of-funds and
+	// purpose-of-payment requests allow up to 14 days; other purposes allow up to
+	// seven days. The default remains seven days. Changing the expiry without a
+	// matching preview is rejected. Required.
 	ExpiresAt time.Time `json:"expires_at"`
 
 	// Required.
@@ -3927,6 +3930,10 @@ func (r CustomerMessagingCaseRequestConfirmRequest) MarshalJSON() ([]byte, error
 //   - `business_document` - business_document
 //   - `confirm_details` - confirm_details
 //   - `review_in_progress` - review_in_progress
+//   - `source_of_funds` - Request a document showing the source of payment
+//     funds.
+//   - `purpose_of_payment` - Request a document explaining the payment
+//     purpose. Both are available for person and business cases.
 //
 // CustomerMessagingPurposeEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -3939,6 +3946,8 @@ const (
 	CustomerMessagingPurposeEnumBusinessDocument CustomerMessagingPurposeEnum = "business_document"
 	CustomerMessagingPurposeEnumConfirmDetails   CustomerMessagingPurposeEnum = "confirm_details"
 	CustomerMessagingPurposeEnumReviewInProgress CustomerMessagingPurposeEnum = "review_in_progress"
+	CustomerMessagingPurposeEnumSourceOfFunds    CustomerMessagingPurposeEnum = "source_of_funds"
+	CustomerMessagingPurposeEnumPurposeOfPayment CustomerMessagingPurposeEnum = "purpose_of_payment"
 )
 
 // CustomerMessagingLanguageEnum: * `en` - en
@@ -4086,6 +4095,10 @@ func (r *CustomerMessagingCaseRequestContact) UnmarshalJSON(data []byte) error {
 //   - `business_document` - business_document
 //   - `confirm_details` - confirm_details
 //   - `review_in_progress` - review_in_progress
+//   - `source_of_funds` - Request a document showing the source of payment
+//     funds.
+//   - `purpose_of_payment` - Request a document explaining the payment
+//     purpose. Both are available for person and business cases.
 //
 // CustomerMessagingPurposesEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -4098,6 +4111,8 @@ const (
 	CustomerMessagingPurposesEnumBusinessDocument CustomerMessagingPurposesEnum = "business_document"
 	CustomerMessagingPurposesEnumConfirmDetails   CustomerMessagingPurposesEnum = "confirm_details"
 	CustomerMessagingPurposesEnumReviewInProgress CustomerMessagingPurposesEnum = "review_in_progress"
+	CustomerMessagingPurposesEnumSourceOfFunds    CustomerMessagingPurposesEnum = "source_of_funds"
+	CustomerMessagingPurposesEnumPurposeOfPayment CustomerMessagingPurposesEnum = "purpose_of_payment"
 )
 
 // CustomerMessagingLanguagesEnum: * `en` - en
