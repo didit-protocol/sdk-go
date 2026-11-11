@@ -648,3 +648,25 @@ func TestConsentHeaderNameIsMatchedCaseInsensitively(t *testing.T) {
 		}
 	}
 }
+
+type throwingMarshaler struct{}
+
+func (throwingMarshaler) MarshalJSON() ([]byte, error) {
+	return nil, errors.New("credential-string-0123456789 " + testAgentChallenge)
+}
+
+func TestConsentEncodingFailureHasAFixedMessage(t *testing.T) {
+	stub := newStub(t)
+	c := newTestClient(t, stub, newClock())
+	_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+		Challenge: testAgentChallenge, Decision: AgentConsentApprove,
+		Assertion: &AgentPasskeyAssertion{ID: "x", RawID: "r", ClientExtensionResults: map[string]any{"e": throwingMarshaler{}}},
+	})
+	var cfg *didit.ConfigurationError
+	if !errors.As(err, &cfg) {
+		t.Fatalf("error = %v (%T)", err, err)
+	}
+	if strings.Contains(err.Error(), "credential-string") || strings.Contains(err.Error(), testAgentChallenge) || errors.Unwrap(err) != nil {
+		t.Fatalf("error carries the serializer's text: %v", err)
+	}
+}
