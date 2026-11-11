@@ -241,8 +241,10 @@ func TestSubmitAgentConsentNeverEchoesSecrets(t *testing.T) {
 					texts = append(texts, string(b))
 				}
 				if name == "400 json" {
-					if m, _ := status.Body.(map[string]any); m["detail"] != "passkey_required" {
-						t.Fatalf("non-secret detail lost: %v", status.Body)
+					// The assertion keys ("q", "n", ...) are secrets too, so "passkey_required"
+					// (it contains "q") is redacted whole while "echo" stays.
+					if m, _ := status.Body.(map[string]any); m["echo"] == nil {
+						t.Fatalf("non-secret key lost: %v", status.Body)
 					}
 				}
 			}
@@ -316,4 +318,102 @@ func TestAssertionStraddlingTheErrorBodyCapLeavesNoPrefix(t *testing.T) {
 	if strings.Contains(string(bad.RawBody), secret[:16]) || strings.Contains(err.Error(), secret[:16]) {
 		t.Fatalf("a prefix of the assertion survived the body cap")
 	}
+}
+
+func structuredConsentError(t *testing.T, assertion *AgentPasskeyAssertion, respond func(w http.ResponseWriter)) *didit.APIStatusError {
+	t.Helper()
+	stub := newStub(t)
+	stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) { respond(w) })
+	c := newTestClient(t, stub, newClock())
+	_, err := c.SubmitAgentConsent(context.Background(), "TOKEN-m4rk", AgentConsentParams{
+		Challenge: testAgentChallenge, Decision: AgentConsentApprove, Assertion: assertion,
+	})
+	var status *didit.APIStatusError
+	if !errors.As(err, &status) {
+		t.Fatalf("want an APIStatusError, got %v", err)
+	}
+	return status
+}
+
+func shownError(status *didit.APIStatusError) string {
+	return status.Error() + "\n" + string(status.RawBody) + "\n" + fmt.Sprintf("%v", status.Body)
+}
+
+func TestConsentRedactionStructural(t *testing.T) {
+	assertion := func(id, sig string) *AgentPasskeyAssertion {
+		return &AgentPasskeyAssertion{ID: id, RawID: "RAW-x", Response: AgentAuthenticatorResponse{Signature: sig}}
+	}
+	t.Run("prefixed secrets leave no fragment", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("abc", "abcdef"), func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "bad abcdef and abc", "other": "abcdef"})
+		})
+		shown := shownError(status)
+		if strings.Contains(shown, "abc") || strings.Contains(shown, "def") {
+			t.Fatalf("fragment left: %s", shown)
+		}
+		if status.Body.(map[string]any)["detail"] != "[redacted]" {
+			t.Fatalf("body = %v", status.Body)
+		}
+	})
+	t.Run("a string containing a secret is redacted whole", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("SECRET", "s"), func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "bad assertion xyzSECRETxyz", "keep": "fine"})
+		})
+		body := status.Body.(map[string]any)
+		if body["detail"] != "[redacted]" || body["keep"] != "fine" {
+			t.Fatalf("body = %v", body)
+		}
+		if !strings.Contains(status.Error(), "[redacted]") || strings.Contains(status.Error(), "SECRET") {
+			t.Fatalf("message = %q", status.Error())
+		}
+	})
+	t.Run("a secret used as an object key", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("SECRET", "s"), func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "no", "echo-SECRET-1": "a", "echo-SECRET-2": "b"})
+		})
+		body := status.Body.(map[string]any)
+		if len(body) != 3 || body["detail"] != "no" || body["[redacted]"] == nil || body["[redacted]2"] == nil {
+			t.Fatalf("body = %v", body)
+		}
+		if strings.Contains(shownError(status), "SECRET") {
+			t.Fatalf("leak: %s", shownError(status))
+		}
+	})
+	t.Run("other JSON escape spellings", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("a/b+\u00e9", "s"), func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"detail":"x","echo":"a\/b+\u00E9"}`))
+		})
+		body := status.Body.(map[string]any)
+		if body["detail"] != "x" || body["echo"] != "[redacted]" {
+			t.Fatalf("body = %v", body)
+		}
+		shown := shownError(status)
+		for _, bad := range []string{"a/b", "00E9", "\u00e9"} {
+			if strings.Contains(shown, bad) {
+				t.Fatalf("%q left in %s", bad, shown)
+			}
+		}
+	})
+	t.Run("a body that is not JSON", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte("<html>Bad gateway " + testAgentChallenge + "</html>"))
+		})
+		if status.Body != "[redacted]" || string(status.RawBody) != "[redacted]" {
+			t.Fatalf("body = %v raw = %q", status.Body, status.RawBody)
+		}
+		if strings.Contains(shownError(status), testAgentChallenge) {
+			t.Fatal("challenge left")
+		}
+	})
+	t.Run("a secret past the message cap", func(t *testing.T) {
+		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(strings.Repeat("x", 600) + testAgentChallenge))
+		})
+		if status.Body != "[redacted]" || strings.Contains(shownError(status), testAgentChallenge) {
+			t.Fatalf("body = %v", status.Body)
+		}
+	})
 }

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,8 +44,10 @@ type request struct {
 	// retry allows one retry after a connection error or a 5xx answer. Only
 	// requests that are safe to repeat set it.
 	retry bool
-	// secrets are strings that must never reach an error: they are replaced
-	// by "[redacted]" in an error body, raw and JSON-escaped, at any depth.
+	// secrets are strings that must never reach an error. When set, an error
+	// body is redacted structurally: the parsed JSON has every string (object
+	// key or value) that contains a secret replaced whole by "[redacted]", and
+	// a body that is not JSON becomes "[redacted]". The raw text is never kept.
 	secrets []string
 }
 
@@ -106,10 +109,10 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 		}
 	}
 	if !ok {
-		// Redact the whole read first: the cap must not cut a secret in two and leave its prefix.
-		data = redactSecrets(data, r.secrets)
-		if len(data) > maxResponseBytes {
-			data = trimPartialSecret(data[:maxResponseBytes], r.secrets)
+		if len(r.secrets) > 0 {
+			data = redactBody(data[:min(len(data), maxResponseBytes)], r.secrets)
+		} else if len(data) > maxResponseBytes {
+			data = data[:maxResponseBytes]
 		}
 		return nil, didit.NewAPIStatusError(&didit.APIStatusError{
 			StatusCode: resp.StatusCode,
@@ -284,7 +287,8 @@ func checkBearer(token string) error {
 
 const redactedMarker = "[redacted]"
 
-// collectStrings appends every string value (map keys excluded) found in v.
+// collectStrings appends every non-empty string found in v: object keys and
+// values, at any depth.
 func collectStrings(v any, out []string) []string {
 	switch t := v.(type) {
 	case string:
@@ -296,16 +300,18 @@ func collectStrings(v any, out []string) []string {
 			out = collectStrings(e, out)
 		}
 	case map[string]any:
-		for _, e := range t {
+		for k, e := range t {
+			out = collectStrings(k, out)
 			out = collectStrings(e, out)
 		}
 	}
 	return out
 }
 
-// assertionSecrets returns every string value of the passkey assertion in the
-// JSON document body, at any depth, followed by extra. The decision, scopes
-// and organization ids are not secrets and stay readable in errors.
+// assertionSecrets returns every string of the passkey assertion in the JSON
+// document body (object keys and values, at any depth), followed by extra. The
+// decision, scopes and organization ids are not secrets and stay readable in
+// errors.
 func assertionSecrets(body []byte, extra ...string) []string {
 	var doc struct {
 		Assertion any `json:"assertion"`
@@ -314,107 +320,70 @@ func assertionSecrets(body []byte, extra ...string) []string {
 	return append(collectStrings(doc.Assertion, nil), extra...)
 }
 
-// secretForms returns the spellings of s a JSON or text body can carry it in.
-func secretForms(s string) []string {
-	forms := []string{s}
-	add := func(b []byte, err error) {
-		if err == nil && len(b) >= 2 {
-			forms = append(forms, string(b[1:len(b)-1]))
-		}
+// redactBody returns an error body with the secrets removed from the parsed
+// value, never from its raw text: valid JSON comes back re-encoded with
+// redactValue applied, anything else (an HTML error page, a body cut at the
+// size limit) comes back as "[redacted]". An empty body stays empty.
+func redactBody(data []byte, secrets []string) []byte {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return data
 	}
-	add(json.Marshal(s))
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil || dec.More() {
+		return []byte(redactedMarker)
+	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
-	_ = enc.Encode(s)
-	add(bytes.TrimSpace(buf.Bytes()), nil)
-	forms = append(forms, strings.ReplaceAll(forms[len(forms)-1], "/", `\/`))
-	var ascii strings.Builder
-	for _, r := range s {
-		switch {
-		case r < 0x7f && r >= 0x20 && r != '"' && r != '\\':
-			ascii.WriteRune(r)
-		case r > 0xffff:
-			r -= 0x10000
-			fmt.Fprintf(&ascii, `\u%04x\u%04x`, 0xd800+(r>>10), 0xdc00+(r&0x3ff))
-		default:
-			fmt.Fprintf(&ascii, `\u%04x`, r)
-		}
+	if err := enc.Encode(redactValue(v, secrets)); err != nil {
+		return []byte(redactedMarker)
 	}
-	forms = append(forms, ascii.String())
-	return forms
+	return bytes.TrimSpace(buf.Bytes())
 }
 
-// trimPartialSecret drops a trailing prefix of a secret that a length cap cut
-// off, so no part of one survives the cap.
-func trimPartialSecret(data []byte, secrets []string) []byte {
-	longest := 0
-	for _, s := range secrets {
-		for _, f := range secretForms(s) {
-			for k := min(len(f)-1, len(data)); k > longest; k-- {
-				if bytes.HasSuffix(data, []byte(f[:k])) {
-					longest = k
-					break
-				}
-			}
-		}
-	}
-	return data[:len(data)-longest]
-}
-
-// redactSecrets replaces every secret in an error body, in raw text and in
-// each JSON-escaped spelling, then in the parsed strings, and returns the
-// redacted bytes (always valid for the same parse as the original).
-func redactSecrets(data []byte, secrets []string) []byte {
-	if len(secrets) == 0 || len(data) == 0 {
-		return data
-	}
-	var forms []string
-	for _, s := range secrets {
-		if s != "" {
-			forms = append(forms, secretForms(s)...)
-		}
-	}
-	// Longest first, so a secret that contains another is replaced whole.
-	sort.Slice(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
-	text := string(data)
-	for _, f := range forms {
-		if f != "" {
-			text = strings.ReplaceAll(text, f, redactedMarker)
-		}
-	}
-	// Any other escaping that decodes to a secret: redact the parsed strings.
-	var v any
-	if json.Unmarshal([]byte(text), &v) == nil {
-		changed := false
-		v = redactValue(v, secrets, &changed)
-		if changed {
-			if b, err := json.Marshal(v); err == nil {
-				return b
-			}
-		}
-	}
-	return []byte(text)
-}
-
-func redactValue(v any, secrets []string, changed *bool) any {
+// redactValue replaces every string of v that contains a secret, object keys
+// included, by "[redacted]" as a whole. Strings are compared as decoded, so the
+// spelling of the raw JSON does not matter. A redacted key that collides with
+// another key is numbered ("[redacted]", "[redacted]2", ...).
+func redactValue(v any, secrets []string) any {
 	switch t := v.(type) {
 	case string:
-		for _, s := range secrets {
-			if s != "" && strings.Contains(t, s) {
-				t = strings.ReplaceAll(t, s, redactedMarker)
-				*changed = true
-			}
-		}
-		return t
+		return redactString(t, secrets)
 	case []any:
-		for i := range t {
-			t[i] = redactValue(t[i], secrets, changed)
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = redactValue(e, secrets)
 		}
+		return out
 	case map[string]any:
-		for k, e := range t {
-			t[k] = redactValue(e, secrets, changed)
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
 		}
+		sort.Strings(keys)
+		out := make(map[string]any, len(t))
+		for _, k := range keys {
+			name := redactString(k, secrets)
+			for n := 2; ; n++ {
+				if _, taken := out[name]; !taken {
+					break
+				}
+				name = redactedMarker + strconv.Itoa(n)
+			}
+			out[name] = redactValue(t[k], secrets)
+		}
+		return out
 	}
 	return v
+}
+
+func redactString(s string, secrets []string) string {
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(s, secret) {
+			return redactedMarker
+		}
+	}
+	return s
 }
