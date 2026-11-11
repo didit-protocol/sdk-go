@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.15.0](https://github.com/didit-protocol/sdk-go/compare/v1.14.0...v1.15.0) (2026-11-11)
+
+
+### Features
+
+* **spec:** sync API spec 2026-11-11 ([331783a](https://github.com/didit-protocol/sdk-go/commit/331783ab27adf8a23985a01d10bb45de947642d9))
+
+
+### API changes that can break typed code
+
+* **spec:** `POST /v3/organization/{organization_id}/application/{application_id}/cases/` request body `links[].entity_type`: added (required) ([331783a](https://github.com/didit-protocol/sdk-go/commit/331783ab27adf8a23985a01d10bb45de947642d9))
+* **spec:** `POST /v3/organization/{organization_id}/application/{application_id}/cases/` request body `links[].entity_uuid`: added (required) ([331783a](https://github.com/didit-protocol/sdk-go/commit/331783ab27adf8a23985a01d10bb45de947642d9))
+* **spec:** `POST /v3/organization/{organization_id}/application/{application_id}/cases/blueprints/{blueprint_uuid}/publish/` response `content_config`: type changed from any to object ([331783a](https://github.com/didit-protocol/sdk-go/commit/331783ab27adf8a23985a01d10bb45de947642d9))
+
 ## [1.14.0](https://github.com/didit-protocol/sdk-go/compare/v1.13.0...v1.14.0) (2026-11-11)
 
 
