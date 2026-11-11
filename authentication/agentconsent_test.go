@@ -619,3 +619,32 @@ func TestConsentMalformed2xxKeepsTheRequestIDRedacted(t *testing.T) {
 		t.Fatalf("leak in %q", shown)
 	}
 }
+
+func TestSuccessfulApprovalOptionsReachTheCallerUnchanged(t *testing.T) {
+	stub := newStub(t)
+	stub.handle("/agents/consent/passkey/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"options": map[string]any{"challenge": testAgentChallenge, "rpId": "acme.auth.didit.me"}})
+	})
+	c := newTestClient(t, stub, newClock())
+	out, err := c.CreateAgentApprovalOptions(context.Background(), testAccessToken, testAgentChallenge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out.Raw), testAgentChallenge) || strings.Contains(string(out.Raw), "[redacted]") {
+		t.Fatalf("raw = %s", out.Raw)
+	}
+}
+
+func TestConsentHeaderNameIsMatchedCaseInsensitively(t *testing.T) {
+	credential := "CredentialString-AbCdEf0123456789"
+	status := structuredConsentError(t, &AgentPasskeyAssertion{ID: credential, RawID: "r", Response: AgentAuthenticatorResponse{Signature: "s"}}, func(w http.ResponseWriter) {
+		w.Header().Set("X-Echo-"+credential, "v")
+		w.Header().Set("X-Keep", "fine")
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant"})
+	})
+	for _, h := range []http.Header{status.Header, status.Response.Header} {
+		if h.Get("X-Keep") != "fine" || strings.Contains(strings.ToLower(fmt.Sprint(h)), "credentialstring") {
+			t.Fatalf("headers = %v", h)
+		}
+	}
+}

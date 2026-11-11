@@ -103,32 +103,31 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 		return nil, requestError(r, err)
 	}
 	ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
-	if len(r.secrets) > 0 {
-		// Sanitized once, on receipt: every error of this call, on any status, is built from this response only.
-		resp, data = sanitizeResponse(resp, data, r.secrets)
-	} else if len(data) > maxResponseBytes {
-		if ok {
-			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil, nil)
+	if ok {
+		// A successful response reaches the caller unchanged.
+		if len(data) > maxResponseBytes {
+			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil, data)
 		}
+		return &response{header: resp.Header, body: data, http: resp}, nil
+	}
+	// Every error of a consent call is built from a sanitized copy of the response only.
+	var kept []byte // the content the error's response carries: only ever sanitized bytes
+	if len(r.secrets) > 0 {
+		resp, data = sanitizeResponse(resp, data, r.secrets)
+		kept = data
+	} else if len(data) > maxResponseBytes {
 		data = data[:maxResponseBytes]
 	}
-	if !ok {
-		var kept []byte // the content the error's response carries: only ever sanitized bytes
-		if len(r.secrets) > 0 {
-			kept = data
-		}
-		return nil, didit.NewAPIStatusError(&didit.APIStatusError{
-			StatusCode: resp.StatusCode,
-			Body:       parseBody(data),
-			RawBody:    data,
-			Header:     resp.Header,
-			RequestID:  resp.Header.Get("X-Request-Id"),
-			Method:     r.method,
-			URL:        redactURL(r.url),
-			Response:   redactedResponse(resp, kept),
-		})
-	}
-	return &response{header: resp.Header, body: data, http: resp}, nil
+	return nil, didit.NewAPIStatusError(&didit.APIStatusError{
+		StatusCode: resp.StatusCode,
+		Body:       parseBody(data),
+		RawBody:    data,
+		Header:     resp.Header,
+		RequestID:  resp.Header.Get("X-Request-Id"),
+		Method:     r.method,
+		URL:        redactURL(r.url),
+		Response:   redactedResponse(resp, kept),
+	})
 }
 
 // sanitizeResponse returns the response of a call whose answer may echo secrets
@@ -192,6 +191,9 @@ func decodeJSON(r request, resp *response, v any) error {
 func unexpectedResponse(r request, resp *http.Response, problem string, cause error, body []byte) error {
 	if len(r.secrets) == 0 {
 		body = nil
+	} else {
+		// A copy sanitized to build this error; the successful path never sees it.
+		resp, body = sanitizeResponse(resp, body, r.secrets)
 	}
 	return &didit.UnexpectedResponseError{
 		Message:  fmt.Sprintf("%s %s: the %d response %s", r.method, redactURL(r.url), resp.StatusCode, problem),
@@ -470,10 +472,22 @@ func redactValue(v any, secrets []string) any {
 }
 
 // redactHeader copies h without the headers whose name contains a secret, and with every value that contains one replaced whole.
+// nameHasSecret reports whether a header name contains a secret; names are
+// case-insensitive, so both sides are case-folded.
+func nameHasSecret(name string, secrets []string) bool {
+	folded := strings.ToLower(name)
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(folded, strings.ToLower(secret)) {
+			return true
+		}
+	}
+	return false
+}
+
 func redactHeader(h http.Header, secrets []string) http.Header {
 	out := make(http.Header, len(h))
 	for name, values := range h {
-		if redactString(name, secrets) != name {
+		if nameHasSecret(name, secrets) {
 			continue
 		}
 		clean := make([]string, len(values))
