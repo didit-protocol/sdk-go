@@ -46,6 +46,7 @@ type Client struct {
 	Questionnaires     *QuestionnairesService
 	RegulatoryReports  *RegulatoryReportsService
 	ReportTemplates    *ReportTemplatesService
+	Sandbox            *SandboxService
 	Sessions           *SessionsService
 	Transactions       *TransactionsService
 	TravelRule         *TravelRuleService
@@ -103,6 +104,7 @@ func (c *Client) init() {
 	c.Questionnaires = &QuestionnairesService{client: c}
 	c.RegulatoryReports = &RegulatoryReportsService{client: c}
 	c.ReportTemplates = &ReportTemplatesService{client: c}
+	c.Sandbox = &SandboxService{client: c}
 	c.Sessions = &SessionsService{client: c}
 	c.Sessions.Imports = &SessionsImportsService{client: c}
 	c.Sessions.Reviews = &SessionsReviewsService{client: c}

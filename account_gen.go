@@ -100,6 +100,12 @@ type AccountApplicationsService struct {
 // afterwards). The response includes `api_key`; persist it now (recoverable via
 // GET). Requires owner/admin JWT.
 //
+// Set initiate_login_uri to your HTTPS sign-in page on the exact website_url
+// hostname, or an empty string to disable admin-sent sign-in links. Changing
+// website_url also revalidates the saved sign-in URI. Invalid values return 400
+// with an initiate_login_uri field error; hostname and URI policy failures use
+// https_url_on_registered_website_required.
+//
 //	POST /organizations/me/{org_id}/applications/
 func (r *AccountApplicationsService) Create(ctx context.Context, orgID string, params ApplicationCreateRequest, opts ...option.RequestOption) (*Application, error) {
 	res := new(Application)
@@ -153,6 +159,12 @@ func (r *AccountApplicationsService) Retrieve(ctx context.Context, orgID string,
 // is created, except once on the live application created with your
 // organization, while it is unused (see the request body). Requires owner/admin
 // JWT.
+//
+// Set initiate_login_uri to your HTTPS sign-in page on the exact website_url
+// hostname, or an empty string to disable admin-sent sign-in links. Changing
+// website_url also revalidates the saved sign-in URI. Invalid values return 400
+// with an initiate_login_uri field error; hostname and URI policy failures use
+// https_url_on_registered_website_required.
 //
 //	PATCH /organizations/me/{org_id}/applications/{app_id}/
 func (r *AccountApplicationsService) Update(ctx context.Context, orgID string, appID string, params ApplicationUpdateRequest, opts ...option.RequestOption) (*Application, error) {
@@ -459,8 +471,9 @@ type ApplicationCreateRequest struct {
 	PrivacyURL Opt[string] `json:"privacy_url"`
 
 	// Internal description for the application (not shown to end users).
-	Description  Opt[string]                  `json:"description"`
-	DataLocation Opt[ApplicationDataLocation] `json:"data_location"`
+	Description      Opt[string]                  `json:"description"`
+	DataLocation     Opt[ApplicationDataLocation] `json:"data_location"`
+	InitiateLoginURI Opt[string]                  `json:"initiate_login_uri"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -520,7 +533,8 @@ type Application struct {
 	// check and is never billed, so it is where you test (each sandbox application
 	// can create 500 test sessions every 24 hours). Read this field to pick the
 	// application: never infer the environment from the name.
-	Mode ApplicationMode `json:"mode"`
+	Mode             ApplicationMode `json:"mode"`
+	InitiateLoginURI string          `json:"initiate_login_uri"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -647,8 +661,9 @@ type ApplicationUpdateRequest struct {
 	PrivacyURL Opt[string] `json:"privacy_url"`
 
 	// Internal description for the application.
-	Description  Opt[string]                  `json:"description"`
-	DataLocation Opt[ApplicationDataLocation] `json:"data_location"`
+	Description      Opt[string]                  `json:"description"`
+	DataLocation     Opt[ApplicationDataLocation] `json:"data_location"`
+	InitiateLoginURI Opt[string]                  `json:"initiate_login_uri"`
 }
 
 // MarshalJSON encodes the fields that are set.
