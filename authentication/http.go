@@ -311,6 +311,7 @@ const redactedMarker = "[redacted]"
 // Shorter ones (field names such as "id", values such as "public-key") are not:
 // matching them would erase error codes like "invalid_grant" (docs/DESIGN.md
 // section 10).
+// Sensitive values are 16+ chars: user handles are 16-byte ids (22 base64url), credential ids 16+ bytes.
 const minSecretLength = 16
 
 // collectStrings appends every string of at least minSecretLength characters
