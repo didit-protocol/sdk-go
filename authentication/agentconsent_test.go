@@ -406,6 +406,24 @@ func TestConsentRedactionStructural(t *testing.T) {
 			t.Fatalf("shown = %s", shownError(status))
 		}
 	})
+	t.Run("a string inside a nested struct is redacted", func(t *testing.T) {
+		type credProps struct {
+			Value string `json:"value"`
+		}
+		nested := "nested-credential-string-0123456789"
+		a := assertion("short", "s")
+		a.ClientExtensionResults = map[string]any{"credProps": []credProps{{Value: nested}}}
+		status := structuredConsentError(t, a, func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant", "echo": nested})
+		})
+		body := status.Body.(map[string]any)
+		if body["error"] != "invalid_grant" || body["echo"] != "[redacted]" {
+			t.Fatalf("body = %v", body)
+		}
+		if strings.Contains(shownError(status), nested) {
+			t.Fatal("nested credential left")
+		}
+	})
 	t.Run("a body that is not JSON", func(t *testing.T) {
 		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
 			w.WriteHeader(http.StatusBadGateway)
