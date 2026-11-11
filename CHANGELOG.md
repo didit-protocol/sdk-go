@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.1](https://github.com/didit-protocol/sdk-go/compare/v1.15.0...v1.15.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **authentication:** redact secrets before capping an error body ([bcdd44e](https://github.com/didit-protocol/sdk-go/commit/bcdd44edfea7b66b80cd1033513e6f1a53d304ed))
+
 ## [1.15.0](https://github.com/didit-protocol/sdk-go/compare/v1.14.0...v1.15.0) (2026-11-11)
 
 
