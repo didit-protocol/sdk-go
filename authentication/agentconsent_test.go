@@ -424,6 +424,17 @@ func TestConsentRedactionStructural(t *testing.T) {
 			t.Fatal("nested credential left")
 		}
 	})
+	t.Run("secrets come from the bytes sent, not a second serialization", func(t *testing.T) {
+		sent := "credential-string-actually-sent-0123"
+		a := assertion("short", "s")
+		a.ClientExtensionResults = map[string]any{"credProps": &flipping{first: sent}}
+		status := structuredConsentError(t, a, func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant", "echo": sent})
+		})
+		if status.Body.(map[string]any)["echo"] != "[redacted]" || strings.Contains(shownError(status), sent) {
+			t.Fatalf("body = %v", status.Body)
+		}
+	})
 	t.Run("a body that is not JSON", func(t *testing.T) {
 		status := structuredConsentError(t, assertion("x", "s"), func(w http.ResponseWriter) {
 			w.WriteHeader(http.StatusBadGateway)
@@ -445,4 +456,18 @@ func TestConsentRedactionStructural(t *testing.T) {
 			t.Fatalf("body = %v", status.Body)
 		}
 	})
+}
+
+// flipping marshals to a different string on every call after the first.
+type flipping struct {
+	first string
+	calls int
+}
+
+func (f *flipping) MarshalJSON() ([]byte, error) {
+	f.calls++
+	if f.calls > 1 {
+		return json.Marshal("a-different-credential-string-0123")
+	}
+	return json.Marshal(f.first)
 }
