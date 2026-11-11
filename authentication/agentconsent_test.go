@@ -187,23 +187,23 @@ func TestCreateAgentApprovalOptions(t *testing.T) {
 
 // echoSecrets are distinct markers for every position of the consent call.
 var echoSecrets = []string{
-	"CHALLENGE-m4rk", "TOKEN-m4rk", "ID-m4rk", "RAWID-m4rk", "CDJ-m4rk", "AUTHDATA-m4rk", "SIG-m4rk",
-	"HANDLE-m4rk", "EXT-top-m4rk", "EXT-deep-m4rk", "EXT-list-m4rk", "EXT-q\"uo<te>-m4rk",
+	"CHALLENGE-m4rk-padpad0123456", "TOKEN-m4rk-padpad0123456", "ID-m4rk-padpad0123456", "RAWID-m4rk-padpad0123456", "CDJ-m4rk-padpad0123456", "AUTHDATA-m4rk-padpad0123456", "SIG-m4rk-padpad0123456",
+	"HANDLE-m4rk-padpad0123456", "EXT-top-m4rk-padpad0123456", "EXT-deep-m4rk-padpad0123456", "EXT-list-m4rk-padpad0123456", "EXT-q\"uo<te>-m4rk-padpad0123456",
 }
 
 func TestSubmitAgentConsentNeverEchoesSecrets(t *testing.T) {
-	handle := "HANDLE-m4rk"
+	handle := "HANDLE-m4rk-padpad0123456"
 	params := AgentConsentParams{
 		Challenge: echoSecrets[0],
 		Decision:  AgentConsentApprove,
 		Assertion: &AgentPasskeyAssertion{
-			ID: "ID-m4rk", RawID: "RAWID-m4rk",
+			ID: "ID-m4rk-padpad0123456", RawID: "RAWID-m4rk-padpad0123456",
 			Response: AgentAuthenticatorResponse{
-				ClientDataJSON: "CDJ-m4rk", AuthenticatorData: "AUTHDATA-m4rk", Signature: "SIG-m4rk", UserHandle: &handle,
+				ClientDataJSON: "CDJ-m4rk-padpad0123456", AuthenticatorData: "AUTHDATA-m4rk-padpad0123456", Signature: "SIG-m4rk-padpad0123456", UserHandle: &handle,
 			},
 			ClientExtensionResults: map[string]any{
-				"top": "EXT-top-m4rk", "n": map[string]any{"deep": "EXT-deep-m4rk", "l": []any{"EXT-list-m4rk"}},
-				"q": "EXT-q\"uo<te>-m4rk",
+				"top": "EXT-top-m4rk-padpad0123456", "n": map[string]any{"deep": "EXT-deep-m4rk-padpad0123456", "l": []any{"EXT-list-m4rk-padpad0123456"}},
+				"q": "EXT-q\"uo<te>-m4rk-padpad0123456",
 			},
 		},
 	}
@@ -227,7 +227,7 @@ func TestSubmitAgentConsentNeverEchoesSecrets(t *testing.T) {
 			stub := newStub(t)
 			stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) { respond(w) })
 			c := newTestClient(t, stub, newClock())
-			_, err := c.SubmitAgentConsent(context.Background(), "TOKEN-m4rk", params)
+			_, err := c.SubmitAgentConsent(context.Background(), "TOKEN-m4rk-padpad0123456", params)
 			if err == nil {
 				t.Fatal("want an error")
 			}
@@ -241,10 +241,8 @@ func TestSubmitAgentConsentNeverEchoesSecrets(t *testing.T) {
 					texts = append(texts, string(b))
 				}
 				if name == "400 json" {
-					// The assertion keys ("q", "n", ...) are secrets too, so "passkey_required"
-					// (it contains "q") is redacted whole while "echo" stays.
-					if m, _ := status.Body.(map[string]any); m["echo"] == nil {
-						t.Fatalf("non-secret key lost: %v", status.Body)
+					if m, _ := status.Body.(map[string]any); m["detail"] != "passkey_required" {
+						t.Fatalf("non-secret detail lost: %v", status.Body)
 					}
 				}
 			}
@@ -266,10 +264,10 @@ func TestSubmitAgentConsentNeverEchoesSecrets(t *testing.T) {
 func TestCreateAgentApprovalOptionsNeverEchoesChallenge(t *testing.T) {
 	stub := newStub(t)
 	stub.handle("/agents/consent/passkey/", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "x", "echo": "CHALLENGE-m4rk TOKEN-m4rk"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "x", "echo": "CHALLENGE-m4rk-padpad0123456 TOKEN-m4rk-padpad0123456"})
 	})
 	c := newTestClient(t, stub, newClock())
-	_, err := c.CreateAgentApprovalOptions(context.Background(), "TOKEN-m4rk", "CHALLENGE-m4rk")
+	_, err := c.CreateAgentApprovalOptions(context.Background(), "TOKEN-m4rk-padpad0123456", "CHALLENGE-m4rk-padpad0123456")
 	var status *didit.APIStatusError
 	if !errors.As(err, &status) || strings.Contains(err.Error()+string(status.RawBody)+fmt.Sprint(status.Body), "m4rk") {
 		t.Fatalf("error = %v", err)
@@ -283,15 +281,15 @@ func TestSubmitAgentConsentRejectsUnencodableAssertionBeforeSending(t *testing.T
 		Challenge: testAgentChallenge,
 		Decision:  AgentConsentApprove,
 		Assertion: &AgentPasskeyAssertion{
-			ID:                     "ID-m4rk",
-			ClientExtensionResults: map[string]any{"bad": make(chan int), "leak": "EXT-m4rk"},
+			ID:                     "ID-m4rk-padpad0123456",
+			ClientExtensionResults: map[string]any{"bad": make(chan int), "leak": "EXT-m4rk-padpad0123456"},
 		},
 	})
 	wantConfigError(t, err, "cannot be encoded")
 	if n := stub.count("/agents/consent/"); n != 0 {
 		t.Fatalf("%d requests sent, want none", n)
 	}
-	for _, secret := range []string{testAgentChallenge, "ID-m4rk", "EXT-m4rk"} {
+	for _, secret := range []string{testAgentChallenge, "ID-m4rk-padpad0123456", "EXT-m4rk-padpad0123456"} {
 		if strings.Contains(err.Error(), secret) {
 			t.Fatalf("error %q leaks %q", err, secret)
 		}
@@ -325,7 +323,7 @@ func structuredConsentError(t *testing.T, assertion *AgentPasskeyAssertion, resp
 	stub := newStub(t)
 	stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) { respond(w) })
 	c := newTestClient(t, stub, newClock())
-	_, err := c.SubmitAgentConsent(context.Background(), "TOKEN-m4rk", AgentConsentParams{
+	_, err := c.SubmitAgentConsent(context.Background(), "TOKEN-m4rk-padpad0123456", AgentConsentParams{
 		Challenge: testAgentChallenge, Decision: AgentConsentApprove, Assertion: assertion,
 	})
 	var status *didit.APIStatusError
@@ -344,11 +342,11 @@ func TestConsentRedactionStructural(t *testing.T) {
 		return &AgentPasskeyAssertion{ID: id, RawID: "RAW-x", Response: AgentAuthenticatorResponse{Signature: sig}}
 	}
 	t.Run("prefixed secrets leave no fragment", func(t *testing.T) {
-		status := structuredConsentError(t, assertion("abc", "abcdef"), func(w http.ResponseWriter) {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "bad abcdef and abc", "other": "abcdef"})
+		status := structuredConsentError(t, assertion("abcCREDENTIALID0123", "abcCREDENTIALID0123456"), func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "bad abcCREDENTIALID0123456 and abcCREDENTIALID0123", "other": "abcCREDENTIALID0123456"})
 		})
 		shown := shownError(status)
-		if strings.Contains(shown, "abc") || strings.Contains(shown, "def") {
+		if strings.Contains(shown, "abcCRED") || strings.Contains(shown, "456") {
 			t.Fatalf("fragment left: %s", shown)
 		}
 		if status.Body.(map[string]any)["detail"] != "[redacted]" {
@@ -356,43 +354,56 @@ func TestConsentRedactionStructural(t *testing.T) {
 		}
 	})
 	t.Run("a string containing a secret is redacted whole", func(t *testing.T) {
-		status := structuredConsentError(t, assertion("SECRET", "s"), func(w http.ResponseWriter) {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "bad assertion xyzSECRETxyz", "keep": "fine"})
+		status := structuredConsentError(t, assertion("SECRET-0123456789abcdef", "s"), func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "bad assertion xyzSECRET-0123456789abcdefxyz", "keep": "fine"})
 		})
 		body := status.Body.(map[string]any)
 		if body["detail"] != "[redacted]" || body["keep"] != "fine" {
 			t.Fatalf("body = %v", body)
 		}
-		if !strings.Contains(status.Error(), "[redacted]") || strings.Contains(status.Error(), "SECRET") {
+		if !strings.Contains(status.Error(), "[redacted]") || strings.Contains(status.Error(), "SECRET-0123456789abcdef") {
 			t.Fatalf("message = %q", status.Error())
 		}
 	})
 	t.Run("a secret used as an object key", func(t *testing.T) {
-		status := structuredConsentError(t, assertion("SECRET", "s"), func(w http.ResponseWriter) {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "no", "echo-SECRET-1": "a", "echo-SECRET-2": "b"})
+		status := structuredConsentError(t, assertion("SECRET-0123456789abcdef", "s"), func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "no", "echo-SECRET-0123456789abcdef-1": "a", "echo-SECRET-0123456789abcdef-2": "b"})
 		})
 		body := status.Body.(map[string]any)
 		if len(body) != 3 || body["detail"] != "no" || body["[redacted]"] == nil || body["[redacted]2"] == nil {
 			t.Fatalf("body = %v", body)
 		}
-		if strings.Contains(shownError(status), "SECRET") {
+		if strings.Contains(shownError(status), "SECRET-0123456789abcdef") {
 			t.Fatalf("leak: %s", shownError(status))
 		}
 	})
 	t.Run("other JSON escape spellings", func(t *testing.T) {
-		status := structuredConsentError(t, assertion("a/b+\u00e9", "s"), func(w http.ResponseWriter) {
+		status := structuredConsentError(t, assertion("a/b+\u00e9-padding0123456", "s"), func(w http.ResponseWriter) {
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"detail":"x","echo":"a\/b+\u00E9"}`))
+			_, _ = w.Write([]byte(`{"detail":"x","echo":"a\/b+\u00E9-padding0123456"}`))
 		})
 		body := status.Body.(map[string]any)
 		if body["detail"] != "x" || body["echo"] != "[redacted]" {
 			t.Fatalf("body = %v", body)
 		}
 		shown := shownError(status)
-		for _, bad := range []string{"a/b", "00E9", "\u00e9"} {
+		for _, bad := range []string{"a/b", "00E9", "\u00e9", "padding0123456"} {
 			if strings.Contains(shown, bad) {
 				t.Fatalf("%q left in %s", bad, shown)
 			}
+		}
+	})
+	t.Run("error codes and short assertion strings stay readable", func(t *testing.T) {
+		long := "Y3JlZGVudGlhbC1pZC0xMjM0NTY3ODkw"
+		status := structuredConsentError(t, assertion(long, "s"), func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant", "detail": "id public-key " + long})
+		})
+		body := status.Body.(map[string]any)
+		if body["error"] != "invalid_grant" || body["detail"] != "[redacted]" {
+			t.Fatalf("body = %v", body)
+		}
+		if !strings.Contains(shownError(status), "invalid_grant") || strings.Contains(shownError(status), long) {
+			t.Fatalf("shown = %s", shownError(status))
 		}
 	})
 	t.Run("a body that is not JSON", func(t *testing.T) {

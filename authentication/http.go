@@ -287,12 +287,18 @@ func checkBearer(token string) error {
 
 const redactedMarker = "[redacted]"
 
-// collectStrings appends every non-empty string found in v: object keys and
-// values, at any depth.
+// minSecretLength is the length from which an assertion string is a secret.
+// Shorter ones (field names such as "id", values such as "public-key") are not:
+// matching them would erase error codes like "invalid_grant" (docs/DESIGN.md
+// section 10).
+const minSecretLength = 16
+
+// collectStrings appends every string of at least minSecretLength characters
+// found in v: object keys and values, at any depth.
 func collectStrings(v any, out []string) []string {
 	switch t := v.(type) {
 	case string:
-		if t != "" {
+		if len(t) >= minSecretLength {
 			return append(out, t)
 		}
 	case []any:
@@ -308,7 +314,7 @@ func collectStrings(v any, out []string) []string {
 	return out
 }
 
-// assertionSecrets returns every string of the passkey assertion in the JSON
+// assertionSecrets returns every string of at least 16 characters of the passkey assertion in the JSON
 // document body (object keys and values, at any depth), followed by extra. The
 // decision, scopes and organization ids are not secrets and stay readable in
 // errors.
