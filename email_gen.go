@@ -157,8 +157,10 @@ func (r *EmailService) CheckCode(ctx context.Context, params EmailCheckCodeParam
 // return `200` with `status: "Undeliverable"` and `reason:
 // "email_can_not_be_delivered"` - no email is sent, nothing is billed, and the
 // verification is immediately finalized as `Declined` (a follow-up check
-// returns `Expired or Not Found`). A downstream send failure reports the same
-// way.
+// returns `Expired or Not Found`). A send that fails for a reason that is not
+// the address (the email could not be handed over for delivery) returns `503`
+// instead: no code is sent, nothing is billed, the verification stays open and
+// the same request can be repeated.
 //
 // **Code format and branding.** Codes are 4-8 characters (`options.code_size`,
 // default 6), numeric by default; set `options.alphanumeric_code: true` for

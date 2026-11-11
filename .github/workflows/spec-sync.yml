@@ -2,9 +2,26 @@
 #
 # Downloads the upstream OpenAPI documents into openapi/ (go run ./codegen sync). When they
 # changed, it regenerates the SDK, runs go vet and the tests, and opens (or updates) one pull
-# request titled "chore(spec): sync API spec YYYY-MM-DD" from the branch chore/spec-sync,
-# with the sync summary (added, removed, renamed, moved and changed operations and schemas,
-# breaking changes first) as its body.
+# request titled "<type>(spec): sync API spec YYYY-MM-DD" from the branch chore/spec-sync,
+# with the sync summary (breaking changes first, then added, removed, renamed, moved and
+# changed operations and schemas) as its body.
+#
+# Type and release (docs/DESIGN.md sections 3.1 and 13): feat when the sync changes anything
+# a caller can observe, a minor release even when it can break typed code; chore when only
+# documentation changed, which releases nothing on its own. Never "!" and never a
+# "BREAKING CHANGE:" footer. The body ends with a BEGIN_COMMIT_OVERRIDE block that
+# release-please reads instead of the commits: the feat or chore line, and one "api(spec):"
+# line per breaking change, every one of them, which release-please-config.json lists under
+# "API changes that can break typed code". Merge with "Squash and merge": after a merge
+# commit release-please reads the block once per commit and lists every line twice. The sync
+# commit's message holds the same lines; when they do not fit the description (hundreds of
+# breaking changes), the description leaves the block out and asks to squash with that
+# message, which release-please then reads.
+#
+# The scheduled run syncs the default branch on chore/spec-sync. A manual run syncs the branch
+# it was started from, so a change to this workflow can be tried before it merges; on another
+# branch than the default one it uses its own sync branch (chore/spec-sync-<branch>) and opens
+# its pull request into that branch, never into the default branch.
 #
 # A check that fails (for example a new operation without SDK naming, which the generator
 # reports by name) still opens the pull request, as a draft with the error in its Checks
@@ -19,7 +36,7 @@
 # requests" in the repository settings; then close and reopen the pull request, or push to
 # its branch, to start CI.
 #
-# Hand-pushed fixes: every run rebuilds chore/spec-sync from the default branch, which would
+# Hand-pushed fixes: every run rebuilds its sync branch from the branch it syncs, which would
 # drop a fix pushed to that branch by hand. While the open spec sync pull request carries a
 # commit that did not come from this workflow, the run leaves it alone; once that pull
 # request is merged or closed, the next run syncs whatever changed since. The push is a
@@ -53,13 +70,28 @@ jobs:
       contents: write
       pull-requests: write
     env:
-      SYNC_BRANCH: chore/spec-sync
       BOT_NAME: github-actions[bot]
       BOT_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
     steps:
       - name: Prepare
-        # The summary lives outside the checkout so that it is never committed.
-        run: echo "SUMMARY=$RUNNER_TEMP/spec-sync-summary.md" >> "$GITHUB_ENV"
+        # The summary, the release block and the commit message live outside the checkout so
+        # that they are never committed. BASE is the branch this run syncs, SYNC_BRANCH the
+        # branch of its pull request.
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          branch=chore/spec-sync
+          if [ "$REF_NAME" != "$DEFAULT_BRANCH" ]; then
+            branch="${branch}-$(printf '%s' "$REF_NAME" | tr -c 'A-Za-z0-9._-' '-')"
+          fi
+          {
+            echo "BASE=$REF_NAME"
+            echo "SYNC_BRANCH=$branch"
+            echo "SUMMARY=$RUNNER_TEMP/spec-sync-summary.md"
+            echo "RELEASE=$RUNNER_TEMP/spec-sync-release.md"
+            echo "MESSAGE=$RUNNER_TEMP/spec-sync-commit.txt"
+          } >> "$GITHUB_ENV"
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,7 +106,6 @@ jobs:
         id: guard
         env:
           GH_TOKEN: ${{ github.token }}
-          BASE: ${{ github.event.repository.default_branch }}
         run: |
           # The branch head now (empty when the branch does not exist): the push below only
           # replaces this commit.
@@ -99,9 +130,10 @@ jobs:
         id: sync
         if: steps.guard.outputs.skip != 'true'
         # Refuses (and writes nothing) when a download is not an OpenAPI 3 document. Writes
-        # changed=true|false and date=YYYY-MM-DD to $GITHUB_OUTPUT and the Markdown summary
-        # to $SUMMARY.
-        run: go run ./codegen sync -summary "$SUMMARY"
+        # changed=true|false, date=YYYY-MM-DD, type=feat|chore and breaking=<count> to
+        # $GITHUB_OUTPUT, the Markdown summary to $SUMMARY, the release block to $RELEASE and
+        # the commit message to $MESSAGE.
+        run: go run ./codegen sync -summary "$SUMMARY" -release "$RELEASE" -commit-message "$MESSAGE"
       - name: Regenerate the SDK and run the checks
         id: checks
         if: steps.sync.outputs.changed == 'true'
@@ -153,30 +185,44 @@ jobs:
         if: steps.sync.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.SPEC_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
-          BASE: ${{ github.event.repository.default_branch }}
           SYNC_DATE: ${{ steps.sync.outputs.date }}
+          SYNC_TYPE: ${{ steps.sync.outputs.type }}
           CHECKS_FAILED: ${{ steps.checks.outputs.failed }}
           LEASE: ${{ steps.guard.outputs.head }}
         run: |
-          title="chore(spec): sync API spec ${SYNC_DATE}"
-          # GitHub refuses a pull request body of more than 65536 characters. A large sync cuts the
-          # operations and schemas listing (the full text is in the job summary) and keeps the
+          case "$SYNC_TYPE" in
+            feat | chore) ;;
+            *) echo "::error::The sync reported type '$SYNC_TYPE', want feat or chore."; exit 1 ;;
+          esac
+          title="${SYNC_TYPE}(spec): sync API spec ${SYNC_DATE}"
+          # A change that mirrors the API is never a major version (docs/DESIGN.md section 13).
+          if [ "$(head -n 1 "$MESSAGE")" != "$title" ] || grep -q 'BREAKING CHANGE' "$MESSAGE"; then
+            echo "::error::The sync commit must be '$title' with no '!' and no BREAKING CHANGE footer."
+            exit 1
+          fi
+          # GitHub refuses a pull request body of more than 65536 characters. The release block
+          # at the end is kept whole; a large sync cuts the operations and schemas listing (the
+          # full text is in the job summary) and keeps the breaking changes at the top and the
           # Checks section, which says whether the generated SDK builds.
           body="$RUNNER_TEMP/spec-sync-body.md"
           perl -CSD -e '
             local $/;
             $s = <STDIN>;
-            $max = 60000;
-            if (length($s) <= $max) { print $s; exit }
-            $i = rindex($s, "\n## Checks\n");
-            $tail = $i >= 0 ? substr($s, $i) : "";
-            $head = $i >= 0 ? substr($s, 0, $i) : $s;
-            $note = "\n**The summary is cut here: it has " . length($s) . " characters, more than fit. The full summary is in the job summary of the spec sync run.**\n";
-            $room = $max - length($tail) - length($note) - 1;
-            $room = 0 if $room < 0;
-            $c = rindex($head, "\n", $room);
-            $c = $room if $c <= 0;
-            print substr($head, 0, $c) . "\n" . $note . $tail;
+            open(my $f, "<:encoding(UTF-8)", $ENV{RELEASE}) or die "$ENV{RELEASE}: $!";
+            $r = <$f> // "";
+            $max = 65000 - length($r);
+            if (length($s) > $max) {
+              $i = rindex($s, "\n## Checks\n");
+              $tail = $i >= 0 ? substr($s, $i) : "";
+              $head = $i >= 0 ? substr($s, 0, $i) : $s;
+              $note = "\n**The summary is cut here: it has " . length($s) . " characters, more than fit. The full summary is in the job summary of the spec sync run.**\n";
+              $room = $max - length($tail) - length($note) - 1;
+              $room = 0 if $room < 0;
+              $c = rindex($head, "\n", $room);
+              $c = $room if $c <= 0;
+              $s = substr($head, 0, $c) . "\n" . $note . $tail;
+            }
+            print $s . "\n" . $r;
           ' < "$SUMMARY" > "$body"
           git config user.name "$BOT_NAME"
           git config user.email "$BOT_EMAIL"
@@ -187,7 +233,7 @@ jobs:
             echo "Nothing to commit."
             exit 0
           fi
-          git commit --quiet -m "$title"
+          git commit --quiet -F "$MESSAGE"
           gh auth setup-git
           # Refused when the branch moved since the guard step read it (or appeared, when it
           # did not exist then).

@@ -25,7 +25,7 @@ func TestAccountLogin(t *testing.T) {
 }
 
 func TestAccountRegister(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"message":"Registration successful. Check your email for the verification code.","email":"you@yourdomain.com"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"message":"A new verification code has been sent to your email.","email":"you@yourdomain.com"}`)
 	var params didit.RegisterRequest
 	mustUnmarshal(t, `{"email":"you@yourdomain.com","password":"sample-password"}`, &params)
 	res, err := client.Account.Register(context.Background(), params)
@@ -55,7 +55,7 @@ func TestAccountResendOTP(t *testing.T) {
 }
 
 func TestAccountVerifyEmail(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"access_token":"sample-access-token","refresh_token":"sample-refresh-token","expires_in":86400,"organization":{"uuid":"a1b2c3d4-5678-90ab-cdef-111111111111","name":"developer"},"application":{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"developer","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","data_location":"eu"}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"access_token":"sample-access-token","refresh_token":"sample-refresh-token","expires_in":86400,"organization":{"uuid":"a1b2c3d4-5678-90ab-cdef-111111111111","name":"developer"},"application":{"uuid":"b2c3d4e5-6789-01bc-defg-222222222222","name":"developer","client_id":"S9LIYGSoWNuGMLHsvEt9dQ","api_key":"sample-api-key","data_location":"eu","mode":"live"},"sandbox_application":{"uuid":"c3d4e5f6-7890-12cd-efgh-333333333333","name":"developer (Sandbox)","client_id":"T0MJZHTpXOvHNMItwFu0eR","api_key":"sample-api-key","data_location":"eu","mode":"sandbox"}}`)
 	var params didit.VerifyEmailRequest
 	mustUnmarshal(t, `{"email":"you@yourdomain.com","code":"A3K9F2"}`, &params)
 	res, err := client.Account.VerifyEmail(context.Background(), params)
@@ -66,7 +66,7 @@ func TestAccountVerifyEmail(t *testing.T) {
 	req.expect(t, "POST", "/auth/v2/programmatic/verify-email/")
 	req.expectNoCredentials(t)
 	req.expectJSON(t, `{"email":"you@yourdomain.com","code":"A3K9F2"}`)
-	expectFields(t, res.JSON, []string{"access_token", "refresh_token", "expires_in", "organization", "application"})
+	expectFields(t, res.JSON, []string{"access_token", "refresh_token", "expires_in", "organization", "application", "sandbox_application"})
 }
 
 func TestAccountApplicationsCreate(t *testing.T) {

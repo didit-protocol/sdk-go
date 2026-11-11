@@ -4115,9 +4115,7 @@ type SessionDecision struct {
 	// `account_lookup` (account check), or a `statement` or `microdeposits`
 	// fallback, and `none` when the person continued without a bank before any
 	// attempt was evaluated (`continued_without_bank`). See [Bank verification
-	// methods](/core-technology/bank-verification/verification-methods). Bank
-	// Verification is not enabled in production yet, so this stays `null` on
-	// production sessions until it is.
+	// methods](/core-technology/bank-verification/verification-methods).
 	BankVerifications []BankVerificationResult `json:"bank_verifications"`
 
 	// E-signature results, one item per signer and signature step, for User and
@@ -7153,10 +7151,16 @@ type SessionDecisionPhoneVerificationsLifecycle struct {
 	Timestamp time.Time `json:"timestamp"`
 
 	// Event-specific payload. Send events carry `status`, `reason`, `channel`,
-	// `actual_channel`; delivery events carry `channel`, `status`; code-check
-	// events carry `code_tried`, `status`; final status events carry `reason` - or
-	// `null` when there is no reason to report (e.g.
-	// `PHONE_VERIFICATION_APPROVED`).
+	// `actual_channel`, `attempt` (the send's 0-based index, matching the order of
+	// the send events) and `delivery_status` (`delivered`, `undeliverable`, or
+	// `unknown` once no report can still arrive; absent while one can); delivery
+	// events carry `channel`, `status`, `attempt` and, on
+	// `PHONE_DELIVERY_UNDELIVERABLE`, `reason` (`expired`, `rejected`,
+	// `unreachable`, `blocked` or `unknown` for a message; `unreachable_number`,
+	// `no_answer`, `busy` or `undeliverable` for a call - always a fixed word,
+	// never a provider status or error code); code-check events carry `code_tried`,
+	// `status`; final status events carry `reason` - or `null` when there is no
+	// reason to report (e.g. `PHONE_VERIFICATION_APPROVED`).
 	Details SessionDecisionPhoneVerificationsLifecycleDetails `json:"details"`
 	Fee     float64                                           `json:"fee"`
 
@@ -7171,16 +7175,38 @@ func (r *SessionDecisionPhoneVerificationsLifecycle) UnmarshalJSON(data []byte) 
 }
 
 // SessionDecisionPhoneVerificationsLifecycleDetails: Event-specific payload.
-// Send events carry `status`, `reason`, `channel`, `actual_channel`; delivery
-// events carry `channel`, `status`; code-check events carry `code_tried`,
-// `status`; final status events carry `reason` - or `null` when there is no
-// reason to report (e.g. `PHONE_VERIFICATION_APPROVED`).
+// Send events carry `status`, `reason`, `channel`, `actual_channel`, `attempt`
+// (the send's 0-based index, matching the order of the send events) and
+// `delivery_status` (`delivered`, `undeliverable`, or `unknown` once no report
+// can still arrive; absent while one can); delivery events carry `channel`,
+// `status`, `attempt` and, on `PHONE_DELIVERY_UNDELIVERABLE`, `reason`
+// (`expired`, `rejected`, `unreachable`, `blocked` or `unknown` for a message;
+// `unreachable_number`, `no_answer`, `busy` or `undeliverable` for a call -
+// always a fixed word, never a provider status or error code); code-check
+// events carry `code_tried`, `status`; final status events carry `reason` - or
+// `null` when there is no reason to report (e.g.
+// `PHONE_VERIFICATION_APPROVED`).
 type SessionDecisionPhoneVerificationsLifecycleDetails struct {
-	Status        string `json:"status"`
+	Status string `json:"status"`
+
+	// Send events: why the send was blocked (`invalid_phone_number`,
+	// `repeated_attempts`, `suspicious`, `spam`, `unknown`), `null` otherwise.
+	// Delivery events on `PHONE_DELIVERY_UNDELIVERABLE`: `expired`, `rejected`,
+	// `unreachable`, `blocked` or `unknown` for a message, and
+	// `unreachable_number`, `no_answer`, `busy` or `undeliverable` for a call - a
+	// fixed customer-safe word, never the provider's status or error code.
 	Reason        string `json:"reason"`
 	Channel       string `json:"channel"`
 	ActualChannel string `json:"actual_channel"`
-	CodeTried     string `json:"code_tried"`
+
+	// Send events and delivery events: the 0-based index of the send attempt the
+	// event belongs to, in the order of the send events.
+	Attempt int64 `json:"attempt"`
+
+	// Send events: how the send ended. `unknown` once no delivery report can still
+	// arrive (the verification finished without one); absent while one can.
+	DeliveryStatus SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatus `json:"delivery_status"`
+	CodeTried      string                                                          `json:"code_tried"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -7191,6 +7217,22 @@ type SessionDecisionPhoneVerificationsLifecycleDetails struct {
 func (r *SessionDecisionPhoneVerificationsLifecycleDetails) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatus: Send events:
+// how the send ended. `unknown` once no delivery report can still arrive (the
+// verification finished without one); absent while one can.
+//
+// SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatus is a string
+// with known values below. The set is open: other values may appear and never
+// cause an error.
+type SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatus string
+
+// Known values of SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatus.
+const (
+	SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatusDelivered     SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatus = "delivered"
+	SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatusUndeliverable SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatus = "undeliverable"
+	SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatusUnknown       SessionDecisionPhoneVerificationsLifecycleDetailsDeliveryStatus = "unknown"
+)
 
 // SessionDecisionPhoneVerificationsWarnings is a response object.
 type SessionDecisionPhoneVerificationsWarnings struct {
@@ -7744,6 +7786,11 @@ type SessionDecisionPOAVerificationsDocumentMetadataOverlayManipulation struct {
 
 	// Whether the PDF could be analyzed.
 	Analyzed bool `json:"analyzed"`
+
+	// Present and true only when the file could not be checked in full. What was
+	// checked keeps its findings where it can, and the document raises the unproven
+	// text replacement warning.
+	AnalysisIncomplete bool `json:"analysis_incomplete"`
 
 	// Forensic signals that fired, such as duplicate_font_subset or
 	// glyph_fragmentation.
@@ -12768,6 +12815,11 @@ type SessionDecisionDocumentVerificationsItemsDocumentMetadataOverlayManipulatio
 
 	// Whether the PDF could be analyzed.
 	Analyzed bool `json:"analyzed"`
+
+	// Present and true only when the file could not be checked in full. What was
+	// checked keeps its findings where it can, and the document raises the unproven
+	// text replacement warning.
+	AnalysisIncomplete bool `json:"analysis_incomplete"`
 
 	// Forensic signals that fired, such as duplicate_font_subset or
 	// glyph_fragmentation.

@@ -29,6 +29,8 @@ var (
 	syncFileStyle = syncJSONStyle{indent: 1}
 	// syncInlineStyle is json.dumps(value).
 	syncInlineStyle = syncJSONStyle{indent: -1, ascii: true}
+	// syncUnicodeInlineStyle is json.dumps(value, ensure_ascii=False).
+	syncUnicodeInlineStyle = syncJSONStyle{indent: -1}
 	// syncSortedInlineStyle is json.dumps(value, sort_keys=True).
 	syncSortedInlineStyle = syncJSONStyle{indent: -1, ascii: true, sortKeys: true}
 )
@@ -146,16 +148,6 @@ func syncWriteString(b *strings.Builder, s string, ascii bool) {
 		}
 	}
 	b.WriteByte('"')
-}
-
-// syncPyList renders a list of strings like Python's repr of a list
-// (['a', 'b']), as the reference summary does for content types.
-func syncPyList(items []string) string {
-	quoted := make([]string, len(items))
-	for i, s := range items {
-		quoted[i] = "'" + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "'", `\'`) + "'"
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 // syncEqual reports whether a and b are the same JSON value with Python's

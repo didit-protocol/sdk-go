@@ -44,6 +44,7 @@ Every SDK is generated from Didit's published OpenAPI documents and checked agai
 |---|---|---|
 | `verification.json` | `https://docs.didit.me/openapi-25.json` (mintlify-docs `openapi-25.json`, branch `main`) | `https://verification.didit.me` |
 | `account.json` | `https://docs.didit.me/openapi-auth.json` (mintlify-docs `openapi-auth.json`) | `https://apx.didit.me/auth/v2` |
+| `authentication.json` | `https://docs.didit.me/openapi-authentication.json` (mintlify-docs `openapi-authentication.json`) | the application's issuer (section 10) |
 | `overlay.json` | this repository | - |
 | `webhook-vectors.json` | generated from `service-didit-verification/src/sessions/utils/webhooks.py` | - |
 | `SOURCE.json` | URL, SHA-256 and fetch time of each upstream file | - |
@@ -51,13 +52,27 @@ Every SDK is generated from Didit's published OpenAPI documents and checked agai
 The upstream files are copied byte for byte and never edited by hand.
 `overlay.json` holds the SDK naming (section 4) for operations whose upstream definition does not carry it yet.
 When an operation carries `x-didit-sdk` upstream, the upstream value wins and the overlay entry is deleted.
-The Authentication runtime (section 10) has no OpenAPI document yet; mintlify-docs will publish `openapi-authentication.json`, and until then that module is hand-written from section 10.
+`authentication.json` describes the Authentication runtime (section 10). The `authentication` module stays hand-written, because token verification needs code a generator cannot produce; a contract test (section 11) keeps it aligned with the document.
 
 ### 3.1 Spec sync
 
 Every repository has `.github/workflows/spec-sync.yml`, run daily and on `workflow_dispatch`.
-It downloads the upstream files, and when any of them changed it regenerates the code, runs the full test suite and opens a pull request titled `chore(spec): sync API spec YYYY-MM-DD`.
-The pull request body lists added, removed and changed operations and schemas, and calls out anything breaking.
+mintlify-docs starts it in all seven repositories through `workflow_dispatch` as soon as docs.didit.me serves a changed OpenAPI document (`server-sdk-spec-sync.yml` there); mintlify-docs `main` documents only what production serves, so no SDK gets an operation or field before the API serves it.
+It downloads the upstream files, and when any of them changed it regenerates the code, runs the full test suite and opens a pull request titled `<type>(spec): sync API spec YYYY-MM-DD`.
+The type follows section 13 and is the same in every repository: `feat(spec)` when the sync adds or changes anything a caller can observe (an operation, parameter, field, enum value or response shape), a minor release; `chore(spec)` when only descriptions, examples or other documentation changed, which releases nothing on its own.
+The commit never carries `!` or a `BREAKING CHANGE:` footer: a change that mirrors the API is never a major version (section 13).
+The pull request body opens with a "Breaking changes" section, then lists added, removed and changed operations and schemas.
+"Breaking changes" lists every change that can break typed code, or says "None detected": a field or parameter whose type changed, a field that can now be null, a removed operation, field or enum value, and a newly required parameter or request field.
+Every repository detects exactly that list, so the seven pull requests for one upstream change report the same breaking changes.
+The rules, checked in every repository by the shared vectors in `openapi/breaking-vectors.json` (generated in sdk-python and copied byte for byte into the other six; a rule change lands there first):
+
+- Responses (the body of every 2xx status): a removed field, a field whose type changed, a field that can now be null or is no longer required, and a removed enum value count. A typed string format (`date`, `date-time`, `binary`) gained, lost or changed, and a typed value becoming untyped or the reverse, are type changes. An added field or enum value is listed, not counted: enums are open and unknown values must be accepted.
+- Requests (path, query and header parameters, and the body): a removed parameter or field, a parameter or field whose type changed, a new required parameter or field, an optional one becoming required, a body becoming required, and a removed enum value count. A parameter or field that can now be null or stops being required is listed, not counted, because it only widens what a caller may send.
+- Operations: a removed operation counts when its SDK method goes; a moved operation's changes count under its new path; an added operation is listed. Operations with `server: false` are listed and never counted.
+- Unions (`oneOf`, `anyOf`): each old variant is paired with the variant it became, and changes inside a paired variant follow the rules above even when other variants are added, removed or reordered. A renamed variant title is listed, not counted.
+- Success statuses: a method returns every 2xx body. An added 2xx status without a body counts as "can now be null"; a removed status whose body no other 2xx status returns counts as a type change; any other status change is listed.
+- Every counted change reaches the release notes, with no cap.
+The release notes repeat that list under "API changes that can break typed code".
 A new server operation without SDK naming fails the generator with a message that names the operation; the fix is an entry in `overlay.json` (or upstream).
 The sync never deletes a public SDK method silently: a removed operation is marked deprecated for one minor version first, and the pull request says so.
 
@@ -87,7 +102,7 @@ Convert names to the language's idiom and nothing else:
 | Ruby | `didit.sessions.imports.create(...)` |
 | C# | `await client.Sessions.Imports.CreateAsync(...)` |
 
-The full resource tree (version 1, 248 server operations in 47 resources) is in `overlay.json`.
+The full resource tree is generated from `openapi/*.json`: the upstream `x-didit-sdk` naming plus the `overlay.json` entries upstream does not carry yet.
 Highlights: `sessions`, `sessions.imports`, `sessions.reviews`, the standalone APIs (`id_verification.verify`, `face_match.compare`, `face_search.search`, `passive_liveness.check`, `age_estimation.estimate`, `proof_of_address.verify`, `document_ai.analyze`, `aml.screen`, `database_validation.validate`, `phone.send_code`, `email.check_code`, `ip.assess_risk`, `kyb.search`), `id_wallets`, `fraud_checks`, `users`, `businesses`, `transactions`, `transactions.rules`, `transactions.travel_rule`, `wallet_screening`, `travel_rule`, `travel_rule.wallet_addresses`, `workflows`, `questionnaires`, `webhooks.destinations`, `billing`, `biometric_templates`, `customization`, `cases` (with `notes`, `links`, `checklist`, `requests`, `teams`, `routing_rules`, `blueprints`, `regulatory_reports`), `regulatory_reports`, `report_templates`, `networks`, and `account` (`account.organizations`, `account.applications`).
 
 ## 5. Architecture
@@ -224,7 +239,7 @@ Tests use a locally generated ES256 key pair and a stubbed issuer; never call a 
 
 - Unit tests for the core: configuration, headers, errors per status, retry policy (including the no-retry cases for `POST`), `Retry-After`, timeouts, pagination, multipart, binary responses, origin check, redaction.
 - Generated tests: one test per server operation from the spec's examples, with a mocked HTTP layer, asserting method, path (ids filled, application scope expanded), query, body encoding and response parsing.
-- Contract test: every `server: true` operation in `openapi/` has exactly one SDK method, and nothing else exists.
+- Contract test: every `server: true` operation in `openapi/` has exactly one SDK method, and nothing else exists. For `authentication.json` the methods are the hand-written ones of section 10, so a spec sync that adds, removes or renames an Authentication operation fails until the module follows.
 - Webhook vectors (9.3) and Authentication token tests (10).
 - Optional live smoke tests against a sandbox application, run only when `DIDIT_SANDBOX_API_KEY` is set; never in default CI; they create nothing that costs money beyond sandbox sessions.
 - Strict static checks: Python `mypy --strict` and `pyright`, ruff; TypeScript `strict` with no `any` in public types, eslint; Go `go vet`, `staticcheck`, `golangci-lint`; Java `-Werror` with errorprone and nullness annotations; PHP PHPStan level max and PHP-CS-Fixer; Ruby RBS signatures checked with Steep, RuboCop; C# nullable enabled with warnings as errors.
@@ -244,11 +259,15 @@ Ruby: `net/http` from the standard library, `jwt` only for Authentication.
 
 ## 13. Versioning and release
 
-- Semantic versioning; a breaking change to the public SDK surface is a major version.
+- Semantic versioning with one rule for API changes (Alex, 2026-11-06): a change that mirrors the Didit API is a minor version, including one that breaks typed code (a type change, a field that can now be null, a removed field, operation or enum value). The API already behaves that way for every caller, so an older SDK version is not safer, and a major would keep users on it. The release notes list such changes under "API changes that can break typed code".
+- A major version is only for a change to the SDK's own design: renaming or removing an SDK method or resource the API still has, changing client configuration, errors, retries, pagination or webhook verification behaviour, or dropping a supported runtime version. An API change never needs a new Go `/vN` module path.
+- Each language keeps its own version number: Node, PHP and Ruby moved to 2.x on 2026-11-05 under the earlier rule and continue from there.
 - Releases are cut by release-please from conventional commits; `CHANGELOG.md` is generated and never edited by hand.
 - Release workflows publish with trusted publishing where the registry supports it (PyPI, npm with provenance, RubyGems and NuGet), Maven Central through the Central Portal with signed artifacts (token and signing key in the `maven-central` environment), Packagist through its GitHub hook, and Go module tags announced to proxy.golang.org.
 - 1.0.0 shipped on 2026-10-29 with Alex's approval, and the repositories are public.
-- Every release after that publishes straight from the repository: merging the release-please pull request is the approval, and the workflow creates the vX.Y.Z tag and publishes.
+- Every release after that publishes straight from the repository, with no person in the loop for API changes (Alex, 2026-11-07). `.github/workflows/bot-pull-requests.yml` starts CI on the spec sync and release-please pull requests and turns on auto-merge with squash, so each merges once the required `CI passed` check passes. Merging the release pull request creates the vX.Y.Z tag and publishes, and the release workflow then waits until the registry serves the version, or fails.
+- A pull request opened with `GITHUB_TOKEN` gets its `pull_request` CI run only after a maintainer approves it (the repositories are public), so that workflow starts `ci.yml` with `workflow_dispatch`. GitHub leaves the check runs of a manual run off the pull request, so that run's `report` job sets its result as the commit status `CI passed` on the head commit, which the pull request shows and the required check reads. A merge made by that auto-merge starts no push workflow, so the `report` job, and `bot-pull-requests.yml` every 30 minutes, start the release workflows on `main` when the newest commit has no run of them.
+- A person decides, and the pull request gets the `needs-alex` label instead of auto-merge, when a spec sync failed a check, when a pull request asks for a major version (a release pull request for a new major version, or a sync commit with `!` or a `BREAKING CHANGE:` footer), or when it carries commits from people. The `do-not-merge` label, or turning auto-merge off by hand, keeps any of these pull requests from merging.
 - A release created with `GITHUB_TOKEN` does not trigger other workflows, so a repository that publishes from a separate `release.yml` has release-please start it with `workflow_dispatch` for the new tag. No personal access token is stored.
 
 ## 14. Documentation and positioning

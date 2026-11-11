@@ -85,12 +85,25 @@ jobs:
             | del(.paths[$removed].get)
             | .paths[$renamed].get["x-didit-sdk"] = (naming($renamed) | .method += "_renamed")
           ' openapi/verification.json > "$upstream/verification.json"
-          cp openapi/account.json "$upstream/account.json"
+          cp openapi/account.json openapi/authentication.json "$upstream/"
           cp -R . "$synced"
           cd "$synced"
-          GITHUB_OUTPUT='' go run ./codegen sync -from-dir "$upstream" -summary "$RUNNER_TEMP/summary.md" > /dev/null
-          grep -q 'was removed upstream' "$RUNNER_TEMP/summary.md"
-          grep -q 'was renamed upstream' "$RUNNER_TEMP/summary.md"
+          GITHUB_OUTPUT="$RUNNER_TEMP/outputs" go run ./codegen sync -from-dir "$upstream" \
+            -summary "$RUNNER_TEMP/summary.md" -release "$RUNNER_TEMP/release.md" \
+            -commit-message "$RUNNER_TEMP/commit.txt" > /dev/null
+          grep -q 'operation removed; .* stays as a deprecated method' "$RUNNER_TEMP/summary.md"
+          grep -q 'renamed to .*; the old name stays as a deprecated alias' "$RUNNER_TEMP/summary.md"
+          # A removed operation is a minor release that lists it (docs/DESIGN.md section 13).
+          grep -qx 'type=feat' "$RUNNER_TEMP/outputs"
+          grep -qx 'breaking=1' "$RUNNER_TEMP/outputs"
+          for file in release.md commit.txt; do
+            grep -q '^feat(spec): sync API spec ' "$RUNNER_TEMP/$file"
+            grep -q '^api(spec): .*operation removed' "$RUNNER_TEMP/$file"
+            if grep -q 'BREAKING CHANGE\|^feat(spec)!' "$RUNNER_TEMP/$file"; then
+              echo "::error::$file announces a major version"
+              exit 1
+            fi
+          done
           go run ./codegen
           go vet ./...
           go test ./...
@@ -165,3 +178,53 @@ jobs:
           "$RUNNER_TEMP/gitleaks" version
       - name: Scan every commit
         run: '"$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --redact --verbose --no-banner .'
+
+  # The one check main requires (docs/DESIGN.md section 13): auto-merge of the spec sync and
+  # release pull requests waits for it. It passes only when every job above passed; the live
+  # sandbox tests are not part of it.
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [lint, codegen, test, coverage, secret-scan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then
+              echo "::error::A CI job ended with '${result}'; see the jobs above."
+              exit 1
+            fi
+          done
+          echo "Every CI job passed."
+
+  # A pull request of the automation gets its CI from a manual run (bot-pull-requests.yml), and
+  # GitHub leaves a manual run's check runs off the pull request. This job sets the result as
+  # the commit status "CI passed" on the commit, which the pull request shows and main's
+  # required check reads, then starts the release workflows once auto-merge has merged it.
+  report:
+    name: Report CI passed as a commit status
+    if: always() && github.event_name == 'workflow_dispatch'
+    needs: ci-passed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write # start the release workflows after the merge
+      contents: read
+      pull-requests: read
+      statuses: write # the CI passed commit status
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the scripts and workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+      - name: Set the commit status
+        env:
+          RESULT: ${{ needs.ci-passed.result }}
+        run: bash .github/scripts/bot-pull-request.sh report "$RESULT"

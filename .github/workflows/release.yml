@@ -66,3 +66,24 @@ jobs:
         run: gh release upload "${TAG}" "sdk-go-${TAG}.tar.gz" "sdk-go-${TAG}.tar.gz.sha256" --clobber
       - name: Ask proxy.golang.org to fetch the version
         run: GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod go list -m "github.com/didit-protocol/sdk-go@${TAG}"
+
+  # The release is done only when the registry serves it (docs/DESIGN.md section 13); this job
+  # fails loudly when it does not. It runs nothing from the release and holds no credentials.
+  registry:
+    name: proxy.golang.org serves the release
+    needs: verify-and-attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Check out the scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Wait until proxy.golang.org serves the version
+        run: bash .github/scripts/wait-for-registry.sh go github.com/didit-protocol/sdk-go "$TAG" 30

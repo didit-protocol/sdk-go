@@ -402,8 +402,9 @@ type DatabaseValidationValidateParams struct {
 	// Email address for identity-verification services.
 	Email Opt[string] `json:"email"`
 
-	// ISO 3166-1 alpha-2 country of residence. Used by global identity-enrichment
-	// services (e.g. `glb_identity_enrichment`) to focus the lookup.
+	// ISO 3166-1 alpha-2 country of residence. It was used only by the retired
+	// global identity-enrichment service (`glb_identity_enrichment`), which Didit
+	// no longer offers.
 	CountryOfResidence Opt[string] `json:"country_of_residence"`
 
 	// What a `partial_match` does to `database_validation.status`. Defaults to
