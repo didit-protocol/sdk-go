@@ -119,7 +119,11 @@ func (r *CasesService) BulkUpdateStatus(ctx context.Context, params CasesBulkUpd
 //
 // Create a case anchored to exactly one subject (a user or a business),
 // directly or by deriving the subject from an attached session/transaction
-// link. Source is always `MANUAL` for API-created cases.
+// link. Source is always `MANUAL` for API-created cases. Network links require
+// write:cases plus read:networks, Networks access and investigation access for
+// the network scope. The network must be visible and contain the case subject.
+// Manually adding links to network-generated cases is not allowed. An explicit
+// subject is required whenever links includes a network.
 //
 // The organization and application ids come from the client options.
 //
@@ -476,12 +480,36 @@ type CasesBlueprintsService struct {
 	client *Client
 }
 
+// AiDraft: Draft case blueprint with AI.
+//
+// Generate an unsaved blueprint proposal. Requires write:cases. Returns a draft
+// object, not a blueprint UUID; no blueprint or saved policy draft is created.
+// Review the proposal, choose assignees and any teams, approvals or routing,
+// then create or update a blueprint separately. Invalid generated content or
+// generation failure returns 503. See [blueprint AI
+// drafts](/management-api/case-blueprints/ai-draft).
+//
+// The organization and application ids come from the client options.
+//
+//	POST /v3/organization/{organization_id}/application/{application_id}/cases/blueprints/ai-draft/
+func (r *CasesBlueprintsService) AiDraft(ctx context.Context, params CaseBlueprintAiDraftRequest, opts ...option.RequestOption) (*CaseBlueprintAiDraftResponse, error) {
+	res := new(CaseBlueprintAiDraftResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/organization/{organization_id}/application/{application_id}/cases/blueprints/ai-draft/", appScope: true, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // Create: Create blueprint.
 //
 // Create a case blueprint: general settings (assignment, escalation, transfer,
 // 4-eyes pairing) plus content_config, the six sections that drive the case
 // page. Set publish=false to create an unpublished draft; Publish creates its
-// first live version. Discarding a never-published draft deletes it.
+// first live version. Discarding a never-published draft deletes it. applies_to
+// accepts the six case-type values. content_config.stages.items[].worked_by is
+// an optional active review-team UUID from this application. These settings are
+// preserved in case policy snapshots; later edits do not change existing
+// snapshots.
 //
 // The organization and application ids come from the client options.
 //
@@ -653,7 +681,11 @@ func (r *CasesBlueprintsService) SaveDraft(ctx context.Context, blueprintUUID st
 
 // Update: Update blueprint.
 //
-// Partially update a blueprint's general settings or content_config.
+// Partially update a blueprint's general settings or content_config. applies_to
+// accepts the six case-type values. content_config.stages.items[].worked_by is
+// an optional active review-team UUID from this application. These settings are
+// preserved in case policy snapshots; later edits do not change existing
+// snapshots.
 //
 // The organization and application ids come from the client options.
 //
@@ -712,8 +744,12 @@ type CasesLinksService struct {
 
 // Create: Add case link.
 //
-// Attach a session, business session, or transaction to the case. Rejected with
-// 400 if the entity belongs to a different subject than the case.
+// Attach a session, business session, transaction, or network to the case.
+// Rejected with 400 if the entity belongs to a different subject than the case.
+// Network links require write:cases plus read:networks, Networks access and
+// investigation access for the network scope. The network must be visible and
+// contain the case subject. Manually adding links to network-generated cases is
+// not allowed.
 //
 // The organization and application ids come from the client options.
 //
@@ -1617,10 +1653,7 @@ type CaseBlueprintDetail struct {
 	EscalationBlueprintName      string                              `json:"escalation_blueprint_name"`
 	FourEyesCheckerBlueprint     string                              `json:"four_eyes_checker_blueprint"`
 	FourEyesCheckerBlueprintName string                              `json:"four_eyes_checker_blueprint_name"`
-
-	// The six togglable sections that drive which tabs and fields appear on the
-	// case page. Unknown sections or keys are rejected.
-	ContentConfig CaseBlueprintDetailContentConfig `json:"content_config"`
+	ContentConfig                CaseContentConfig                   `json:"content_config"`
 
 	// Connectors currently routing new cases into this blueprint.
 	CreationSources []CaseBlueprintDetailCreationSources `json:"creation_sources"`
@@ -1630,6 +1663,10 @@ type CaseBlueprintDetail struct {
 	UpdatedAt              time.Time                                   `json:"updated_at"`
 	Version                int64                                       `json:"version"`
 	DefaultDeadlineHours   int64                                       `json:"default_deadline_hours"`
+	AppliesTo              []CaseBlueprintAppliesToValue               `json:"applies_to"`
+
+	// Configured stages, or the default stages when none are configured.
+	Stages []CaseBlueprintStage `json:"stages"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -1651,47 +1688,51 @@ const (
 	CaseBlueprintDetailAssignmentMethodAutomatic CaseBlueprintDetailAssignmentMethod = "AUTOMATIC"
 )
 
-// CaseBlueprintDetailContentConfig: The six togglable sections that drive which
-// tabs and fields appear on the case page. Unknown sections or keys are
-// rejected.
-type CaseBlueprintDetailContentConfig struct {
-	Checklist     CaseBlueprintDetailContentConfigChecklist     `json:"checklist"`
-	AMLControl    CaseBlueprintDetailContentConfigAMLControl    `json:"aml_control"`
-	Identity      CaseBlueprintDetailContentConfigIdentity      `json:"identity"`
-	Verifications CaseBlueprintDetailContentConfigVerifications `json:"verifications"`
-	Reporting     CaseBlueprintDetailContentConfigReporting     `json:"reporting"`
-	Financial     CaseBlueprintDetailContentConfigFinancial     `json:"financial"`
+// CaseContentConfig: Case content sections and optional review stages. Unknown
+// sections or keys are rejected. Cases retain the policy snapshot accepted when
+// opened; later blueprint edits do not rewrite it.
+type CaseContentConfig struct {
+	Checklist     CaseContentConfigChecklist     `json:"checklist"`
+	AMLControl    CaseContentConfigAMLControl    `json:"aml_control"`
+	Identity      CaseContentConfigIdentity      `json:"identity"`
+	Verifications CaseContentConfigVerifications `json:"verifications"`
+	Reporting     CaseContentConfigReporting     `json:"reporting"`
+	Financial     CaseContentConfigFinancial     `json:"financial"`
+
+	// Ordered review stages. Omitted or empty items use the default Triage,
+	// Evidence review and Decision stages.
+	Stages CaseContentConfigStages `json:"stages"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CaseBlueprintDetailContentConfig leniently.
-func (r *CaseBlueprintDetailContentConfig) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseContentConfig leniently.
+func (r *CaseContentConfig) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// CaseBlueprintDetailContentConfigChecklist is a response object.
-type CaseBlueprintDetailContentConfigChecklist struct {
+// CaseContentConfigChecklist is a response object.
+type CaseContentConfigChecklist struct {
 	Enabled bool `json:"enabled"`
 
 	// When true, a case can be resolved with incomplete checklist items.
-	Optional bool                                             `json:"optional"`
-	Items    []CaseBlueprintDetailContentConfigChecklistItems `json:"items"`
+	Optional bool                              `json:"optional"`
+	Items    []CaseContentConfigChecklistItems `json:"items"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CaseBlueprintDetailContentConfigChecklist leniently.
-func (r *CaseBlueprintDetailContentConfigChecklist) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseContentConfigChecklist leniently.
+func (r *CaseContentConfigChecklist) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// CaseBlueprintDetailContentConfigChecklistItems is a response object.
-type CaseBlueprintDetailContentConfigChecklistItems struct {
+// CaseContentConfigChecklistItems is a response object.
+type CaseContentConfigChecklistItems struct {
 	Label string `json:"label"`
 	Order int64  `json:"order"`
 
@@ -1700,13 +1741,13 @@ type CaseBlueprintDetailContentConfigChecklistItems struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CaseBlueprintDetailContentConfigChecklistItems leniently.
-func (r *CaseBlueprintDetailContentConfigChecklistItems) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseContentConfigChecklistItems leniently.
+func (r *CaseContentConfigChecklistItems) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// CaseBlueprintDetailContentConfigAMLControl is a response object.
-type CaseBlueprintDetailContentConfigAMLControl struct {
+// CaseContentConfigAMLControl is a response object.
+type CaseContentConfigAMLControl struct {
 	Enabled   bool `json:"enabled"`
 	Financial bool `json:"financial"`
 	Identity  bool `json:"identity"`
@@ -1716,13 +1757,13 @@ type CaseBlueprintDetailContentConfigAMLControl struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CaseBlueprintDetailContentConfigAMLControl leniently.
-func (r *CaseBlueprintDetailContentConfigAMLControl) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseContentConfigAMLControl leniently.
+func (r *CaseContentConfigAMLControl) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// CaseBlueprintDetailContentConfigIdentity is a response object.
-type CaseBlueprintDetailContentConfigIdentity struct {
+// CaseContentConfigIdentity is a response object.
+type CaseContentConfigIdentity struct {
 	Enabled             bool `json:"enabled"`
 	PersonalInformation bool `json:"personal_information"`
 	ApplicantTags       bool `json:"applicant_tags"`
@@ -1736,13 +1777,13 @@ type CaseBlueprintDetailContentConfigIdentity struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CaseBlueprintDetailContentConfigIdentity leniently.
-func (r *CaseBlueprintDetailContentConfigIdentity) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseContentConfigIdentity leniently.
+func (r *CaseContentConfigIdentity) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// CaseBlueprintDetailContentConfigVerifications is a response object.
-type CaseBlueprintDetailContentConfigVerifications struct {
+// CaseContentConfigVerifications is a response object.
+type CaseContentConfigVerifications struct {
 	Enabled bool `json:"enabled"`
 	Summary bool `json:"summary"`
 
@@ -1751,13 +1792,13 @@ type CaseBlueprintDetailContentConfigVerifications struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CaseBlueprintDetailContentConfigVerifications leniently.
-func (r *CaseBlueprintDetailContentConfigVerifications) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseContentConfigVerifications leniently.
+func (r *CaseContentConfigVerifications) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// CaseBlueprintDetailContentConfigReporting is a response object.
-type CaseBlueprintDetailContentConfigReporting struct {
+// CaseContentConfigReporting is a response object.
+type CaseContentConfigReporting struct {
 	Enabled    bool `json:"enabled"`
 	FiuReports bool `json:"fiu_reports"`
 
@@ -1766,13 +1807,13 @@ type CaseBlueprintDetailContentConfigReporting struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CaseBlueprintDetailContentConfigReporting leniently.
-func (r *CaseBlueprintDetailContentConfigReporting) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseContentConfigReporting leniently.
+func (r *CaseContentConfigReporting) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// CaseBlueprintDetailContentConfigFinancial is a response object.
-type CaseBlueprintDetailContentConfigFinancial struct {
+// CaseContentConfigFinancial is a response object.
+type CaseContentConfigFinancial struct {
 	Enabled        bool `json:"enabled"`
 	PaymentMethods bool `json:"payment_methods"`
 	Transactions   bool `json:"transactions"`
@@ -1782,8 +1823,51 @@ type CaseBlueprintDetailContentConfigFinancial struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes CaseBlueprintDetailContentConfigFinancial leniently.
-func (r *CaseBlueprintDetailContentConfigFinancial) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes CaseContentConfigFinancial leniently.
+func (r *CaseContentConfigFinancial) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// CaseContentConfigStages: Ordered review stages. Omitted or empty items use
+// the default Triage, Evidence review and Decision stages.
+type CaseContentConfigStages struct {
+	// At most ten stages with distinct keys. Resolving a case is a status change,
+	// not a stage.
+	Items []CaseBlueprintStage `json:"items"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes CaseContentConfigStages leniently.
+func (r *CaseContentConfigStages) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// CaseBlueprintStage is a response object.
+type CaseBlueprintStage struct {
+	// Unique within the policy. Omit to derive from the label. The key resolved is
+	// reserved.
+	Key string `json:"key"`
+
+	// Nonblank stage label.
+	Label string `json:"label"`
+
+	// Stage SLA in hours, or null for no SLA.
+	SLAHours int64 `json:"sla_hours"`
+
+	// Optional review-team UUID. A non-null value must identify an active team in
+	// this application. Omit or use null for no stage team.
+	WorkedBy string `json:"worked_by"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes CaseBlueprintStage leniently.
+func (r *CaseBlueprintStage) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -1828,6 +1912,20 @@ type CaseBlueprintDetailReceivesEscalationFrom struct {
 func (r *CaseBlueprintDetailReceivesEscalationFrom) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// CaseBlueprintAppliesToValue is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type CaseBlueprintAppliesToValue string
+
+// Known values of CaseBlueprintAppliesToValue.
+const (
+	CaseBlueprintAppliesToValueGeneral               CaseBlueprintAppliesToValue = "GENERAL"
+	CaseBlueprintAppliesToValueVerificationReview    CaseBlueprintAppliesToValue = "VERIFICATION_REVIEW"
+	CaseBlueprintAppliesToValueBusinessReview        CaseBlueprintAppliesToValue = "BUSINESS_REVIEW"
+	CaseBlueprintAppliesToValueAML                   CaseBlueprintAppliesToValue = "AML"
+	CaseBlueprintAppliesToValueTransactionMonitoring CaseBlueprintAppliesToValue = "TRANSACTION_MONITORING"
+	CaseBlueprintAppliesToValueDuplicates            CaseBlueprintAppliesToValue = "DUPLICATES"
+)
 
 // CaseNote is a response object.
 type CaseNote struct {
@@ -1956,7 +2054,8 @@ type CaseLink struct {
 	LinkedEntityUUID string                   `json:"linked_entity_uuid"`
 
 	// session_id/session_number/status for session and business_session links;
-	// uuid/txn_id/status for transaction links.
+	// uuid/txn_id/status for transaction links. Network links return only {"uuid":
+	// "<network-uuid>"}, without network member details.
 	LinkedEntitySummary map[string]any `json:"linked_entity_summary"`
 	CreatedAt           time.Time      `json:"created_at"`
 
@@ -1979,6 +2078,7 @@ const (
 	CaseLinkLinkedEntityTypeSession         CaseLinkLinkedEntityType = "session"
 	CaseLinkLinkedEntityTypeBusinessSession CaseLinkLinkedEntityType = "business_session"
 	CaseLinkLinkedEntityTypeTransaction     CaseLinkLinkedEntityType = "transaction"
+	CaseLinkLinkedEntityTypeNetwork         CaseLinkLinkedEntityType = "network"
 )
 
 // CaseChecklistItem is a response object.
@@ -2115,13 +2215,16 @@ type CasesCreateParams struct {
 	DueAt     Opt[time.Time]                 `json:"due_at"`
 	Tags      Opt[[]string]                  `json:"tags"`
 
-	// Required unless links is provided; the case's exactly-one subject.
+	// Exactly one user or business. Supply explicitly when any network link is
+	// supplied, even alongside other link types; otherwise may be derived from
+	// links.
 	Subject Opt[CasesCreateParamsSubject] `json:"subject"`
 
-	// Sessions/business sessions/transactions to attach on creation, e.g.
-	// [{"entity_type": "transaction", "entity_uuid": "..."}]. When subject is
-	// omitted, the subject is derived from the first link's owner.
-	Links Opt[[]map[string]any] `json:"links"`
+	// Up to 500 session, business_session, transaction or network links; at most 20
+	// when review_duplicates=true. When any network link is present, subject must
+	// be supplied explicitly. Otherwise the subject may be derived from a linked
+	// record.
+	Links Opt[[]CasesLinksCreateParams] `json:"links"`
 
 	// User UUID to assign immediately.
 	AssignedTo Opt[string] `json:"assigned_to"`
@@ -2151,8 +2254,9 @@ const (
 	CasesCreateParamsPriorityHigh   CasesCreateParamsPriority = "HIGH"
 )
 
-// CasesCreateParamsSubject: Required unless links is provided; the case's
-// exactly-one subject.
+// CasesCreateParamsSubject: Exactly one user or business. Supply explicitly
+// when any network link is supplied, even alongside other link types; otherwise
+// may be derived from links.
 type CasesCreateParamsSubject struct {
 	Type Opt[CasesCreateParamsSubjectType] `json:"type"`
 	UUID Opt[string]                       `json:"uuid"`
@@ -2171,6 +2275,36 @@ type CasesCreateParamsSubjectType string
 const (
 	CasesCreateParamsSubjectTypeUser     CasesCreateParamsSubjectType = "user"
 	CasesCreateParamsSubjectTypeBusiness CasesCreateParamsSubjectType = "business"
+)
+
+// CasesLinksCreateParams is a request object.
+type CasesLinksCreateParams struct {
+	// Type of record to attach. A network must be visible and contain the selected
+	// case subject. Required.
+	EntityType CasesLinksCreateParamsEntityType `json:"entity_type"`
+
+	// Required.
+	EntityUUID string `json:"entity_uuid"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r CasesLinksCreateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// CasesLinksCreateParamsEntityType: Type of record to attach. A network must be
+// visible and contain the selected case subject.
+//
+// CasesLinksCreateParamsEntityType is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type CasesLinksCreateParamsEntityType string
+
+// Known values of CasesLinksCreateParamsEntityType.
+const (
+	CasesLinksCreateParamsEntityTypeSession         CasesLinksCreateParamsEntityType = "session"
+	CasesLinksCreateParamsEntityTypeBusinessSession CasesLinksCreateParamsEntityType = "business_session"
+	CasesLinksCreateParamsEntityTypeTransaction     CasesLinksCreateParamsEntityType = "transaction"
+	CasesLinksCreateParamsEntityTypeNetwork         CasesLinksCreateParamsEntityType = "network"
 )
 
 // CaseDuplicateCaseFraudSourceContextRequest is a request object.
@@ -2246,6 +2380,7 @@ func (r CaseDuplicateCaseLinkCreateRequest) MarshalJSON() ([]byte, error) {
 // CaseDuplicateEntityTypeEnum: * `session` - Session
 //   - `business_session` - Business Session
 //   - `transaction` - Transaction
+//   - `network` - Network containing the selected case subject
 //
 // CaseDuplicateEntityTypeEnum is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -2256,6 +2391,7 @@ const (
 	CaseDuplicateEntityTypeEnumSession         CaseDuplicateEntityTypeEnum = "session"
 	CaseDuplicateEntityTypeEnumBusinessSession CaseDuplicateEntityTypeEnum = "business_session"
 	CaseDuplicateEntityTypeEnumTransaction     CaseDuplicateEntityTypeEnum = "transaction"
+	CaseDuplicateEntityTypeEnumNetwork         CaseDuplicateEntityTypeEnum = "network"
 )
 
 // CaseDuplicateCaseDuplicatePage is a response object.
@@ -2975,6 +3111,69 @@ const (
 	CasesUpdateParamsPriorityHigh   CasesUpdateParamsPriority = "HIGH"
 )
 
+// CaseBlueprintAiDraftRequest is a request object.
+type CaseBlueprintAiDraftRequest struct {
+	// Nonblank description of the review policy to propose. Required.
+	Prompt string `json:"prompt"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r CaseBlueprintAiDraftRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// CaseBlueprintAiDraftResponse is a response object.
+type CaseBlueprintAiDraftResponse struct {
+	Draft CaseBlueprintAiDraft `json:"draft"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes CaseBlueprintAiDraftResponse leniently.
+func (r *CaseBlueprintAiDraftResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// CaseBlueprintAiDraft: Unsaved, validated proposal. Fields are optional;
+// review the result and select assignees, teams and routing before saving.
+type CaseBlueprintAiDraft struct {
+	// Max 24 characters, e.g. "AML investigation".
+	Name                  string                               `json:"name"`
+	Description           string                               `json:"description"`
+	ContentConfig         CaseContentConfig                    `json:"content_config"`
+	RequireResolutionNote bool                                 `json:"require_resolution_note"`
+	AssignmentMethod      CaseBlueprintAiDraftAssignmentMethod `json:"assignment_method"`
+
+	// Automatic-mode threshold: "fewer than N cases of this blueprint assigned".
+	MaxActiveCases int64 `json:"max_active_cases"`
+
+	// Default deadline for newly opened cases. Existing case deadlines are
+	// unchanged.
+	DefaultDeadlineHours int64                         `json:"default_deadline_hours"`
+	AppliesTo            []CaseBlueprintAppliesToValue `json:"applies_to"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes CaseBlueprintAiDraft leniently.
+func (r *CaseBlueprintAiDraft) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// CaseBlueprintAiDraftAssignmentMethod is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type CaseBlueprintAiDraftAssignmentMethod string
+
+// Known values of CaseBlueprintAiDraftAssignmentMethod.
+const (
+	CaseBlueprintAiDraftAssignmentMethodManual    CaseBlueprintAiDraftAssignmentMethod = "MANUAL"
+	CaseBlueprintAiDraftAssignmentMethodAutomatic CaseBlueprintAiDraftAssignmentMethod = "AUTOMATIC"
+)
+
 // CasesBlueprintsCreateParams holds the parameters of
 // Client.Cases.Blueprints.Create.
 type CasesBlueprintsCreateParams struct {
@@ -3011,7 +3210,8 @@ type CasesBlueprintsCreateParams struct {
 	// Set false to save a never-published draft. The record remains inactive at
 	// version 0 until the draft is explicitly published. Omitting this field
 	// preserves immediate creation for existing integrations.
-	Publish Opt[bool] `json:"publish"`
+	Publish   Opt[bool]                          `json:"publish"`
+	AppliesTo Opt[[]CaseBlueprintAppliesToValue] `json:"applies_to"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -3029,8 +3229,9 @@ const (
 	CasesBlueprintsCreateParamsAssignmentMethodAutomatic CasesBlueprintsCreateParamsAssignmentMethod = "AUTOMATIC"
 )
 
-// CaseContentConfigParam: The six togglable sections that drive which tabs and
-// fields appear on the case page. Unknown sections or keys are rejected.
+// CaseContentConfigParam: Case content sections and optional review stages.
+// Unknown sections or keys are rejected. Cases retain the policy snapshot
+// accepted when opened; later blueprint edits do not rewrite it.
 type CaseContentConfigParam struct {
 	Checklist     Opt[CaseContentConfigParamChecklist]     `json:"checklist"`
 	AMLControl    Opt[CaseContentConfigParamAMLControl]    `json:"aml_control"`
@@ -3038,6 +3239,10 @@ type CaseContentConfigParam struct {
 	Verifications Opt[CaseContentConfigParamVerifications] `json:"verifications"`
 	Reporting     Opt[CaseContentConfigParamReporting]     `json:"reporting"`
 	Financial     Opt[CaseContentConfigParamFinancial]     `json:"financial"`
+
+	// Ordered review stages. Omitted or empty items use the default Triage,
+	// Evidence review and Decision stages.
+	Stages Opt[CaseContentConfigParamStages] `json:"stages"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -3132,6 +3337,41 @@ func (r CaseContentConfigParamFinancial) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
+// CaseContentConfigParamStages: Ordered review stages. Omitted or empty items
+// use the default Triage, Evidence review and Decision stages.
+type CaseContentConfigParamStages struct {
+	// At most ten stages with distinct keys. Resolving a case is a status change,
+	// not a stage.
+	Items Opt[[]CaseBlueprintStageParam] `json:"items"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r CaseContentConfigParamStages) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// CaseBlueprintStageParam is a request object.
+type CaseBlueprintStageParam struct {
+	// Unique within the policy. Omit to derive from the label. The key resolved is
+	// reserved.
+	Key Opt[string] `json:"key"`
+
+	// Nonblank stage label. Required.
+	Label string `json:"label"`
+
+	// Stage SLA in hours, or null for no SLA.
+	SLAHours Opt[int64] `json:"sla_hours"`
+
+	// Optional review-team UUID. A non-null value must identify an active team in
+	// this application. Omit or use null for no stage team.
+	WorkedBy Opt[string] `json:"worked_by"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r CaseBlueprintStageParam) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
 // CasePublicationPolicyDraftPreconditionRequest is a request object.
 type CasePublicationPolicyDraftPreconditionRequest struct {
 	// Required.
@@ -3204,6 +3444,10 @@ type CaseBlueprintListItem struct {
 	CreatedAt             time.Time                             `json:"created_at"`
 	Version               int64                                 `json:"version"`
 	DefaultDeadlineHours  int64                                 `json:"default_deadline_hours"`
+	AppliesTo             []CaseBlueprintAppliesToValue         `json:"applies_to"`
+
+	// Configured stages, or the default stages when none are configured.
+	Stages []CaseBlueprintStage `json:"stages"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -3305,141 +3549,6 @@ const (
 	CasesBlueprintsListPresetsResponseResultsPresetKeyKYC                CasesBlueprintsListPresetsResponseResultsPresetKey = "kyc"
 )
 
-// CaseContentConfig: The six togglable sections that drive which tabs and
-// fields appear on the case page. Unknown sections or keys are rejected.
-type CaseContentConfig struct {
-	Checklist     CaseContentConfigChecklist     `json:"checklist"`
-	AMLControl    CaseContentConfigAMLControl    `json:"aml_control"`
-	Identity      CaseContentConfigIdentity      `json:"identity"`
-	Verifications CaseContentConfigVerifications `json:"verifications"`
-	Reporting     CaseContentConfigReporting     `json:"reporting"`
-	Financial     CaseContentConfigFinancial     `json:"financial"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CaseContentConfig leniently.
-func (r *CaseContentConfig) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// CaseContentConfigChecklist is a response object.
-type CaseContentConfigChecklist struct {
-	Enabled bool `json:"enabled"`
-
-	// When true, a case can be resolved with incomplete checklist items.
-	Optional bool                              `json:"optional"`
-	Items    []CaseContentConfigChecklistItems `json:"items"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CaseContentConfigChecklist leniently.
-func (r *CaseContentConfigChecklist) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// CaseContentConfigChecklistItems is a response object.
-type CaseContentConfigChecklistItems struct {
-	Label string `json:"label"`
-	Order int64  `json:"order"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CaseContentConfigChecklistItems leniently.
-func (r *CaseContentConfigChecklistItems) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// CaseContentConfigAMLControl is a response object.
-type CaseContentConfigAMLControl struct {
-	Enabled   bool `json:"enabled"`
-	Financial bool `json:"financial"`
-	Identity  bool `json:"identity"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CaseContentConfigAMLControl leniently.
-func (r *CaseContentConfigAMLControl) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// CaseContentConfigIdentity is a response object.
-type CaseContentConfigIdentity struct {
-	Enabled             bool `json:"enabled"`
-	PersonalInformation bool `json:"personal_information"`
-	ApplicantTags       bool `json:"applicant_tags"`
-	ContactInformation  bool `json:"contact_information"`
-	RiskOverview        bool `json:"risk_overview"`
-	PoiDocuments        bool `json:"poi_documents"`
-	POADocuments        bool `json:"poa_documents"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CaseContentConfigIdentity leniently.
-func (r *CaseContentConfigIdentity) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// CaseContentConfigVerifications is a response object.
-type CaseContentConfigVerifications struct {
-	Enabled bool `json:"enabled"`
-	Summary bool `json:"summary"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CaseContentConfigVerifications leniently.
-func (r *CaseContentConfigVerifications) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// CaseContentConfigReporting is a response object.
-type CaseContentConfigReporting struct {
-	Enabled    bool `json:"enabled"`
-	FiuReports bool `json:"fiu_reports"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CaseContentConfigReporting leniently.
-func (r *CaseContentConfigReporting) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
-// CaseContentConfigFinancial is a response object.
-type CaseContentConfigFinancial struct {
-	Enabled        bool `json:"enabled"`
-	PaymentMethods bool `json:"payment_methods"`
-	Transactions   bool `json:"transactions"`
-
-	// JSON describes the decoded object: raw JSON, present, null and unknown
-	// fields.
-	JSON ResponseJSON `json:"-"`
-}
-
-// UnmarshalJSON decodes CaseContentConfigFinancial leniently.
-func (r *CaseContentConfigFinancial) UnmarshalJSON(data []byte) error {
-	return unmarshalResponse(data, r, &r.JSON)
-}
-
 // CasePublicationCaseBlueprint is a response object.
 type CasePublicationCaseBlueprint struct {
 	UUID                         string                              `json:"uuid"`
@@ -3455,7 +3564,7 @@ type CasePublicationCaseBlueprint struct {
 	FourEyesCheckerBlueprint     string                              `json:"four_eyes_checker_blueprint"`
 	FourEyesCheckerBlueprintName string                              `json:"four_eyes_checker_blueprint_name"`
 	RequireResolutionNote        bool                                `json:"require_resolution_note"`
-	ContentConfig                any                                 `json:"content_config"`
+	ContentConfig                CaseContentConfig                   `json:"content_config"`
 	Version                      int64                               `json:"version"`
 	DefaultDeadlineHours         int64                               `json:"default_deadline_hours"`
 	IsActive                     bool                                `json:"is_active"`
@@ -3464,6 +3573,10 @@ type CasePublicationCaseBlueprint struct {
 	ReceivesEscalationFrom       []map[string]any                    `json:"receives_escalation_from"`
 	CreatedAt                    time.Time                           `json:"created_at"`
 	UpdatedAt                    time.Time                           `json:"updated_at"`
+	AppliesTo                    []CaseBlueprintAppliesToValue       `json:"applies_to"`
+
+	// Configured stages, or the default stages when none are configured.
+	Stages []CaseBlueprintStage `json:"stages"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -3572,7 +3685,8 @@ type CasesBlueprintsUpdateParams struct {
 
 	// The version opened by the editor. A stale version returns 409 without
 	// changing the review policy.
-	ExpectedVersion Opt[int64] `json:"expected_version"`
+	ExpectedVersion Opt[int64]                         `json:"expected_version"`
+	AppliesTo       Opt[[]CaseBlueprintAppliesToValue] `json:"applies_to"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -3601,31 +3715,6 @@ type CasesChecklistToggleItemParams struct {
 func (r CasesChecklistToggleItemParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
-
-// CasesLinksCreateParams holds the parameters of Client.Cases.Links.Create.
-type CasesLinksCreateParams struct {
-	// Required.
-	EntityType CasesLinksCreateParamsEntityType `json:"entity_type"`
-
-	// Required.
-	EntityUUID string `json:"entity_uuid"`
-}
-
-// MarshalJSON encodes the fields that are set.
-func (r CasesLinksCreateParams) MarshalJSON() ([]byte, error) {
-	return marshalParams(r)
-}
-
-// CasesLinksCreateParamsEntityType is a string with known values below. The set
-// is open: other values may appear and never cause an error.
-type CasesLinksCreateParamsEntityType string
-
-// Known values of CasesLinksCreateParamsEntityType.
-const (
-	CasesLinksCreateParamsEntityTypeSession         CasesLinksCreateParamsEntityType = "session"
-	CasesLinksCreateParamsEntityTypeBusinessSession CasesLinksCreateParamsEntityType = "business_session"
-	CasesLinksCreateParamsEntityTypeTransaction     CasesLinksCreateParamsEntityType = "transaction"
-)
 
 // CaseCollaborationCaseNoteCreateRequest is a request object.
 type CaseCollaborationCaseNoteCreateRequest struct {
