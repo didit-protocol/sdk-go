@@ -3394,6 +3394,18 @@ type TravelRuleTransferDetail struct {
 	NextActions  []TravelRuleNextAction `json:"next_actions"`
 	ChainDetails TravelRuleChainDetails `json:"chain_details"`
 
+	// Null when required is true. Otherwise below_threshold, the recorded chain
+	// exemption (for example LIGHTNING_NO_PAYEE_IDENTIFIER,
+	// LIGHTNING_BOLT12_BLINDED_PAYEE or LIGHTNING_LNURL_NAMES_NO_PAYEE), or unknown
+	// for legacy transfers without a recorded reason.
+	NotRequiredReason string `json:"not_required_reason"`
+
+	// not_required when the transfer is not required; otherwise confirmed or
+	// not_confirmed follows ownership_confirmed. With no verdict, requested means
+	// an active outbound ownership widget matches this transfer and subject;
+	// otherwise not_requested. A request is not completed proof.
+	ProofState TravelRuleTransferDetailProofState `json:"proof_state"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -3634,3 +3646,22 @@ type TravelRuleTransferDetailCounterpartyVASPDdScoreBreakdown struct {
 func (r *TravelRuleTransferDetailCounterpartyVASPDdScoreBreakdown) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// TravelRuleTransferDetailProofState: not_required when the transfer is not
+// required; otherwise confirmed or not_confirmed follows ownership_confirmed.
+// With no verdict, requested means an active outbound ownership widget matches
+// this transfer and subject; otherwise not_requested. A request is not
+// completed proof.
+//
+// TravelRuleTransferDetailProofState is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleTransferDetailProofState string
+
+// Known values of TravelRuleTransferDetailProofState.
+const (
+	TravelRuleTransferDetailProofStateNotRequired  TravelRuleTransferDetailProofState = "not_required"
+	TravelRuleTransferDetailProofStateConfirmed    TravelRuleTransferDetailProofState = "confirmed"
+	TravelRuleTransferDetailProofStateNotConfirmed TravelRuleTransferDetailProofState = "not_confirmed"
+	TravelRuleTransferDetailProofStateRequested    TravelRuleTransferDetailProofState = "requested"
+	TravelRuleTransferDetailProofStateNotRequested TravelRuleTransferDetailProofState = "not_requested"
+)

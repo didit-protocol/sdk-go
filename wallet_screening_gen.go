@@ -158,7 +158,11 @@ const (
 
 // WalletScreeningResult is a response object.
 type WalletScreeningResult struct {
-	// Provider that performed the screening (e.g. `merklescience`, `crystal`).
+	// Provider that performed the screening (e.g. `merklescience`, `crystal`). When
+	// the provider you connected in the Marketplace rejected or failed the
+	// screening and that connection's fallback to Didit is on, this names Didit's
+	// managed screening, not the provider you connected, and
+	// `fallback_from_provider` names the provider that failed.
 	Provider string `json:"provider"`
 
 	// Always `WALLET_SCREENING` for this endpoint.
@@ -274,6 +278,19 @@ type WalletScreeningResult struct {
 	// graded the address purely on its own exposure model - `summary` states this
 	// explicitly.
 	RiskFactors []WalletScreeningResultRiskFactors `json:"risk_factors"`
+
+	// Set when the provider you connected in the Marketplace rejected or failed
+	// this screening and it ran on Didit's managed provider instead, because that
+	// connection's **Fall back to Didit** setting is on: the key of the provider
+	// that failed (`crystal`, `chainalysis`, `elliptic` or `trmlabs`). The
+	// screening is billed at the managed rate and the failed call is not billed.
+	// `null` on every other screening.
+	FallbackFromProvider string `json:"fallback_from_provider"`
+
+	// Why the provider you connected failed, when `fallback_from_provider` is set,
+	// for example `Your Crystal account has reached its call limit. Raise the limit
+	// with Crystal to screen with it again.` `null` on every other screening.
+	FallbackReason string `json:"fallback_reason"`
 
 	// The provider's own payload. Its shape is provider-specific and can change
 	// without notice: read the normalised fields instead of parsing it.
@@ -699,8 +716,11 @@ const (
 
 // WalletScreeningResultParam is a request object.
 type WalletScreeningResultParam struct {
-	// Provider that performed the screening (e.g. `merklescience`, `crystal`).
-	// Required.
+	// Provider that performed the screening (e.g. `merklescience`, `crystal`). When
+	// the provider you connected in the Marketplace rejected or failed the
+	// screening and that connection's fallback to Didit is on, this names Didit's
+	// managed screening, not the provider you connected, and
+	// `fallback_from_provider` names the provider that failed. Required.
 	Provider string `json:"provider"`
 
 	// Always `WALLET_SCREENING` for this endpoint. Required.
@@ -817,6 +837,19 @@ type WalletScreeningResultParam struct {
 	// graded the address purely on its own exposure model - `summary` states this
 	// explicitly.
 	RiskFactors Opt[[]WalletScreeningResultParamRiskFactors] `json:"risk_factors"`
+
+	// Set when the provider you connected in the Marketplace rejected or failed
+	// this screening and it ran on Didit's managed provider instead, because that
+	// connection's **Fall back to Didit** setting is on: the key of the provider
+	// that failed (`crystal`, `chainalysis`, `elliptic` or `trmlabs`). The
+	// screening is billed at the managed rate and the failed call is not billed.
+	// `null` on every other screening.
+	FallbackFromProvider Opt[string] `json:"fallback_from_provider"`
+
+	// Why the provider you connected failed, when `fallback_from_provider` is set,
+	// for example `Your Crystal account has reached its call limit. Raise the limit
+	// with Crystal to screen with it again.` `null` on every other screening.
+	FallbackReason Opt[string] `json:"fallback_reason"`
 
 	// The provider's own payload. Its shape is provider-specific and can change
 	// without notice: read the normalised fields instead of parsing it.

@@ -1985,6 +1985,9 @@ type TravelRuleSettingsDetail struct {
 	// condition it still misses.
 	DiditNetwork TravelRuleSettingsDetailDiditNetwork `json:"didit_network"`
 
+	// VASP licence or registration reference. Empty when not supplied.
+	Licence string `json:"licence"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -2932,6 +2935,9 @@ type TravelRuleSettingsUpdate struct {
 	// Networks opted out of platform membership. Does not disable your connected
 	// own memberships or provision unavailable networks.
 	DisabledNetworks Opt[[]TravelRuleSettingsUpdateDisabledNetworks] `json:"disabled_networks"`
+
+	// VASP licence or registration reference. Empty when not supplied.
+	Licence Opt[string] `json:"licence"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -4302,6 +4308,12 @@ type TravelRuleWorkspaceClaimRequest struct {
 	// The directory entry this workspace is. Read ids from `GET
 	// /v3/travel-rule/vasps/`. Required.
 	VASPID string `json:"vasp_id"`
+
+	// Optional licence or registration reference, up to 255 characters; empty
+	// clears it. Omission preserves it for the same directory entry and clears it
+	// when claiming a different entry. Applied to the VASP profile only when the
+	// claim is granted.
+	Licence Opt[string] `json:"licence"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -4330,8 +4342,13 @@ type TravelRuleWorkspace struct {
 
 	// Whether the Didit network lists this VASP and, when not, each condition it
 	// still misses.
-	DiditNetwork map[string]any           `json:"didit_network"`
-	Settings     TravelRuleSettingsDetail `json:"settings"`
+	DiditNetwork  map[string]any                   `json:"didit_network"`
+	Settings      TravelRuleSettingsDetail         `json:"settings"`
+	OutboundPrice TravelRuleWorkspaceOutboundPrice `json:"outbound_price"`
+
+	// Current profile licence for a granted claim, otherwise the submitted claim
+	// licence. Empty when not supplied.
+	Licence string `json:"licence"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -4353,6 +4370,13 @@ type TravelRuleWorkspaceClaim struct {
 	VASPID         string                         `json:"vasp_id"`
 	VASPName       string                         `json:"vasp_name"`
 
+	// Licence submitted with the claim. Empty when not supplied.
+	Licence string `json:"licence"`
+
+	// Structured rejection reason. Empty when none was recorded; a new claim or
+	// approval clears it. Read review_note for the explanation.
+	RejectionReason TravelRuleWorkspaceClaimRejectionReason `json:"rejection_reason"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -4373,6 +4397,21 @@ const (
 	TravelRuleWorkspaceClaimStatusPendingReview TravelRuleWorkspaceClaimStatus = "pending_review"
 	TravelRuleWorkspaceClaimStatusClaimed       TravelRuleWorkspaceClaimStatus = "claimed"
 	TravelRuleWorkspaceClaimStatusRejected      TravelRuleWorkspaceClaimStatus = "rejected"
+)
+
+// TravelRuleWorkspaceClaimRejectionReason: Structured rejection reason. Empty
+// when none was recorded; a new claim or approval clears it. Read review_note
+// for the explanation.
+//
+// TravelRuleWorkspaceClaimRejectionReason is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleWorkspaceClaimRejectionReason string
+
+// Known values of TravelRuleWorkspaceClaimRejectionReason.
+const (
+	TravelRuleWorkspaceClaimRejectionReasonEmpty          TravelRuleWorkspaceClaimRejectionReason = ""
+	TravelRuleWorkspaceClaimRejectionReasonDomainMismatch TravelRuleWorkspaceClaimRejectionReason = "domain_mismatch"
+	TravelRuleWorkspaceClaimRejectionReasonOther          TravelRuleWorkspaceClaimRejectionReason = "other"
 )
 
 // TravelRuleWorkspaceDomain is a response object.
@@ -4418,6 +4457,51 @@ type TravelRuleWorkspaceTxtRecord struct {
 func (r *TravelRuleWorkspaceTxtRecord) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// TravelRuleWorkspaceOutboundPrice: Own-account outbound quote, or null when a
+// flat Travel Rule quote is unavailable. Does not enable billing.
+type TravelRuleWorkspaceOutboundPrice struct {
+	// List unit price as a decimal string.
+	ListPrice string `json:"list_price"`
+
+	// Account unit price as a decimal string; null when the account contract does
+	// not price this usage.
+	EffectivePrice string `json:"effective_price"`
+
+	// Quote currency for this account.
+	Currency string `json:"currency"`
+
+	// Plan discount percentage; zero for a contract quote.
+	DiscountPct float64 `json:"discount_pct"`
+
+	// Product that owns the usage.
+	Product string `json:"product"`
+
+	// Whether the quote comes from the plan or account contract.
+	Source TravelRuleWorkspaceOutboundPriceSource `json:"source"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWorkspaceOutboundPrice leniently.
+func (r *TravelRuleWorkspaceOutboundPrice) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWorkspaceOutboundPriceSource: Whether the quote comes from the plan
+// or account contract.
+//
+// TravelRuleWorkspaceOutboundPriceSource is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleWorkspaceOutboundPriceSource string
+
+// Known values of TravelRuleWorkspaceOutboundPriceSource.
+const (
+	TravelRuleWorkspaceOutboundPriceSourcePlan     TravelRuleWorkspaceOutboundPriceSource = "plan"
+	TravelRuleWorkspaceOutboundPriceSourceContract TravelRuleWorkspaceOutboundPriceSource = "contract"
+)
 
 // TravelRuleWorkspaceDomainConfirmRequest is a request object.
 type TravelRuleWorkspaceDomainConfirmRequest struct {

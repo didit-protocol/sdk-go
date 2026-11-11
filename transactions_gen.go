@@ -2084,6 +2084,18 @@ type TransactionTravelRule struct {
 	NextActions  []TravelRuleNextAction `json:"next_actions"`
 	ChainDetails TravelRuleChainDetails `json:"chain_details"`
 
+	// Null when required is true. Otherwise below_threshold, the recorded chain
+	// exemption (for example LIGHTNING_NO_PAYEE_IDENTIFIER,
+	// LIGHTNING_BOLT12_BLINDED_PAYEE or LIGHTNING_LNURL_NAMES_NO_PAYEE), or unknown
+	// for legacy transfers without a recorded reason.
+	NotRequiredReason string `json:"not_required_reason"`
+
+	// not_required when the transfer is not required; otherwise confirmed or
+	// not_confirmed follows ownership_confirmed. With no verdict, requested means
+	// an active outbound ownership widget matches this transfer and subject;
+	// otherwise not_requested. A request is not completed proof.
+	ProofState TransactionTravelRuleProofState `json:"proof_state"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -2159,6 +2171,25 @@ type TransactionTravelRuleCounterpartyVASPDdScoreBreakdown struct {
 func (r *TransactionTravelRuleCounterpartyVASPDdScoreBreakdown) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// TransactionTravelRuleProofState: not_required when the transfer is not
+// required; otherwise confirmed or not_confirmed follows ownership_confirmed.
+// With no verdict, requested means an active outbound ownership widget matches
+// this transfer and subject; otherwise not_requested. A request is not
+// completed proof.
+//
+// TransactionTravelRuleProofState is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TransactionTravelRuleProofState string
+
+// Known values of TransactionTravelRuleProofState.
+const (
+	TransactionTravelRuleProofStateNotRequired  TransactionTravelRuleProofState = "not_required"
+	TransactionTravelRuleProofStateConfirmed    TransactionTravelRuleProofState = "confirmed"
+	TransactionTravelRuleProofStateNotConfirmed TransactionTravelRuleProofState = "not_confirmed"
+	TransactionTravelRuleProofStateRequested    TransactionTravelRuleProofState = "requested"
+	TransactionTravelRuleProofStateNotRequested TransactionTravelRuleProofState = "not_requested"
+)
 
 // TransactionDetailNetworkSnapshot: Graph snapshot of related
 // transactions/parties used by the rules engine. Either the `network_snapshot`
