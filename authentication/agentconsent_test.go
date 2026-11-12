@@ -721,3 +721,30 @@ func TestConsentMalformed2xxKeepsNoDecoderCause(t *testing.T) {
 		t.Fatalf("cause = %v", unexpected.Cause)
 	}
 }
+
+type trailerTransport struct{ credential string }
+
+func (t trailerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: 400, Header: http.Header{}, Request: req,
+		Body:    io.NopCloser(strings.NewReader(`{"error":"invalid_grant"}`)),
+		Trailer: http.Header{"X-Echo": []string{t.credential}, "X-" + t.credential: []string{"v"}},
+	}, nil
+}
+
+func TestConsentErrorResponseCarriesNoTrailer(t *testing.T) {
+	credential := "credential-string-0123456789"
+	stub := newStub(t)
+	c := newTestClient(t, stub, newClock(), WithHTTPClient(&http.Client{Transport: trailerTransport{credential}}))
+	_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+		Challenge: testAgentChallenge, Decision: AgentConsentApprove,
+		Assertion: &AgentPasskeyAssertion{ID: credential, RawID: "r", Response: AgentAuthenticatorResponse{Signature: "s"}},
+	})
+	var status *didit.APIStatusError
+	if !errors.As(err, &status) {
+		t.Fatalf("error = %v (%T)", err, err)
+	}
+	if len(status.Response.Trailer) != 0 || strings.Contains(fmt.Sprintf("%+v", status.Response), credential) {
+		t.Fatalf("trailer = %v", status.Response.Trailer)
+	}
+}

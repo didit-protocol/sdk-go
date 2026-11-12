@@ -146,6 +146,7 @@ func sanitizeResponse(resp *http.Response, data []byte, secrets []string) (*http
 	copied := *resp
 	copied.Status = redactString(resp.Status, secrets)
 	copied.Header = redactHeader(resp.Header, secrets)
+	copied.Trailer = nil // a trailer is issuer-controlled too: the copy carries none
 	return &copied, data
 }
 
