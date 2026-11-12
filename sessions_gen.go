@@ -11776,7 +11776,21 @@ type SessionDecisionKeyPeopleChecks struct {
 
 	// Aggregate UBO KYC progress, or null when no UBOs have linked KYC sessions.
 	UBOKYCSummary SessionDecisionKeyPeopleChecksUBOKYCSummary `json:"ubo_kyc_summary"`
-	Warnings      []map[string]any                            `json:"warnings"`
+
+	// The company's own declaration that it is listed on a stock exchange, or owned
+	// by a listed company, made on the Key People screen instead of naming a
+	// beneficial owner. Present in every `key_people_checks` entry unless the
+	// workflow's Returned data settings leave it out, and `null` unless the company
+	// made the declaration, which it can only do where the workflow allows it
+	// (`kyb_key_people_allow_listed_company_declaration`). Didit does not check the
+	// declaration against a stock exchange: the workflow's
+	// `kyb_key_people_listed_company_action` decides the Key People outcome (Review
+	// by default) and the `KYB_LISTED_COMPANY_DECLARED` warning is added. The
+	// company must still name at least one person who manages or represents it
+	// (director, non-executive director, chairman, representative, authorized
+	// signatory or company officer).
+	ListedCompanyDeclaration SessionDecisionKeyPeopleChecksListedCompanyDeclaration `json:"listed_company_declaration"`
+	Warnings                 []map[string]any                                       `json:"warnings"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -12631,6 +12645,61 @@ type SessionDecisionKeyPeopleChecksUBOKYCSummary struct {
 func (r *SessionDecisionKeyPeopleChecksUBOKYCSummary) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// SessionDecisionKeyPeopleChecksListedCompanyDeclaration: The company's own
+// declaration that it is listed on a stock exchange, or owned by a listed
+// company, made on the Key People screen instead of naming a beneficial owner.
+// Present in every `key_people_checks` entry unless the workflow's Returned
+// data settings leave it out, and `null` unless the company made the
+// declaration, which it can only do where the workflow allows it
+// (`kyb_key_people_allow_listed_company_declaration`). Didit does not check the
+// declaration against a stock exchange: the workflow's
+// `kyb_key_people_listed_company_action` decides the Key People outcome (Review
+// by default) and the `KYB_LISTED_COMPANY_DECLARED` warning is added. The
+// company must still name at least one person who manages or represents it
+// (director, non-executive director, chairman, representative, authorized
+// signatory or company officer).
+type SessionDecisionKeyPeopleChecksListedCompanyDeclaration struct {
+	// `listed_company`: the company itself is listed on a stock exchange.
+	// `subsidiary_of_listed_company`: the company is owned by a listed company.
+	Type SessionDecisionKeyPeopleChecksListedCompanyDeclarationType `json:"type"`
+
+	// Name of the stock exchange, as typed by the company (for example `London
+	// Stock Exchange`). `null` when left empty.
+	StockExchange string `json:"stock_exchange"`
+
+	// ISIN of the listed security: 12 characters, upper-case, no spaces, with a
+	// valid check digit (for example `GBEXAMPLE002`). `null` when left empty.
+	Isin string `json:"isin"`
+
+	// Name of the listed parent company. Only set when `type` is
+	// `subsidiary_of_listed_company`; `null` otherwise.
+	ListedParentCompanyName string `json:"listed_parent_company_name"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SessionDecisionKeyPeopleChecksListedCompanyDeclaration leniently.
+func (r *SessionDecisionKeyPeopleChecksListedCompanyDeclaration) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// SessionDecisionKeyPeopleChecksListedCompanyDeclarationType: `listed_company`:
+// the company itself is listed on a stock exchange.
+// `subsidiary_of_listed_company`: the company is owned by a listed company.
+//
+// SessionDecisionKeyPeopleChecksListedCompanyDeclarationType is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type SessionDecisionKeyPeopleChecksListedCompanyDeclarationType string
+
+// Known values of SessionDecisionKeyPeopleChecksListedCompanyDeclarationType.
+const (
+	SessionDecisionKeyPeopleChecksListedCompanyDeclarationTypeListedCompany             SessionDecisionKeyPeopleChecksListedCompanyDeclarationType = "listed_company"
+	SessionDecisionKeyPeopleChecksListedCompanyDeclarationTypeSubsidiaryOfListedCompany SessionDecisionKeyPeopleChecksListedCompanyDeclarationType = "subsidiary_of_listed_company"
+)
 
 // SessionDecisionDocumentVerifications: Documents grouped by workflow node.
 // Present only when session_kind = business.

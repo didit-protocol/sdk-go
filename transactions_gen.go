@@ -537,6 +537,26 @@ func (r *TransactionsTravelRuleService) CreateMessage(ctx context.Context, trans
 	return res, nil
 }
 
+// CreateUserLink: Create or email a Travel Rule end-user link.
+//
+// Issue a new link and revoke previous open links for this transfer. Requires
+// write access to transactions and an outbound transfer in
+// AWAITING_COUNTERPARTY, COUNTERPARTY_VASP_NOT_FOUND,
+// COUNTERPARTY_VASP_NOT_REACHABLE, UNCONFIRMED_OWNERSHIP or ON_HOLD.
+// channel=email uses the end user's Didit-record email and verification-session
+// language when available. A send failure returns the link with emailed_to
+// empty; email_available reports address availability, not delivery. See [User
+// links](/management-api/travel-rule/create-user-link).
+//
+//	POST /v3/transactions/{transaction_id}/travel-rule/user-link/
+func (r *TransactionsTravelRuleService) CreateUserLink(ctx context.Context, transactionID string, params TravelRuleUserLinkRequest, opts ...option.RequestOption) (*TravelRuleUserLinkResponse, error) {
+	res := new(TravelRuleUserLinkResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/transactions/{transaction_id}/travel-rule/user-link/", pathParams: []string{"transaction_id", transactionID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // ListDeliveries: List Travel Rule delivery history.
 //
 // Read the complete delivery history for a transaction, oldest first. Requires
@@ -595,8 +615,7 @@ func (r *TransactionsTravelRuleService) TriggerTestVASPInbound(ctx context.Conte
 	return res, nil
 }
 
-// UpdateTransfer: Finish, cancel, resend, or update the originator wallet of a
-// Travel Rule transfer.
+// UpdateTransfer: Update a Travel Rule transfer.
 //
 // Provide `payment_txn_id` to report the on-chain hash and move an outbound
 // COMPLETED transfer to FINISHED (its INTERNAL-rail counterpart also moves to
@@ -627,7 +646,14 @@ func (r *TransactionsTravelRuleService) TriggerTestVASPInbound(ctx context.Conte
 // counterparty yourself when discovery could not, on an outbound transfer in
 // COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE or
 // NOT_ENOUGH_COUNTERPARTY_DATA: the transfer is routed to that VASP and sent
-// again.
+// again. Cancellation accepts an optional reason and returns cancel_reason and
+// cancelled_by. Resend accepts notify_on_answer; omission preserves the saved
+// preference, initially false. Resend invalidates the previous counterparty
+// pickup link. action=add_vasp_hint requires name, accepts lei and country,
+// saves the hint and re-runs discovery under the same outbound/status
+// restrictions as resend. update_compliance_email also accepts vasp_name and
+// saves the address as an application-private contact when the transfer has a
+// known directory VASP.
 //
 //	PATCH /v3/transactions/{transaction_id}/travel-rule/
 func (r *TransactionsTravelRuleService) UpdateTransfer(ctx context.Context, transactionID string, params TravelRuleTransferPatchRequest, opts ...option.RequestOption) (*TravelRuleTransferDetail, error) {
@@ -1249,12 +1275,37 @@ type TransactionsCreateParamsTravelRuleDetails struct {
 	// The `originator` and `beneficiary` blocks wrapped in one IVMS 101 object
 	// (`IVMS101` is accepted too). Top-level blocks win over the wrapper's.
 	Ivms101 Opt[map[string]any] `json:"ivms101"`
+
+	// discovery uses automatic counterparty discovery. user asks the end user to
+	// choose, issues a link and attempts email when their Didit record has an
+	// address. Cannot be combined with beneficiary_data.counterparty_vasp_name or
+	// counterparty_vasp_lei. Read user_choice in the response; link or email
+	// failure does not fail creation.
+	CounterpartyChoice Opt[TransactionsCreateParamsTravelRuleDetailsCounterpartyChoice] `json:"counterparty_choice"`
 }
 
 // MarshalJSON encodes the fields that are set.
 func (r TransactionsCreateParamsTravelRuleDetails) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
+
+// TransactionsCreateParamsTravelRuleDetailsCounterpartyChoice: discovery uses
+// automatic counterparty discovery. user asks the end user to choose, issues a
+// link and attempts email when their Didit record has an address. Cannot be
+// combined with beneficiary_data.counterparty_vasp_name or
+// counterparty_vasp_lei. Read user_choice in the response; link or email
+// failure does not fail creation.
+//
+// TransactionsCreateParamsTravelRuleDetailsCounterpartyChoice is a string with
+// known values below. The set is open: other values may appear and never cause
+// an error.
+type TransactionsCreateParamsTravelRuleDetailsCounterpartyChoice string
+
+// Known values of TransactionsCreateParamsTravelRuleDetailsCounterpartyChoice.
+const (
+	TransactionsCreateParamsTravelRuleDetailsCounterpartyChoiceDiscovery TransactionsCreateParamsTravelRuleDetailsCounterpartyChoice = "discovery"
+	TransactionsCreateParamsTravelRuleDetailsCounterpartyChoiceUser      TransactionsCreateParamsTravelRuleDetailsCounterpartyChoice = "user"
+)
 
 // TransactionsCreateParamsNetworkSnapshot: Pre-computed network graph snapshot.
 type TransactionsCreateParamsNetworkSnapshot struct {
@@ -2125,6 +2176,10 @@ type TransactionTravelRule struct {
 	// otherwise not_requested. A request is not completed proof.
 	ProofState TransactionTravelRuleProofState `json:"proof_state"`
 
+	// Explicit user-choice state, or null when counterparty_choice=user was not
+	// requested.
+	UserChoice TravelRuleUserChoice `json:"user_choice"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -2661,6 +2716,10 @@ type TransactionListTravelRule struct {
 	// an active outbound ownership widget matches this transfer and subject;
 	// otherwise not_requested. A request is not completed proof.
 	ProofState TransactionListTravelRuleProofState `json:"proof_state"`
+
+	// Explicit user-choice state, or null when counterparty_choice=user was not
+	// requested.
+	UserChoice TravelRuleUserChoice `json:"user_choice"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -4347,6 +4406,56 @@ func (r *TravelRuleMessageAttachmentFiles) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// TravelRuleUserLinkRequest is a request object.
+type TravelRuleUserLinkRequest struct {
+	// link returns a new link; email also attempts to send it to the end user's
+	// Didit-record email.
+	Channel Opt[TravelRuleUserLinkRequestChannel] `json:"channel"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleUserLinkRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleUserLinkRequestChannel: link returns a new link; email also
+// attempts to send it to the end user's Didit-record email.
+//
+// TravelRuleUserLinkRequestChannel is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleUserLinkRequestChannel string
+
+// Known values of TravelRuleUserLinkRequestChannel.
+const (
+	TravelRuleUserLinkRequestChannelLink  TravelRuleUserLinkRequestChannel = "link"
+	TravelRuleUserLinkRequestChannelEmail TravelRuleUserLinkRequestChannel = "email"
+)
+
+// TravelRuleUserLinkResponse is a response object.
+type TravelRuleUserLinkResponse struct {
+	// New end-user link. Previous open links for this transfer are revoked.
+	EndUserLink string `json:"end_user_link"`
+
+	// Link expiry.
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Recipient when sending succeeded, otherwise an empty string. An email failure
+	// still returns a usable link.
+	EmailedTo string `json:"emailed_to"`
+
+	// Whether the end user has an email on their Didit record.
+	EmailAvailable bool `json:"email_available"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleUserLinkResponse leniently.
+func (r *TravelRuleUserLinkResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // TransactionsTravelRuleListDeliveriesParams holds the parameters of
 // Client.Transactions.TravelRule.ListDeliveries.
 type TransactionsTravelRuleListDeliveriesParams struct {
@@ -4444,7 +4553,8 @@ func (r *TravelRuleTestVASPInboundResponse) UnmarshalJSON(data []byte) error {
 // TravelRuleTransferPatchRequest: Provide exactly one of: payment_txn_id
 // (finish), action=cancel, action=resend, action=update_compliance_email with
 // compliance_email, action=update_originator_wallet with wallet_address, or
-// action=beneficiary_vasp with beneficiary_vasp.
+// action=beneficiary_vasp with beneficiary_vasp. Alternatively, provide
+// action=add_vasp_hint with name and optional lei and country.
 type TravelRuleTransferPatchRequest struct {
 	// The on-chain transaction hash. Requires the transfer to be an outbound
 	// transfer in COMPLETED status.
@@ -4459,11 +4569,13 @@ type TravelRuleTransferPatchRequest struct {
 	// left from (`wallet_address`, `memo`). "beneficiary_vasp" names the
 	// counterparty VASP yourself (requires `beneficiary_vasp`) for an outbound
 	// transfer in one of those statuses: it is routed to that VASP and sent again.
+	// "add_vasp_hint" saves a counterparty name and optional LEI and country, then
+	// re-runs discovery on an outbound transfer in a resendable status.
 	Action Opt[TravelRuleTransferPatchRequestAction] `json:"action"`
 
-	// Required with `action: update_compliance_email`. Kept as this transfer's
-	// `beneficiary_data.counterparty_vasp_email`: it belongs to this transfer only
-	// and joins no directory entry and no contact list.
+	// Required with action=update_compliance_email. Saved in
+	// beneficiary_data.counterparty_vasp_email. If the transfer has a known
+	// directory VASP, also saved as your application-private contact for that VASP.
 	ComplianceEmail Opt[string] `json:"compliance_email"`
 
 	// With `action: update_originator_wallet`: the wallet the funds left from. When
@@ -4478,6 +4590,30 @@ type TravelRuleTransferPatchRequest struct {
 	// `GET /v3/travel-rule/vasps/`. Your choice outranks every automatic discovery
 	// step, which never overrides it.
 	BeneficiaryVASP Opt[string] `json:"beneficiary_vasp"`
+
+	// With action=cancel: your cancellation reason. Omitted or empty means
+	// unspecified.
+	Reason Opt[TravelRuleTransferPatchRequestReason] `json:"reason"`
+
+	// With action=resend: whether your team should be notified when the
+	// counterparty answers. Initially false; omission preserves the saved
+	// preference.
+	NotifyOnAnswer Opt[bool] `json:"notify_on_answer"`
+
+	// Required with action=add_vasp_hint. Counterparty VASP name.
+	Name Opt[string] `json:"name"`
+
+	// With action=add_vasp_hint: optional LEI, normalized to uppercase. Empty
+	// clears the previous LEI hint.
+	Lei Opt[string] `json:"lei"`
+
+	// With action=add_vasp_hint: optional country hint, normalized to uppercase.
+	// Empty clears the previous country hint.
+	Country Opt[string] `json:"country"`
+
+	// With action=update_compliance_email: optional counterparty name saved with
+	// the address when nonempty.
+	VASPName Opt[string] `json:"vasp_name"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -4494,7 +4630,9 @@ func (r TravelRuleTransferPatchRequest) MarshalJSON() ([]byte, error) {
 // the wallet the funds actually left from (`wallet_address`, `memo`).
 // "beneficiary_vasp" names the counterparty VASP yourself (requires
 // `beneficiary_vasp`) for an outbound transfer in one of those statuses: it is
-// routed to that VASP and sent again.
+// routed to that VASP and sent again. "add_vasp_hint" saves a counterparty name
+// and optional LEI and country, then re-runs discovery on an outbound transfer
+// in a resendable status.
 //
 // TravelRuleTransferPatchRequestAction is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -4507,4 +4645,21 @@ const (
 	TravelRuleTransferPatchRequestActionUpdateComplianceEmail  TravelRuleTransferPatchRequestAction = "update_compliance_email"
 	TravelRuleTransferPatchRequestActionUpdateOriginatorWallet TravelRuleTransferPatchRequestAction = "update_originator_wallet"
 	TravelRuleTransferPatchRequestActionBeneficiaryVASP        TravelRuleTransferPatchRequestAction = "beneficiary_vasp"
+	TravelRuleTransferPatchRequestActionAddVASPHint            TravelRuleTransferPatchRequestAction = "add_vasp_hint"
+)
+
+// TravelRuleTransferPatchRequestReason: With action=cancel: your cancellation
+// reason. Omitted or empty means unspecified.
+//
+// TravelRuleTransferPatchRequestReason is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleTransferPatchRequestReason string
+
+// Known values of TravelRuleTransferPatchRequestReason.
+const (
+	TravelRuleTransferPatchRequestReasonEmpty              TravelRuleTransferPatchRequestReason = ""
+	TravelRuleTransferPatchRequestReasonUserCancelled      TravelRuleTransferPatchRequestReason = "user_cancelled"
+	TravelRuleTransferPatchRequestReasonWrongWallet        TravelRuleTransferPatchRequestReason = "wrong_wallet"
+	TravelRuleTransferPatchRequestReasonComplianceDecision TravelRuleTransferPatchRequestReason = "compliance_decision"
+	TravelRuleTransferPatchRequestReasonOther              TravelRuleTransferPatchRequestReason = "other"
 )
