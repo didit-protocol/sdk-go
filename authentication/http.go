@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,8 +44,10 @@ type request struct {
 	// retry allows one retry after a connection error or a 5xx answer. Only
 	// requests that are safe to repeat set it.
 	retry bool
-	// secrets are strings that must never reach an error: they are replaced
-	// by "[redacted]" in an error body, raw and JSON-escaped, at any depth.
+	// secrets are strings that must never reach an error. When set, an error
+	// body is redacted structurally: the parsed JSON has every string (object
+	// key or value) that contains a secret replaced whole by "[redacted]", and
+	// a body that is not JSON becomes "[redacted]". The raw text is never kept.
 	secrets []string
 }
 
@@ -67,7 +70,7 @@ func (c *Client) send(ctx context.Context, r request) (*response, error) {
 			return resp, err
 		}
 		if waitErr := c.backoff(ctx); waitErr != nil {
-			return nil, connectionError(r.method, r.url, waitErr)
+			return nil, requestError(r, waitErr)
 		}
 	}
 }
@@ -79,7 +82,7 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, r.method, r.url, body)
 	if err != nil {
-		return nil, connectionError(r.method, r.url, err)
+		return nil, requestError(r, err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("X-Didit-Client", clientHeader)
@@ -92,37 +95,65 @@ func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, connectionError(r.method, r.url, err)
+		return nil, requestError(r, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
-		return nil, connectionError(r.method, r.url, err)
+		return nil, requestError(r, err)
 	}
 	ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
-	if len(data) > maxResponseBytes {
-		if ok {
-			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil)
-		}
-	}
-	if !ok {
-		// Redact the whole read first: the cap must not cut a secret in two and leave its prefix.
-		data = redactSecrets(data, r.secrets)
+	if ok {
+		// A successful response reaches the caller unchanged.
 		if len(data) > maxResponseBytes {
-			data = trimPartialSecret(data[:maxResponseBytes], r.secrets)
+			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil, data)
 		}
-		return nil, didit.NewAPIStatusError(&didit.APIStatusError{
-			StatusCode: resp.StatusCode,
-			Body:       parseBody(data),
-			RawBody:    data,
-			Header:     resp.Header,
-			RequestID:  resp.Header.Get("X-Request-Id"),
-			Method:     r.method,
-			URL:        redactURL(r.url),
-			Response:   redactedResponse(resp),
-		})
+		return &response{header: resp.Header, body: data, http: resp}, nil
 	}
-	return &response{header: resp.Header, body: data, http: resp}, nil
+	// Every error of a consent call is built from a sanitized copy of the response only.
+	var kept []byte // the content the error's response carries: only ever sanitized bytes
+	if len(r.secrets) > 0 {
+		resp, data = sanitizeResponse(resp, data, r.secrets)
+		kept = data
+	} else if len(data) > maxResponseBytes {
+		data = data[:maxResponseBytes]
+	}
+	return nil, didit.NewAPIStatusError(&didit.APIStatusError{
+		StatusCode: resp.StatusCode,
+		Body:       parseBody(data),
+		RawBody:    data,
+		Header:     resp.Header,
+		RequestID:  resp.Header.Get("X-Request-Id"),
+		Method:     r.method,
+		URL:        redactURL(r.url),
+		Response:   redactedResponse(resp, kept),
+	})
+}
+
+// sanitizeResponse returns the response of a call whose answer may echo secrets
+// (agent consent) sanitized as a whole: the status code kept, the status text
+// redacted, each header whose name contains a secret dropped, the other values
+// redacted, and the body redacted by redactBody ("[redacted]" when it is cut at
+// the size limit, not JSON or empty). Every error of these calls is built from
+// the result only.
+func sanitizeResponse(resp *http.Response, data []byte, secrets []string) (*http.Response, []byte) {
+	if len(data) > maxResponseBytes {
+		// Cut at the size limit: never JSON, whatever its first MiB looks like.
+		data = []byte(redactedMarker)
+	} else {
+		data = redactBody(data, secrets)
+	}
+	copied := *resp
+	copied.Status = redactString(resp.Status, secrets)
+	copied.Header = redactHeader(resp.Header, secrets)
+	if resp.Request != nil {
+		// A redirect may carry the challenge in the path, userinfo, query or fragment: the copy's request URL keeps only scheme and host.
+		req := resp.Request.Clone(context.Background())
+		req.URL = &url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host}
+		copied.Request = req
+	}
+	copied.Trailer = nil // a trailer is issuer-controlled too: the copy carries none
+	return &copied, data
 }
 
 // retryable reports whether a failed GET may be sent once more: the
@@ -157,20 +188,55 @@ func (c *Client) backoff(ctx context.Context) error {
 // *didit.UnexpectedResponseError.
 func decodeJSON(r request, resp *response, v any) error {
 	if err := json.Unmarshal(resp.body, v); err != nil {
-		return unexpectedResponse(r, resp.http, "is not valid JSON", err)
+		return unexpectedResponse(r, resp.http, "is not valid JSON", err, resp.body)
 	}
 	return nil
 }
 
 // unexpectedResponse reports a 2xx response the package cannot use, with a
 // redacted copy of the response.
-func unexpectedResponse(r request, resp *http.Response, problem string, cause error) error {
+func unexpectedResponse(r request, resp *http.Response, problem string, cause error, body []byte) error {
+	if len(r.secrets) == 0 {
+		body = nil
+	} else {
+		cause = nil // the decoder's error quotes the raw input
+		// A copy sanitized to build this error; the successful path never sees it.
+		resp, body = sanitizeResponse(resp, body, r.secrets)
+	}
 	return &didit.UnexpectedResponseError{
 		Message:  fmt.Sprintf("%s %s: the %d response %s", r.method, redactURL(r.url), resp.StatusCode, problem),
 		Cause:    cause,
-		Response: redactedResponse(resp),
+		Response: redactedResponse(resp, body),
 	}
 }
+
+// requestError is the connection or timeout error of request r. A request that
+// carries secrets (agent consent) reports a fixed cause: a transport may quote
+// the serialized body in its error, in a spelling no decoded-string match finds.
+func requestError(r request, cause error) error {
+	if len(r.secrets) > 0 {
+		cause = withheldCause(cause)
+	}
+	return connectionError(r.method, r.url, cause)
+}
+
+// withheldCause keeps what callers branch on (cancellation, deadline, timeout)
+// and drops the underlying text.
+func withheldCause(cause error) error {
+	switch {
+	case errors.Is(cause, context.Canceled):
+		return context.Canceled
+	case errors.Is(cause, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	}
+	return withheldError{timeout: isTimeout(cause)}
+}
+
+type withheldError struct{ timeout bool }
+
+func (withheldError) Error() string   { return "transport failure (details withheld)" }
+func (e withheldError) Timeout() bool { return e.timeout }
+func (withheldError) Temporary() bool { return false }
 
 func connectionError(method, rawURL string, cause error) error {
 	e := &didit.APIConnectionError{Method: method, URL: redactURL(rawURL), Cause: cause}
@@ -216,9 +282,22 @@ func redactURL(raw string) string {
 // and refresh tokens) through resp.Request. After a redirect,
 // resp.Request.Response is the redirect response, whose Request is the
 // original request; it is dropped too.
-func redactedResponse(resp *http.Response) *http.Response {
+//
+// body is the already redacted content the copy carries (nil for none), with the
+// length headers made to match.
+func redactedResponse(resp *http.Response, body []byte) *http.Response {
 	copied := *resp
 	copied.Body = http.NoBody
+	if len(body) > 0 {
+		copied.Body = io.NopCloser(bytes.NewReader(body))
+	}
+	copied.ContentLength = int64(len(body))
+	copied.Header = resp.Header.Clone()
+	copied.Header.Del("Content-Length")
+	copied.Header.Del("Content-Encoding")
+	copied.Header.Del("Transfer-Encoding")
+	copied.TransferEncoding = nil
+	copied.Uncompressed = false
 	if resp.Request != nil {
 		req := resp.Request.WithContext(context.Background())
 		req.Header = resp.Request.Header.Clone()
@@ -284,137 +363,179 @@ func checkBearer(token string) error {
 
 const redactedMarker = "[redacted]"
 
-// collectStrings appends every string value (map keys excluded) found in v.
-func collectStrings(v any, out []string) []string {
+// minSecretLength is the length from which an assertion string is a secret.
+// Shorter ones (field names such as "id", values such as "public-key") are not:
+// matching them would erase error codes like "invalid_grant" (docs/DESIGN.md
+// section 10).
+// Sensitive values are 16+ chars: user handles are 16-byte ids (22 base64url), credential ids 16+ bytes.
+const minSecretLength = 16
+
+// assertionSecrets returns every string of at least 16 characters of the
+// passkey assertion in the JSON document body (object keys and values, at any
+// depth), followed by extra. The body is read token by token, so duplicate
+// object members, which a decode into a map would collapse, are all kept. The
+// decision, scopes and organization ids are not secrets and stay readable in
+// errors.
+func assertionSecrets(body []byte, extra ...string) []string {
+	var out []string
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return extra
+	}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		if key, _ := keyTok.(string); key == "assertion" {
+			out = append(out, tokenStrings(dec)...)
+			continue
+		}
+		var skip json.RawMessage
+		if dec.Decode(&skip) != nil {
+			break
+		}
+	}
+	return append(out, extra...)
+}
+
+// tokenStrings reads one JSON value from dec and returns every string token of
+// at least minSecretLength characters in it, keys included.
+func tokenStrings(dec *json.Decoder) []string {
+	var out []string
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return out
+		}
+		switch t := tok.(type) {
+		case json.Delim:
+			if t == '{' || t == '[' {
+				depth++
+			} else {
+				depth--
+			}
+		case string:
+			if len(t) >= minSecretLength {
+				out = append(out, t)
+			}
+		}
+		if depth == 0 {
+			return out
+		}
+	}
+}
+
+// redactBody returns an error body with the secrets removed from the parsed
+// value, never from its raw text: valid JSON comes back re-encoded with
+// redactValue applied, anything else (an HTML error page, a body cut at the
+// size limit, an empty body) comes back as "[redacted]".
+func redactBody(data []byte, secrets []string) []byte {
+	if len(bytes.TrimSpace(data)) == 0 {
+		// An empty body is not JSON.
+		return []byte(redactedMarker)
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v any
+	// Anything after the first value, a closing delimiter included, means the body is not JSON.
+	if err := dec.Decode(&v); err != nil || dec.Decode(&struct{}{}) != io.EOF {
+		return []byte(redactedMarker)
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(redactValue(v, secrets)); err != nil {
+		return []byte(redactedMarker)
+	}
+	return bytes.TrimSpace(buf.Bytes())
+}
+
+// redactValue replaces every string of v that contains a secret, object keys
+// included, by "[redacted]" as a whole. Strings are compared as decoded, so the
+// spelling of the raw JSON does not matter. A redacted key that collides with
+// another key is numbered ("[redacted]", "[redacted]2", ...).
+func redactValue(v any, secrets []string) any {
 	switch t := v.(type) {
 	case string:
-		if t != "" {
-			return append(out, t)
-		}
+		return redactString(t, secrets)
 	case []any:
-		for _, e := range t {
-			out = collectStrings(e, out)
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = redactValue(e, secrets)
 		}
+		return out
 	case map[string]any:
-		for _, e := range t {
-			out = collectStrings(e, out)
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
 		}
+		sort.Strings(keys)
+		// Reserve every safe key name first, so a placeholder never takes one.
+		out := make(map[string]any, len(t))
+		taken := make(map[string]bool, len(t))
+		for _, k := range keys {
+			if redactString(k, secrets) == k {
+				taken[k] = true
+			}
+		}
+		next := 1
+		for _, k := range keys {
+			name := k
+			if redactString(k, secrets) != k {
+				for {
+					name = redactedMarker
+					if next > 1 {
+						name += strconv.Itoa(next)
+					}
+					next++
+					if !taken[name] {
+						break
+					}
+				}
+				taken[name] = true
+			}
+			out[name] = redactValue(t[k], secrets)
+		}
+		return out
+	}
+	return v
+}
+
+// redactHeader copies h without the headers whose name contains a secret, and with every value that contains one replaced whole.
+// nameHasSecret reports whether a header name contains a secret; names are
+// case-insensitive, so both sides are case-folded.
+func nameHasSecret(name string, secrets []string) bool {
+	folded := strings.ToLower(name)
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(folded, strings.ToLower(secret)) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactHeader(h http.Header, secrets []string) http.Header {
+	out := make(http.Header, len(h))
+	for name, values := range h {
+		if nameHasSecret(name, secrets) {
+			continue
+		}
+		clean := make([]string, len(values))
+		for i, v := range values {
+			clean[i] = redactString(v, secrets)
+		}
+		out[name] = clean
 	}
 	return out
 }
 
-// assertionSecrets returns every string value of the passkey assertion in the
-// JSON document body, at any depth, followed by extra. The decision, scopes
-// and organization ids are not secrets and stay readable in errors.
-func assertionSecrets(body []byte, extra ...string) []string {
-	var doc struct {
-		Assertion any `json:"assertion"`
-	}
-	_ = json.Unmarshal(body, &doc)
-	return append(collectStrings(doc.Assertion, nil), extra...)
-}
-
-// secretForms returns the spellings of s a JSON or text body can carry it in.
-func secretForms(s string) []string {
-	forms := []string{s}
-	add := func(b []byte, err error) {
-		if err == nil && len(b) >= 2 {
-			forms = append(forms, string(b[1:len(b)-1]))
+func redactString(s string, secrets []string) string {
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(s, secret) {
+			return redactedMarker
 		}
 	}
-	add(json.Marshal(s))
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(s)
-	add(bytes.TrimSpace(buf.Bytes()), nil)
-	forms = append(forms, strings.ReplaceAll(forms[len(forms)-1], "/", `\/`))
-	var ascii strings.Builder
-	for _, r := range s {
-		switch {
-		case r < 0x7f && r >= 0x20 && r != '"' && r != '\\':
-			ascii.WriteRune(r)
-		case r > 0xffff:
-			r -= 0x10000
-			fmt.Fprintf(&ascii, `\u%04x\u%04x`, 0xd800+(r>>10), 0xdc00+(r&0x3ff))
-		default:
-			fmt.Fprintf(&ascii, `\u%04x`, r)
-		}
-	}
-	forms = append(forms, ascii.String())
-	return forms
-}
-
-// trimPartialSecret drops a trailing prefix of a secret that a length cap cut
-// off, so no part of one survives the cap.
-func trimPartialSecret(data []byte, secrets []string) []byte {
-	longest := 0
-	for _, s := range secrets {
-		for _, f := range secretForms(s) {
-			for k := min(len(f)-1, len(data)); k > longest; k-- {
-				if bytes.HasSuffix(data, []byte(f[:k])) {
-					longest = k
-					break
-				}
-			}
-		}
-	}
-	return data[:len(data)-longest]
-}
-
-// redactSecrets replaces every secret in an error body, in raw text and in
-// each JSON-escaped spelling, then in the parsed strings, and returns the
-// redacted bytes (always valid for the same parse as the original).
-func redactSecrets(data []byte, secrets []string) []byte {
-	if len(secrets) == 0 || len(data) == 0 {
-		return data
-	}
-	var forms []string
-	for _, s := range secrets {
-		if s != "" {
-			forms = append(forms, secretForms(s)...)
-		}
-	}
-	// Longest first, so a secret that contains another is replaced whole.
-	sort.Slice(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
-	text := string(data)
-	for _, f := range forms {
-		if f != "" {
-			text = strings.ReplaceAll(text, f, redactedMarker)
-		}
-	}
-	// Any other escaping that decodes to a secret: redact the parsed strings.
-	var v any
-	if json.Unmarshal([]byte(text), &v) == nil {
-		changed := false
-		v = redactValue(v, secrets, &changed)
-		if changed {
-			if b, err := json.Marshal(v); err == nil {
-				return b
-			}
-		}
-	}
-	return []byte(text)
-}
-
-func redactValue(v any, secrets []string, changed *bool) any {
-	switch t := v.(type) {
-	case string:
-		for _, s := range secrets {
-			if s != "" && strings.Contains(t, s) {
-				t = strings.ReplaceAll(t, s, redactedMarker)
-				*changed = true
-			}
-		}
-		return t
-	case []any:
-		for i := range t {
-			t[i] = redactValue(t[i], secrets, changed)
-		}
-	case map[string]any:
-		for k, e := range t {
-			t[k] = redactValue(e, secrets, changed)
-		}
-	}
-	return v
+	return s
 }
