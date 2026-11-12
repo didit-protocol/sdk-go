@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.2](https://github.com/didit-protocol/sdk-go/compare/v1.15.1...v1.15.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* **authentication:** redact the parsed agent-consent response structurally ([#63](https://github.com/didit-protocol/sdk-go/issues/63)) ([843a22d](https://github.com/didit-protocol/sdk-go/commit/843a22d0dcff6d348814202a6f468e9f8ef6da12))
+
 ## [1.15.1](https://github.com/didit-protocol/sdk-go/compare/v1.15.0...v1.15.1) (2026-11-11)
 
 
