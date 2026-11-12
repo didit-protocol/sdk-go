@@ -583,7 +583,7 @@ func TestConsentTransportFailureCarriesNoTransportText(t *testing.T) {
 			if !errors.As(err, &conn) {
 				t.Fatalf("error = %v (%T)", err, err)
 			}
-			for e := error(err); e != nil; e = errors.Unwrap(e) {
+			for e := err; e != nil; e = errors.Unwrap(e) {
 				text := e.Error()
 				for _, bad := range []string{"ential", testAccessToken, "write failed"} {
 					if strings.Contains(text, bad) {
@@ -696,7 +696,7 @@ func TestConsentBodyReadFailureHasNoUnderlyingText(t *testing.T) {
 	if !errors.As(err, &conn) {
 		t.Fatalf("error = %v (%T)", err, err)
 	}
-	for e := error(err); e != nil; e = errors.Unwrap(e) {
+	for e := err; e != nil; e = errors.Unwrap(e) {
 		if strings.Contains(e.Error(), "credential-string") {
 			t.Fatalf("%q carries the underlying text", e.Error())
 		}
