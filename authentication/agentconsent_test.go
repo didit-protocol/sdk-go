@@ -701,3 +701,23 @@ func TestConsentBodyReadFailureHasNoUnderlyingText(t *testing.T) {
 		}
 	}
 }
+
+func TestConsentMalformed2xxKeepsNoDecoderCause(t *testing.T) {
+	credential := "credential-string-0123456789"
+	stub := newStub(t)
+	stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code": ` + credential))
+	})
+	c := newTestClient(t, stub, newClock())
+	_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+		Challenge: testAgentChallenge, Decision: AgentConsentApprove,
+		Assertion: &AgentPasskeyAssertion{ID: credential, RawID: "r", Response: AgentAuthenticatorResponse{Signature: "s"}},
+	})
+	var unexpected *didit.UnexpectedResponseError
+	if !errors.As(err, &unexpected) {
+		t.Fatalf("error = %v (%T)", err, err)
+	}
+	if unexpected.Cause != nil || strings.Contains(fmt.Sprintf("%v %+v", err, unexpected), credential) {
+		t.Fatalf("cause = %v", unexpected.Cause)
+	}
+}

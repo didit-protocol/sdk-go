@@ -192,6 +192,7 @@ func unexpectedResponse(r request, resp *http.Response, problem string, cause er
 	if len(r.secrets) == 0 {
 		body = nil
 	} else {
+		cause = nil // the decoder's error quotes the raw input
 		// A copy sanitized to build this error; the successful path never sees it.
 		resp, body = sanitizeResponse(resp, body, r.secrets)
 	}
