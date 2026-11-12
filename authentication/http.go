@@ -146,6 +146,14 @@ func sanitizeResponse(resp *http.Response, data []byte, secrets []string) (*http
 	copied := *resp
 	copied.Status = redactString(resp.Status, secrets)
 	copied.Header = redactHeader(resp.Header, secrets)
+	if resp.Request != nil {
+		// A redirect may carry the challenge in the query: the copy's request URL has no query or fragment.
+		req := resp.Request.Clone(context.Background())
+		u := *req.URL
+		u.RawQuery, u.Fragment, u.RawFragment = "", "", ""
+		req.URL = &u
+		copied.Request = req
+	}
 	copied.Trailer = nil // a trailer is issuer-controlled too: the copy carries none
 	return &copied, data
 }
@@ -364,37 +372,61 @@ const redactedMarker = "[redacted]"
 // Sensitive values are 16+ chars: user handles are 16-byte ids (22 base64url), credential ids 16+ bytes.
 const minSecretLength = 16
 
-// collectStrings appends every string of at least minSecretLength characters
-// found in v: object keys and values, at any depth.
-func collectStrings(v any, out []string) []string {
-	switch t := v.(type) {
-	case string:
-		if len(t) >= minSecretLength {
-			return append(out, t)
-		}
-	case []any:
-		for _, e := range t {
-			out = collectStrings(e, out)
-		}
-	case map[string]any:
-		for k, e := range t {
-			out = collectStrings(k, out)
-			out = collectStrings(e, out)
-		}
-	}
-	return out
-}
-
-// assertionSecrets returns every string of at least 16 characters of the passkey assertion in the JSON
-// document body (object keys and values, at any depth), followed by extra. The
+// assertionSecrets returns every string of at least 16 characters of the
+// passkey assertion in the JSON document body (object keys and values, at any
+// depth), followed by extra. The body is read token by token, so duplicate
+// object members, which a decode into a map would collapse, are all kept. The
 // decision, scopes and organization ids are not secrets and stay readable in
 // errors.
 func assertionSecrets(body []byte, extra ...string) []string {
-	var doc struct {
-		Assertion any `json:"assertion"`
+	var out []string
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return extra
 	}
-	_ = json.Unmarshal(body, &doc)
-	return append(collectStrings(doc.Assertion, nil), extra...)
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		if key, _ := keyTok.(string); key == "assertion" {
+			out = append(out, tokenStrings(dec)...)
+			continue
+		}
+		var skip json.RawMessage
+		if dec.Decode(&skip) != nil {
+			break
+		}
+	}
+	return append(out, extra...)
+}
+
+// tokenStrings reads one JSON value from dec and returns every string token of
+// at least minSecretLength characters in it, keys included.
+func tokenStrings(dec *json.Decoder) []string {
+	var out []string
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return out
+		}
+		switch t := tok.(type) {
+		case json.Delim:
+			if t == '{' || t == '[' {
+				depth++
+			} else {
+				depth--
+			}
+		case string:
+			if len(t) >= minSecretLength {
+				out = append(out, t)
+			}
+		}
+		if depth == 0 {
+			return out
+		}
+	}
 }
 
 // redactBody returns an error body with the secrets removed from the parsed

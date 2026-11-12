@@ -748,3 +748,37 @@ func TestConsentErrorResponseCarriesNoTrailer(t *testing.T) {
 		t.Fatalf("trailer = %v", status.Response.Trailer)
 	}
 }
+
+func TestConsentRedactsADuplicatedMemberFromRawJSON(t *testing.T) {
+	credential := "credential-secret-012345"
+	a := &AgentPasskeyAssertion{ID: "x", RawID: "r", Response: AgentAuthenticatorResponse{Signature: "s"},
+		ClientExtensionResults: map[string]any{"e": json.RawMessage(`{"value":"` + credential + `","value":"safe"}`)}}
+	status := structuredConsentError(t, a, func(w http.ResponseWriter) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant", "echo": credential})
+	})
+	if status.Body.(map[string]any)["echo"] != "[redacted]" || strings.Contains(shownError(status), credential) {
+		t.Fatalf("body = %v", status.Body)
+	}
+}
+
+func TestConsentErrorResponseRequestCarriesNoRedirectQuery(t *testing.T) {
+	stub := newStub(t)
+	stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/agents/consent/again?c="+testAgentChallenge, http.StatusTemporaryRedirect)
+	})
+	stub.handle("/agents/consent/again", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant"})
+	})
+	c := newTestClient(t, stub, newClock(), WithHTTPClient(&http.Client{Transport: stub}))
+	_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+		Challenge: testAgentChallenge, Decision: AgentConsentApprove,
+		Assertion: &AgentPasskeyAssertion{ID: "x", RawID: "r", Response: AgentAuthenticatorResponse{Signature: "s"}},
+	})
+	var status *didit.APIStatusError
+	if !errors.As(err, &status) {
+		t.Fatalf("error = %v (%T)", err, err)
+	}
+	if status.Response.Request != nil && strings.Contains(status.Response.Request.URL.String(), testAgentChallenge) {
+		t.Fatalf("request URL = %s", status.Response.Request.URL)
+	}
+}
