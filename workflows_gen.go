@@ -132,6 +132,13 @@ type SimpleWorkflowRequest struct {
 	// Allow the verification flow to run on desktop browsers.
 	IsDesktopAllowed Opt[bool] `json:"is_desktop_allowed"`
 
+	// On Declined and In review results, the person being verified sees a short
+	// reference to the session, such as `S-20481`, shown on one line. This is the
+	// session number as the console shows it, so your support team can find the
+	// session in the console by typing it. When `false`, the result screens show no
+	// reference. Applies to the hosted flow and the SDKs.
+	IsSessionReferenceEnabled Opt[bool] `json:"is_session_reference_enabled"`
+
 	// Maximum retry attempts allowed after a declined verification. `0` blocks the
 	// user after the first decline.
 	MaxRetryAttempts Opt[int64] `json:"max_retry_attempts"`
@@ -581,6 +588,13 @@ type SimpleWorkflowUpdateRequest struct {
 
 	// Allow the verification flow to run on desktop browsers.
 	IsDesktopAllowed Opt[bool] `json:"is_desktop_allowed"`
+
+	// On Declined and In review results, the person being verified sees a short
+	// reference to the session, such as `S-20481`, shown on one line. This is the
+	// session number as the console shows it, so your support team can find the
+	// session in the console by typing it. When `false`, the result screens show no
+	// reference. Applies to the hosted flow and the SDKs.
+	IsSessionReferenceEnabled Opt[bool] `json:"is_session_reference_enabled"`
 
 	// Maximum retry attempts allowed after a declined verification. `0` blocks the
 	// user after the first decline.
