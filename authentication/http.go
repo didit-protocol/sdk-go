@@ -147,11 +147,9 @@ func sanitizeResponse(resp *http.Response, data []byte, secrets []string) (*http
 	copied.Status = redactString(resp.Status, secrets)
 	copied.Header = redactHeader(resp.Header, secrets)
 	if resp.Request != nil {
-		// A redirect may carry the challenge in the query: the copy's request URL has no query or fragment.
+		// A redirect may carry the challenge in the path, userinfo, query or fragment: the copy's request URL keeps only scheme and host.
 		req := resp.Request.Clone(context.Background())
-		u := *req.URL
-		u.RawQuery, u.Fragment, u.RawFragment = "", "", ""
-		req.URL = &u
+		req.URL = &url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host}
 		copied.Request = req
 	}
 	copied.Trailer = nil // a trailer is issuer-controlled too: the copy carries none

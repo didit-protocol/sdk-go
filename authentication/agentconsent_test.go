@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -780,5 +781,42 @@ func TestConsentErrorResponseRequestCarriesNoRedirectQuery(t *testing.T) {
 	}
 	if status.Response.Request != nil && strings.Contains(status.Response.Request.URL.String(), testAgentChallenge) {
 		t.Fatalf("request URL = %s", status.Response.Request.URL)
+	}
+}
+
+func TestConsentErrorResponseRequestKeepsOnlySchemeAndHost(t *testing.T) {
+	for name, location := range map[string]string{
+		"path":     "/c/" + testAgentChallenge,
+		"userinfo": "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			stub := newStub(t)
+			target := location
+			if name == "userinfo" {
+				u, _ := url.Parse(stub.issuer)
+				target = u.Scheme + "://" + testAgentChallenge + "@" + u.Host + "/agents/consent/again"
+			}
+			stub.handle("/agents/consent/", func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+			})
+			stub.handle("/agents/consent/again", func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant"})
+			})
+			stub.handle("/c/"+testAgentChallenge, func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant"})
+			})
+			c := newTestClient(t, stub, newClock())
+			_, err := c.SubmitAgentConsent(context.Background(), testAccessToken, AgentConsentParams{
+				Challenge: testAgentChallenge, Decision: AgentConsentApprove,
+				Assertion: &AgentPasskeyAssertion{ID: "x", RawID: "r", Response: AgentAuthenticatorResponse{Signature: "s"}},
+			})
+			var status *didit.APIStatusError
+			if !errors.As(err, &status) {
+				t.Fatalf("error = %v (%T)", err, err)
+			}
+			if status.Response.Request != nil && strings.Contains(status.Response.Request.URL.String(), testAgentChallenge) {
+				t.Fatalf("request URL = %s", status.Response.Request.URL)
+			}
+		})
 	}
 }
