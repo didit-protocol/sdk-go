@@ -4701,6 +4701,7 @@
                             "flagged": 0,
                             "pending": 1
                           },
+                          "listed_company_declaration": null,
                           "warnings": []
                         }
                       ],
@@ -26638,6 +26639,15 @@
                       "ivms101": {
                         "type": "object",
                         "description": "The `originator` and `beneficiary` blocks wrapped in one IVMS 101 object (`IVMS101` is accepted too). Top-level blocks win over the wrapper's."
+                      },
+                      "counterparty_choice": {
+                        "type": "string",
+                        "description": "discovery uses automatic counterparty discovery. user asks the end user to choose, issues a link and attempts email when their Didit record has an address. Cannot be combined with beneficiary_data.counterparty_vasp_name or counterparty_vasp_lei. Read user_choice in the response; link or email failure does not fail creation.",
+                        "enum": [
+                          "discovery",
+                          "user"
+                        ],
+                        "default": "discovery"
                       }
                     }
                   },
@@ -35324,7 +35334,7 @@
     "/v3/travel-rule/vasps/": {
       "get": {
         "summary": "Search the VASP directory",
-        "description": "Paginated, name-sorted search of the VASP directory: the shared directory entries, which Didit builds from the ESMA interim MiCA register, the public TRISA directory, the global LEI register and its own curation, plus the members of the Didit network. Each row carries the routes your application has to it today. Your own application's profile is never listed. Rows also carry the shared due-diligence assessment and your application's own decision, entity screening and questionnaires.",
+        "description": "Paginated, name-sorted search of the VASP directory: the shared directory entries, which Didit builds from the ESMA interim MiCA register, the public TRISA directory, the global LEI register and its own curation, plus the members of the Didit network. Each row carries the routes your application has to it today. Your own application's profile is never listed. Rows also carry the shared due-diligence assessment and your application's own decision, entity screening and questionnaires. Includes entries your application added privately. The optional source field distinguishes their provenance; kind=didit member results may omit source.",
         "operationId": "listTravelRuleVasps",
         "tags": [
           "Travel Rule"
@@ -35535,6 +35545,145 @@
           "auth": "api_key",
           "server": true
         }
+      },
+      "post": {
+        "summary": "Create a private VASP directory entry",
+        "description": "Add a VASP privately to your application and optionally invite it. Requires write access to transactions. The response uses source=added_by_you. A matching visible name or LEI returns 409 with the existing vasp_id. See [Search the directory](/management-api/travel-rule/search-vasps).",
+        "operationId": "createTravelRuleVasp",
+        "tags": [
+          "Travel Rule"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "x-didit-sdk": {
+          "resource": "travel_rule",
+          "method": "create_vasp",
+          "auth": "api_key",
+          "server": true
+        },
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TravelRuleVaspCreateRequest"
+              },
+              "example": {
+                "name": "Example VASP",
+                "email": "compliance@example.com",
+                "jurisdiction": "DE",
+                "invite": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VaspDirectoryEntry"
+                },
+                "example": {
+                  "id": "11111111-2222-3333-4444-555555555555",
+                  "kind": "directory",
+                  "name": "Example VASP",
+                  "lei": "",
+                  "jurisdiction": "DE",
+                  "source": "added_by_you",
+                  "contacts": [
+                    {
+                      "id": "22222222-3333-4444-5555-666666666666",
+                      "email": "compliance@example.com",
+                      "name": "",
+                      "source": "application",
+                      "scope": "application",
+                      "verified_at": null
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request fields."
+          },
+          "403": {
+            "description": "Missing permission to write transactions."
+          },
+          "409": {
+            "description": "A visible entry already matches the name or LEI. Select the existing vasp_id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                      "description": "Conflict explanation."
+                    },
+                    "vasp_id": {
+                      "type": "string",
+                      "description": "Existing VASP identifier.",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "detail",
+                    "vasp_id"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/travel-rule/vasps/' \\\n  -H 'x-api-key: YOUR_API_KEY' -H 'Content-Type: application/json' \\\n  -d '{\"name\": \"Example VASP\", \"email\": \"compliance@example.com\", \"jurisdiction\": \"DE\", \"invite\": false}'"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from didit import Didit\n\n# Reads DIDIT_API_KEY.\nclient = Didit()\n\nresult = client.travel_rule.create_vasp(\n    name=\"Example VASP\",\n    email=\"compliance@example.com\",\n    jurisdiction=\"DE\",\n    invite=False,\n)\nprint(result)"
+          },
+          {
+            "lang": "javascript",
+            "label": "Node.js",
+            "source": "import Didit from \"@didit-protocol/sdk-node\";\n\n// Reads DIDIT_API_KEY.\nconst didit = new Didit();\n\nconst result = await didit.travelRule.createVasp({\n  name: \"Example VASP\",\n  email: \"compliance@example.com\",\n  jurisdiction: \"DE\",\n  invite: false,\n});\nconsole.log(result);"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "ctx := context.Background()\n// Reads DIDIT_API_KEY.\nclient := didit.NewClient()\n\nresult, err := client.TravelRule.CreateVASP(ctx, didit.TravelRuleVASPCreateRequest{\n\tName:         \"Example VASP\",\n\tEmail:        \"compliance@example.com\",\n\tJurisdiction: didit.String(\"DE\"),\n\tInvite:       didit.Bool(false),\n})\nif err != nil {\n\tlog.Fatal(err)\n}\nfmt.Printf(\"%+v\\n\", result)"
+          },
+          {
+            "lang": "java",
+            "label": "Java",
+            "source": "import me.didit.Didit;\nimport me.didit.types.TravelRuleVaspCreateRequest;\n\n// Reads DIDIT_API_KEY.\nDidit client = new Didit();\n\nvar result = client.travelRule().createVasp(TravelRuleVaspCreateRequest.builder()\n        .name(\"Example VASP\")\n        .email(\"compliance@example.com\")\n        .jurisdiction(\"DE\")\n        .invite(false)\n        .build());\nSystem.out.println(result);"
+          },
+          {
+            "lang": "php",
+            "label": "PHP",
+            "source": "<?php\n\nrequire 'vendor/autoload.php';\n\nuse Didit\\DiditClient;\n\n// Reads DIDIT_API_KEY.\n$didit = new DiditClient();\n\n$result = $didit->travelRule->createVasp([\n    'name' => 'Example VASP',\n    'email' => 'compliance@example.com',\n    'jurisdiction' => 'DE',\n    'invite' => false,\n]);\nprint_r($result->toArray());"
+          },
+          {
+            "lang": "ruby",
+            "label": "Ruby",
+            "source": "require \"didit\"\n\n# Reads DIDIT_API_KEY.\ndidit = Didit::Client.new\n\nresult = didit.travel_rule.create_vasp(\n  name: \"Example VASP\",\n  email: \"compliance@example.com\",\n  jurisdiction: \"DE\",\n  invite: false\n)\nputs result.to_h"
+          },
+          {
+            "lang": "csharp",
+            "label": ".NET",
+            "source": "using System;\nusing System.Text.Json;\nusing Didit;\n\n// Reads DIDIT_API_KEY.\nusing var client = new DiditClient();\n\nvar result = await client.TravelRule.CreateVaspAsync(new TravelRuleVaspCreateRequest\n{\n    Name = \"Example VASP\",\n    Email = \"compliance@example.com\",\n    Jurisdiction = \"DE\",\n    Invite = false,\n});\nConsole.WriteLine(JsonSerializer.Serialize(result));"
+          }
+        ]
       }
     },
     "/v3/travel-rule/vasps/{vasp_id}/": {
@@ -36735,8 +36884,8 @@
     },
     "/v3/transactions/{transaction_id}/travel-rule/": {
       "patch": {
-        "summary": "Finish, cancel, resend, or update the originator wallet of a Travel Rule transfer",
-        "description": "Provide `payment_txn_id` to report the on-chain hash and move an outbound COMPLETED transfer to FINISHED (its INTERNAL-rail counterpart also moves to FINISHED), `{\"action\": \"cancel\"}` to cancel a non-terminal transfer, or `{\"action\": \"resend\"}` to route an outbound transfer stuck in COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE, or NOT_ENOUGH_COUNTERPARTY_DATA again (improve the counterparty data first, e.g. add a travel_address to the destination wallet entry). resend applies to outbound transfers only. `{\"action\": \"update_compliance_email\", \"compliance_email\": \"desk@example.com\"}` replaces the compliance email of an outbound transfer in one of those three statuses, the fix for `reason: email_undeliverable`: the status does not change, and the next `resend` sends the request to that address. A resend is queued, not run inside the request: the response shows the transfer back in AWAITING_COUNTERPARTY with a `resend queued` timeline entry and a queued `delivery`, and where it went arrives as a `travel_rule.status.updated` webhook. When the transfer went over GTR, VerifyVASP or Sygna Bridge, the network learns the on-chain hash or the cancellation after the response, with retries; `delivery` shows how that message stands. `{\"action\": \"update_originator_wallet\", \"wallet_address\": \"...\"}` records the wallet the funds actually left from on an outbound transfer, for example the address a UTXO withdrawal was broadcast from rather than the main wallet you declared. It changes the record only: nothing is sent to the counterparty again and the status stays. The originator becomes `chain_details.originator` with `source: updated`, the change is added to the `timeline` with the previous and the new wallet, and the INTERNAL-rail counterpart of the transfer is updated the same way. `{\"action\": \"beneficiary_vasp\", \"beneficiary_vasp\": \"<directory VASP id>\"}` names the counterparty yourself when discovery could not, on an outbound transfer in COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE or NOT_ENOUGH_COUNTERPARTY_DATA: the transfer is routed to that VASP and sent again.",
+        "summary": "Update a Travel Rule transfer",
+        "description": "Provide `payment_txn_id` to report the on-chain hash and move an outbound COMPLETED transfer to FINISHED (its INTERNAL-rail counterpart also moves to FINISHED), `{\"action\": \"cancel\"}` to cancel a non-terminal transfer, or `{\"action\": \"resend\"}` to route an outbound transfer stuck in COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE, or NOT_ENOUGH_COUNTERPARTY_DATA again (improve the counterparty data first, e.g. add a travel_address to the destination wallet entry). resend applies to outbound transfers only. `{\"action\": \"update_compliance_email\", \"compliance_email\": \"desk@example.com\"}` replaces the compliance email of an outbound transfer in one of those three statuses, the fix for `reason: email_undeliverable`: the status does not change, and the next `resend` sends the request to that address. A resend is queued, not run inside the request: the response shows the transfer back in AWAITING_COUNTERPARTY with a `resend queued` timeline entry and a queued `delivery`, and where it went arrives as a `travel_rule.status.updated` webhook. When the transfer went over GTR, VerifyVASP or Sygna Bridge, the network learns the on-chain hash or the cancellation after the response, with retries; `delivery` shows how that message stands. `{\"action\": \"update_originator_wallet\", \"wallet_address\": \"...\"}` records the wallet the funds actually left from on an outbound transfer, for example the address a UTXO withdrawal was broadcast from rather than the main wallet you declared. It changes the record only: nothing is sent to the counterparty again and the status stays. The originator becomes `chain_details.originator` with `source: updated`, the change is added to the `timeline` with the previous and the new wallet, and the INTERNAL-rail counterpart of the transfer is updated the same way. `{\"action\": \"beneficiary_vasp\", \"beneficiary_vasp\": \"<directory VASP id>\"}` names the counterparty yourself when discovery could not, on an outbound transfer in COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE or NOT_ENOUGH_COUNTERPARTY_DATA: the transfer is routed to that VASP and sent again. Cancellation accepts an optional reason and returns cancel_reason and cancelled_by. Resend accepts notify_on_answer; omission preserves the saved preference, initially false. Resend invalidates the previous counterparty pickup link. action=add_vasp_hint requires name, accepts lei and country, saves the hint and re-runs discovery under the same outbound/status restrictions as resend. update_compliance_email also accepts vasp_name and saves the address as an application-private contact when the transfer has a known directory VASP.",
         "operationId": "patchTravelRuleTransfer",
         "x-didit-sdk": {
           "resource": "transactions.travel_rule",
@@ -36779,18 +36928,21 @@
                 },
                 "Cancel": {
                   "value": {
-                    "action": "cancel"
+                    "action": "cancel",
+                    "reason": "user_cancelled"
                   }
                 },
                 "Resend": {
                   "value": {
-                    "action": "resend"
+                    "action": "resend",
+                    "notify_on_answer": true
                   }
                 },
                 "Update compliance email": {
                   "value": {
                     "action": "update_compliance_email",
-                    "compliance_email": "desk@example.com"
+                    "compliance_email": "desk@example.com",
+                    "vasp_name": "Example VASP"
                   }
                 },
                 "Update originator wallet": {
@@ -36803,6 +36955,13 @@
                   "value": {
                     "action": "beneficiary_vasp",
                     "beneficiary_vasp": "9f1c2b34-5d6e-4f70-8a91-b2c3d4e5f607"
+                  }
+                },
+                "Add VASP hint": {
+                  "value": {
+                    "action": "add_vasp_hint",
+                    "name": "Example VASP",
+                    "country": "DE"
                   }
                 }
               }
@@ -36863,14 +37022,14 @@
             }
           },
           "400": {
-            "description": "Neither payment_txn_id nor a supported action was provided, `compliance_email` is missing or not an email address on `update_compliance_email`, or, for `update_originator_wallet`, no wallet_address, a wallet or memo the transfer's chain cannot carry, or a wallet that is not one of the transfer's UTXO inputs, or `beneficiary_vasp` is missing or not a valid directory VASP id.",
+            "description": "Neither payment_txn_id nor a supported action was provided, `compliance_email` is missing or not an email address on `update_compliance_email`, or, for `update_originator_wallet`, no wallet_address, a wallet or memo the transfer's chain cannot carry, or a wallet that is not one of the transfer's UTXO inputs, or `beneficiary_vasp` is missing or not a valid directory VASP id. An invalid cancellation reason, invalid LEI, or missing name for add_vasp_hint also returns 400.",
             "content": {
               "application/json": {
                 "examples": {
                   "No action": {
                     "value": {
                       "detail": [
-                        "Provide payment_txn_id, action=cancel, action=resend, action=beneficiary_vasp, action=update_originator_wallet or action=update_compliance_email."
+                        "Provide payment_txn_id, action=cancel, action=resend, action=beneficiary_vasp, action=update_originator_wallet, action=add_vasp_hint or action=update_compliance_email."
                       ]
                     }
                   },
@@ -36889,7 +37048,7 @@
             "description": "Unknown transaction, the transaction has no Travel Rule transfer, or (action `beneficiary_vasp`) no directory entry has that id."
           },
           "409": {
-            "description": "The transfer is not in a state that allows this operation (e.g. not COMPLETED/outbound for finish, already terminal for cancel, or not an outbound transfer in a resendable status for resend). `update_compliance_email` answers `409` for an inbound transfer, and for an outbound one outside COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE and NOT_ENOUGH_COUNTERPARTY_DATA. `update_originator_wallet` answers `409` for an inbound, cancelled or expired transfer. `beneficiary_vasp` answers `409` unless the transfer is outbound and in COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE or NOT_ENOUGH_COUNTERPARTY_DATA.",
+            "description": "The transfer is not in a state that allows this operation (e.g. not COMPLETED/outbound for finish, already terminal for cancel, or not an outbound transfer in a resendable status for resend). `update_compliance_email` answers `409` for an inbound transfer, and for an outbound one outside COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE and NOT_ENOUGH_COUNTERPARTY_DATA. `update_originator_wallet` answers `409` for an inbound, cancelled or expired transfer. `beneficiary_vasp` answers `409` unless the transfer is outbound and in COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE or NOT_ENOUGH_COUNTERPARTY_DATA. add_vasp_hint requires the same direction and statuses as resend. Selecting a VASP blocked by your organization also returns 409.",
             "content": {
               "application/json": {
                 "examples": {
@@ -85689,6 +85848,15 @@
         ],
         "parameters": [
           {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact transfer or transaction UUID, or a case-insensitive fragment of txn_id, either side's declared or resolved wallet address, or VASP name. Whitespace is trimmed; only the first 255 characters are searched. Combines with the other filters."
+          },
+          {
             "name": "direction",
             "in": "query",
             "required": false,
@@ -92765,6 +92933,145 @@
           }
         ]
       }
+    },
+    "/v3/transactions/{transaction_id}/travel-rule/user-link/": {
+      "post": {
+        "summary": "Create or email a Travel Rule end-user link",
+        "description": "Issue a new link and revoke previous open links for this transfer. Requires write access to transactions and an outbound transfer in AWAITING_COUNTERPARTY, COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE, UNCONFIRMED_OWNERSHIP or ON_HOLD. channel=email uses the end user's Didit-record email and verification-session language when available. A send failure returns the link with emailed_to empty; email_available reports address availability, not delivery. See [User links](/management-api/travel-rule/create-user-link).",
+        "operationId": "createTravelRuleUserLink",
+        "tags": [
+          "Travel Rule"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "x-didit-sdk": {
+          "resource": "transactions.travel_rule",
+          "method": "create_user_link",
+          "auth": "api_key",
+          "server": true
+        },
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "description": "Didit-stable transaction UUID that owns the transfer.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TravelRuleUserLinkRequest"
+              },
+              "example": {
+                "channel": "link"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TravelRuleUserLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request fields."
+          },
+          "403": {
+            "description": "Missing permission to write transactions."
+          },
+          "404": {
+            "description": "Unknown transaction or no Travel Rule transfer."
+          },
+          "409": {
+            "description": "Transfer direction/status does not allow a link, or channel=email has no end-user address. For the latter, code=end_user_email_missing; retry with channel=link.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                      "description": "Conflict explanation."
+                    },
+                    "code": {
+                      "type": "string",
+                      "description": "Present when email is unavailable.",
+                      "enum": [
+                        "end_user_email_missing"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                },
+                "example": {
+                  "detail": "This end user has no email on their Didit record. Copy the link instead.",
+                  "code": "end_user_email_missing"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/transactions/{transaction_id}/travel-rule/user-link/' \\\n  -H 'x-api-key: YOUR_API_KEY' -H 'Content-Type: application/json' \\\n  -d '{\"channel\": \"link\"}'"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from didit import Didit\n\n# Reads DIDIT_API_KEY.\nclient = Didit()\n\nresult = client.transactions.travel_rule.create_user_link(\n    \"11111111-2222-3333-4444-555555555555\",\n    channel=\"link\",\n)\nprint(result)"
+          },
+          {
+            "lang": "javascript",
+            "label": "Node.js",
+            "source": "import Didit from \"@didit-protocol/sdk-node\";\n\n// Reads DIDIT_API_KEY.\nconst didit = new Didit();\n\nconst result = await didit.transactions.travelRule.createUserLink(\"11111111-2222-3333-4444-555555555555\", {\n  channel: \"link\",\n});\nconsole.log(result);"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "ctx := context.Background()\n// Reads DIDIT_API_KEY.\nclient := didit.NewClient()\n\nresult, err := client.Transactions.TravelRule.CreateUserLink(ctx, \"11111111-2222-3333-4444-555555555555\", didit.TravelRuleUserLinkRequest{\n\tChannel: didit.Some(didit.TravelRuleUserLinkRequestChannel(\"link\")),\n})\nif err != nil {\n\tlog.Fatal(err)\n}\nfmt.Printf(\"%+v\\n\", result)"
+          },
+          {
+            "lang": "java",
+            "label": "Java",
+            "source": "import me.didit.Didit;\nimport me.didit.types.TravelRuleUserLinkRequest;\n\n// Reads DIDIT_API_KEY.\nDidit client = new Didit();\n\nvar result = client.transactions().travelRule().createUserLink(\"11111111-2222-3333-4444-555555555555\", TravelRuleUserLinkRequest.builder()\n        .channel(TravelRuleUserLinkRequest.Channel.of(\"link\"))\n        .build());\nSystem.out.println(result);"
+          },
+          {
+            "lang": "php",
+            "label": "PHP",
+            "source": "<?php\n\nrequire 'vendor/autoload.php';\n\nuse Didit\\DiditClient;\n\n// Reads DIDIT_API_KEY.\n$didit = new DiditClient();\n\n$result = $didit->transactions->travelRule->createUserLink('11111111-2222-3333-4444-555555555555', [\n    'channel' => 'link',\n]);\nprint_r($result->toArray());"
+          },
+          {
+            "lang": "ruby",
+            "label": "Ruby",
+            "source": "require \"didit\"\n\n# Reads DIDIT_API_KEY.\ndidit = Didit::Client.new\n\nresult = didit.transactions.travel_rule.create_user_link(\n  \"11111111-2222-3333-4444-555555555555\",\n  channel: \"link\"\n)\nputs result.to_h"
+          },
+          {
+            "lang": "csharp",
+            "label": ".NET",
+            "source": "using System;\nusing System.Text.Json;\nusing Didit;\n\n// Reads DIDIT_API_KEY.\nusing var client = new DiditClient();\n\nvar result = await client.Transactions.TravelRule.CreateUserLinkAsync(\"11111111-2222-3333-4444-555555555555\", new TravelRuleUserLinkRequest\n{\n    Channel = new TravelRuleUserLinkRequestChannel(\"link\"),\n});\nConsole.WriteLine(JsonSerializer.Serialize(result));"
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -96757,6 +97064,34 @@
               "not_requested"
             ],
             "example": "not_requested"
+          },
+          "cancel_reason": {
+            "type": "string",
+            "description": "Recorded cancellation reason, empty when unspecified.",
+            "enum": [
+              "",
+              "user_cancelled",
+              "wrong_wallet",
+              "compliance_decision",
+              "other"
+            ]
+          },
+          "cancelled_by": {
+            "type": "string",
+            "description": "Recorded cancellation actor, or an empty string when none is recorded."
+          },
+          "notify_on_answer": {
+            "type": "boolean",
+            "description": "Saved team notification preference. Initially false."
+          },
+          "user_choice": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TravelRuleUserChoice"
+              }
+            ],
+            "nullable": true,
+            "description": "Explicit user-choice state, or null when counterparty_choice=user was not requested."
           }
         }
       },
@@ -96779,7 +97114,7 @@
       },
       "TravelRuleTransferPatchRequest": {
         "type": "object",
-        "description": "Provide exactly one of: payment_txn_id (finish), action=cancel, action=resend, action=update_compliance_email with compliance_email, action=update_originator_wallet with wallet_address, or action=beneficiary_vasp with beneficiary_vasp.",
+        "description": "Provide exactly one of: payment_txn_id (finish), action=cancel, action=resend, action=update_compliance_email with compliance_email, action=update_originator_wallet with wallet_address, or action=beneficiary_vasp with beneficiary_vasp. Alternatively, provide action=add_vasp_hint with name and optional lei and country.",
         "properties": {
           "payment_txn_id": {
             "type": "string",
@@ -96792,15 +97127,16 @@
               "resend",
               "update_compliance_email",
               "update_originator_wallet",
-              "beneficiary_vasp"
+              "beneficiary_vasp",
+              "add_vasp_hint"
             ],
-            "description": "\"cancel\" cancels a non-terminal transfer. \"resend\" re-runs routing for an outbound transfer stuck in COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE, or NOT_ENOUGH_COUNTERPARTY_DATA. \"update_compliance_email\" replaces the compliance email the request goes to, on an outbound transfer in one of those three statuses; send \"resend\" afterwards. \"update_originator_wallet\" records the wallet the funds actually left from (`wallet_address`, `memo`). \"beneficiary_vasp\" names the counterparty VASP yourself (requires `beneficiary_vasp`) for an outbound transfer in one of those statuses: it is routed to that VASP and sent again."
+            "description": "\"cancel\" cancels a non-terminal transfer. \"resend\" re-runs routing for an outbound transfer stuck in COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE, or NOT_ENOUGH_COUNTERPARTY_DATA. \"update_compliance_email\" replaces the compliance email the request goes to, on an outbound transfer in one of those three statuses; send \"resend\" afterwards. \"update_originator_wallet\" records the wallet the funds actually left from (`wallet_address`, `memo`). \"beneficiary_vasp\" names the counterparty VASP yourself (requires `beneficiary_vasp`) for an outbound transfer in one of those statuses: it is routed to that VASP and sent again. \"add_vasp_hint\" saves a counterparty name and optional LEI and country, then re-runs discovery on an outbound transfer in a resendable status."
           },
           "compliance_email": {
             "type": "string",
             "format": "email",
             "maxLength": 254,
-            "description": "Required with `action: update_compliance_email`. Kept as this transfer's `beneficiary_data.counterparty_vasp_email`: it belongs to this transfer only and joins no directory entry and no contact list."
+            "description": "Required with action=update_compliance_email. Saved in beneficiary_data.counterparty_vasp_email. If the transfer has a known directory VASP, also saved as your application-private contact for that VASP."
           },
           "wallet_address": {
             "type": "string",
@@ -96816,6 +97152,46 @@
             "type": "string",
             "format": "uuid",
             "description": "Required with action=beneficiary_vasp: the `id` of a directory VASP, from `GET /v3/travel-rule/vasps/`. Your choice outranks every automatic discovery step, which never overrides it."
+          },
+          "reason": {
+            "type": "string",
+            "description": "With action=cancel: your cancellation reason. Omitted or empty means unspecified.",
+            "enum": [
+              "",
+              "user_cancelled",
+              "wrong_wallet",
+              "compliance_decision",
+              "other"
+            ],
+            "default": ""
+          },
+          "notify_on_answer": {
+            "type": "boolean",
+            "description": "With action=resend: whether your team should be notified when the counterparty answers. Initially false; omission preserves the saved preference."
+          },
+          "name": {
+            "type": "string",
+            "description": "Required with action=add_vasp_hint. Counterparty VASP name.",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "lei": {
+            "type": "string",
+            "description": "With action=add_vasp_hint: optional LEI, normalized to uppercase. Empty clears the previous LEI hint.",
+            "pattern": "^([A-Za-z0-9]{20})?$",
+            "default": ""
+          },
+          "country": {
+            "type": "string",
+            "description": "With action=add_vasp_hint: optional country hint, normalized to uppercase. Empty clears the previous country hint.",
+            "maxLength": 3,
+            "default": ""
+          },
+          "vasp_name": {
+            "type": "string",
+            "description": "With action=update_compliance_email: optional counterparty name saved with the address when nonempty.",
+            "maxLength": 255,
+            "default": ""
           }
         }
       },
@@ -96834,7 +97210,7 @@
               "directory",
               "didit"
             ],
-            "description": "directory for an entry of the shared directory; didit for a member of the Didit network."
+            "description": "directory for a shared or application-private directory entry; didit for a Didit network member."
           },
           "name": {
             "type": "string"
@@ -97266,6 +97642,15 @@
               "$ref": "#/components/schemas/TravelRuleCounterpartyQuestionnaire"
             },
             "description": "Your application's due-diligence questionnaires with this VASP, newest first. Private to your application."
+          },
+          "source": {
+            "type": "string",
+            "description": "directory for a shared directory entry, added_by_you for your application-private entry, or didit_network for a directory entry linked to a Didit customer. Separate kind=didit member results may omit this field; use kind to identify them.",
+            "enum": [
+              "didit_network",
+              "directory",
+              "added_by_you"
+            ]
           }
         },
         "example": {
@@ -97424,7 +97809,8 @@
                 "data_protection": "Encrypted at rest and in transit, stored in the EU."
               }
             }
-          ]
+          ],
+          "source": "directory"
         }
       },
       "TravelRuleCounterpartyDecision": {
@@ -115472,6 +115858,42 @@
                     }
                   }
                 },
+                "listed_company_declaration": {
+                  "type": "object",
+                  "nullable": true,
+                  "description": "The company's own declaration that it is listed on a stock exchange, or owned by a listed company, made on the Key People screen instead of naming a beneficial owner. Present in every `key_people_checks` entry unless the workflow's Returned data settings leave it out, and `null` unless the company made the declaration, which it can only do where the workflow allows it (`kyb_key_people_allow_listed_company_declaration`). Didit does not check the declaration against a stock exchange: the workflow's `kyb_key_people_listed_company_action` decides the Key People outcome (Review by default) and the `KYB_LISTED_COMPANY_DECLARED` warning is added. The company must still name at least one person who manages or represents it (director, non-executive director, chairman, representative, authorized signatory or company officer).",
+                  "required": [
+                    "type",
+                    "stock_exchange",
+                    "isin",
+                    "listed_parent_company_name"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "listed_company",
+                        "subsidiary_of_listed_company"
+                      ],
+                      "description": "`listed_company`: the company itself is listed on a stock exchange. `subsidiary_of_listed_company`: the company is owned by a listed company."
+                    },
+                    "stock_exchange": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Name of the stock exchange, as typed by the company (for example `London Stock Exchange`). `null` when left empty."
+                    },
+                    "isin": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "ISIN of the listed security: 12 characters, upper-case, no spaces, with a valid check digit (for example `GBEXAMPLE002`). `null` when left empty."
+                    },
+                    "listed_parent_company_name": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Name of the listed parent company. Only set when `type` is `subsidiary_of_listed_company`; `null` otherwise."
+                    }
+                  }
+                },
                 "warnings": {
                   "type": "array",
                   "items": {
@@ -122869,6 +123291,15 @@
               "not_requested"
             ],
             "example": "not_requested"
+          },
+          "user_choice": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TravelRuleUserChoice"
+              }
+            ],
+            "nullable": true,
+            "description": "Explicit user-choice state, or null when counterparty_choice=user was not requested."
           }
         }
       },
@@ -130088,6 +130519,15 @@
               "not_requested"
             ],
             "example": "not_requested"
+          },
+          "user_choice": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TravelRuleUserChoice"
+              }
+            ],
+            "nullable": true,
+            "description": "Explicit user-choice state, or null when counterparty_choice=user was not requested."
           }
         }
       },
@@ -130230,6 +130670,126 @@
           "detail"
         ],
         "description": "Expired invitations include reason and sender_name, and may include sender_contact_email. Already-used and withdrawn invitations return detail only. No recipient address, request summary or pickup URL is returned."
+      },
+      "TravelRuleUserChoice": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "True when explicit user choice was requested."
+          },
+          "waiting": {
+            "type": "boolean",
+            "description": "True with no selected directory VASP while status is AWAITING_COUNTERPARTY, COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE or UNCONFIRMED_OWNERSHIP."
+          },
+          "end_user_link": {
+            "type": "string",
+            "description": "Latest open end-user link, or an empty string when none is available."
+          },
+          "link_expires_at": {
+            "type": "string",
+            "description": "Expiry of the open link, or null.",
+            "format": "date-time",
+            "nullable": true
+          },
+          "emailed_to": {
+            "type": "string",
+            "description": "Recorded recipient of the user-choice email, or an empty string."
+          },
+          "email_available": {
+            "type": "boolean",
+            "description": "Recorded availability of an end-user email for user choice."
+          }
+        },
+        "required": [
+          "active",
+          "waiting",
+          "end_user_link",
+          "link_expires_at",
+          "emailed_to",
+          "email_available"
+        ]
+      },
+      "TravelRuleVaspCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "VASP name, trimmed; must not be empty.",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "email": {
+            "type": "string",
+            "description": "Compliance email saved as an application-private contact and used for an optional invitation.",
+            "format": "email",
+            "maxLength": 254
+          },
+          "lei": {
+            "type": "string",
+            "description": "Optional LEI, normalized to uppercase.",
+            "pattern": "^([A-Za-z0-9]{20})?$",
+            "default": ""
+          },
+          "jurisdiction": {
+            "type": "string",
+            "description": "Optional ISO 3166 alpha-2 or alpha-3 country code, normalized to uppercase.",
+            "maxLength": 3,
+            "default": ""
+          },
+          "invite": {
+            "type": "boolean",
+            "default": false,
+            "description": "Send an invitation to the supplied email."
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ]
+      },
+      "TravelRuleUserLinkRequest": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "link returns a new link; email also attempts to send it to the end user's Didit-record email.",
+            "enum": [
+              "link",
+              "email"
+            ],
+            "default": "link"
+          }
+        }
+      },
+      "TravelRuleUserLinkResponse": {
+        "type": "object",
+        "properties": {
+          "end_user_link": {
+            "type": "string",
+            "description": "New end-user link. Previous open links for this transfer are revoked.",
+            "format": "uri"
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "Link expiry.",
+            "format": "date-time"
+          },
+          "emailed_to": {
+            "type": "string",
+            "description": "Recipient when sending succeeded, otherwise an empty string. An email failure still returns a usable link."
+          },
+          "email_available": {
+            "type": "boolean",
+            "description": "Whether the end user has an email on their Didit record."
+          }
+        },
+        "required": [
+          "end_user_link",
+          "expires_at",
+          "emailed_to",
+          "email_available"
+        ]
       }
     },
     "securitySchemes": {

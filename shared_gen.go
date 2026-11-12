@@ -3395,6 +3395,38 @@ const (
 	TravelRuleDeliveryLogEntryRailNetwork  TravelRuleDeliveryLogEntryRail = "NETWORK"
 )
 
+// TravelRuleUserChoice is a response object.
+type TravelRuleUserChoice struct {
+	// True when explicit user choice was requested.
+	Active bool `json:"active"`
+
+	// True with no selected directory VASP while status is AWAITING_COUNTERPARTY,
+	// COUNTERPARTY_VASP_NOT_FOUND, COUNTERPARTY_VASP_NOT_REACHABLE or
+	// UNCONFIRMED_OWNERSHIP.
+	Waiting bool `json:"waiting"`
+
+	// Latest open end-user link, or an empty string when none is available.
+	EndUserLink string `json:"end_user_link"`
+
+	// Expiry of the open link, or null.
+	LinkExpiresAt time.Time `json:"link_expires_at"`
+
+	// Recorded recipient of the user-choice email, or an empty string.
+	EmailedTo string `json:"emailed_to"`
+
+	// Recorded availability of an end-user email for user choice.
+	EmailAvailable bool `json:"email_available"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleUserChoice leniently.
+func (r *TravelRuleUserChoice) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // TravelRuleTransferDetail: Full transfer object returned by the
 // ownership-confirmation and finish/cancel endpoints. While an inbound
 // transfer's wallet ownership is unconfirmed, the counterparty's
@@ -3507,6 +3539,19 @@ type TravelRuleTransferDetail struct {
 	// an active outbound ownership widget matches this transfer and subject;
 	// otherwise not_requested. A request is not completed proof.
 	ProofState TravelRuleTransferDetailProofState `json:"proof_state"`
+
+	// Recorded cancellation reason, empty when unspecified.
+	CancelReason TravelRuleTransferDetailCancelReason `json:"cancel_reason"`
+
+	// Recorded cancellation actor, or an empty string when none is recorded.
+	CancelledBy string `json:"cancelled_by"`
+
+	// Saved team notification preference. Initially false.
+	NotifyOnAnswer bool `json:"notify_on_answer"`
+
+	// Explicit user-choice state, or null when counterparty_choice=user was not
+	// requested.
+	UserChoice TravelRuleUserChoice `json:"user_choice"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -3766,4 +3811,20 @@ const (
 	TravelRuleTransferDetailProofStateNotConfirmed TravelRuleTransferDetailProofState = "not_confirmed"
 	TravelRuleTransferDetailProofStateRequested    TravelRuleTransferDetailProofState = "requested"
 	TravelRuleTransferDetailProofStateNotRequested TravelRuleTransferDetailProofState = "not_requested"
+)
+
+// TravelRuleTransferDetailCancelReason: Recorded cancellation reason, empty
+// when unspecified.
+//
+// TravelRuleTransferDetailCancelReason is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleTransferDetailCancelReason string
+
+// Known values of TravelRuleTransferDetailCancelReason.
+const (
+	TravelRuleTransferDetailCancelReasonEmpty              TravelRuleTransferDetailCancelReason = ""
+	TravelRuleTransferDetailCancelReasonUserCancelled      TravelRuleTransferDetailCancelReason = "user_cancelled"
+	TravelRuleTransferDetailCancelReasonWrongWallet        TravelRuleTransferDetailCancelReason = "wrong_wallet"
+	TravelRuleTransferDetailCancelReasonComplianceDecision TravelRuleTransferDetailCancelReason = "compliance_decision"
+	TravelRuleTransferDetailCancelReasonOther              TravelRuleTransferDetailCancelReason = "other"
 )
