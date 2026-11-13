@@ -433,10 +433,12 @@ type TravelRuleTransfersService struct {
 // List: List Travel Rule transfers.
 //
 // Your application's Travel Rule transfers, newest first, paginated with
-// `limit` (default 50) and `offset`. Rows carry VASP names, wallets and memos
-// only, never person data. Comma-separated values select several. An unknown
-// value answers 400 naming the parameter, for example `{"direction": ["Unknown
-// value(s): inbound."]}`.
+// `limit` (default 50) and `offset`. Rows carry VASP names, wallets, memos, the
+// transaction's review decision, your own end user's name (masked exactly as
+// the transaction detail masks it), the counterparty VASP's jurisdiction, the
+// chain and the fiat amount; they never carry the counterparty's person data.
+// Comma-separated values select several. An unknown value answers 400 naming
+// the parameter, for example `{"direction": ["Unknown value(s): inbound."]}`.
 //
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
@@ -578,6 +580,46 @@ func (r *TravelRuleWalletAddressesService) ListAutoPaging(ctx context.Context, p
 	return newPageIterator(ctx, func() (*Page[WalletAddressEntry], error) {
 		return r.List(ctx, params, opts...)
 	})
+}
+
+// ListTransfers: List the transfers that used a wallet address.
+//
+// Paginated list of your Travel Rule transfers whose originator or beneficiary
+// wallet is this address book entry, newest first. The endpoint answers 404
+// once the entry is deleted.
+//
+// It returns one page; ListTransfersAutoPaging iterates over every item of
+// every page.
+//
+//	GET /v3/travel-rule/wallet-addresses/{entry_uuid}/transfers/
+func (r *TravelRuleWalletAddressesService) ListTransfers(ctx context.Context, entryUUID string, params TravelRuleWalletAddressesListTransfersParams, opts ...option.RequestOption) (*Page[TravelRuleWalletTransfer], error) {
+	return getPage[TravelRuleWalletTransfer](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/wallet-addresses/{entry_uuid}/transfers/", pathParams: []string{"entry_uuid", entryUUID}, params: params}, opts)
+}
+
+// ListTransfersAutoPaging iterates over every item of every page of
+// ListTransfers, fetching pages as needed.
+func (r *TravelRuleWalletAddressesService) ListTransfersAutoPaging(ctx context.Context, entryUUID string, params TravelRuleWalletAddressesListTransfersParams, opts ...option.RequestOption) *PageIterator[TravelRuleWalletTransfer] {
+	return newPageIterator(ctx, func() (*Page[TravelRuleWalletTransfer], error) {
+		return r.ListTransfers(ctx, entryUUID, params, opts...)
+	})
+}
+
+// Lookup: Look up a wallet address.
+//
+// Checks one exact address, chain and memo against your own wallet address book
+// and then against wallets proven by other Didit Travel Rule participants. It
+// never screens the wallet, never sends a message and never returns holder data
+// from another application. `directory_checked` is always `false`: the lookup
+// does not search a public directory, so `none` means the wallet is neither in
+// your book nor proven on Didit, not that it is unknown elsewhere.
+//
+//	GET /v3/travel-rule/wallet-addresses/lookup/
+func (r *TravelRuleWalletAddressesService) Lookup(ctx context.Context, params TravelRuleWalletAddressesLookupParams, opts ...option.RequestOption) (*TravelRuleWalletLookup, error) {
+	res := new(TravelRuleWalletLookup)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/wallet-addresses/lookup/", params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // Update: Update wallet address holder metadata.
@@ -1672,12 +1714,46 @@ type TravelRuleWidgetSessionCreate struct {
 	// Optional. Lifetime of the minted link, in minutes. Automatically extended to
 	// cover the Satoshi test window when SATOSHI_TEST is offered.
 	ExpiresInMinutes Opt[int64] `json:"expires_in_minutes"`
+
+	// Optional. Request the ownership proof of this address book entry instead of
+	// passing `wallet_address` and `chain`. The entry must be a customer wallet
+	// with a holder (`holder_vendor_data`), an address and a chain; the saved
+	// wallet and holder are always used and a conflicting `wallet_address`,
+	// `chain`, `holder_name` or `vendor_data` is rejected. Cannot be combined with
+	// `transaction_id`.
+	WalletEntryID Opt[string] `json:"wallet_entry_id"`
+
+	// Only with `wallet_entry_id`. `ensure` and `resend` return the entry's active
+	// link when it has one (`200`) and create one otherwise (`201`). `new` revokes
+	// the active link and creates another; it needs `request_key`.
+	RequestAction Opt[TravelRuleWidgetSessionCreateRequestAction] `json:"request_action"`
+
+	// Only with `request_action: new`. An idempotency key: repeating the call with
+	// the same key returns the same link while it is active, and `410` once it has
+	// been revoked or has expired.
+	RequestKey Opt[string] `json:"request_key"`
 }
 
 // MarshalJSON encodes the fields that are set.
 func (r TravelRuleWidgetSessionCreate) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
+
+// TravelRuleWidgetSessionCreateRequestAction: Only with `wallet_entry_id`.
+// `ensure` and `resend` return the entry's active link when it has one (`200`)
+// and create one otherwise (`201`). `new` revokes the active link and creates
+// another; it needs `request_key`.
+//
+// TravelRuleWidgetSessionCreateRequestAction is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleWidgetSessionCreateRequestAction string
+
+// Known values of TravelRuleWidgetSessionCreateRequestAction.
+const (
+	TravelRuleWidgetSessionCreateRequestActionEnsure TravelRuleWidgetSessionCreateRequestAction = "ensure"
+	TravelRuleWidgetSessionCreateRequestActionResend TravelRuleWidgetSessionCreateRequestAction = "resend"
+	TravelRuleWidgetSessionCreateRequestActionNew    TravelRuleWidgetSessionCreateRequestAction = "new"
+)
 
 // TravelRuleWidgetSessionResponse is a response object.
 type TravelRuleWidgetSessionResponse struct {
@@ -3718,8 +3794,10 @@ func (r TravelRuleTransfersListParams) MarshalJSON() ([]byte, error) {
 }
 
 // TravelRuleTransferRow: One Travel Rule transfer as the transfers list shows
-// it: VASP names, wallets and memos only, never the originator or beneficiary
-// person data.
+// it: VASP names, wallets, memos, the transaction's review decision, your own
+// end user's name (masked exactly as the transaction detail masks it), the
+// counterparty VASP's jurisdiction, the chain and the fiat amount. It never
+// carries the counterparty's person data.
 type TravelRuleTransferRow struct {
 	// The transfer's id.
 	ID string `json:"id"`
@@ -3731,6 +3809,17 @@ type TravelRuleTransferRow struct {
 	// Didit Test VASP inbound transfer, carry a generated one.
 	TxnID   string    `json:"txn_id"`
 	TxnDate time.Time `json:"txn_date"`
+
+	// The transaction's own review decision, which can differ from the transfer's
+	// `status`: a transfer may wait on its counterparty while its transaction is
+	// approved, or be stuck while its transaction is in review.
+	ReviewStatus TravelRuleTransferRowReviewStatus `json:"review_status"`
+
+	// Your own end user (the transaction's applicant), exactly as the transaction
+	// detail stores it: masked with the first letter of each name part while the
+	// transfer's data is masked, and never the counterparty's person data. Empty
+	// when the transaction has no applicant party.
+	PersonName string `json:"person_name"`
 
 	// withdrawal: outbound. message: an inbound transfer a rail created from a
 	// counterparty's message (a TRP inquiry, the INTERNAL inbound leg, or a GTR,
@@ -3750,8 +3839,21 @@ type TravelRuleTransferRow struct {
 	// The transaction's currency.
 	Asset string `json:"asset"`
 
+	// The chain the transfer moved on, as a canonical code for example `ETH`, `BTC`
+	// or `SOL`; empty when the transfer names no chain.
+	Chain string `json:"chain"`
+
 	// The amount as a plain decimal, for example "1.25".
 	Amount string `json:"amount"`
+
+	// The transfer's fiat value as a plain decimal, in `fiat_currency`: Didit's
+	// calculated conversion when it has one, otherwise the amount you supplied in
+	// your own default currency. Null when neither is known, for example on a
+	// sandbox transfer with no supplied conversion.
+	FiatAmount string `json:"fiat_amount"`
+
+	// The currency `fiat_amount` is expressed in, or null.
+	FiatCurrency string `json:"fiat_currency"`
 
 	// Outbound: your VASP's legal name. Inbound: the counterparty's name, from its
 	// directory entry, the Didit network member, the TRP sender, the Didit Test
@@ -3760,9 +3862,14 @@ type TravelRuleTransferRow struct {
 
 	// Outbound: the counterparty's name, worked out the same way. Inbound: your
 	// VASP's legal name.
-	BeneficiaryVASP   string `json:"beneficiary_vasp"`
-	OriginatorWallet  string `json:"originator_wallet"`
-	BeneficiaryWallet string `json:"beneficiary_wallet"`
+	BeneficiaryVASP string `json:"beneficiary_vasp"`
+
+	// The other VASP's jurisdiction, from its directory entry or, for a Didit
+	// network member, its profile or Travel Rule settings. Empty when the transfer
+	// names no VASP or the VASP has no jurisdiction on record.
+	CounterpartyJurisdiction string `json:"counterparty_jurisdiction"`
+	OriginatorWallet         string `json:"originator_wallet"`
+	BeneficiaryWallet        string `json:"beneficiary_wallet"`
 
 	// Memo or destination tag, empty on chains without one.
 	OriginatorMemo  string `json:"originator_memo"`
@@ -3805,6 +3912,23 @@ type TravelRuleTransferRow struct {
 func (r *TravelRuleTransferRow) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// TravelRuleTransferRowReviewStatus: The transaction's own review decision,
+// which can differ from the transfer's `status`: a transfer may wait on its
+// counterparty while its transaction is approved, or be stuck while its
+// transaction is in review.
+//
+// TravelRuleTransferRowReviewStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleTransferRowReviewStatus string
+
+// Known values of TravelRuleTransferRowReviewStatus.
+const (
+	TravelRuleTransferRowReviewStatusApproved     TravelRuleTransferRowReviewStatus = "APPROVED"
+	TravelRuleTransferRowReviewStatusInReview     TravelRuleTransferRowReviewStatus = "IN_REVIEW"
+	TravelRuleTransferRowReviewStatusDeclined     TravelRuleTransferRowReviewStatus = "DECLINED"
+	TravelRuleTransferRowReviewStatusAwaitingUser TravelRuleTransferRowReviewStatus = "AWAITING_USER"
+)
 
 // TravelRuleTransferRowKind: withdrawal: outbound. message: an inbound transfer
 // a rail created from a counterparty's message (a TRP inquiry, the INTERNAL
@@ -4170,6 +4294,134 @@ type TravelRuleWalletAddressesListParams struct {
 func (r TravelRuleWalletAddressesListParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
+
+// TravelRuleWalletAddressesListTransfersParams holds the parameters of
+// Client.TravelRule.WalletAddresses.ListTransfers.
+type TravelRuleWalletAddressesListTransfersParams struct {
+	Limit  Opt[int64] `json:"-" query:"limit"`
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleWalletAddressesListTransfersParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleWalletTransfer is a response object.
+type TravelRuleWalletTransfer struct {
+	// The Travel Rule transfer.
+	TransferID string                         `json:"transfer_id"`
+	Status     TravelRuleWalletTransferStatus `json:"status"`
+	CreatedAt  time.Time                      `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWalletTransfer leniently.
+func (r *TravelRuleWalletTransfer) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWalletTransferStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleWalletTransferStatus string
+
+// Known values of TravelRuleWalletTransferStatus.
+const (
+	TravelRuleWalletTransferStatusAwaitingCounterparty           TravelRuleWalletTransferStatus = "AWAITING_COUNTERPARTY"
+	TravelRuleWalletTransferStatusOnHold                         TravelRuleWalletTransferStatus = "ON_HOLD"
+	TravelRuleWalletTransferStatusCompleted                      TravelRuleWalletTransferStatus = "COMPLETED"
+	TravelRuleWalletTransferStatusFinished                       TravelRuleWalletTransferStatus = "FINISHED"
+	TravelRuleWalletTransferStatusCancelled                      TravelRuleWalletTransferStatus = "CANCELLED"
+	TravelRuleWalletTransferStatusExpired                        TravelRuleWalletTransferStatus = "EXPIRED"
+	TravelRuleWalletTransferStatusCounterpartyMismatchedData     TravelRuleWalletTransferStatus = "COUNTERPARTY_MISMATCHED_DATA"
+	TravelRuleWalletTransferStatusCounterpartyVASPNotFound       TravelRuleWalletTransferStatus = "COUNTERPARTY_VASP_NOT_FOUND"
+	TravelRuleWalletTransferStatusCounterpartyVASPNotReachable   TravelRuleWalletTransferStatus = "COUNTERPARTY_VASP_NOT_REACHABLE"
+	TravelRuleWalletTransferStatusUnconfirmedOwnership           TravelRuleWalletTransferStatus = "UNCONFIRMED_OWNERSHIP"
+	TravelRuleWalletTransferStatusCounterpartyVASPGeneralDecline TravelRuleWalletTransferStatus = "COUNTERPARTY_VASP_GENERAL_DECLINE"
+	TravelRuleWalletTransferStatusNotEnoughCounterpartyData      TravelRuleWalletTransferStatus = "NOT_ENOUGH_COUNTERPARTY_DATA"
+	TravelRuleWalletTransferStatusNotApplicable                  TravelRuleWalletTransferStatus = "NOT_APPLICABLE"
+)
+
+// TravelRuleWalletAddressesLookupParams holds the parameters of
+// Client.TravelRule.WalletAddresses.Lookup.
+type TravelRuleWalletAddressesLookupParams struct {
+	// The wallet address. Required.
+	Address string `json:"-" query:"address"`
+
+	// Chain token, for example `ETH`, `BTC` or `SOL`. Required.
+	Chain string `json:"-" query:"chain"`
+
+	// Destination tag or memo, for chains that use one.
+	Memo Opt[string] `json:"-" query:"memo"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleWalletAddressesLookupParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleWalletLookup is a response object.
+type TravelRuleWalletLookup struct {
+	// `book`: the wallet is in your address book (`entry_id`). `didit`: exactly one
+	// other Didit participant has proven ownership of it (`vasp_name`,
+	// `proof_state`). `ambiguous`: more than one other participant has proven it,
+	// so nothing about them is returned. `none`: no match.
+	Match TravelRuleWalletLookupMatch `json:"match"`
+
+	// Always `false`: no public directory is searched.
+	DirectoryChecked bool `json:"directory_checked"`
+
+	// Your address book entry. Only with `match: book`.
+	EntryID string `json:"entry_id"`
+
+	// Legal name of the participant that proved the wallet. Only with `match:
+	// didit`.
+	VASPName string `json:"vasp_name"`
+
+	// Only with `match: didit`.
+	ProofState TravelRuleWalletLookupProofState `json:"proof_state"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWalletLookup leniently.
+func (r *TravelRuleWalletLookup) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWalletLookupMatch: `book`: the wallet is in your address book
+// (`entry_id`). `didit`: exactly one other Didit participant has proven
+// ownership of it (`vasp_name`, `proof_state`). `ambiguous`: more than one
+// other participant has proven it, so nothing about them is returned. `none`:
+// no match.
+//
+// TravelRuleWalletLookupMatch is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleWalletLookupMatch string
+
+// Known values of TravelRuleWalletLookupMatch.
+const (
+	TravelRuleWalletLookupMatchBook      TravelRuleWalletLookupMatch = "book"
+	TravelRuleWalletLookupMatchDidit     TravelRuleWalletLookupMatch = "didit"
+	TravelRuleWalletLookupMatchAmbiguous TravelRuleWalletLookupMatch = "ambiguous"
+	TravelRuleWalletLookupMatchNone      TravelRuleWalletLookupMatch = "none"
+)
+
+// TravelRuleWalletLookupProofState: Only with `match: didit`.
+//
+// TravelRuleWalletLookupProofState is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleWalletLookupProofState string
+
+// Known values of TravelRuleWalletLookupProofState.
+const (
+	TravelRuleWalletLookupProofStateVerified TravelRuleWalletLookupProofState = "verified"
+)
 
 // WalletAddressEntryUpdateParam: PATCH is a partial update; the response echoes
 // only holder_name, holder_vendor_data, entity_type, travel_address,

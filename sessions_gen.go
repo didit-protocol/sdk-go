@@ -8931,14 +8931,16 @@ type SignatureResult struct {
 	// apply after.
 	Verdict SignatureResultVerdict `json:"verdict"`
 
-	// `simple` (default) or `aes`. `qes` (Qualified Electronic Signature, QES) is
-	// an add-on that is not available yet.
+	// `simple` (default), `aes` or `qes` (Qualified electronic signature, QES, an
+	// add-on: a qualified trust service provider issues the signer a qualified
+	// certificate and signs after the signer enters the code it texts them).
 	Level SignatureResultLevel `json:"level"`
 
-	// `pdf` for a Simple signature, `pades` for Advanced (AES).
+	// `pdf` for a Simple signature, `pades` for Advanced (AES) and Qualified (QES).
 	Format SignatureResultFormat `json:"format"`
 
-	// `PAdES-B-LT` once an Advanced (AES) signature is signed, otherwise null.
+	// The PAdES profile of the signed documents: `PAdES-B-LT` once an Advanced
+	// (AES) or Qualified (QES) signature is signed, otherwise null.
 	Profile string                `json:"profile"`
 	Signer  SignatureResultSigner `json:"signer"`
 
@@ -9035,8 +9037,10 @@ const (
 	SignatureResultVerdictDeclined    SignatureResultVerdict = "Declined"
 )
 
-// SignatureResultLevel: `simple` (default) or `aes`. `qes` (Qualified
-// Electronic Signature, QES) is an add-on that is not available yet.
+// SignatureResultLevel: `simple` (default), `aes` or `qes` (Qualified
+// electronic signature, QES, an add-on: a qualified trust service provider
+// issues the signer a qualified certificate and signs after the signer enters
+// the code it texts them).
 //
 // SignatureResultLevel is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -9050,7 +9054,7 @@ const (
 )
 
 // SignatureResultFormat: `pdf` for a Simple signature, `pades` for Advanced
-// (AES).
+// (AES) and Qualified (QES).
 //
 // SignatureResultFormat is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -9143,7 +9147,14 @@ func (r *SignatureResultCertificate) UnmarshalJSON(data []byte) error {
 
 // SignatureResultConfirmation is a response object.
 type SignatureResultConfirmation struct {
-	// `null` for a Simple signature, which has no code.
+	// Who sent the code: `didit`, or `qualified_provider` for a Qualified (QES)
+	// signature, whose code comes by SMS from the qualified trust service provider
+	// and authorizes the signer's qualified certificate. `null` for a Simple
+	// signature.
+	SentBy SignatureResultConfirmationSentBy `json:"sent_by"`
+
+	// `null` for a Simple signature, which has no code. Always `sms` for a
+	// Qualified (QES) signature.
 	Channel SignatureResultConfirmationChannel `json:"channel"`
 
 	// The masked contact the code went to.
@@ -9163,8 +9174,23 @@ func (r *SignatureResultConfirmation) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SignatureResultConfirmationSentBy: Who sent the code: `didit`, or
+// `qualified_provider` for a Qualified (QES) signature, whose code comes by SMS
+// from the qualified trust service provider and authorizes the signer's
+// qualified certificate. `null` for a Simple signature.
+//
+// SignatureResultConfirmationSentBy is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SignatureResultConfirmationSentBy string
+
+// Known values of SignatureResultConfirmationSentBy.
+const (
+	SignatureResultConfirmationSentByDidit             SignatureResultConfirmationSentBy = "didit"
+	SignatureResultConfirmationSentByQualifiedProvider SignatureResultConfirmationSentBy = "qualified_provider"
+)
+
 // SignatureResultConfirmationChannel: `null` for a Simple signature, which has
-// no code.
+// no code. Always `sms` for a Qualified (QES) signature.
 //
 // SignatureResultConfirmationChannel is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -9547,10 +9573,16 @@ type SignatureResultValidation struct {
 	// couldn't be confirmed.
 	Valid bool `json:"valid"`
 
-	// Set when `valid` is `null`: `signature_provider_outcome_unknown`.
+	// `signature_provider_outcome_unknown` while `valid` is `null` (the signing
+	// outcome is not known yet); `signature_provider_failed` when the qualified
+	// trust service provider ended a Qualified (QES) signing without a signature:
+	// the attempt is back at review and the signer can ask for a new code.
 	Reason    string                               `json:"reason"`
 	CheckedAt time.Time                            `json:"checked_at"`
 	Documents []SignatureResultValidationDocuments `json:"documents"`
+
+	// The PAdES profile every signed document reached.
+	Profile string `json:"profile"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -9577,17 +9609,35 @@ type SignatureResultValidationDocuments struct {
 	Trusted bool `json:"trusted"`
 	Revoked bool `json:"revoked"`
 
-	// EU Trusted List check. For AES: `{"status": "not_applicable", "reason":
-	// "aes_not_qualified"}`.
+	// EU Trusted List check. AES: `{"status": "not_applicable", "reason":
+	// "aes_not_qualified"}`. QES: `{"status": "granted"}` when the certificate is a
+	// qualified certificate for electronic signatures issued under the qualified
+	// trust service provider's Trusted List entry, else `{"status": "not_granted",
+	// ...}`. A sandbox session's qualified level is sealed by Didit: `{"status":
+	// "not_applicable", "reason": "sandbox"}`.
 	TrustedList SignatureResultValidationDocumentsTrustedList `json:"trusted_list"`
 
 	// The certificate the documents were signed with. `null` until signed, and
 	// always `null` for a Simple signature.
 	Certificate SignatureResultValidationDocumentsCertificate `json:"certificate"`
 
-	// The RFC 3161 timestamp in the signature, issued by Didit. `null` until
-	// signed, and always `null` for a Simple signature.
+	// The RFC 3161 timestamp in the signature: issued by Didit for AES, by the
+	// qualified trust service provider for QES. `null` until signed, and always
+	// `null` for a Simple signature.
 	Timestamp SignatureResultValidationDocumentsTimestamp `json:"timestamp"`
+
+	// QES: `true` only when every qualified check passed. `false` in the sandbox.
+	Qualified bool `json:"qualified"`
+
+	// QES: the PAdES profile of this document's signature.
+	Profile string `json:"profile"`
+
+	// QES: the checks that did not pass (empty when `valid` is `true`): the PDF
+	// signature's integrity, its chain to the qualified trust anchors, revocation,
+	// coverage of the document, the qualified time stamp, the certificate's
+	// qualified statements, the verified signer named in it, and the signed file
+	// extending exactly what was sent for signature.
+	FailedChecks []SignatureResultValidationDocumentsFailedChecks `json:"failed_checks"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -9599,8 +9649,13 @@ func (r *SignatureResultValidationDocuments) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// SignatureResultValidationDocumentsTrustedList: EU Trusted List check. For
-// AES: `{"status": "not_applicable", "reason": "aes_not_qualified"}`.
+// SignatureResultValidationDocumentsTrustedList: EU Trusted List check. AES:
+// `{"status": "not_applicable", "reason": "aes_not_qualified"}`. QES:
+// `{"status": "granted"}` when the certificate is a qualified certificate for
+// electronic signatures issued under the qualified trust service provider's
+// Trusted List entry, else `{"status": "not_granted", ...}`. A sandbox
+// session's qualified level is sealed by Didit: `{"status": "not_applicable",
+// "reason": "sandbox"}`.
 type SignatureResultValidationDocumentsTrustedList struct {
 	Status string `json:"status"`
 	Reason string `json:"reason"`
@@ -9627,6 +9682,9 @@ type SignatureResultValidationDocumentsCertificate struct {
 	ValidFrom  time.Time `json:"valid_from"`
 	ValidUntil time.Time `json:"valid_until"`
 
+	// QES: which ETSI EN 319 412-5 statements the certificate carries.
+	QualifiedStatements SignatureResultValidationDocumentsCertificateQualifiedStatements `json:"qualified_statements"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -9637,13 +9695,35 @@ func (r *SignatureResultValidationDocumentsCertificate) UnmarshalJSON(data []byt
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SignatureResultValidationDocumentsCertificateQualifiedStatements: QES: which
+// ETSI EN 319 412-5 statements the certificate carries.
+type SignatureResultValidationDocumentsCertificateQualifiedStatements struct {
+	// An EU qualified certificate.
+	QcCompliance bool `json:"qc_compliance"`
+
+	// The key is in a qualified signature creation device.
+	QcSscd bool `json:"qc_sscd"`
+
+	// A certificate for electronic signatures.
+	QcTypeEsign bool `json:"qc_type_esign"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes SignatureResultValidationDocumentsCertificateQualifiedStatements leniently.
+func (r *SignatureResultValidationDocumentsCertificateQualifiedStatements) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // SignatureResultValidationDocumentsTimestamp: The RFC 3161 timestamp in the
-// signature, issued by Didit. `null` until signed, and always `null` for a
-// Simple signature.
+// signature: issued by Didit for AES, by the qualified trust service provider
+// for QES. `null` until signed, and always `null` for a Simple signature.
 type SignatureResultValidationDocumentsTimestamp struct {
 	Time time.Time `json:"time"`
 
-	// Always `false` for AES.
+	// `false` for AES; `true` for a valid QES time stamp.
 	Qualified bool `json:"qualified"`
 	Valid     bool `json:"valid"`
 
@@ -9656,6 +9736,22 @@ type SignatureResultValidationDocumentsTimestamp struct {
 func (r *SignatureResultValidationDocumentsTimestamp) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// SignatureResultValidationDocumentsFailedChecks is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type SignatureResultValidationDocumentsFailedChecks string
+
+// Known values of SignatureResultValidationDocumentsFailedChecks.
+const (
+	SignatureResultValidationDocumentsFailedChecksIntegrity            SignatureResultValidationDocumentsFailedChecks = "integrity"
+	SignatureResultValidationDocumentsFailedChecksTrusted              SignatureResultValidationDocumentsFailedChecks = "trusted"
+	SignatureResultValidationDocumentsFailedChecksNotRevoked           SignatureResultValidationDocumentsFailedChecks = "not_revoked"
+	SignatureResultValidationDocumentsFailedChecksCoverage             SignatureResultValidationDocumentsFailedChecks = "coverage"
+	SignatureResultValidationDocumentsFailedChecksTimestamp            SignatureResultValidationDocumentsFailedChecks = "timestamp"
+	SignatureResultValidationDocumentsFailedChecksQualifiedCertificate SignatureResultValidationDocumentsFailedChecks = "qualified_certificate"
+	SignatureResultValidationDocumentsFailedChecksSignerNamed          SignatureResultValidationDocumentsFailedChecks = "signer_named"
+	SignatureResultValidationDocumentsFailedChecksOriginalKept         SignatureResultValidationDocumentsFailedChecks = "original_kept"
+)
 
 // SignatureResultDeclinedAction is a string with known values below. The set is
 // open: other values may appear and never cause an error.

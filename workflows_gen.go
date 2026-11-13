@@ -199,9 +199,11 @@ type SimpleWorkflowFeature struct {
 	// only. For `SIGNATURE`, see [E-signature
 	// settings](/management-api/workflows/feature-configs#e-signature):
 	// `signature_level` accepts `simple` (the default, no ID verification, email or
-	// phone needed) and `aes` for now, and workflow documents and their fields are
-	// managed in the console, so through the API send documents and fields per
-	// session with `signature_documents_source: "session"`.
+	// phone needed), `aes` and `qes` (Qualified, an add-on that is refused with
+	// `qes_not_available` while `signature_availability.qes` is `false`), and
+	// workflow documents and their fields are managed in the console, so through
+	// the API send documents and fields per session with
+	// `signature_documents_source: "session"`.
 	Config Opt[map[string]any] `json:"config"`
 
 	// Optional internal label for this workflow node.
@@ -409,8 +411,9 @@ type WorkflowDetailSignatureAvailability struct {
 	// at `signature_level: "aes"` is refused with `aes_not_available`.
 	Aes bool `json:"aes"`
 
-	// Whether Qualified (QES) can sign now. It is `false` until a qualified
-	// provider is connected.
+	// Whether Qualified (QES) can be chosen now. While it is `false`, saving a new
+	// `qes` step returns `400` `qes_not_available` or
+	// `qes_provider_not_configured`.
 	Qes bool `json:"qes"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown

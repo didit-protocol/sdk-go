@@ -2941,11 +2941,11 @@ type TravelRuleDelivery struct {
 	// attempted at most 6 times.
 	Attempts int64 `json:"attempts"`
 
-	// The kind of failure the last attempt hit, `""` when none did: for example
-	// `email undeliverable`, `trp identity endpoint unreachable` or `trp transfer
-	// inquiry delivery failed`. It never carries the counterparty's own answer,
-	// which stays on the transfer's `timeline`. When GTR answers with an error, its
-	// own status code and message are included. Response bodies are never included.
+	// A short customer-safe reason for the last failure, `""` when there is none:
+	// `email undeliverable`, `trp identity endpoint unreachable`, `trp transfer
+	// inquiry delivery failed` or `The message could not be delivered.` It never
+	// carries the counterparty's own answer, which stays on the transfer's
+	// `timeline`, and never a response body.
 	LastError string `json:"last_error"`
 
 	// When the next attempt runs while the message is `QUEUED` or `RETRYING`.
@@ -2953,6 +2953,19 @@ type TravelRuleDelivery struct {
 
 	// When the other side took the message.
 	DeliveredAt time.Time `json:"delivered_at"`
+
+	// When the delivery last changed.
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Why the last attempt failed, or null while the message has not failed. The
+	// message is a fixed customer-safe sentence: it never carries the
+	// counterparty's own text or a transport error.
+	Failure TravelRuleDeliveryFailure `json:"failure"`
+
+	// Readable name of the route that carried the message: `Email`, `TRP`, `Didit`,
+	// `Didit Test VASP`, the name of a network listed in the Marketplace, or
+	// `Network` for any other network. Null until a route is chosen.
+	Route string `json:"route"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -3019,7 +3032,42 @@ const (
 	TravelRuleDeliveryRailVerifyvasp TravelRuleDeliveryRail = "VERIFYVASP"
 	TravelRuleDeliveryRailSygna      TravelRuleDeliveryRail = "SYGNA"
 	TravelRuleDeliveryRailEmail      TravelRuleDeliveryRail = "EMAIL"
+	TravelRuleDeliveryRailTestVASP   TravelRuleDeliveryRail = "TEST_VASP"
 	TravelRuleDeliveryRailEmpty      TravelRuleDeliveryRail = ""
+)
+
+// TravelRuleDeliveryFailure: Why the last attempt failed, or null while the
+// message has not failed. The message is a fixed customer-safe sentence: it
+// never carries the counterparty's own text or a transport error.
+type TravelRuleDeliveryFailure struct {
+	// `email_undeliverable`: the email bounced or the address does not accept mail.
+	// `delivery_failed`: any other failure.
+	Code TravelRuleDeliveryFailureCode `json:"code"`
+
+	// Customer-safe description of the failure.
+	Message string `json:"message"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDeliveryFailure leniently.
+func (r *TravelRuleDeliveryFailure) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDeliveryFailureCode: `email_undeliverable`: the email bounced or
+// the address does not accept mail. `delivery_failed`: any other failure.
+//
+// TravelRuleDeliveryFailureCode is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleDeliveryFailureCode string
+
+// Known values of TravelRuleDeliveryFailureCode.
+const (
+	TravelRuleDeliveryFailureCodeEmailUndeliverable TravelRuleDeliveryFailureCode = "email_undeliverable"
+	TravelRuleDeliveryFailureCodeDeliveryFailed     TravelRuleDeliveryFailureCode = "delivery_failed"
 )
 
 // TravelRuleDiscoveryStep: One step of the counterparty discovery Didit ran for
@@ -3370,6 +3418,25 @@ type TravelRuleDeliveryLogEntry struct {
 	// payloads or raw errors.
 	DetailLines []string `json:"detail_lines"`
 
+	// Attempts made so far for this message.
+	Attempts int64 `json:"attempts"`
+
+	// When the delivery last changed.
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// When the next attempt runs while the message is `QUEUED` or `RETRYING`.
+	NextAttemptAt time.Time `json:"next_attempt_at"`
+
+	// Why the last attempt failed, or null while the message has not failed. The
+	// message is a fixed customer-safe sentence: it never carries the
+	// counterparty's own text or a transport error.
+	Failure TravelRuleDeliveryLogEntryFailure `json:"failure"`
+
+	// Readable name of the route that carried the message: `Email`, `TRP`, `Didit`,
+	// `Didit Test VASP`, the name of a network listed in the Marketplace, or
+	// `Network` for any other network. Null until a route is chosen.
+	Route string `json:"route"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -3429,6 +3496,41 @@ const (
 	TravelRuleDeliveryLogEntryRailTrp      TravelRuleDeliveryLogEntryRail = "TRP"
 	TravelRuleDeliveryLogEntryRailInternal TravelRuleDeliveryLogEntryRail = "INTERNAL"
 	TravelRuleDeliveryLogEntryRailNetwork  TravelRuleDeliveryLogEntryRail = "NETWORK"
+)
+
+// TravelRuleDeliveryLogEntryFailure: Why the last attempt failed, or null while
+// the message has not failed. The message is a fixed customer-safe sentence: it
+// never carries the counterparty's own text or a transport error.
+type TravelRuleDeliveryLogEntryFailure struct {
+	// `email_undeliverable`: the email bounced or the address does not accept mail.
+	// `delivery_failed`: any other failure.
+	Code TravelRuleDeliveryLogEntryFailureCode `json:"code"`
+
+	// Customer-safe description of the failure.
+	Message string `json:"message"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDeliveryLogEntryFailure leniently.
+func (r *TravelRuleDeliveryLogEntryFailure) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDeliveryLogEntryFailureCode: `email_undeliverable`: the email
+// bounced or the address does not accept mail. `delivery_failed`: any other
+// failure.
+//
+// TravelRuleDeliveryLogEntryFailureCode is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type TravelRuleDeliveryLogEntryFailureCode string
+
+// Known values of TravelRuleDeliveryLogEntryFailureCode.
+const (
+	TravelRuleDeliveryLogEntryFailureCodeEmailUndeliverable TravelRuleDeliveryLogEntryFailureCode = "email_undeliverable"
+	TravelRuleDeliveryLogEntryFailureCodeDeliveryFailed     TravelRuleDeliveryLogEntryFailureCode = "delivery_failed"
 )
 
 // TravelRuleUserChoice is a response object.
