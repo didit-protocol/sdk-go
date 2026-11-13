@@ -30,6 +30,20 @@ type AddressValidationResult struct {
 	Latitude         float64 `json:"latitude"`
 	Longitude        float64 `json:"longitude"`
 
+	// The kind of delivery point the address is, for United States and Canadian
+	// addresses: `street`, `po_box` (a PO box or lock box), `high_rise` (a
+	// high-rise or business complex), `rural_route`, `general_delivery`, `firm` (a
+	// firm or company address) or `building`. `null` for addresses in other
+	// countries, when the address has no type on record, and when `status` is
+	// `unavailable`.
+	AddressType AddressValidationResultAddressType `json:"address_type"`
+
+	// `true` when the address is a residence, `false` when it is a business. `null`
+	// when this is unknown, when it is not available for the address's country, and
+	// when `status` is `unavailable`. Available for addresses in the United States,
+	// Great Britain, the Netherlands and Ireland.
+	IsResidential bool `json:"is_residential"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -103,6 +117,28 @@ type AddressValidationResultAddress struct {
 func (r *AddressValidationResultAddress) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// AddressValidationResultAddressType: The kind of delivery point the address
+// is, for United States and Canadian addresses: `street`, `po_box` (a PO box or
+// lock box), `high_rise` (a high-rise or business complex), `rural_route`,
+// `general_delivery`, `firm` (a firm or company address) or `building`. `null`
+// for addresses in other countries, when the address has no type on record, and
+// when `status` is `unavailable`.
+//
+// AddressValidationResultAddressType is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type AddressValidationResultAddressType string
+
+// Known values of AddressValidationResultAddressType.
+const (
+	AddressValidationResultAddressTypeStreet          AddressValidationResultAddressType = "street"
+	AddressValidationResultAddressTypePoBox           AddressValidationResultAddressType = "po_box"
+	AddressValidationResultAddressTypeHighRise        AddressValidationResultAddressType = "high_rise"
+	AddressValidationResultAddressTypeRuralRoute      AddressValidationResultAddressType = "rural_route"
+	AddressValidationResultAddressTypeGeneralDelivery AddressValidationResultAddressType = "general_delivery"
+	AddressValidationResultAddressTypeFirm            AddressValidationResultAddressType = "firm"
+	AddressValidationResultAddressTypeBuilding        AddressValidationResultAddressType = "building"
+)
 
 // AMLDatasetFreshness: How current the AML datasets were when a screening ran.
 // Dates are never estimated.

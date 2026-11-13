@@ -220,22 +220,24 @@ func (r *SessionsService) CancelFeatureOverride(ctx context.Context, sessionID s
 // [Workflows](https://docs.didit.me/console/workflows) page) and an application
 // API key with available credits. Sandbox applications bypass the credit check.
 //
-// **Idempotency:** when `vendor_data` is provided and an unfinished session
-// (`Not Started`, `In Progress`, `Resubmitted`, or `Awaiting User`) with the
-// same `vendor_data` already exists on the workflow's **current latest
-// published version** (and that session already has a hosted verification URL),
-// the existing session is returned (still `201`) instead of creating a
-// duplicate - with its `callback` and `metadata` updated to the newly provided
-// values. An unfinished session created on an older version of the workflow
-// (one that has since been republished) is **not** reused; a new session pinned
-// to the latest published version is created instead. Sessions in `Approved`,
-// `Declined`, `In Review`, `Expired`, `Abandoned`, or `Kyc Expired` are never
-// reused.
+// **Idempotency:** for a User Verification workflow, when `vendor_data` is
+// provided and an unfinished session (`Not Started`, `In Progress`,
+// `Resubmitted`, or `Awaiting User`) with the same `vendor_data` already exists
+// on the workflow's **current latest published version** (and that session
+// already has a hosted verification URL), the existing session is returned
+// (still `201`) instead of creating a duplicate - with its `callback` and
+// `metadata` updated to the newly provided values. An unfinished session
+// created on an older version of the workflow (one that has since been
+// republished) is **not** reused; a new session pinned to the latest published
+// version is created instead. Sessions in `Approved`, `Declined`, `In Review`,
+// `Expired`, `Abandoned`, or `Kyc Expired` are never reused. A Business
+// Verification workflow creates a new session on every call.
 //
 // **Side effects:** the hosted verification URL is generated and stored; if
 // `contact_details.send_notification_emails` is `true` and an email is
-// provided, a verification invite email is sent. The session expires after the
-// workflow's configured session expiration time. For KYB workflows,
+// provided, a verification invite email is sent. The session expires after
+// `session_expiration_time` seconds when the request sets it, otherwise after
+// the workflow's configured session expiration time. For KYB workflows,
 // `contact_details.phone` and `expected_details` are ignored.
 //
 //	POST /v3/session/
@@ -2634,6 +2636,18 @@ type SessionsCreateParams struct {
 	// show on the session in the console, where you can filter by them.
 	Tags Opt[[]string] `json:"tags"`
 
+	// Seconds this session's link stays valid, overriding the workflow's
+	// `session_expiration_time` for this session only. Whole number between 3600 (1
+	// hour) and 2419200 (4 weeks), the same bounds as the workflow setting. Omit it
+	// to use the workflow's setting. A value outside the range, or one that is not
+	// a whole number, returns `400` on `session_expiration_time`. A session created
+	// by this call takes this lifetime from creation. When the call returns an
+	// existing unfinished session instead of creating one, sending this field
+	// resets that session's expiry to now plus this value, and omitting it leaves
+	// that session's expiry as it is. The response returns the resulting
+	// `expires_at`.
+	SessionExpirationTime Opt[int64] `json:"session_expiration_time"`
+
 	// Language code (ISO 639-1) for the verification process interface. Controls
 	// the language displayed to the end user during verification. If not provided,
 	// the browser's language will be automatically detected and used. Check all the
@@ -3382,10 +3396,15 @@ type SessionsCreateResponse struct {
 	// The tags on the session, by name.
 	Tags []string `json:"tags"`
 
+	// When the session's link stops being valid: the start of its current validity
+	// window (its creation, or the last reset by `session_expiration_time`) plus
+	// the lifetime in force.
+	ExpiresAt time.Time `json:"expires_at"`
+
 	// Current status of the session. Newly created sessions return `Not Started`.
-	// If a non-finished session already existed for the same `vendor_data` on the
-	// workflow's latest published version, the returned status reflects that
-	// existing session.
+	// For a User Verification workflow, if a non-finished session already existed
+	// for the same `vendor_data` on the workflow's latest published version, the
+	// returned status reflects that existing session.
 	Status SessionsCreateResponseStatus `json:"status"`
 
 	// Final redirect URL the user is sent to after completing the flow. Didit
@@ -3420,9 +3439,10 @@ func (r *SessionsCreateResponse) UnmarshalJSON(data []byte) error {
 }
 
 // SessionsCreateResponseStatus: Current status of the session. Newly created
-// sessions return `Not Started`. If a non-finished session already existed for
-// the same `vendor_data` on the workflow's latest published version, the
-// returned status reflects that existing session.
+// sessions return `Not Started`. For a User Verification workflow, if a
+// non-finished session already existed for the same `vendor_data` on the
+// workflow's latest published version, the returned status reflects that
+// existing session.
 //
 // SessionsCreateResponseStatus is a string with known values below. The set is
 // open: other values may appear and never cause an error.

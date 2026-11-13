@@ -10,7 +10,7 @@ import (
 )
 
 func TestBankAccountCheck(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"c2f4a9e0-7b1d-4c3a-9e55-1d0a6b8f2a47","result":"close_match","holder_name":"MARIA R OLIVEIRA","account":"****0001","vendor_data":"payout_20481","created_at":"2026-10-21T14:32:08Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"c2f4a9e0-7b1d-4c3a-9e55-1d0a6b8f2a47","result":"close_match","holder_name":"MARIA R OLIVEIRA","name_match_score":83,"account":"****0001","vendor_data":"payout_20481","created_at":"2026-10-21T14:32:08Z"}`)
 	var params didit.BankAccountCheckRequest
 	mustUnmarshal(t, `{"country":"NGA","account":{"account_number":"0123450001","bank_code":"000014"},"holder":{"full_name":"Maria Oliveira"},"vendor_data":"payout_20481"}`, &params)
 	res, err := client.Bank.AccountCheck(context.Background(), params)
@@ -21,5 +21,5 @@ func TestBankAccountCheck(t *testing.T) {
 	req.expect(t, "POST", "/v3/bank/account-check/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"country":"NGA","account":{"account_number":"0123450001","bank_code":"000014"},"holder":{"full_name":"Maria Oliveira"},"vendor_data":"payout_20481"}`)
-	expectFields(t, res.JSON, []string{"request_id", "result", "holder_name", "account", "vendor_data", "created_at"})
+	expectFields(t, res.JSON, []string{"request_id", "result", "holder_name", "name_match_score", "account", "vendor_data", "created_at"})
 }
