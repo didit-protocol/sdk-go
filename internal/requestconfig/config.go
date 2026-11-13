@@ -41,6 +41,12 @@ type Config struct {
 	ResponseInto **http.Response
 	Logger       *slog.Logger
 
+	// IdempotencyKey is the per-request Idempotency-Key; nil means none.
+	IdempotencyKey *string
+	// ClientScope is true while the options of the client are applied, so an
+	// option that exists only per request can refuse to run there.
+	ClientScope bool
+
 	// Sleep waits between retries; tests replace it.
 	Sleep func(time.Duration) <-chan time.Time
 }

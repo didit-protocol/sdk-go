@@ -101,8 +101,9 @@ client := didit.NewClient(
 | `WithHTTPClient` | | Your own `*http.Client` (proxies, tracing). |
 | `WithLogger` | `DIDIT_LOG=debug` | Debug log of method, path, status, duration and request id. Never bodies, headers or keys. |
 | `WithResponseInto` | | The raw `*http.Response` of a call. |
+| `WithIdempotencyKey` | | One call only, never on the client. See [Idempotency](#idempotency). |
 
-Every option works for the whole client or for one call, as the last arguments of any method. `client.WithOptions(...)` returns a copy with more options. The client is safe for concurrent use: create one per process.
+Every option except `WithIdempotencyKey` works for the whole client or for one call, as the last arguments of any method. `client.WithOptions(...)` returns a copy with more options. The client is safe for concurrent use: create one per process.
 
 Each method takes a `context.Context` first, then the path parameters, then a parameters struct when the operation has a body or query parameters, then options:
 
@@ -171,6 +172,17 @@ Errors never hold the API key: a key the server echoes reads `[redacted]` in `Ra
 ### Retries
 
 Failed calls are retried up to `WithMaxRetries` times (default 2) with exponential backoff from 0.5 s, capped at 8 s, with full jitter, honouring `Retry-After` (capped at 60 s). `GET`, `PUT` and `DELETE` are retried on connection errors, timeouts, 408, 429 and 5xx. `POST` and `PATCH` are never retried once the request may have reached the server: only when the connection failed before the request was sent, or on 429. Upload bodies are buffered, so a retry sends the same bytes.
+
+### Idempotency
+
+`option.WithIdempotencyKey` sends an `Idempotency-Key` header on one write request, so repeating the same call does not run or bill it twice.
+
+```go
+res, err := client.Sessions.Create(ctx, params, option.WithIdempotencyKey("order-1042"))
+// Repeating the call with the same key returns the first response.
+```
+
+The key is 1 to 255 characters, chosen by you for each operation; the SDK never makes one up, and the option is not accepted by `NewClient` or `WithOptions`. With a key, POST and PATCH are retried like GET.
 
 ## Pagination
 

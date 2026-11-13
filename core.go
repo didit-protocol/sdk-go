@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/didit-protocol/sdk-go/internal/requestconfig"
 	"github.com/didit-protocol/sdk-go/internal/version"
@@ -85,9 +86,14 @@ var defaultHTTPClient = &http.Client{Transport: http.DefaultTransport}
 
 func (c *Client) config(opts []option.RequestOption) (*requestconfig.Config, error) {
 	cfg := requestconfig.New()
+	cfg.ClientScope = true
 	if err := cfg.Apply(c.options...); err != nil {
 		return nil, &ConfigurationError{Message: err.Error()}
 	}
+	cfg.ClientScope = false
+	// A client-wide default header never counts as an idempotency key; only
+	// the per-request forms do (docs/DESIGN.md section 6).
+	cfg.Header.Del(idempotencyKeyHeader)
 	if err := cfg.Apply(opts...); err != nil {
 		return nil, &ConfigurationError{Message: err.Error()}
 	}
@@ -156,12 +162,36 @@ func (c *Client) do(ctx context.Context, r *apiRequest, dst any, opts []option.R
 			header.Set("Content-Type", contentType)
 		}
 	}
+	// The effective key, by increasing precedence: the generated header
+	// parameter, a per-request raw header, the option.
+	key, hasKey := "", false
+	if r.params != nil {
+		key, hasKey = headerParamValue(r.params, idempotencyKeyHeader)
+	}
+	header.Del(idempotencyKeyHeader)
+	if values := cfg.Header.Values(idempotencyKeyHeader); len(values) > 0 {
+		key, hasKey = values[len(values)-1], true
+	}
+	if cfg.IdempotencyKey != nil {
+		key, hasKey = *cfg.IdempotencyKey, true
+	}
 	for name, values := range cfg.Header {
+		if http.CanonicalHeaderKey(name) == idempotencyKeyHeader {
+			continue
+		}
 		if len(values) == 0 || (len(values) == 1 && values[0] == "") {
 			header.Del(name)
 			continue
 		}
 		header[name] = values
+	}
+	// Whatever its source, the key goes out on the four write methods only,
+	// and only when it is valid.
+	if hasKey && sendsIdempotencyKey(r.method) {
+		if n := utf8.RuneCountInString(key); n < 1 || n > option.MaxIdempotencyKeyLength {
+			return nil, &ConfigurationError{Message: "the idempotency key must be 1 to 255 characters"}
+		}
+		header.Set(idempotencyKeyHeader, key)
 	}
 	return c.send(ctx, cfg, r, u, header, body, dst)
 }
@@ -243,6 +273,36 @@ func idempotent(method string) bool {
 	return false
 }
 
+const idempotencyKeyHeader = "Idempotency-Key"
+
+// sendsIdempotencyKey reports whether the idempotency key option is sent on
+// method: every write, never GET or HEAD.
+func sendsIdempotencyKey(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	}
+	return false
+}
+
+// repeatable reports whether a request may be sent again after it may have
+// reached the server: the methods that are idempotent by definition, and a
+// POST or PATCH that carries an Idempotency-Key header (docs/DESIGN.md
+// section 7).
+func repeatable(method string, header http.Header) bool {
+	if idempotent(method) {
+		return true
+	}
+	return (method == http.MethodPost || method == http.MethodPatch) && header.Get(idempotencyKeyHeader) != ""
+}
+
+// keyInProgress reports whether a 409 body is the idempotency_key_in_progress
+// error.
+func keyInProgress(body any) bool {
+	m, ok := body.(map[string]any)
+	return ok && m["code"] == "idempotency_key_in_progress"
+}
+
 // send runs the attempts of one request.
 func (c *Client) send(ctx context.Context, cfg *requestconfig.Config, r *apiRequest, u *url.URL, header http.Header, body []byte, dst any) (*http.Response, error) {
 	hc := pinnedClient(cfg.HTTPClient)
@@ -298,7 +358,7 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 	if err != nil {
 		cancel()
 		callerDone := ctx.Err() != nil
-		retryable := !callerDone && (idempotent(r.method) || !wroteHeaders.Load())
+		retryable := !callerDone && (repeatable(r.method, header) || !wroteHeaders.Load())
 		cerr := connectionError(r.method, u, err, callerDone && errors.Is(ctx.Err(), context.DeadlineExceeded))
 		logAttempt(ctx, cfg, r.method, u, 0, "", time.Since(start), attempt, cerr)
 		return nil, retryable, cerr
@@ -320,7 +380,7 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 		callerDone := ctx.Err() != nil
 		cerr := connectionError(r.method, u, err, callerDone && errors.Is(ctx.Err(), context.DeadlineExceeded))
 		logAttempt(ctx, cfg, r.method, u, resp.StatusCode, requestID, time.Since(start), attempt, cerr)
-		return nil, !callerDone && idempotent(r.method), cerr
+		return nil, !callerDone && repeatable(r.method, header), cerr
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(data))
 	logAttempt(ctx, cfg, r.method, u, resp.StatusCode, requestID, time.Since(start), attempt, nil)
@@ -350,8 +410,11 @@ func (c *Client) attempt(ctx context.Context, cfg *requestconfig.Config, hc *htt
 	}
 	status := resp.StatusCode
 	retryable := status == http.StatusTooManyRequests
-	if idempotent(r.method) {
+	if repeatable(r.method, header) {
 		retryable = retryable || status == http.StatusRequestTimeout || (status >= 500 && status <= 599)
+		if header.Get(idempotencyKeyHeader) != "" && status == http.StatusConflict && keyInProgress(statusErr.Body) {
+			retryable = true
+		}
 	}
 	return resp, retryable, NewAPIStatusError(statusErr)
 }

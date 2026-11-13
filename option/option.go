@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/didit-protocol/sdk-go/internal/requestconfig"
 )
@@ -108,6 +109,34 @@ func WithMaxRetries(n int) RequestOption {
 			return errors.New("max retries must not be negative")
 		}
 		c.MaxRetries = n
+		return nil
+	}
+}
+
+// MaxIdempotencyKeyLength is the longest idempotency key the API accepts.
+const MaxIdempotencyKeyLength = 255
+
+// WithIdempotencyKey sets the Idempotency-Key header of one request. It exists
+// only per request: passed to NewClient or Client.WithOptions it is refused
+// with a ConfigurationError when a request runs. The header is sent on POST,
+// PUT, PATCH and DELETE and left out of GET and HEAD. The key must be 1 to 255
+// characters, otherwise the call fails with a ConfigurationError before
+// anything is sent. The SDK never invents a key: choose one per operation and
+// pass the same key when you repeat that operation.
+//
+//	res, err := client.Sessions.Create(ctx, params, option.WithIdempotencyKey("order-1042"))
+//
+// With a key, POST and PATCH are retried like GET, with the same key on every
+// attempt.
+func WithIdempotencyKey(key string) RequestOption {
+	return func(c *requestconfig.Config) error {
+		if c.ClientScope {
+			return errors.New("option.WithIdempotencyKey works per request only: pass it to a method, not to NewClient or WithOptions")
+		}
+		if n := utf8.RuneCountInString(key); n < 1 || n > MaxIdempotencyKeyLength {
+			return errors.New("the idempotency key must be 1 to 255 characters")
+		}
+		c.IdempotencyKey = &key
 		return nil
 	}
 }
