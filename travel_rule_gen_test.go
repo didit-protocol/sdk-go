@@ -39,7 +39,7 @@ func TestTravelRuleCreateVASP(t *testing.T) {
 }
 
 func TestTravelRuleCreateWidgetSession(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"widget_session_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","token":"sample-token","url":"string","expires_at":"2025-01-02T03:04:05Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"widget_session_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","token":"sample-token","url":"string","expires_at":"2025-01-02T03:04:05Z"}`)
 	var params didit.TravelRuleWidgetSessionCreate
 	mustUnmarshal(t, `{"wallet_address":"0xd3b62acb76fb27a7f8961ec40fa11746b113aca9","chain":"ETH","holder_name":"Jane Doe","vendor_data":"user-042","transaction_id":"99999999-aaaa-bbbb-cccc-dddddddddddd","expires_in_minutes":60}`, &params)
 	res, err := client.TravelRule.CreateWidgetSession(context.Background(), params)
@@ -95,7 +95,7 @@ func TestTravelRuleListVASPs(t *testing.T) {
 }
 
 func TestTravelRuleRegisterInbound(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"transaction_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","txn_id":"string","created":true,"travel_rule":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","direction":"INBOUND","rail":"INTERNAL","protocol":"string","ivms_version":"ivms101.2023","required":true,"ownership_confirmed":true,"deadline_at":"2025-01-02T03:04:05Z","timeline":[{"status":"string","at":"2025-01-02T03:04:05Z","detail":"string","name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"reason":"string"}],"counterparty_vasp":{"name":"string","lei":"string","dd_score":1,"dd_score_breakdown":{"key":{"points":1.5,"max":1,"reason":"string","detail":"string"}},"dd_assessed_at":"2025-01-02T03:04:05Z"},"originator_data":{"key":"value"},"beneficiary_data":{"key":"value"},"name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"data_match":{"matched":true,"mismatched_fields":["name"],"fields":{"key":{"result":"matched","strictness":"NONE"}}},"mismatched_fields":["string"],"data_unmasked":{"at":"2025-01-02T03:04:05Z","reason":"ownership_confirmed","actor":"string"},"data_masked":true,"created_at":"2025-01-02T03:04:05Z","delivery":{"kind":"SEND","status":"QUEUED","rail":"INTERNAL","attempts":0,"last_error":"email undeliverable","next_attempt_at":"2025-01-02T03:04:05Z","delivered_at":"2025-01-02T03:04:05Z"},"discovery":[{"step":"internal_address_book","outcome":"match","reason":"string","vasp":"3fa85f64-5717-4562-b3fc-2c963f66afa6","rail":"string","at":"2025-01-02T03:04:05Z"}],"reason":"string","next_actions":[{"action":"select_counterparty_vasp","url":"https://example.com/path"}],"chain_details":{"chain":"string","shape":"utxo","originator":{"address":"string","memo":"string","source":"declared"},"beneficiary":{"address":"string","memo":"string","source":"declared"},"utxo":{"inputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"outputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"change_output_indexes":[1],"beneficiary_output_index":1},"lightning":{"key":"value"},"warnings":["declared_originator_not_an_input"],"not_applicable_reason":"LIGHTNING_NO_PAYEE_IDENTIFIER"},"deliveries":[{"uuid":"11111111-2222-4333-8444-555555555555","kind":"SEND","status":"DELIVERED","rail":"NETWORK","created_at":"2026-11-01T10:00:00Z","delivered_at":"2026-11-01T10:00:01Z","detail_lines":["Send","Delivered"]}],"deliveries_truncated":true,"not_required_reason":"below_threshold","proof_state":"not_requested","cancel_reason":"","cancelled_by":"string","notify_on_answer":true,"user_choice":{"active":true,"waiting":true,"end_user_link":"string","link_expires_at":"2025-01-02T03:04:05Z","emailed_to":"string","email_available":true}}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"transaction_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","txn_id":"string","created":true,"travel_rule":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","direction":"INBOUND","rail":"INTERNAL","protocol":"string","ivms_version":"ivms101.2023","required":true,"ownership_confirmed":true,"deadline_at":"2025-01-02T03:04:05Z","timeline":[{"status":"string","at":"2025-01-02T03:04:05Z","detail":"string","name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"reason":"string"}],"counterparty_vasp":{"name":"string","lei":"string","dd_score":1,"dd_score_breakdown":{"key":{"points":1.5,"max":1,"reason":"string","detail":"string"}},"dd_assessed_at":"2025-01-02T03:04:05Z"},"originator_data":{"key":"value"},"beneficiary_data":{"key":"value"},"name_match":{"score":0,"matched":true,"method":"none","strictness":"NONE","compared_with":"wallet_holder","transfer_name":"string","compared_name":"string","matched_names":["string"],"mismatched_names":["string"]},"data_match":{"matched":true,"mismatched_fields":["name"],"fields":{"key":{"result":"matched","strictness":"NONE"}}},"mismatched_fields":["string"],"data_unmasked":{"at":"2025-01-02T03:04:05Z","reason":"ownership_confirmed","actor":"string"},"data_masked":true,"created_at":"2025-01-02T03:04:05Z","delivery":{"kind":"SEND","status":"QUEUED","rail":"INTERNAL","attempts":0,"last_error":"email undeliverable","next_attempt_at":"2025-01-02T03:04:05Z","delivered_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z","failure":{"code":"email_undeliverable","message":"The message could not be delivered."},"route":"Email"},"discovery":[{"step":"internal_address_book","outcome":"match","reason":"string","vasp":"3fa85f64-5717-4562-b3fc-2c963f66afa6","rail":"string","at":"2025-01-02T03:04:05Z"}],"reason":"string","next_actions":[{"action":"select_counterparty_vasp","url":"https://example.com/path"}],"chain_details":{"chain":"string","shape":"utxo","originator":{"address":"string","memo":"string","source":"declared"},"beneficiary":{"address":"string","memo":"string","source":"declared"},"utxo":{"inputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"outputs":[{"address":"string","amount":"0.0125","txid":"string","vout":0}],"change_output_indexes":[1],"beneficiary_output_index":1},"lightning":{"key":"value"},"warnings":["declared_originator_not_an_input"],"not_applicable_reason":"LIGHTNING_NO_PAYEE_IDENTIFIER"},"deliveries":[{"uuid":"11111111-2222-4333-8444-555555555555","kind":"SEND","status":"DELIVERED","rail":"NETWORK","created_at":"2026-11-01T10:00:00Z","delivered_at":"2026-11-01T10:00:01Z","detail_lines":["Send","Delivered"],"attempts":1,"updated_at":"2026-11-01T10:00:01Z","next_attempt_at":null,"failure":null,"route":"Network"}],"deliveries_truncated":true,"not_required_reason":"below_threshold","proof_state":"not_requested","cancel_reason":"","cancelled_by":"string","notify_on_answer":true,"user_choice":{"active":true,"waiting":true,"end_user_link":"string","link_expires_at":"2025-01-02T03:04:05Z","emailed_to":"string","email_available":true}}}`)
 	var params didit.TravelRuleInboundRequest
 	mustUnmarshal(t, `{"chain":"ETH","txid":"0xdeposit-hash","wallet_address":"0xYourDepositWallet","amount":"500.00","currency":"USDC","originator_data":{"name":"Origin CASP SL"},"beneficiary_data":{"name":"Ana Diaz"},"originating_vasp":{"name":"Origin CASP SL","lei":"","travel_address":"ta9JbXbsBSuS5ozArJRFVgvBHMVnDGUnrPPChSZYQsuZTn3kPrJXUQ7RSLUEJ5KjyPvr8C9sAxmPtZfGsQVKCi4n8ShxP9BkbDdbtjtA9aumNybAZ1BxC"}}`, &params)
 	res, err := client.TravelRule.RegisterInbound(context.Background(), params)
@@ -476,6 +476,45 @@ func TestTravelRuleWalletAddressesList(t *testing.T) {
 		t.Fatal("no results")
 	}
 	expectFields(t, res.Results[0].JSON, []string{"uuid", "address", "chain", "holder_vendor_data", "holder_name", "entity_type", "is_ownership_verified", "created_at", "travel_address", "address_hash", "memo", "receiving_travel_address"})
+}
+
+func TestTravelRuleWalletAddressesListTransfers(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"string","previous":"string","results":[{"transfer_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","status":"AWAITING_COUNTERPARTY","created_at":"2025-01-02T03:04:05Z"}]}`)
+	var params didit.TravelRuleWalletAddressesListTransfersParams
+	params.Limit = didit.Int(50)
+	params.Offset = didit.Int(0)
+	res, err := client.TravelRule.WalletAddresses.ListTransfers(context.Background(), "entry-uuid-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/wallet-addresses/entry-uuid-1/transfers/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"transfer_id", "status", "created_at"})
+}
+
+func TestTravelRuleWalletAddressesLookup(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"match":"book","directory_checked":false,"entry_id":"11111111-2222-4333-8444-555555555555"}`)
+	var params didit.TravelRuleWalletAddressesLookupParams
+	params.Address = "value"
+	params.Chain = "value"
+	params.Memo = didit.String("value")
+	res, err := client.TravelRule.WalletAddresses.Lookup(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/wallet-addresses/lookup/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"address": "value", "chain": "value", "memo": "value"})
+	expectFields(t, res.JSON, []string{"match", "directory_checked", "entry_id"})
 }
 
 func TestTravelRuleWalletAddressesUpdate(t *testing.T) {
