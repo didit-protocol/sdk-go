@@ -30,8 +30,12 @@ type BankService struct {
 //
 // **What you get back.** `result` is `match`, `close_match`, `no_match` or
 // `cannot_verify`. On a `close_match`, `holder_name` is the name the bank holds
-// the account under, when the bank returned it. `account` comes back masked to
-// its last 4 characters.
+// the account under, when the bank returned it. `name_match_score` is the 0 to
+// 100 similarity `result` was decided on, so you can apply your own threshold;
+// `result` stays authoritative, decided with the default thresholds (a `match`
+// from 85, a `close_match` from 70). It is `null` when no name was compared: a
+// `cannot_verify`, or a `no_match` for an account that does not exist.
+// `account` comes back masked to its last 4 characters.
 //
 // **Billing.** Each check the bank answers is billed once at the Account check
 // price of the account's country, whatever the result: a `no_match`, an account
@@ -45,9 +49,11 @@ type BankService struct {
 // **Sandbox.** Use a sandbox API key with the sample account details. A sandbox
 // key calls no bank and is charged nothing. The last 4 characters of the IBAN,
 // else of the account number, choose the answer: `0001` a `close_match` with a
-// `holder_name`, `0002` a `close_match` without one, `0003` and `0006` a
-// `no_match`, `0004` `cannot_verify`, `0005` a `503` and `0009` a `400`. Any
-// other ending is a `match`.
+// `holder_name`, `0002` a `close_match` without one (`name_match_score` 78),
+// `0003` a `no_match` (`name_match_score` 0), `0006` a `no_match` for an
+// account that does not exist (`name_match_score` null), `0004`
+// `cannot_verify`, `0005` a `503` and `0009` a `400`. Any other ending is a
+// `match` (`name_match_score` 100).
 //
 // **API keys.** A scoped API key needs write access to sessions.
 //
@@ -178,6 +184,17 @@ type BankAccountCheckResponse struct {
 	// Only on a `close_match`, and only when the bank returned it: the name on the
 	// account, as the bank holds it. `null` otherwise.
 	HolderName string `json:"holder_name"`
+
+	// The 0 to 100 similarity between the holder name you sent and the name on the
+	// account: the score `result` was decided on, so you can apply your own
+	// threshold. `result` stays authoritative and is decided with the default
+	// thresholds, a `match` from 85 and a `close_match` from 70 up to 84; they are
+	// the workflow settings `bank_name_match_threshold` and
+	// `bank_partial_match_floor` in a verification session. A name with nothing in
+	// common scores `0`. `null` when no name was compared: `cannot_verify`, a
+	// `no_match` for an account that does not exist, or a bank that answered with
+	// its own verdict and no holder name or score.
+	NameMatchScore int64 `json:"name_match_score"`
 
 	// The account, masked to its last 4 characters.
 	Account string `json:"account"`

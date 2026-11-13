@@ -39,8 +39,9 @@ type AddressValidationService struct {
 // session is created and the result is returned only in this response.
 //
 // **Sandbox.** Sandbox keys validate the request and always return a
-// deterministic `verified` result that echoes the address sent, without
-// consuming credits.
+// deterministic `verified` result that echoes the address sent, with
+// `address_type` and `is_residential` always `null` (the keys are present),
+// without consuming credits.
 //
 // **Authentication.** Send your application's API key in `x-api-key`. Missing
 // or invalid credentials return `403` - this API never returns `401`.
