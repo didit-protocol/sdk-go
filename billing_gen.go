@@ -168,6 +168,9 @@ type BillingTopUpParams struct {
 	// `idempotency_key_required`); ignored for `checkout`. Reusing the same key
 	// with the same amount returns the original top-up and never charges twice.
 	// Reusing the key with another amount returns `409` `idempotency_key_conflict`.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 

@@ -18,7 +18,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/didit-protocol/sdk-go/internal/requestconfig"
 	"github.com/didit-protocol/sdk-go/internal/version"
@@ -185,15 +184,34 @@ func (c *Client) do(ctx context.Context, r *apiRequest, dst any, opts []option.R
 		}
 		header[name] = values
 	}
-	// Whatever its source, the key goes out on the four write methods only,
-	// and only when it is valid.
-	if hasKey && sendsIdempotencyKey(r.method) {
-		if n := utf8.RuneCountInString(key); n < 1 || n > option.MaxIdempotencyKeyLength {
-			return nil, &ConfigurationError{Message: "the idempotency key must be 1 to 255 characters"}
+	// Whatever its source, an invalid key is refused before any request on every method; a valid one
+	// goes out on the four write methods only.
+	if hasKey {
+		if !validIdempotencyKey(key) {
+			return nil, &ConfigurationError{Message: "the idempotency key must be 1 to 255 printable ASCII characters that neither start nor end with a space"}
 		}
-		header.Set(idempotencyKeyHeader, key)
+		if sendsIdempotencyKey(r.method) {
+			header.Set(idempotencyKeyHeader, key)
+		}
 	}
 	return c.send(ctx, cfg, r, u, header, body, dst)
+}
+
+// validIdempotencyKey reports whether key is 1 to 255 printable ASCII characters (space to "~") that neither
+// start nor end with a space: the key travels as an HTTP header value that the server trims.
+func validIdempotencyKey(key string) bool {
+	if len(key) < 1 || len(key) > option.MaxIdempotencyKeyLength {
+		return false
+	}
+	if key[0] == ' ' || key[len(key)-1] == ' ' {
+		return false
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] < ' ' || key[i] > '~' {
+			return false
+		}
+	}
+	return true
 }
 
 // buildURL expands the path template and adds the query.

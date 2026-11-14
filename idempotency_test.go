@@ -74,8 +74,32 @@ func TestIdempotencyKeyNotAcceptedOnClient(t *testing.T) {
 	}
 }
 
+// An invalid key option is refused before any request on every method, a GET included.
+func TestIdempotencyKeyInvalidOnGetIsRefused(t *testing.T) {
+	for name, key := range map[string]string{"non-ASCII text": "注文-1", "empty": "", "256 characters": strings.Repeat("k", 256), "only spaces": " "} {
+		client, m := newMockClientWith(t, []response{okJSON})
+		_, err := client.Billing.RetrieveBalance(context.Background(), option.WithIdempotencyKey(key))
+		var ce *didit.ConfigurationError
+		if !errors.As(err, &ce) {
+			t.Fatalf("%s: err = %v, want a ConfigurationError", name, err)
+		}
+		if n := len(m.all()); n != 0 {
+			t.Errorf("%s: %d requests sent", name, n)
+		}
+	}
+}
+
 func TestIdempotencyKeyValidation(t *testing.T) {
-	for name, key := range map[string]string{"empty": "", "256 characters": strings.Repeat("k", 256)} {
+	for name, key := range map[string]string{
+		"empty":              "",
+		"256 characters":     strings.Repeat("k", 256),
+		"non-ASCII text":     "注文-1",
+		"an accented letter": "café",
+		"a newline":          "a\nb",
+		"leading space":      " order-1",
+		"trailing space":     "order-1 ",
+		"only spaces":        "   ",
+	} {
 		client, m := newMockClientWith(t, []response{okJSON})
 		_, err := client.Sessions.Create(context.Background(), didit.SessionsCreateParams{WorkflowID: "w"}, option.WithIdempotencyKey(key))
 		var ce *didit.ConfigurationError
@@ -86,7 +110,7 @@ func TestIdempotencyKeyValidation(t *testing.T) {
 			t.Errorf("%s: %d requests sent", name, n)
 		}
 	}
-	for _, key := range []string{"k", strings.Repeat("k", 255), strings.Repeat("é", 255)} {
+	for _, key := range []string{"k", strings.Repeat("k", 255), "order 1", "a b"} {
 		client, _ := newMockClientWith(t, []response{okJSON})
 		if _, err := client.Sessions.Create(context.Background(), didit.SessionsCreateParams{WorkflowID: "w"}, option.WithIdempotencyKey(key)); err != nil {
 			t.Errorf("%d characters: %v", len([]rune(key)), err)

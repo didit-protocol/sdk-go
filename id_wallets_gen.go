@@ -864,6 +864,9 @@ type IDWalletsStartAudkenniParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -950,6 +953,9 @@ type IDWalletsStartBankidCzParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1022,6 +1028,9 @@ type IDWalletsStartBankidNoParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1094,6 +1103,9 @@ type IDWalletsStartBankidSeParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1166,6 +1178,9 @@ type IDWalletsStartBuypassParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1227,6 +1242,9 @@ type IDWalletsStartConnectidParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1303,6 +1321,9 @@ type IDWalletsStartDiiaParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1376,6 +1397,9 @@ type IDWalletsStartEparakstsMobileParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1449,6 +1473,9 @@ type IDWalletsStartEudiParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1610,6 +1637,9 @@ type IDWalletsStartFranceconnectParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1684,6 +1714,9 @@ type IDWalletsStartFrejaidParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1744,6 +1777,9 @@ type IDWalletsStartFtnParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1817,6 +1853,9 @@ type IDWalletsStartGoogleWalletParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1895,6 +1934,9 @@ type IDWalletsStartGovbrParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -1968,6 +2010,9 @@ type IDWalletsStartGovukWalletParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2040,6 +2085,9 @@ type IDWalletsStartIdcardEeParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2112,6 +2160,9 @@ type IDWalletsStartIdinParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2185,6 +2236,9 @@ type IDWalletsStartItsmeParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2263,6 +2317,9 @@ type IDWalletsStartMitidParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2336,6 +2393,9 @@ type IDWalletsStartMobileIDParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2405,6 +2465,9 @@ type IDWalletsStartMojeidParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2466,6 +2529,9 @@ type IDWalletsStartOneidParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2527,6 +2593,9 @@ type IDWalletsStartPersonalausweisParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2601,6 +2670,9 @@ type IDWalletsStartSmartIDParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2673,6 +2745,9 @@ type IDWalletsStartUaePassParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
@@ -2746,6 +2821,9 @@ type IDWalletsStartVippsParams struct {
 	// wallet and body returns the original verification without starting a second
 	// sign-in; the same key with another wallet or body returns 409
 	// idempotency_key_reused.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
