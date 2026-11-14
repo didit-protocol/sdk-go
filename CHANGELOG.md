@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.24.0](https://github.com/didit-protocol/sdk-go/compare/v1.23.0...v1.24.0) (2026-11-14)
+
+
+### Features
+
+* per-request idempotency key ([#69](https://github.com/didit-protocol/sdk-go/issues/69)) ([45951af](https://github.com/didit-protocol/sdk-go/commit/45951af112975e92285bb06bdcd788927522d1b7))
+
 ## [1.23.0](https://github.com/didit-protocol/sdk-go/compare/v1.22.0...v1.23.0) (2026-11-14)
 
 
