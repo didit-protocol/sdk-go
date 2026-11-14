@@ -73,6 +73,28 @@ func TestWebhooksDestinationsList(t *testing.T) {
 	_ = res
 }
 
+func TestWebhooksDestinationsListActivity(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"id":"00000000-0000-4000-8000-000000000003","type":"failure_alert","occurred_at":"2026-11-11T01:00:00Z","failure_count":3}]}`)
+	var params didit.WebhooksDestinationsListActivityParams
+	params.Limit = didit.Int(50)
+	params.Offset = didit.Int(0)
+	res, err := client.Webhooks.Destinations.ListActivity(context.Background(), "destination-uuid-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/organization/org-test/application/app-test/webhook/destinations/destination-uuid-1/activity/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"id", "type", "occurred_at", "failure_count"})
+}
+
 func TestWebhooksDestinationsListDeliveries(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"count":3,"next":null,"previous":null,"results":[{"uuid":"66666666-7777-8888-9999-000000000003","session_id":null,"request_url":"https://yourapp.com/webhooks/didit","response_status":null,"response_time_ms":null,"status":"APPROVED","webhook_type":"transaction.created","created_at":"2026-10-15T09:23:02.871190Z"},{"uuid":"66666666-7777-8888-9999-000000000002","session_id":"22222222-3333-4444-5555-666666666666","request_url":"https://yourapp.com/webhooks/didit","response_status":200,"response_time_ms":143,"status":"In Progress","webhook_type":"status.updated","created_at":"2026-10-15T09:22:19.104233Z"},{"uuid":"66666666-7777-8888-9999-000000000001","session_id":"22222222-3333-4444-5555-666666666666","request_url":"https://yourapp.com/webhooks/didit","response_status":503,"response_time_ms":412,"status":"In Progress","webhook_type":"status.updated","created_at":"2026-10-15T09:21:18.412345Z"}]}`)
 	var params didit.WebhooksDestinationsListDeliveriesParams
