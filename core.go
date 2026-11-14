@@ -188,7 +188,7 @@ func (c *Client) do(ctx context.Context, r *apiRequest, dst any, opts []option.R
 	// goes out on the four write methods only.
 	if hasKey {
 		if !validIdempotencyKey(key) {
-			return nil, &ConfigurationError{Message: "the idempotency key must be 1 to 255 printable ASCII characters"}
+			return nil, &ConfigurationError{Message: "the idempotency key must be 1 to 255 printable ASCII characters that neither start nor end with a space"}
 		}
 		if sendsIdempotencyKey(r.method) {
 			header.Set(idempotencyKeyHeader, key)
@@ -197,10 +197,13 @@ func (c *Client) do(ctx context.Context, r *apiRequest, dst any, opts []option.R
 	return c.send(ctx, cfg, r, u, header, body, dst)
 }
 
-// validIdempotencyKey reports whether key is 1 to 255 printable ASCII characters (space to "~"): the key
-// travels as an HTTP header value.
+// validIdempotencyKey reports whether key is 1 to 255 printable ASCII characters (space to "~") that neither
+// start nor end with a space: the key travels as an HTTP header value that the server trims.
 func validIdempotencyKey(key string) bool {
 	if len(key) < 1 || len(key) > option.MaxIdempotencyKeyLength {
+		return false
+	}
+	if key[0] == ' ' || key[len(key)-1] == ' ' {
 		return false
 	}
 	for i := 0; i < len(key); i++ {
