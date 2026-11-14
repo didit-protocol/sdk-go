@@ -127,6 +127,33 @@ func (r *WebhooksDestinationsService) List(ctx context.Context, opts ...option.R
 	return res, nil
 }
 
+// ListActivity: List webhook destination activity.
+//
+// Lists recorded failure alerts for one destination, newest first. Requires
+// read:webhooks. Application/API-key credentials must belong to the application
+// in the path; member Bearer tokens must have access to that application. These
+// are failure alert events, not individual delivery attempts or outbound
+// webhook event types. See
+// [Webhooks](https://docs.didit.me/integration/webhooks#retry-policy).
+//
+// It returns one page; ListActivityAutoPaging iterates over every item of every
+// page.
+//
+// The organization and application ids come from the client options.
+//
+//	GET /v3/organization/{organization_id}/application/{application_id}/webhook/destinations/{destination_uuid}/activity/
+func (r *WebhooksDestinationsService) ListActivity(ctx context.Context, destinationUUID string, params WebhooksDestinationsListActivityParams, opts ...option.RequestOption) (*Page[WebhookDestinationActivity], error) {
+	return getPage[WebhookDestinationActivity](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/webhook/destinations/{destination_uuid}/activity/", pathParams: []string{"destination_uuid", destinationUUID}, appScope: true, params: params}, opts)
+}
+
+// ListActivityAutoPaging iterates over every item of every page of
+// ListActivity, fetching pages as needed.
+func (r *WebhooksDestinationsService) ListActivityAutoPaging(ctx context.Context, destinationUUID string, params WebhooksDestinationsListActivityParams, opts ...option.RequestOption) *PageIterator[WebhookDestinationActivity] {
+	return newPageIterator(ctx, func() (*Page[WebhookDestinationActivity], error) {
+		return r.ListActivity(ctx, destinationUUID, params, opts...)
+	})
+}
+
 // ListDeliveries: List webhook destination deliveries.
 //
 // Page through every delivery attempt to one webhook destination, newest first.
@@ -970,6 +997,56 @@ type WebhooksDestinationsListResponseDailyPoints struct {
 func (r *WebhooksDestinationsListResponseDailyPoints) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// WebhooksDestinationsListActivityParams holds the parameters of
+// Client.Webhooks.Destinations.ListActivity.
+type WebhooksDestinationsListActivityParams struct {
+	// Maximum results per page.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Number of results to skip.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r WebhooksDestinationsListActivityParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// WebhookDestinationActivity is a response object.
+type WebhookDestinationActivity struct {
+	// Failure alert identifier.
+	ID string `json:"id"`
+
+	// Activity type.
+	Type WebhookDestinationActivityType `json:"type"`
+
+	// Time of the failure alert.
+	OccurredAt time.Time `json:"occurred_at"`
+
+	// Failure count recorded with this alert.
+	FailureCount int64 `json:"failure_count"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhookDestinationActivity leniently.
+func (r *WebhookDestinationActivity) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// WebhookDestinationActivityType: Activity type.
+//
+// WebhookDestinationActivityType is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type WebhookDestinationActivityType string
+
+// Known values of WebhookDestinationActivityType.
+const (
+	WebhookDestinationActivityTypeFailureAlert WebhookDestinationActivityType = "failure_alert"
+)
 
 // WebhooksDestinationsListDeliveriesParams holds the parameters of
 // Client.Webhooks.Destinations.ListDeliveries.
