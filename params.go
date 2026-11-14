@@ -69,6 +69,27 @@ func encodeHeaders(params any, h http.Header) {
 	}
 }
 
+// headerParamValue returns the value of the header parameter called name when
+// it is set, even to an empty string (encodeHeaders skips empty values).
+func headerParamValue(params any, name string) (string, bool) {
+	rv, ok := structValue(params)
+	if !ok {
+		return "", false
+	}
+	indexes, names := apijson.Fields(rv.Type(), "header")
+	for i, idx := range indexes {
+		if http.CanonicalHeaderKey(names[i]) != name {
+			continue
+		}
+		if v, set := scalarValue(rv.Field(idx)); set {
+			if s, isString := v.(string); isString {
+				return s, true
+			}
+		}
+	}
+	return "", false
+}
+
 // encodeJSONBody returns the JSON body of params.
 func encodeJSONBody(params any) ([]byte, error) {
 	if rv, ok := structValue(params); ok {
