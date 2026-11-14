@@ -223,6 +223,9 @@ type AMLScreenParams struct {
 	// the same request body returns the original response without running or
 	// billing a second screening. Reusing the key with a different body returns
 	// `409`.
+	//
+	// Deprecated: pass option.WithIdempotencyKey instead; the option wins when both
+	// are set.
 	IdempotencyKey Opt[string] `json:"-" header:"Idempotency-Key"`
 }
 
