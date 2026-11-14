@@ -42,9 +42,11 @@ type BankService struct {
 // that does not exist and a `cannot_verify` are billed too. A request answered
 // with an error is never billed.
 //
-// **Every request is a new check.** There is no idempotency key and no endpoint
-// to read a check back, so a retried request runs, and is billed, again. Store
-// the response.
+// **Retries.** Send an `Idempotency-Key` header: the same key and body return
+// the first response, with the same `request_id`, and the check runs and is
+// billed once. Without a key, every request is a new check and no endpoint to
+// read a check back, so a retried request runs, and is billed, again. Store the
+// response.
 //
 // **Sandbox.** Use a sandbox API key with the sample account details. A sandbox
 // key calls no bank and is charged nothing. The last 4 characters of the IBAN,

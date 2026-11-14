@@ -339,10 +339,10 @@ func (r *SessionsService) CreateKYBPartyDraft(ctx context.Context, sessionID str
 // endpoint returned `204 No Content`; update clients that assert on `204`. Keep
 // your `instruction_id` in your own erasure log.
 //
-// **Idempotency:** not idempotent at the HTTP level: the first call returns
-// `200`; repeating it returns `404` because the session no longer resolves.
-// After a `503` the session is still in place; repeat the same request to
-// finish deleting it.
+// **Idempotency:** without an `Idempotency-Key`, repeating a delete returns
+// `404` because the session no longer resolves; with the same key, a repeat of
+// a successful delete returns the first `200` response. After a `503` the
+// session is still in place; repeat the same request to finish deleting it.
 //
 // **Authentication:** send your application's API key in the `x-api-key`
 // header; the session must belong to that application. Console user access
@@ -514,8 +514,9 @@ func (r *SessionsService) GetFilesExport(ctx context.Context, sessionID string, 
 // application.
 //
 // Redeem a share token to clone a KYC or KYB session into the calling
-// application with a fresh `session_id`. Not idempotent - a token redeems once
-// per receiver.
+// application with a fresh `session_id`. Without an `Idempotency-Key` a token
+// redeems once per receiver; repeat it with the same key to get the first
+// response back.
 //
 //	POST /v3/session/import-shared/
 func (r *SessionsService) ImportShared(ctx context.Context, params SessionsImportSharedParams, opts ...option.RequestOption) (*SessionDecision, error) {
