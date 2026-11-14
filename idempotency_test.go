@@ -74,6 +74,21 @@ func TestIdempotencyKeyNotAcceptedOnClient(t *testing.T) {
 	}
 }
 
+// An invalid key option is refused before any request on every method, a GET included.
+func TestIdempotencyKeyInvalidOnGetIsRefused(t *testing.T) {
+	for name, key := range map[string]string{"non-ASCII text": "注文-1", "empty": "", "256 characters": strings.Repeat("k", 256)} {
+		client, m := newMockClientWith(t, []response{okJSON})
+		_, err := client.Billing.RetrieveBalance(context.Background(), option.WithIdempotencyKey(key))
+		var ce *didit.ConfigurationError
+		if !errors.As(err, &ce) {
+			t.Fatalf("%s: err = %v, want a ConfigurationError", name, err)
+		}
+		if n := len(m.all()); n != 0 {
+			t.Errorf("%s: %d requests sent", name, n)
+		}
+	}
+}
+
 func TestIdempotencyKeyValidation(t *testing.T) {
 	for name, key := range map[string]string{
 		"empty":              "",

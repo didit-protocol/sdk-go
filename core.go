@@ -184,13 +184,15 @@ func (c *Client) do(ctx context.Context, r *apiRequest, dst any, opts []option.R
 		}
 		header[name] = values
 	}
-	// Whatever its source, the key goes out on the four write methods only,
-	// and only when it is valid.
-	if hasKey && sendsIdempotencyKey(r.method) {
+	// Whatever its source, an invalid key is refused before any request on every method; a valid one
+	// goes out on the four write methods only.
+	if hasKey {
 		if !validIdempotencyKey(key) {
 			return nil, &ConfigurationError{Message: "the idempotency key must be 1 to 255 printable ASCII characters"}
 		}
-		header.Set(idempotencyKeyHeader, key)
+		if sendsIdempotencyKey(r.method) {
+			header.Set(idempotencyKeyHeader, key)
+		}
 	}
 	return c.send(ctx, cfg, r, u, header, body, dst)
 }
