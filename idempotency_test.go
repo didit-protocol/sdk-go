@@ -75,7 +75,13 @@ func TestIdempotencyKeyNotAcceptedOnClient(t *testing.T) {
 }
 
 func TestIdempotencyKeyValidation(t *testing.T) {
-	for name, key := range map[string]string{"empty": "", "256 characters": strings.Repeat("k", 256)} {
+	for name, key := range map[string]string{
+		"empty":              "",
+		"256 characters":     strings.Repeat("k", 256),
+		"non-ASCII text":     "注文-1",
+		"an accented letter": "café",
+		"a newline":          "a\nb",
+	} {
 		client, m := newMockClientWith(t, []response{okJSON})
 		_, err := client.Sessions.Create(context.Background(), didit.SessionsCreateParams{WorkflowID: "w"}, option.WithIdempotencyKey(key))
 		var ce *didit.ConfigurationError
@@ -86,7 +92,7 @@ func TestIdempotencyKeyValidation(t *testing.T) {
 			t.Errorf("%s: %d requests sent", name, n)
 		}
 	}
-	for _, key := range []string{"k", strings.Repeat("k", 255), strings.Repeat("é", 255)} {
+	for _, key := range []string{"k", strings.Repeat("k", 255), "order 1"} {
 		client, _ := newMockClientWith(t, []response{okJSON})
 		if _, err := client.Sessions.Create(context.Background(), didit.SessionsCreateParams{WorkflowID: "w"}, option.WithIdempotencyKey(key)); err != nil {
 			t.Errorf("%d characters: %v", len([]rune(key)), err)

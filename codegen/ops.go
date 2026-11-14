@@ -255,6 +255,41 @@ func (g *Gen) hasFileProperty(doc *Doc, schema *Node) bool {
 	return false
 }
 
+// The key is sent through the per-request option.WithIdempotencyKey (DESIGN.md), so the Idempotency-Key header
+// is not generated as a params field. These operations already exposed it as a generated IdempotencyKey field in
+// published releases: removing it would break their callers in a minor release, so they keep it (documented as
+// deprecated, the option wins). Never add an operation here.
+var legacyIdempotencyKeyField = map[string]bool{
+	"POST /v3/aml/":                                      true,
+	"POST /v3/billing/top-up/":                           true,
+	"POST /v3/id-verification/wallets/audkenni/":         true,
+	"POST /v3/id-verification/wallets/bankid-cz/":        true,
+	"POST /v3/id-verification/wallets/bankid-no/":        true,
+	"POST /v3/id-verification/wallets/bankid-se/":        true,
+	"POST /v3/id-verification/wallets/buypass/":          true,
+	"POST /v3/id-verification/wallets/connectid/":        true,
+	"POST /v3/id-verification/wallets/diia/":             true,
+	"POST /v3/id-verification/wallets/eparaksts-mobile/": true,
+	"POST /v3/id-verification/wallets/eudi/":             true,
+	"POST /v3/id-verification/wallets/franceconnect/":    true,
+	"POST /v3/id-verification/wallets/frejaid/":          true,
+	"POST /v3/id-verification/wallets/ftn/":              true,
+	"POST /v3/id-verification/wallets/google-wallet/":    true,
+	"POST /v3/id-verification/wallets/govbr/":            true,
+	"POST /v3/id-verification/wallets/govuk-wallet/":     true,
+	"POST /v3/id-verification/wallets/idcard-ee/":        true,
+	"POST /v3/id-verification/wallets/idin/":             true,
+	"POST /v3/id-verification/wallets/itsme/":            true,
+	"POST /v3/id-verification/wallets/mitid/":            true,
+	"POST /v3/id-verification/wallets/mobile-id/":        true,
+	"POST /v3/id-verification/wallets/mojeid/":           true,
+	"POST /v3/id-verification/wallets/oneid/":            true,
+	"POST /v3/id-verification/wallets/personalausweis/":  true,
+	"POST /v3/id-verification/wallets/smart-id/":         true,
+	"POST /v3/id-verification/wallets/uae-pass/":         true,
+	"POST /v3/id-verification/wallets/vipps/":            true,
+}
+
 func (g *Gen) buildParams(op *Operation, m *Method, prefix string, params []*Node) error {
 	var query, header []*Node
 	for _, p := range params {
@@ -265,6 +300,10 @@ func (g *Gen) buildParams(op *Operation, m *Method, prefix string, params []*Nod
 			switch strings.ToLower(p.Get("name").Text()) {
 			case "content-type", "accept", "x-api-key":
 				continue
+			case "idempotency-key":
+				if !legacyIdempotencyKeyField[op.Key] {
+					continue
+				}
 			}
 			header = append(header, p)
 		}
@@ -402,6 +441,9 @@ func (g *Gen) paramField(op *Operation, p *Node, structName string, used map[str
 	}
 	required := p.Get("required").Truthy()
 	doc := p.Get("description").Text()
+	if tag == "header" && strings.EqualFold(pname, "idempotency-key") {
+		doc = strings.TrimSpace(doc) + "\n\nDeprecated: pass option.WithIdempotencyKey instead; the option wins when both are set."
+	}
 	return &Field{GoName: goName, Name: pname, Type: t, Opt: !required, Tag: tag, Required: required, Doc: doc}, nil
 }
 

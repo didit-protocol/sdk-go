@@ -132,6 +132,54 @@ func TestSmallSpec(t *testing.T) {
 	}
 }
 
+// The shared Idempotency-Key header is generated only where it was already published: a newly covered
+// operation gets no field (the per-request option is the way in), a legacy one keeps a deprecated field.
+func TestIdempotencyKeyHeaderOnlyOnLegacyOperations(t *testing.T) {
+	dir := writeSpec(t, `{"openapi":"3.0.0","paths":{
+		"/v3/aml/":{"post":{
+			"parameters":[{"name":"Idempotency-Key","in":"header","description":"Retry-safety key.","schema":{"type":"string"}}],
+			"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Thing"}}}},
+			"responses":{"201":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Thing"}}}}}}},
+		"/v3/things/":{"post":{
+			"parameters":[{"name":"Idempotency-Key","in":"header","schema":{"type":"string"}},
+				{"name":"X-Trace-Id","in":"header","schema":{"type":"string"}}],
+			"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Thing"}}}},
+			"responses":{"201":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Thing"}}}}}}},
+		"/v3/things/{thing_id}/":{"delete":{
+			"parameters":[{"name":"thing_id","in":"path","required":true,"schema":{"type":"string"}},
+				{"name":"Idempotency-Key","in":"header","schema":{"type":"string"}}],
+			"responses":{"204":{"description":"gone"}}}}},
+		"components":{"schemas":{"Thing":{"type":"object","properties":{"id":{"type":"string"}}}}}}`,
+		`{"operations":{
+			"POST /v3/aml/":{"resource":"aml","method":"screen","auth":"api_key","server":true},
+			"POST /v3/things/":{"resource":"things","method":"create","auth":"api_key","server":true},
+			"DELETE /v3/things/{thing_id}/":{"resource":"things","method":"delete","auth":"api_key","server":true}}}`)
+	files, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := map[string]string{}
+	for _, f := range files {
+		code[f.Name] = string(f.Content)
+	}
+	if strings.Contains(strings.ToLower(code["things_gen.go"]), "idempotency") {
+		t.Errorf("the header reached a newly covered operation:\n%s", code["things_gen.go"])
+	}
+	if !strings.Contains(code["things_gen.go"], `header:"X-Trace-Id"`) {
+		t.Errorf("another header parameter was dropped:\n%s", code["things_gen.go"])
+	}
+	if strings.Contains(code["things_gen.go"], "ThingsDeleteParams") {
+		t.Errorf("an operation with no other parameter gained a params struct:\n%s", code["things_gen.go"])
+	}
+	aml := code["aml_gen.go"]
+	if !strings.Contains(aml, `header:"Idempotency-Key"`) || !strings.Contains(aml, "Deprecated: pass option.WithIdempotencyKey") {
+		t.Errorf("a published operation lost its field or its deprecation note:\n%s", aml)
+	}
+	if len(legacyIdempotencyKeyField) != 28 {
+		t.Errorf("the legacy list has %d entries, want the 28 published operations", len(legacyIdempotencyKeyField))
+	}
+}
+
 // A success without declared content returns raw JSON unless it is a 204.
 func TestResponseWithoutContent(t *testing.T) {
 	dir := writeSpec(t, `{"openapi":"3.0.0","paths":{
