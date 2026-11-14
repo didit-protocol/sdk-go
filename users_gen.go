@@ -57,7 +57,8 @@ func (r *UsersService) BatchDelete(ctx context.Context, params UsersBatchDeleteP
 //
 // Create a [user](/entities/users) by `vendor_data`, before or without a
 // verification session. `vendor_data` must be unique among the application's
-// users (a duplicate returns `400`). Not idempotent.
+// users (a duplicate returns `400`). Not idempotent without an
+// `Idempotency-Key`.
 //
 // **Contact details:** `email` and `phone_number` are stored in
 // `metadata.contact`, and `country` in `metadata.address`. When you send

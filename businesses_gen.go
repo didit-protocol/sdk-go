@@ -43,7 +43,7 @@ func (r *BusinessesService) BatchDelete(ctx context.Context, params BusinessesBa
 // fields are optional, but you should always send `vendor_data` - without it
 // the record cannot be linked to sessions or transactions. When provided,
 // `vendor_data` must be unique among non-deleted businesses (exact match;
-// conflicts return 400). Not idempotent.
+// conflicts return 400). Not idempotent without an `Idempotency-Key`.
 //
 //	POST /v3/businesses/create/
 func (r *BusinessesService) Create(ctx context.Context, params BusinessesCreateParams, opts ...option.RequestOption) (*BusinessDetailItem, error) {
