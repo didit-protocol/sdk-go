@@ -130,6 +130,14 @@ type DatabaseValidationValidateParams struct {
 	// `services_requiring_consent`.
 	Consent Opt[bool] `json:"consent"`
 
+	// Paraguay (`pry_cedula`) only. Set to `true` to check the cédula against the
+	// TSJE electoral roll alone. The electoral roll lists only citizens aged 18 or
+	// over, so a `MATCH` also confirms that the holder is an adult, and a cédula
+	// that is not on the roll returns `DOCUMENT_NOT_FOUND`. Defaults to `false`,
+	// which also checks the DNIT taxpayer register for wider identity coverage but
+	// cannot confirm age. Any other service rejects it with `400`.
+	ElectoralRollOnly Opt[bool] `json:"electoral_roll_only"`
+
 	// Universal identification number - automatically mapped to the correct
 	// country-specific field, so you can use it instead of
 	// `personal_number`/`tax_number`/`document_number`: ARG→document_number (DNI),
