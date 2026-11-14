@@ -2180,6 +2180,12 @@ type TransactionTravelRule struct {
 	// requested.
 	UserChoice TravelRuleUserChoice `json:"user_choice"`
 
+	// Latest application- and subject-scoped request if it matches this transfer
+	// counterparty wallet and chain; otherwise null. A standalone request is not
+	// attached to a transfer. Request status and proof verdict are separate from
+	// the saved transfer decision.
+	ProofRequest TravelRuleTransferProofRequest `json:"proof_request"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -2720,6 +2726,12 @@ type TransactionListTravelRule struct {
 	// Explicit user-choice state, or null when counterparty_choice=user was not
 	// requested.
 	UserChoice TravelRuleUserChoice `json:"user_choice"`
+
+	// Latest application- and subject-scoped request if it matches this transfer
+	// counterparty wallet and chain; otherwise null. A standalone request is not
+	// attached to a transfer. Request status and proof verdict are separate from
+	// the saved transfer decision.
+	ProofRequest TravelRuleTransferProofRequest `json:"proof_request"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.

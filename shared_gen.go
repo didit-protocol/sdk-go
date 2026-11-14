@@ -3565,6 +3565,196 @@ func (r *TravelRuleUserChoice) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// TravelRuleTransferProofRequest is a response object.
+type TravelRuleTransferProofRequest struct {
+	// Identifier of the matching widget request. Does not expose its access token.
+	RequestID string `json:"request_id"`
+
+	// COMPLETED when the request was completed; otherwise EXPIRED once expires_at
+	// has passed, or PENDING. This is the request status, not the proof verdict.
+	Status TravelRuleTransferProofRequestStatus `json:"status"`
+
+	// Expiry of the widget request.
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Latest proof submitted for this request and matching wallet/chain, or null
+	// when none exists. Null after the wallet and its proofs are deleted; the saved
+	// transfer decision stays unchanged.
+	Proof TravelRuleWalletProof `json:"proof"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleTransferProofRequest leniently.
+func (r *TravelRuleTransferProofRequest) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleTransferProofRequestStatus: COMPLETED when the request was
+// completed; otherwise EXPIRED once expires_at has passed, or PENDING. This is
+// the request status, not the proof verdict.
+//
+// TravelRuleTransferProofRequestStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleTransferProofRequestStatus string
+
+// Known values of TravelRuleTransferProofRequestStatus.
+const (
+	TravelRuleTransferProofRequestStatusPending   TravelRuleTransferProofRequestStatus = "PENDING"
+	TravelRuleTransferProofRequestStatusCompleted TravelRuleTransferProofRequestStatus = "COMPLETED"
+	TravelRuleTransferProofRequestStatusExpired   TravelRuleTransferProofRequestStatus = "EXPIRED"
+)
+
+// TravelRuleWalletProof: Proof attached to a transfer request. Supports every
+// ownership method; screenshot-only metadata can be null. Review history, notes
+// and decision attribution remain available.
+type TravelRuleWalletProof struct {
+	ProofID       string                      `json:"proof_id"`
+	Method        TravelRuleWalletProofMethod `json:"method"`
+	Status        TravelRuleWalletProofStatus `json:"status"`
+	WalletAddress string                      `json:"wallet_address"`
+
+	// Canonical chain identifier, e.g. ETH, BTC, SOL, TRX.
+	Chain string `json:"chain"`
+
+	// Holder name from the submitting widget, never a reassigned holder. Empty when
+	// the submitting widget was deleted.
+	HolderName string `json:"holder_name"`
+
+	// Whether the address book entry is ownership-verified, by this proof or
+	// another one.
+	IsOwnershipVerified bool `json:"is_ownership_verified"`
+
+	// The transaction whose Travel Rule transfer the widget session was minted for.
+	// Null for a session minted without a transaction_id.
+	TransactionID string `json:"transaction_id"`
+	FileName      string `json:"file_name"`
+	ContentType   string `json:"content_type"`
+
+	// Authorized /v3/media/preview/ URL with an expiring signed source for this
+	// proof screenshot. Returns a recompressed preview, not the original upload or
+	// an arbitrary public URL. Null when no eligible screenshot exists. Read the
+	// proof again for a fresh link.
+	ScreenshotURL string `json:"screenshot_url"`
+
+	// Number of attempts made for this proof.
+	Attempts int64 `json:"attempts"`
+
+	// Fixed failure code for this proof or its last attempt; empty when no
+	// documented failure applies. A PENDING proof can carry a failure code while
+	// another attempt remains possible.
+	FailureReason TravelRuleWalletProofFailureReason `json:"failure_reason"`
+
+	// When the end user chose this proof method, or null when unavailable.
+	MethodChosenAt time.Time `json:"method_chosen_at"`
+	DecidedAt      time.Time `json:"decided_at"`
+
+	// Who closed the proof: review:<user identifier> for a console reviewer, review
+	// for an API-key decision, widget or sweeper when Didit closed it
+	// automatically. Empty while PENDING.
+	DecidedBy string `json:"decided_by"`
+
+	// The note sent with the decision. Empty when none.
+	ReviewNote string    `json:"review_note"`
+	CreatedAt  time.Time `json:"created_at"`
+
+	// Application that owns the wallet and proof.
+	ApplicationID string `json:"application_id"`
+
+	// User in this application matching the submitting widget vendor_data. Null
+	// when no matching current user exists, or the submitting widget was deleted.
+	// Never the reassigned wallet holder.
+	UserID string `json:"user_id"`
+
+	// Holder identifier from the submitting widget, not the current wallet holder.
+	// Empty when the submitting widget was deleted.
+	HolderVendorData string `json:"holder_vendor_data"`
+
+	// Exact current wallet label, including an empty string when no label is set.
+	// Not a name inferred from the holder or address.
+	WalletLabel string `json:"wallet_label"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleWalletProof leniently.
+func (r *TravelRuleWalletProof) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleWalletProofMethod is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleWalletProofMethod string
+
+// Known values of TravelRuleWalletProofMethod.
+const (
+	TravelRuleWalletProofMethodMessageSigning  TravelRuleWalletProofMethod = "MESSAGE_SIGNING"
+	TravelRuleWalletProofMethodSatoshiTest     TravelRuleWalletProofMethod = "SATOSHI_TEST"
+	TravelRuleWalletProofMethodScreenshot      TravelRuleWalletProofMethod = "SCREENSHOT"
+	TravelRuleWalletProofMethodSelfDeclaration TravelRuleWalletProofMethod = "SELF_DECLARATION"
+)
+
+// TravelRuleWalletProofStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleWalletProofStatus string
+
+// Known values of TravelRuleWalletProofStatus.
+const (
+	TravelRuleWalletProofStatusPending  TravelRuleWalletProofStatus = "PENDING"
+	TravelRuleWalletProofStatusVerified TravelRuleWalletProofStatus = "VERIFIED"
+	TravelRuleWalletProofStatusRejected TravelRuleWalletProofStatus = "REJECTED"
+	TravelRuleWalletProofStatusExpired  TravelRuleWalletProofStatus = "EXPIRED"
+)
+
+// TravelRuleWalletProofFailureReason: Why a wallet-ownership proof, or its last
+// attempt, fell short of VERIFIED. Empty when nothing failed. A PENDING proof
+// can carry one: the last attempt failed and the end user can try again.
+// DEPOSIT_MISMATCH, DEPOSIT_STALE, TXID_REUSED and REVIEW_REJECTED close the
+// proof as REJECTED. SIGNATURE_INVALID: the signature does not match the wallet
+// and challenge. SIGNATURE_UNSUPPORTED_SCHEME: the wallet signed in a format
+// Didit does not verify. DEPOSIT_NOT_FOUND, DEPOSIT_UNCONFIRMED,
+// DEPOSIT_LOOKUP_FAILED: the test deposit is not readable or not confirmed yet;
+// Didit keeps checking it until the test window closes. DEPOSIT_MISMATCH: the
+// transaction does not send the expected amount from the wallet to the deposit
+// address. DEPOSIT_STALE: the transaction predates the challenge. TXID_REUSED:
+// the transaction already proved another wallet. CHAIN_UNSUPPORTED: the method
+// is not available on this chain. WINDOW_EXPIRED: the test window closed.
+// OWNERSHIP_CHANGED: the wallet's holder changed, or the wallet was deleted
+// from your address book, after the widget session was minted. METHOD_SWITCHED:
+// the end user picked another method before finishing this one.
+// REVIEW_REJECTED: your reviewer rejected the screenshot. ABANDONED: the widget
+// session lapsed before the end user finished. SIGNATURE_LOOKUP_FAILED: the
+// chain could not be checked for a smart-contract wallet signature; retry
+// verification.
+//
+// TravelRuleWalletProofFailureReason is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleWalletProofFailureReason string
+
+// Known values of TravelRuleWalletProofFailureReason.
+const (
+	TravelRuleWalletProofFailureReasonEmpty                      TravelRuleWalletProofFailureReason = ""
+	TravelRuleWalletProofFailureReasonSignatureInvalid           TravelRuleWalletProofFailureReason = "SIGNATURE_INVALID"
+	TravelRuleWalletProofFailureReasonSignatureUnsupportedScheme TravelRuleWalletProofFailureReason = "SIGNATURE_UNSUPPORTED_SCHEME"
+	TravelRuleWalletProofFailureReasonSignatureLookupFailed      TravelRuleWalletProofFailureReason = "SIGNATURE_LOOKUP_FAILED"
+	TravelRuleWalletProofFailureReasonDepositNotFound            TravelRuleWalletProofFailureReason = "DEPOSIT_NOT_FOUND"
+	TravelRuleWalletProofFailureReasonDepositUnconfirmed         TravelRuleWalletProofFailureReason = "DEPOSIT_UNCONFIRMED"
+	TravelRuleWalletProofFailureReasonDepositLookupFailed        TravelRuleWalletProofFailureReason = "DEPOSIT_LOOKUP_FAILED"
+	TravelRuleWalletProofFailureReasonDepositMismatch            TravelRuleWalletProofFailureReason = "DEPOSIT_MISMATCH"
+	TravelRuleWalletProofFailureReasonDepositStale               TravelRuleWalletProofFailureReason = "DEPOSIT_STALE"
+	TravelRuleWalletProofFailureReasonTxidReused                 TravelRuleWalletProofFailureReason = "TXID_REUSED"
+	TravelRuleWalletProofFailureReasonChainUnsupported           TravelRuleWalletProofFailureReason = "CHAIN_UNSUPPORTED"
+	TravelRuleWalletProofFailureReasonWindowExpired              TravelRuleWalletProofFailureReason = "WINDOW_EXPIRED"
+	TravelRuleWalletProofFailureReasonOwnershipChanged           TravelRuleWalletProofFailureReason = "OWNERSHIP_CHANGED"
+	TravelRuleWalletProofFailureReasonMethodSwitched             TravelRuleWalletProofFailureReason = "METHOD_SWITCHED"
+	TravelRuleWalletProofFailureReasonReviewRejected             TravelRuleWalletProofFailureReason = "REVIEW_REJECTED"
+	TravelRuleWalletProofFailureReasonAbandoned                  TravelRuleWalletProofFailureReason = "ABANDONED"
+)
+
 // TravelRuleTransferDetail: Full transfer object returned by the
 // ownership-confirmation and finish/cancel endpoints. While an inbound
 // transfer's wallet ownership is unconfirmed, the counterparty's
@@ -3690,6 +3880,12 @@ type TravelRuleTransferDetail struct {
 	// Explicit user-choice state, or null when counterparty_choice=user was not
 	// requested.
 	UserChoice TravelRuleUserChoice `json:"user_choice"`
+
+	// Latest application- and subject-scoped request if it matches this transfer
+	// counterparty wallet and chain; otherwise null. A standalone request is not
+	// attached to a transfer. Request status and proof verdict are separate from
+	// the saved transfer decision.
+	ProofRequest TravelRuleTransferProofRequest `json:"proof_request"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
