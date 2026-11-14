@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.0](https://github.com/didit-protocol/sdk-go/compare/v1.22.0...v1.23.0) (2026-11-14)
+
+
+### Features
+
+* **spec:** sync API spec 2026-11-14 ([92bf6d0](https://github.com/didit-protocol/sdk-go/commit/92bf6d0b3656aab778009b936863412b8e19823a))
+
 ## [1.22.0](https://github.com/didit-protocol/sdk-go/compare/v1.21.0...v1.22.0) (2026-11-14)
 
 
