@@ -16,6 +16,7 @@ type TravelRuleService struct {
 	client *Client
 
 	CounterpartyContacts *TravelRuleCounterpartyContactsService
+	Documents            *TravelRuleDocumentsService
 	Networks             *TravelRuleNetworksService
 	Transfers            *TravelRuleTransfersService
 	UnmatchedDeposits    *TravelRuleUnmatchedDepositsService
@@ -88,6 +89,28 @@ func (r *TravelRuleService) CreateWidgetSession(ctx context.Context, params Trav
 	return res, nil
 }
 
+// ListVASPDecisionHistory: List a VASP's decision history.
+//
+// Your application's own decision changes for the counterparty, newest first.
+// Only changes made after this history existed are listed. Needs the
+// transactions read privilege.
+//
+// It returns one page; ListVASPDecisionHistoryAutoPaging iterates over every
+// item of every page.
+//
+//	GET /v3/travel-rule/vasps/{vasp_id}/decision-history/
+func (r *TravelRuleService) ListVASPDecisionHistory(ctx context.Context, vaspID string, params TravelRuleListVASPDecisionHistoryParams, opts ...option.RequestOption) (*Page[TravelRuleDecisionEvent], error) {
+	return getPage[TravelRuleDecisionEvent](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/{vasp_id}/decision-history/", pathParams: []string{"vasp_id", vaspID}, params: params}, opts)
+}
+
+// ListVASPDecisionHistoryAutoPaging iterates over every item of every page of
+// ListVASPDecisionHistory, fetching pages as needed.
+func (r *TravelRuleService) ListVASPDecisionHistoryAutoPaging(ctx context.Context, vaspID string, params TravelRuleListVASPDecisionHistoryParams, opts ...option.RequestOption) *PageIterator[TravelRuleDecisionEvent] {
+	return newPageIterator(ctx, func() (*Page[TravelRuleDecisionEvent], error) {
+		return r.ListVASPDecisionHistory(ctx, vaspID, params, opts...)
+	})
+}
+
 // ListVASPQuestionnaires: List due-diligence questionnaires with a VASP.
 //
 // Every due-diligence questionnaire your application sent the counterparty,
@@ -114,6 +137,19 @@ func (r *TravelRuleService) ListVASPQuestionnaires(ctx context.Context, vaspID s
 func (r *TravelRuleService) ListVASPReviewers(ctx context.Context, opts ...option.RequestOption) (*TravelRuleListVASPReviewersResponse, error) {
 	res := new(TravelRuleListVASPReviewersResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/reviewers/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ListVASPSharedDocuments: List the documents shared with a VASP.
+//
+// The documents currently shared with the counterparty.
+//
+//	GET /v3/travel-rule/vasps/{vasp_id}/shared-documents/
+func (r *TravelRuleService) ListVASPSharedDocuments(ctx context.Context, vaspID string, opts ...option.RequestOption) (*TravelRuleListVASPSharedDocumentsResponse, error) {
+	res := new(TravelRuleListVASPSharedDocumentsResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/{vasp_id}/shared-documents/", pathParams: []string{"vasp_id", vaspID}}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -295,6 +331,22 @@ func (r *TravelRuleService) SendVASPQuestionnaire(ctx context.Context, vaspID st
 	return res, nil
 }
 
+// ShareVASPDocuments: Share documents with a VASP.
+//
+// Emails the counterparty a private link to the selected documents. Sharing
+// again replaces the earlier share: the earlier link stops working for good.
+// Sharing exactly what is already shared with the same address changes nothing
+// and answers `200` with `url: null`. Needs the transactions write privilege.
+//
+//	POST /v3/travel-rule/vasps/{vasp_id}/shared-documents/
+func (r *TravelRuleService) ShareVASPDocuments(ctx context.Context, vaspID string, params TravelRuleShareVASPDocumentsParams, opts ...option.RequestOption) (*TravelRuleDocumentShare, error) {
+	res := new(TravelRuleDocumentShare)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/vasps/{vasp_id}/shared-documents/", pathParams: []string{"vasp_id", vaspID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // UpdateSettings: Update Travel Rule settings.
 //
 // Upsert the application's Travel Rule settings and VASP profile. Partial
@@ -326,6 +378,30 @@ func (r *TravelRuleService) UpdateVASPDecision(ctx context.Context, vaspID strin
 		return nil, err
 	}
 	return res, nil
+}
+
+// WithdrawVASPDocuments: Withdraw the documents shared with a VASP.
+//
+// Revokes every active link to your documents for this counterparty. Withdrawal
+// is permanent: the links never work again, and sharing again creates a new
+// link.
+//
+//	DELETE /v3/travel-rule/vasps/{vasp_id}/shared-documents/
+func (r *TravelRuleService) WithdrawVASPDocuments(ctx context.Context, vaspID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/travel-rule/vasps/{vasp_id}/shared-documents/", pathParams: []string{"vasp_id", vaspID}}, nil, opts)
+	return err
+}
+
+// WithdrawVASPQuestionnaire: Withdraw a due-diligence request.
+//
+// Withdraws the request and erases the documents and answers collected with it.
+// Its answer link stops working. Deletion is irreversible. Needs the
+// transactions write privilege.
+//
+//	DELETE /v3/travel-rule/vasps/{vasp_id}/questionnaires/{questionnaire_id}/
+func (r *TravelRuleService) WithdrawVASPQuestionnaire(ctx context.Context, vaspID string, questionnaireID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/travel-rule/vasps/{vasp_id}/questionnaires/{questionnaire_id}/", pathParams: []string{"vasp_id", vaspID, "questionnaire_id", questionnaireID}}, nil, opts)
+	return err
 }
 
 // TravelRuleCounterpartyContactsService holds the travel_rule
@@ -380,6 +456,90 @@ func (r *TravelRuleCounterpartyContactsService) List(ctx context.Context, params
 // as needed.
 func (r *TravelRuleCounterpartyContactsService) ListAutoPaging(ctx context.Context, params TravelRuleCounterpartyContactsListParams, opts ...option.RequestOption) *PageIterator[TravelRuleCounterpartyContact] {
 	return newPageIterator(ctx, func() (*Page[TravelRuleCounterpartyContact], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Update: Edit a counterparty contact.
+//
+// Edits one of your application's own contacts. Changing the email address
+// clears its verification and invalid state. Platform contacts cannot be
+// edited.
+//
+//	PATCH /v3/travel-rule/counterparty-contacts/{contact_uuid}/
+func (r *TravelRuleCounterpartyContactsService) Update(ctx context.Context, contactUUID string, params TravelRuleCounterpartyContactsUpdateParams, opts ...option.RequestOption) (*TravelRuleCounterpartyContact, error) {
+	res := new(TravelRuleCounterpartyContact)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/travel-rule/counterparty-contacts/{contact_uuid}/", pathParams: []string{"contact_uuid", contactUUID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// TravelRuleDocumentsService holds the travel_rule documents operations. Use it
+// through Client.TravelRule.Documents.
+type TravelRuleDocumentsService struct {
+	client *Client
+}
+
+// Create: Upload a Travel Rule document.
+//
+// Stores a PDF in your inventory so you can share it with counterparties. The
+// file must be a PDF of at most 5 MiB. Uploading identical content of the same
+// kind again returns the existing document. Needs the transactions write
+// privilege.
+//
+//	POST /v3/travel-rule/documents/
+func (r *TravelRuleDocumentsService) Create(ctx context.Context, params TravelRuleDocumentsCreateParams, opts ...option.RequestOption) (*TravelRuleDocument, error) {
+	res := new(TravelRuleDocument)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/documents/", params: params, body: bodyMultipart}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Delete: Delete a Travel Rule document.
+//
+// Deletes the document and every link that shared it. Deletion is irreversible
+// and takes effect at once: shared links stop working.
+//
+//	DELETE /v3/travel-rule/documents/{document_id}/
+func (r *TravelRuleDocumentsService) Delete(ctx context.Context, documentID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/travel-rule/documents/{document_id}/", pathParams: []string{"document_id", documentID}}, nil, opts)
+	return err
+}
+
+// Download: Download a Travel Rule document.
+//
+// Returns the PDF, as an attachment, for a document you uploaded or one a
+// counterparty sent you with a questionnaire. Needs the transactions read
+// privilege.
+//
+// The response is a file (application/pdf). Read it from the returned
+// response's body and close it.
+//
+//	GET /v3/travel-rule/documents/{document_id}/
+func (r *TravelRuleDocumentsService) Download(ctx context.Context, documentID string, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/documents/{document_id}/", pathParams: []string{"document_id", documentID}, binary: true, accept: "application/pdf"}, nil, opts)
+}
+
+// List: List your Travel Rule documents.
+//
+// Paginated inventory of the PDF documents you uploaded to share with
+// counterparties, newest first. Documents counterparties sent you with a
+// questionnaire are not listed here: they appear on the questionnaire. Needs
+// the transactions read privilege.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/travel-rule/documents/
+func (r *TravelRuleDocumentsService) List(ctx context.Context, params TravelRuleDocumentsListParams, opts ...option.RequestOption) (*Page[TravelRuleDocument], error) {
+	return getPage[TravelRuleDocument](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/documents/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *TravelRuleDocumentsService) ListAutoPaging(ctx context.Context, params TravelRuleDocumentsListParams, opts ...option.RequestOption) *PageIterator[TravelRuleDocument] {
+	return newPageIterator(ctx, func() (*Page[TravelRuleDocument], error) {
 		return r.List(ctx, params, opts...)
 	})
 }
@@ -1848,6 +2008,15 @@ type TravelRuleCounterpartyQuestionnaire struct {
 	// is up to 2,000 characters. Empty until answered.
 	Answers map[string]string `json:"answers"`
 
+	// What the request asked for.
+	RequestedItems []TravelRuleDocumentKind `json:"requested_items"`
+
+	// When Didit last reminded the counterparty, or null.
+	ReminderSentAt time.Time `json:"reminder_sent_at"`
+
+	// The documents the counterparty uploaded.
+	Documents []TravelRuleCounterpartyQuestionnaireDocuments `json:"documents"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -1873,6 +2042,41 @@ const (
 	TravelRuleCounterpartyQuestionnaireStatusAnswered TravelRuleCounterpartyQuestionnaireStatus = "ANSWERED"
 	TravelRuleCounterpartyQuestionnaireStatusExpired  TravelRuleCounterpartyQuestionnaireStatus = "EXPIRED"
 )
+
+// TravelRuleDocumentKind: `questionnaire`: the due-diligence questionnaire
+// answers. `incorporation`: certificate of incorporation. `licence`: licence or
+// registration. `aml_policy`: AML and CFT policy. `ownership`: ownership
+// structure.
+//
+// TravelRuleDocumentKind is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type TravelRuleDocumentKind string
+
+// Known values of TravelRuleDocumentKind.
+const (
+	TravelRuleDocumentKindQuestionnaire TravelRuleDocumentKind = "questionnaire"
+	TravelRuleDocumentKindIncorporation TravelRuleDocumentKind = "incorporation"
+	TravelRuleDocumentKindLicence       TravelRuleDocumentKind = "licence"
+	TravelRuleDocumentKindAMLPolicy     TravelRuleDocumentKind = "aml_policy"
+	TravelRuleDocumentKindOwnership     TravelRuleDocumentKind = "ownership"
+)
+
+// TravelRuleCounterpartyQuestionnaireDocuments is a response object.
+type TravelRuleCounterpartyQuestionnaireDocuments struct {
+	ID         string                 `json:"id"`
+	Name       string                 `json:"name"`
+	Kind       TravelRuleDocumentKind `json:"kind"`
+	ReceivedAt time.Time              `json:"received_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyQuestionnaireDocuments leniently.
+func (r *TravelRuleCounterpartyQuestionnaireDocuments) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // VASPDirectoryEntrySource: directory for a shared directory entry,
 // added_by_you for your application-private entry, or didit_network for a
@@ -1987,6 +2191,40 @@ func (r *TravelRuleWidgetSessionResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// TravelRuleListVASPDecisionHistoryParams holds the parameters of
+// Client.TravelRule.ListVASPDecisionHistory.
+type TravelRuleListVASPDecisionHistoryParams struct {
+	Limit  Opt[int64] `json:"-" query:"limit"`
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleListVASPDecisionHistoryParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleDecisionEvent is a response object.
+type TravelRuleDecisionEvent struct {
+	ID string `json:"id"`
+
+	// The decision recorded, as in `decision.decision` of the VASP.
+	Decision string `json:"decision"`
+	Reason   string `json:"reason"`
+
+	// Who recorded it.
+	Actor     string    `json:"actor"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDecisionEvent leniently.
+func (r *TravelRuleDecisionEvent) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // TravelRuleCounterpartyQuestionnaireList is a response object.
 type TravelRuleCounterpartyQuestionnaireList struct {
 	// Newest first.
@@ -2035,6 +2273,55 @@ type TravelRuleVASPReviewer struct {
 func (r *TravelRuleVASPReviewer) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// TravelRuleListVASPSharedDocumentsResponse is a response object.
+type TravelRuleListVASPSharedDocumentsResponse struct {
+	Documents []TravelRuleDocument `json:"documents"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleListVASPSharedDocumentsResponse leniently.
+func (r *TravelRuleListVASPSharedDocumentsResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDocument: A PDF document. Never carries the file content.
+type TravelRuleDocument struct {
+	ID string `json:"id"`
+
+	// The uploaded file name.
+	Name string                 `json:"name"`
+	Kind TravelRuleDocumentKind `json:"kind"`
+
+	// When you uploaded it. Present on your own inventory.
+	UploadedAt time.Time `json:"uploaded_at"`
+
+	// When a counterparty uploaded it. Present on documents received with a
+	// questionnaire.
+	ReceivedAt  time.Time                     `json:"received_at"`
+	ContentType TravelRuleDocumentContentType `json:"content_type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDocument leniently.
+func (r *TravelRuleDocument) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleDocumentContentType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type TravelRuleDocumentContentType string
+
+// Known values of TravelRuleDocumentContentType.
+const (
+	TravelRuleDocumentContentTypeApplicationPDF TravelRuleDocumentContentType = "application/pdf"
+)
 
 // TravelRuleListVASPsParams holds the parameters of
 // Client.TravelRule.ListVASPs.
@@ -3324,11 +3611,54 @@ type TravelRuleCounterpartyQuestionnaireRequest struct {
 	// address a Travel Rule email to the counterparty goes to (your own contact
 	// first, then a platform contact, then the entry's compliance address).
 	SentTo Opt[string] `json:"sent_to"`
+
+	// Optional. Days the counterparty has to answer. Default: the standard answer
+	// window.
+	AnswerByDays Opt[any] `json:"answer_by_days"`
+
+	// Optional. What the counterparty must provide: the questionnaire answers
+	// and/or PDF documents.
+	RequestedItems Opt[[]TravelRuleDocumentKind] `json:"requested_items"`
 }
 
 // MarshalJSON encodes the fields that are set.
 func (r TravelRuleCounterpartyQuestionnaireRequest) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
+}
+
+// TravelRuleShareVASPDocumentsParams holds the parameters of
+// Client.TravelRule.ShareVASPDocuments.
+type TravelRuleShareVASPDocumentsParams struct {
+	// Documents of your own inventory, each once. Required.
+	DocumentIDs []string `json:"document_ids"`
+
+	// Optional. A compliance address on record for the counterparty, chosen the way
+	// `sent_to` of the questionnaire request is. Default: the address a Travel Rule
+	// email to the counterparty goes to.
+	SentTo Opt[string] `json:"sent_to"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleShareVASPDocumentsParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleDocumentShare is a response object.
+type TravelRuleDocumentShare struct {
+	SharedWith string `json:"shared_with"`
+
+	// The private link, returned once when the share is created. null when nothing
+	// changed.
+	URL string `json:"url"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleDocumentShare leniently.
+func (r *TravelRuleDocumentShare) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
 }
 
 // TravelRuleSettingsUpdate: All fields optional; PUT applies a partial update.
@@ -3613,6 +3943,15 @@ type TravelRuleCounterpartyContactCreate struct {
 
 	// Optional label.
 	Name Opt[string] `json:"name"`
+
+	// Optional. The contact's role.
+	Role Opt[string] `json:"role"`
+
+	// Optional. The contact's phone number.
+	Phone Opt[string] `json:"phone"`
+
+	// Whether due-diligence requests and reminders go to this contact.
+	ReceivesRequests Opt[bool] `json:"receives_requests"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -3656,6 +3995,15 @@ type TravelRuleCounterpartyContact struct {
 	InvalidDetail string    `json:"invalid_detail"`
 	InvalidAt     time.Time `json:"invalid_at"`
 	CreatedAt     time.Time `json:"created_at"`
+
+	// Optional. The contact's role.
+	Role string `json:"role"`
+
+	// Optional. The contact's phone number.
+	Phone string `json:"phone"`
+
+	// Whether due-diligence requests and reminders go to this contact.
+	ReceivesRequests bool `json:"receives_requests"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -3725,6 +4073,48 @@ type TravelRuleCounterpartyContactsListParams struct {
 
 // MarshalJSON encodes the fields that are set.
 func (r TravelRuleCounterpartyContactsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleCounterpartyContactsUpdateParams holds the parameters of
+// Client.TravelRule.CounterpartyContacts.Update.
+type TravelRuleCounterpartyContactsUpdateParams struct {
+	Name             Opt[string] `json:"name"`
+	Email            Opt[string] `json:"email"`
+	Role             Opt[string] `json:"role"`
+	Phone            Opt[string] `json:"phone"`
+	ReceivesRequests Opt[bool]   `json:"receives_requests"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleCounterpartyContactsUpdateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleDocumentsCreateParams holds the parameters of
+// Client.TravelRule.Documents.Create.
+type TravelRuleDocumentsCreateParams struct {
+	// Required.
+	Kind TravelRuleDocumentKind `json:"kind"`
+
+	// A PDF of at most 5 MiB. Required.
+	File File `json:"-" form:"file"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleDocumentsCreateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleDocumentsListParams holds the parameters of
+// Client.TravelRule.Documents.List.
+type TravelRuleDocumentsListParams struct {
+	Limit  Opt[int64] `json:"-" query:"limit"`
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleDocumentsListParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
