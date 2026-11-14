@@ -4,6 +4,7 @@ package didit_test
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/didit-protocol/sdk-go"
@@ -68,6 +69,28 @@ func TestTravelRuleCreateWidgetSession(t *testing.T) {
 	expectFields(t, res.JSON, []string{"widget_session_id", "token", "url", "expires_at"})
 }
 
+func TestTravelRuleListVASPDecisionHistory(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"string","previous":"string","results":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","decision":"string","reason":"string","actor":"string","created_at":"2025-01-02T03:04:05Z"}]}`)
+	var params didit.TravelRuleListVASPDecisionHistoryParams
+	params.Limit = didit.Int(50)
+	params.Offset = didit.Int(0)
+	res, err := client.TravelRule.ListVASPDecisionHistory(context.Background(), "vasp-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/vasps/vasp-id-1/decision-history/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"id", "decision", "reason", "actor", "created_at"})
+}
+
 func TestTravelRuleListVASPQuestionnaires(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"questionnaires":[{"id":"3f9e8d7c-6b5a-4c3d-9e2f-1a0b9c8d7e6f","status":"SENT","form_version":"1","sent_to":"travelrule@counterparty.example","sent_at":"2026-10-14T10:00:00Z","expires_at":"2026-11-13T10:00:00Z","answered_at":null,"valid_until":null,"current":false,"answers":{}},{"id":"8b7a6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d","status":"ANSWERED","form_version":"1","sent_to":"travelrule@counterparty.example","sent_at":"2026-09-02T08:00:00Z","expires_at":"2026-10-02T08:00:00Z","answered_at":"2026-09-04T15:20:00Z","valid_until":"2027-09-04T15:20:00Z","current":true,"answers":{"legal_name":"Example Counterparty VASP, incorporated in the example jurisdiction.","licensing":"Crypto-asset service provider authorised under MiCA by its national regulator, licence active.","jurisdictions":"EU and EEA. We do not serve the United States.","aml_program":"Written AML/CFT policy, annual independent review, last completed in March 2026.","compliance_officer":"Head of Compliance, reachable at compliance@counterparty.example.","sanctions_screening":"Customers at onboarding and daily; counterparties on every transfer.","transaction_monitoring":"Rule-based monitoring with analyst review; suspicious activity reports filed with the FIU.","travel_rule":"TRP and email; we answer requests within one business day.","custody":"Segregated customer wallets held with a qualified custodian, insured.","ownership":"No shareholder holds 25 percent or more; parent company Example Holding Group.","record_keeping":"Five-year record-keeping for Travel Rule and transaction data, as our regulator requires.","data_protection":"Encrypted at rest and in transit, stored in the EU."}}]}`)
 	res, err := client.TravelRule.ListVASPQuestionnaires(context.Background(), "vasp-id-1")
@@ -90,6 +113,18 @@ func TestTravelRuleListVASPReviewers(t *testing.T) {
 	req.expect(t, "GET", "/v3/travel-rule/vasps/reviewers/")
 	req.expectAPIKey(t)
 	expectFields(t, res.JSON, []string{"results"})
+}
+
+func TestTravelRuleListVASPSharedDocuments(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"documents":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","kind":"questionnaire","uploaded_at":"2025-01-02T03:04:05Z","received_at":"2025-01-02T03:04:05Z","content_type":"application/pdf"}]}`)
+	res, err := client.TravelRule.ListVASPSharedDocuments(context.Background(), "vasp-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/vasps/vasp-id-1/shared-documents/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"documents"})
 }
 
 func TestTravelRuleListVASPs(t *testing.T) {
@@ -241,6 +276,21 @@ func TestTravelRuleSendVASPQuestionnaire(t *testing.T) {
 	expectFields(t, res.JSON, []string{"id", "status", "form_version", "sent_to", "sent_at", "expires_at", "current", "answers"})
 }
 
+func TestTravelRuleShareVASPDocuments(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"shared_with":"user@example.com","url":"string"}`)
+	var params didit.TravelRuleShareVASPDocumentsParams
+	mustUnmarshal(t, `{"document_ids":["11111111-2222-4333-8444-555555555555"],"sent_to":"travelrule@counterparty.example"}`, &params)
+	res, err := client.TravelRule.ShareVASPDocuments(context.Background(), "vasp-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/vasps/vasp-id-1/shared-documents/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"document_ids":["11111111-2222-4333-8444-555555555555"],"sent_to":"travelrule@counterparty.example"}`)
+	expectFields(t, res.JSON, []string{"shared_with", "url"})
+}
+
 func TestTravelRuleUpdateSettings(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"is_enabled":true,"jurisdiction":"string","vasp_jurisdiction":"string","name_matching_strictness":"NONE","confirmation_timeout_hours":1,"timeout_outcome":"HOLD","threshold_amount":"string","ownership_validation_mode":"FULL","simplified_validation_threshold":"string","data_sharing_fields":{"individual":["name"],"company":["name"]},"matching_rules":{"individual":{"name":"NONE","date_of_birth":"NONE","address":"NONE","account":"NONE"},"company":{"name":"NONE","address":"NONE","account":"NONE"}},"legal_name":"string","lei":"string","compliance_email":"user@example.com","is_discoverable":true,"inbound_auto_accept":true,"allow_self_declaration":true,"allow_screenshot_proof":true,"auto_wallet_verification":true,"vasp_attribution_enabled":true,"counterparty_screening_enabled":true,"sunrise_policy":"","sunrise_jurisdictions":["string"],"non_responsive_policy":"","travel_address":"string","disabled_networks":["GTR"],"networks":{"gtr":{"rail":"GTR","mode":"own","state":"own_membership","reason":"own_membership_connected","platform_available":true,"connected":true,"participant":{"mode":"platform","status":"not_requested","participant_code":"string","requested_at":"2025-01-02T03:04:05Z","activated_at":"2025-01-02T03:04:05Z","last_error":"string"},"vasps_reachable":1,"routed_30d":1,"load_status":"loaded","load_error":{"code":"network_state_unavailable","retryable":true}},"trust":{"rail":"GTR","mode":"own","state":"own_membership","reason":"own_membership_connected","platform_available":true,"connected":true,"participant":{"mode":"platform","status":"not_requested","participant_code":"string","requested_at":"2025-01-02T03:04:05Z","activated_at":"2025-01-02T03:04:05Z","last_error":"string"},"vasps_reachable":1,"routed_30d":1,"load_status":"loaded","load_error":{"code":"network_state_unavailable","retryable":true}},"verifyvasp":{"rail":"GTR","mode":"own","state":"own_membership","reason":"own_membership_connected","platform_available":true,"connected":true,"participant":{"mode":"platform","status":"not_requested","participant_code":"string","requested_at":"2025-01-02T03:04:05Z","activated_at":"2025-01-02T03:04:05Z","last_error":"string"},"vasps_reachable":1,"routed_30d":1,"load_status":"loaded","load_error":{"code":"network_state_unavailable","retryable":true}},"sygna":{"rail":"GTR","mode":"own","state":"own_membership","reason":"own_membership_connected","platform_available":true,"connected":true,"participant":{"mode":"platform","status":"not_requested","participant_code":"string","requested_at":"2025-01-02T03:04:05Z","activated_at":"2025-01-02T03:04:05Z","last_error":"string"},"vasps_reachable":1,"routed_30d":1,"load_status":"loaded","load_error":{"code":"network_state_unavailable","retryable":true}}},"didit_network":{"listed":true,"missing":["travel_rule_off"],"compliance_email_confirmed":true},"licence":"REG-EXAMPLE"}`)
 	var params didit.TravelRuleSettingsUpdate
@@ -269,6 +319,26 @@ func TestTravelRuleUpdateVASPDecision(t *testing.T) {
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"decision":"BLOCKED","reason":"Unlicensed in its home jurisdiction"}`)
 	expectFields(t, res.JSON, []string{"decision"})
+}
+
+func TestTravelRuleWithdrawVASPDocuments(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.TravelRule.WithdrawVASPDocuments(context.Background(), "vasp-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/travel-rule/vasps/vasp-id-1/shared-documents/")
+	req.expectAPIKey(t)
+}
+
+func TestTravelRuleWithdrawVASPQuestionnaire(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.TravelRule.WithdrawVASPQuestionnaire(context.Background(), "vasp-id-1", "questionnaire-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/travel-rule/vasps/vasp-id-1/questionnaires/questionnaire-id-1/")
+	req.expectAPIKey(t)
 }
 
 func TestTravelRuleCounterpartyContactsCreate(t *testing.T) {
@@ -317,6 +387,85 @@ func TestTravelRuleCounterpartyContactsList(t *testing.T) {
 		t.Fatal("no results")
 	}
 	expectFields(t, res.Results[0].JSON, []string{"uuid", "counterparty", "counterparty_name", "email", "name", "source", "scope", "created_by", "is_invalid", "invalid_reason", "invalid_detail", "created_at"})
+}
+
+func TestTravelRuleCounterpartyContactsUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","counterparty":"3fa85f64-5717-4562-b3fc-2c963f66afa6","counterparty_name":"string","email":"user@example.com","name":"string","source":"staff","scope":"platform","created_by":"string","verified_at":"2025-01-02T03:04:05Z","is_invalid":true,"invalid_reason":"","invalid_detail":"string","invalid_at":"2025-01-02T03:04:05Z","created_at":"2025-01-02T03:04:05Z","role":"string","phone":"string","receives_requests":true}`)
+	var params didit.TravelRuleCounterpartyContactsUpdateParams
+	mustUnmarshal(t, `{"role":"Compliance officer","receives_requests":true}`, &params)
+	res, err := client.TravelRule.CounterpartyContacts.Update(context.Background(), "contact-uuid-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/travel-rule/counterparty-contacts/contact-uuid-1/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"role":"Compliance officer","receives_requests":true}`)
+	expectFields(t, res.JSON, []string{"uuid", "counterparty", "counterparty_name", "email", "name", "source", "scope", "created_by", "verified_at", "is_invalid", "invalid_reason", "invalid_detail", "invalid_at", "created_at", "role", "phone", "receives_requests"})
+}
+
+func TestTravelRuleDocumentsCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","kind":"questionnaire","uploaded_at":"2025-01-02T03:04:05Z","received_at":"2025-01-02T03:04:05Z","content_type":"application/pdf"}`)
+	var params didit.TravelRuleDocumentsCreateParams
+	mustUnmarshal(t, `{"kind":"questionnaire"}`, &params)
+	params.File = didit.FileFromBytes("file.png", []byte("file-content"))
+	res, err := client.TravelRule.Documents.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/travel-rule/documents/")
+	req.expectAPIKey(t)
+	req.expectMultipart(t, []string{"kind"}, []string{"file"})
+	expectFields(t, res.JSON, []string{"id", "name", "kind", "uploaded_at", "received_at", "content_type"})
+}
+
+func TestTravelRuleDocumentsDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.TravelRule.Documents.Delete(context.Background(), "document-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/travel-rule/documents/document-id-1/")
+	req.expectAPIKey(t)
+}
+
+func TestTravelRuleDocumentsDownload(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/pdf", `binary-content`)
+	res, err := client.TravelRule.Documents.Download(context.Background(), "document-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/documents/document-id-1/")
+	req.expectAPIKey(t)
+	defer func() { _ = res.Body.Close() }()
+	data, err := io.ReadAll(res.Body)
+	if err != nil || string(data) != "binary-content" {
+		t.Fatalf("file body = %q, %v", data, err)
+	}
+}
+
+func TestTravelRuleDocumentsList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"string","previous":"string","results":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","kind":"questionnaire","uploaded_at":"2025-01-02T03:04:05Z","received_at":"2025-01-02T03:04:05Z","content_type":"application/pdf"}]}`)
+	var params didit.TravelRuleDocumentsListParams
+	params.Limit = didit.Int(50)
+	params.Offset = didit.Int(0)
+	res, err := client.TravelRule.Documents.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/travel-rule/documents/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"id", "name", "kind", "uploaded_at", "received_at", "content_type"})
 }
 
 func TestTravelRuleNetworksRequestAccess(t *testing.T) {
