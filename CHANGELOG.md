@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.24.1](https://github.com/didit-protocol/sdk-go/compare/v1.24.0...v1.24.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **codegen:** skip the Idempotency-Key header except on the 28 operations that published it; refuse a non-ASCII key ([#84](https://github.com/didit-protocol/sdk-go/issues/84)) ([4c127c2](https://github.com/didit-protocol/sdk-go/commit/4c127c2c8657f5c7ff4ced4cf94a151728607abc))
+
 ## [1.24.0](https://github.com/didit-protocol/sdk-go/compare/v1.23.0...v1.24.0) (2026-11-14)
 
 
