@@ -24,6 +24,22 @@ type TravelRuleService struct {
 	Workspace            *TravelRuleWorkspaceService
 }
 
+// AssignVASP: Assign a VASP to a member.
+//
+// Assigns the counterparty to one application member, or unassigns it with
+// `assignee_email: null`. Repeating the same assignment changes nothing
+// (`changed: false`). The assignment is private to your application. Needs the
+// transactions write privilege.
+//
+//	POST /v3/travel-rule/vasps/{vasp_id}/assign/
+func (r *TravelRuleService) AssignVASP(ctx context.Context, vaspID string, params TravelRuleAssignVASPParams, opts ...option.RequestOption) (*TravelRuleAssignVASPResponse, error) {
+	res := new(TravelRuleAssignVASPResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/travel-rule/vasps/{vasp_id}/assign/", pathParams: []string{"vasp_id", vaspID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // ClearVASPDecision: Clear your decision on a VASP.
 //
 // Clear your application's own decision on a counterparty. The response shows
@@ -82,6 +98,22 @@ func (r *TravelRuleService) CreateWidgetSession(ctx context.Context, params Trav
 func (r *TravelRuleService) ListVASPQuestionnaires(ctx context.Context, vaspID string, opts ...option.RequestOption) (*TravelRuleCounterpartyQuestionnaireList, error) {
 	res := new(TravelRuleCounterpartyQuestionnaireList)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/{vasp_id}/questionnaires/", pathParams: []string{"vasp_id", vaspID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ListVASPReviewers: List the members who can be assigned a VASP.
+//
+// The application members who can review Travel Rule counterparties. Use one
+// `email` as `assignee_email` of `POST
+// /v3/travel-rule/vasps/{vasp_id}/assign/`. Needs the transactions read
+// privilege.
+//
+//	GET /v3/travel-rule/vasps/reviewers/
+func (r *TravelRuleService) ListVASPReviewers(ctx context.Context, opts ...option.RequestOption) (*TravelRuleListVASPReviewersResponse, error) {
+	res := new(TravelRuleListVASPReviewersResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/reviewers/"}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -188,6 +220,23 @@ func (r *TravelRuleService) RetrieveVASPDecision(ctx context.Context, vaspID str
 func (r *TravelRuleService) RetrieveVASPScreening(ctx context.Context, vaspID string, opts ...option.RequestOption) (*TravelRuleCounterpartyScreeningStatus, error) {
 	res := new(TravelRuleCounterpartyScreeningStatus)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/travel-rule/vasps/{vasp_id}/screening/", pathParams: []string{"vasp_id", vaspID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ReviewVASPScreeningHit: Review a screening hit.
+//
+// Records your review of one possible match of a screening. The screening score
+// and status are recomputed from the reviewed hits, but the counterparty's
+// decision is never changed for you: decide it with `PUT
+// /v3/travel-rule/vasps/{vasp_id}/decision/`. Repeating the same review changes
+// nothing (`changed: false`). Needs the transactions write privilege.
+//
+//	PATCH /v3/travel-rule/vasps/{vasp_id}/screening/
+func (r *TravelRuleService) ReviewVASPScreeningHit(ctx context.Context, vaspID string, params TravelRuleReviewVASPScreeningHitParams, opts ...option.RequestOption) (*TravelRuleReviewVASPScreeningHitResponse, error) {
+	res := new(TravelRuleReviewVASPScreeningHitResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/travel-rule/vasps/{vasp_id}/screening/", pathParams: []string{"vasp_id", vaspID}, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -783,6 +832,53 @@ func (r *TravelRuleWorkspaceService) VerifyDomainDNS(ctx context.Context, opts .
 	return res, nil
 }
 
+// TravelRuleAssignVASPParams holds the parameters of
+// Client.TravelRule.AssignVASP.
+type TravelRuleAssignVASPParams struct {
+	// Email of an application member. null or an empty string unassigns. Required.
+	AssigneeEmail Opt[string] `json:"assignee_email"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleAssignVASPParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleAssignVASPResponse is a response object.
+type TravelRuleAssignVASPResponse struct {
+	ID       string                 `json:"id"`
+	Assignee TravelRuleVASPAssignee `json:"assignee"`
+	Changed  bool                   `json:"changed"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleAssignVASPResponse leniently.
+func (r *TravelRuleAssignVASPResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleVASPAssignee: The member the VASP is assigned to, or null. The
+// assignment is private to your application.
+type TravelRuleVASPAssignee struct {
+	// The member's user id.
+	UUID       string    `json:"uuid"`
+	FullName   string    `json:"full_name"`
+	Email      string    `json:"email"`
+	AssignedAt time.Time `json:"assigned_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleVASPAssignee leniently.
+func (r *TravelRuleVASPAssignee) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // TravelRuleCounterpartyDecisionResponse is a response object.
 type TravelRuleCounterpartyDecisionResponse struct {
 	// The decision that applies to the counterparty for your application: its own,
@@ -1021,7 +1117,8 @@ type VASPDirectoryEntry struct {
 	// application-private entry, or didit_network for a directory entry linked to a
 	// Didit customer. Separate kind=didit member results may omit this field; use
 	// kind to identify them.
-	Source VASPDirectoryEntrySource `json:"source"`
+	Source   VASPDirectoryEntrySource `json:"source"`
+	Assignee TravelRuleVASPAssignee   `json:"assignee"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -1578,6 +1675,19 @@ type TravelRuleCounterpartyScreening struct {
 	// counterparty_risk_level is HIGH in your rules.
 	Flagged bool `json:"flagged"`
 
+	// What was screened: the company name only. People are never inferred from the
+	// due-diligence questionnaire.
+	Scope TravelRuleCounterpartyScreeningScope `json:"scope"`
+
+	// People screening is not run for counterparties.
+	PeopleScreening TravelRuleCounterpartyScreeningPeopleScreening `json:"people_screening"`
+
+	// The possible matches. Returned by `GET` and `POST` on
+	// `/v3/travel-rule/vasps/{vasp_id}/screening/` and by the hit review, not in
+	// the screening summary of a VASP row. Source and list details are public; no
+	// screening supplier is named.
+	Hits []TravelRuleCounterpartyScreeningHits `json:"hits"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -1601,6 +1711,106 @@ const (
 	TravelRuleCounterpartyScreeningStatusValueApproved TravelRuleCounterpartyScreeningStatusValue = "Approved"
 	TravelRuleCounterpartyScreeningStatusValueInReview TravelRuleCounterpartyScreeningStatusValue = "In Review"
 	TravelRuleCounterpartyScreeningStatusValueDeclined TravelRuleCounterpartyScreeningStatusValue = "Declined"
+)
+
+// TravelRuleCounterpartyScreeningScope: What was screened: the company name
+// only. People are never inferred from the due-diligence questionnaire.
+//
+// TravelRuleCounterpartyScreeningScope is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyScreeningScope string
+
+// Known values of TravelRuleCounterpartyScreeningScope.
+const (
+	TravelRuleCounterpartyScreeningScopeCompany TravelRuleCounterpartyScreeningScope = "company"
+)
+
+// TravelRuleCounterpartyScreeningPeopleScreening: People screening is not run
+// for counterparties.
+type TravelRuleCounterpartyScreeningPeopleScreening struct {
+	Status TravelRuleCounterpartyScreeningPeopleScreeningStatus `json:"status"`
+	Reason TravelRuleCounterpartyScreeningPeopleScreeningReason `json:"reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyScreeningPeopleScreening leniently.
+func (r *TravelRuleCounterpartyScreeningPeopleScreening) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyScreeningPeopleScreeningStatus is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type TravelRuleCounterpartyScreeningPeopleScreeningStatus string
+
+// Known values of TravelRuleCounterpartyScreeningPeopleScreeningStatus.
+const (
+	TravelRuleCounterpartyScreeningPeopleScreeningStatusNotRun TravelRuleCounterpartyScreeningPeopleScreeningStatus = "not_run"
+)
+
+// TravelRuleCounterpartyScreeningPeopleScreeningReason is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type TravelRuleCounterpartyScreeningPeopleScreeningReason string
+
+// Known values of TravelRuleCounterpartyScreeningPeopleScreeningReason.
+const (
+	TravelRuleCounterpartyScreeningPeopleScreeningReasonPeopleNotProvided TravelRuleCounterpartyScreeningPeopleScreeningReason = "people_not_provided"
+)
+
+// TravelRuleCounterpartyScreeningHits is a response object.
+type TravelRuleCounterpartyScreeningHits struct {
+	// The hit id, `hit_...`.
+	ID string `json:"id"`
+
+	// The review recorded for the hit, or null while nobody reviewed it.
+	Review TravelRuleCounterpartyScreeningHitsReview `json:"review"`
+
+	// true only when a person reviewed the hit as `False Positive`. A low match
+	// score can mark a hit `False Positive` automatically; that is not a dismissal.
+	Dismissed bool `json:"dismissed"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyScreeningHits leniently.
+func (r *TravelRuleCounterpartyScreeningHits) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyScreeningHitsReview: The review recorded for the hit,
+// or null while nobody reviewed it.
+type TravelRuleCounterpartyScreeningHitsReview struct {
+	Status     TravelRuleCounterpartyScreeningHitsReviewStatus `json:"status"`
+	Reason     string                                          `json:"reason"`
+	ReviewedBy string                                          `json:"reviewed_by"`
+	ReviewedAt time.Time                                       `json:"reviewed_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleCounterpartyScreeningHitsReview leniently.
+func (r *TravelRuleCounterpartyScreeningHitsReview) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleCounterpartyScreeningHitsReviewStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type TravelRuleCounterpartyScreeningHitsReviewStatus string
+
+// Known values of TravelRuleCounterpartyScreeningHitsReviewStatus.
+const (
+	TravelRuleCounterpartyScreeningHitsReviewStatusUnreviewed     TravelRuleCounterpartyScreeningHitsReviewStatus = "Unreviewed"
+	TravelRuleCounterpartyScreeningHitsReviewStatusConfirmedMatch TravelRuleCounterpartyScreeningHitsReviewStatus = "Confirmed Match"
+	TravelRuleCounterpartyScreeningHitsReviewStatusFalsePositive  TravelRuleCounterpartyScreeningHitsReviewStatus = "False Positive"
+	TravelRuleCounterpartyScreeningHitsReviewStatusInconclusive   TravelRuleCounterpartyScreeningHitsReviewStatus = "Inconclusive"
 )
 
 // TravelRuleCounterpartyQuestionnaire: One due-diligence questionnaire your
@@ -1789,6 +1999,40 @@ type TravelRuleCounterpartyQuestionnaireList struct {
 
 // UnmarshalJSON decodes TravelRuleCounterpartyQuestionnaireList leniently.
 func (r *TravelRuleCounterpartyQuestionnaireList) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleListVASPReviewersResponse is a response object.
+type TravelRuleListVASPReviewersResponse struct {
+	Results []TravelRuleVASPReviewer `json:"results"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleListVASPReviewersResponse leniently.
+func (r *TravelRuleListVASPReviewersResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleVASPReviewer is a response object.
+type TravelRuleVASPReviewer struct {
+	// The member's user id.
+	UserID string `json:"user_id"`
+	Email  string `json:"email"`
+	Name   string `json:"name"`
+
+	// Display only; it grants nothing.
+	Role string `json:"role"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleVASPReviewer leniently.
+func (r *TravelRuleVASPReviewer) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -2529,6 +2773,13 @@ type TravelRuleNetworkState struct {
 	// This application's transfers carried on this network in the last 30 days.
 	Routed30d int64 `json:"routed_30d"`
 
+	// `error` when this network's row could not be loaded; the other networks are
+	// unaffected.
+	LoadStatus TravelRuleNetworkStateLoadStatus `json:"load_status"`
+
+	// Present only when `load_status` is `error`.
+	LoadError TravelRuleNetworkStateLoadError `json:"load_error"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -2857,6 +3108,43 @@ const (
 	TravelRuleNetworkParticipantSummaryStatusRejected             TravelRuleNetworkParticipantSummaryStatus = "rejected"
 )
 
+// TravelRuleNetworkStateLoadStatus: `error` when this network's row could not
+// be loaded; the other networks are unaffected.
+//
+// TravelRuleNetworkStateLoadStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type TravelRuleNetworkStateLoadStatus string
+
+// Known values of TravelRuleNetworkStateLoadStatus.
+const (
+	TravelRuleNetworkStateLoadStatusLoaded TravelRuleNetworkStateLoadStatus = "loaded"
+	TravelRuleNetworkStateLoadStatusError  TravelRuleNetworkStateLoadStatus = "error"
+)
+
+// TravelRuleNetworkStateLoadError: Present only when `load_status` is `error`.
+type TravelRuleNetworkStateLoadError struct {
+	Code      TravelRuleNetworkStateLoadErrorCode `json:"code"`
+	Retryable bool                                `json:"retryable"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleNetworkStateLoadError leniently.
+func (r *TravelRuleNetworkStateLoadError) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleNetworkStateLoadErrorCode is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type TravelRuleNetworkStateLoadErrorCode string
+
+// Known values of TravelRuleNetworkStateLoadErrorCode.
+const (
+	TravelRuleNetworkStateLoadErrorCodeNetworkStateUnavailable TravelRuleNetworkStateLoadErrorCode = "network_state_unavailable"
+)
+
 // TravelRuleSettingsDetailDiditNetwork: Whether the Didit network lists your
 // VASP profile, so other Didit customers find it in the directory and reach it
 // on the INTERNAL rail, and each condition it still misses.
@@ -2921,6 +3209,54 @@ type TravelRuleCounterpartyScreeningStatus struct {
 
 // UnmarshalJSON decodes TravelRuleCounterpartyScreeningStatus leniently.
 func (r *TravelRuleCounterpartyScreeningStatus) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleReviewVASPScreeningHitParams holds the parameters of
+// Client.TravelRule.ReviewVASPScreeningHit.
+type TravelRuleReviewVASPScreeningHitParams struct {
+	// The screening the hit belongs to, as returned by the screening endpoints.
+	// Required.
+	ScreeningID string `json:"screening_id"`
+
+	// The hit's `id`. Required.
+	HitID string `json:"hit_id"`
+
+	// Required.
+	ReviewStatus TravelRuleReviewVASPScreeningHitParamsReviewStatus `json:"review_status"`
+	Reason       Opt[string]                                        `json:"reason"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TravelRuleReviewVASPScreeningHitParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TravelRuleReviewVASPScreeningHitParamsReviewStatus is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type TravelRuleReviewVASPScreeningHitParamsReviewStatus string
+
+// Known values of TravelRuleReviewVASPScreeningHitParamsReviewStatus.
+const (
+	TravelRuleReviewVASPScreeningHitParamsReviewStatusUnreviewed     TravelRuleReviewVASPScreeningHitParamsReviewStatus = "Unreviewed"
+	TravelRuleReviewVASPScreeningHitParamsReviewStatusConfirmedMatch TravelRuleReviewVASPScreeningHitParamsReviewStatus = "Confirmed Match"
+	TravelRuleReviewVASPScreeningHitParamsReviewStatusFalsePositive  TravelRuleReviewVASPScreeningHitParamsReviewStatus = "False Positive"
+	TravelRuleReviewVASPScreeningHitParamsReviewStatusInconclusive   TravelRuleReviewVASPScreeningHitParamsReviewStatus = "Inconclusive"
+)
+
+// TravelRuleReviewVASPScreeningHitResponse is a response object.
+type TravelRuleReviewVASPScreeningHitResponse struct {
+	Screening TravelRuleCounterpartyScreening `json:"screening"`
+	Changed   bool                            `json:"changed"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleReviewVASPScreeningHitResponse leniently.
+func (r *TravelRuleReviewVASPScreeningHitResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -3417,6 +3753,14 @@ type TravelRuleNetworkParticipant struct {
 	// Every status change, oldest first.
 	History []TravelRuleNetworkParticipantHistory `json:"history"`
 
+	// Whether the signed-in member asked for an email when this participant's
+	// status changes. Always false for API-key calls, which cannot set the
+	// preference.
+	NotifyStatusChanges bool `json:"notify_status_changes"`
+
+	// The verified account email the notifications go to; null when there is none.
+	NotificationEmail string `json:"notification_email"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -3515,6 +3859,9 @@ type TravelRuleNetworksOverview struct {
 	// membership of that network is live and your own participant on it is active.
 	// Not a live health or delivery check.
 	Networks TravelRuleNetworksOverviewNetworks `json:"networks"`
+
+	// The verified account email of the signed-in member; null for API-key calls.
+	NotificationEmail string `json:"notification_email"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
