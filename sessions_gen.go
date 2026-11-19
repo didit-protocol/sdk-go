@@ -462,8 +462,11 @@ func (r *SessionsService) ExportFiles(ctx context.Context, sessionID string, opt
 //
 // **Branding.** If your application has white-label customization, the report
 // is rendered with your logo and links to your privacy-policy URL; otherwise it
-// carries Didit branding. Reports are rendered in English - there is no
-// language parameter.
+// carries Didit branding. Reports are rendered in English by default; pass the
+// `language` query parameter to print every word the report writes itself
+// (section titles, labels, statuses, check names, notes, footers, dates and
+// country names) in one of 16 languages, while values the end user submitted or
+// a source returned print exactly as captured.
 //
 // **No caching.** Every call re-renders the PDF from the current session data,
 // so a report generated after a manual review reflects the reviewer’s decision.
@@ -488,8 +491,8 @@ func (r *SessionsService) ExportFiles(ctx context.Context, sessionID string, opt
 // response's body and close it.
 //
 //	GET /v3/session/{sessionId}/generate-pdf/
-func (r *SessionsService) GeneratePDF(ctx context.Context, sessionID string, opts ...option.RequestOption) (*http.Response, error) {
-	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/generate-pdf/", pathParams: []string{"sessionId", sessionID}, binary: true, accept: "application/pdf"}, nil, opts)
+func (r *SessionsService) GeneratePDF(ctx context.Context, sessionID string, params SessionsGeneratePDFParams, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/generate-pdf/", pathParams: []string{"sessionId", sessionID}, params: params, binary: true, accept: "application/pdf"}, nil, opts)
 }
 
 // GetFilesExport: Get a session files export.
@@ -1498,7 +1501,8 @@ type SessionsImportsService struct {
 
 // Cancel: Cancel an import job.
 //
-// Cancel an import. What was imported stays; the uploaded file and the key are
+// Cancel an import. What was imported stays, unless you undo it with `POST
+// /v3/session/imports/{importId}/undo/`; the uploaded file and the key are
 // erased.
 //
 //	POST /v3/session/imports/{importId}/cancel/
@@ -1529,16 +1533,28 @@ func (r *SessionsImportsService) CheckProvider(ctx context.Context, params Sessi
 // Create an asynchronous import job for historical User Verification sessions,
 // Business Verification sessions, transaction monitoring records, or workflow
 // custom status rules. Set `source=provider` to migrate from another provider:
-// Didit reads Sumsub, Onfido, Persona and ComplyCube with your read-only key,
-// reads Veriff, iDenfy and MetaMap records by the IDs you upload in `file`, and
-// imports an export file in Didit's format for the other providers. Record IDs
-// are namespaced by provider (`sumsub:<id>`) so a re-run skips everything
-// already in Didit, and a record imported through a file with the provider's
-// bare ID is recognised too, in both directions, so moving between a file
-// import and a provider migration never imports a record twice. An application
-// can run up to 4 import jobs at once; a job interrupted by a deploy or a
-// worker restart continues from its last imported row by itself. Imports are
-// disabled by default and must be enabled per organization by Didit.
+// `GET /v3/session/imports/providers/` lists the providers and how each is
+// read: with your read-only key, from the record IDs you upload in `file`, or
+// from an export file in Didit's format. Record IDs are namespaced by provider
+// (`<provider>:<id>`) so a re-run skips everything already in Didit, and a
+// record imported through a file with the provider's bare ID is recognised too,
+// in both directions, so moving between a file import and a provider migration
+// never imports a record twice. An application can run up to 4 import jobs at
+// once; a job interrupted by a deploy or a worker restart continues from its
+// last imported row by itself. Any organization can import without asking Didit
+// first, within a monthly limit that follows what it pays (see `GET
+// /v3/session/imports/limits/`): 2,000 records a month from a provider and 500
+// from a file or the API until the first paid top-up, then 250,000 and 25,000,
+// and no monthly limit on a contract. A job above the limit writes what fits
+// and then waits (`WAITING`), and continues by itself when the limit goes up;
+// ask for a higher limit with `POST
+// /v3/session/imports/{importId}/request-limit/`. Every source accepts
+// `dry_run`. A job that is not a dry run first checks the whole file or
+// account; for an organization that has never paid, a finding can hold the job
+// (`HELD`) for review by Didit before anything is written. Imported
+// verifications stay in their application: they cannot be shared with another
+// application and never feed cross-organization fraud signals. `POST
+// /v3/session/imports/{importId}/undo/` deletes what an import created.
 //
 //	POST /v3/session/imports/
 func (r *SessionsImportsService) Create(ctx context.Context, params SessionsImportsCreateParams, opts ...option.RequestOption) (*SessionImportJob, error) {
@@ -1587,7 +1603,10 @@ func (r *SessionsImportsService) ListErrorsAutoPaging(ctx context.Context, impor
 // ListJobs: List import jobs.
 //
 // Every import of the application in one shape: verification imports and
-// migrations, people and businesses.
+// migrations, people and businesses. `limit_lane`, `waiting_reason`, `checks`,
+// `review_note`, `limit_request`, `granted_records` and the Undo fields apply
+// to verification imports; they are `null`, empty or `false` for people and
+// company imports.
 //
 //	GET /v3/import-jobs/
 func (r *SessionsImportsService) ListJobs(ctx context.Context, params SessionsImportsListJobsParams, opts ...option.RequestOption) (*SessionsImportsListJobsResponse, error) {
@@ -1626,6 +1645,28 @@ func (r *SessionsImportsService) Pause(ctx context.Context, importID string, opt
 	return res, nil
 }
 
+// RequestLimit: Request a higher import limit.
+//
+// Ask Didit to let one import go past the monthly limit. Allowed on a job that
+// is `READY`, `PENDING`, `PROCESSING` or `WAITING` and whose lane has a limit;
+// one request can be pending per job. `requested_records` is not sent: it is
+// computed from the job's dry run or check pass as what the import still has to
+// write beyond what it may write now (one month of the lane when no pass
+// counted the file). An approval lets that job finish and does not change the
+// organization's monthly limit. A declined request leaves the job waiting for
+// the next month or a top-up, and the answer is in `limit_request.staff_note`.
+// The job continues by itself when the limit goes up. A turned-off organization
+// or a sandbox application is refused.
+//
+//	POST /v3/session/imports/{importId}/request-limit/
+func (r *SessionsImportsService) RequestLimit(ctx context.Context, importID string, params ImportLimitRequestInput, opts ...option.RequestOption) (*SessionImportJob, error) {
+	res := new(SessionImportJob)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/{importId}/request-limit/", pathParams: []string{"importId", importID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // Resume: Resume an import job.
 //
 // Resume an import you paused. A job paused by the provider's rate limit
@@ -1650,6 +1691,30 @@ func (r *SessionsImportsService) Resume(ctx context.Context, importID string, op
 func (r *SessionsImportsService) Retrieve(ctx context.Context, importID string, opts ...option.RequestOption) (*SessionImportJob, error) {
 	res := new(SessionImportJob)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/imports/{importId}/", pathParams: []string{"importId", importID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// RetrieveLimits: Get import limits.
+//
+// Read how many verifications your organization can still import this month.
+// Limits follow what the organization pays and are counted per organization,
+// across all its live applications, per calendar month in UTC, in records
+// written by imports that are not dry runs: 2,000 from a provider and 500 from
+// a file or the API until the first paid top-up, then 250,000 and 25,000, and
+// no monthly limit (`limit: null`) on a contract or when Didit set the
+// organization to always allowed. Records skipped because they were already in
+// Didit, rejected rows and dry runs do not count, and records you undo are
+// given back. `can_import: false` with `reason: turned_off` or `reason:
+// sandbox` means a create call would be refused. Authenticate with your
+// application's API key, or with a console user token that has
+// `write:sessions`.
+//
+//	GET /v3/session/imports/limits/
+func (r *SessionsImportsService) RetrieveLimits(ctx context.Context, opts ...option.RequestOption) (*ImportLimits, error) {
+	res := new(ImportLimits)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/imports/limits/"}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -1686,13 +1751,45 @@ func (r *SessionsImportsService) Retry(ctx context.Context, importID string, par
 
 // Start: Start a dry run.
 //
-// Start a migration whose dry run finished (`READY`): the same job imports for
-// real, with the status mapping and face templates choice as sent now.
+// Start an import whose dry run finished (`READY`): the same job imports for
+// real, with the status mapping and face templates choice as sent now. A file
+// or API job runs the checks again over the whole file first.
 //
 //	POST /v3/session/imports/{importId}/start/
 func (r *SessionsImportsService) Start(ctx context.Context, importID string, params SessionsImportsStartParams, opts ...option.RequestOption) (*SessionImportJob, error) {
 	res := new(SessionImportJob)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/{importId}/start/", pathParams: []string{"importId", importID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Undo: Undo an import.
+//
+// Delete what an import created. Every verification (User Verification,
+// Business Verification) and transaction the job created is deleted with its
+// images and videos, its face templates, and the blocklist entries the job
+// added, exactly as `DELETE /v3/session/{sessionId}/delete/` deletes a session.
+// Records that were already in Didit, and the workflow status rules an import
+// changed, are not affected. The records you undo are given back to the month's
+// import limit. Deletion cannot be reversed.
+//
+// Allowed when `can_undo` is `true` and the job is `COMPLETED`, `FAILED`,
+// `CANCELLED` or `WAITING` (a waiting job is cancelled first). Imports made
+// before Undo import existed did not record what they created and cannot be
+// undone. The job moves to `UNDOING` and ends `UNDONE` with `undone_count`;
+// poll `GET /v3/session/imports/{importId}/`. Undo is available for User
+// Verification, Business Verification and transaction imports; status rules are
+// not undone. Needs the sessions write and delete privileges (`write:sessions`
+// and `delete:sessions` for a console user; an API key needs sessions write
+// access and `delete:sessions`). Undoing a Business Verification import also
+// needs `delete:businesses`, and a transactions import needs
+// `write:transactions` (an API key needs write access to that resource).
+//
+//	POST /v3/session/imports/{importId}/undo/
+func (r *SessionsImportsService) Undo(ctx context.Context, importID string, opts ...option.RequestOption) (*SessionImportJob, error) {
+	res := new(SessionImportJob)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/session/imports/{importId}/undo/", pathParams: []string{"importId", importID}}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -2667,7 +2764,10 @@ type SessionsCreateParams struct {
 	// Business Verification (KYB) workflows only the business fields
 	// (`company_name`, `registry_country`, `registration_number`) are used - they
 	// pre-fill the company registry search for the user - and all person-level
-	// fields are ignored.
+	// fields are ignored. UAE PASS (an ID Verification wallet) only confirms these
+	// details and never returns the person's identity: it is offered only when they
+	// include `identification_number` (the Emirates ID number), or a name
+	// (`first_name` and/or `last_name`) with `date_of_birth`.
 	ExpectedDetails Opt[SessionsCreateParamsExpectedDetails] `json:"expected_details"`
 
 	// Base64-encoded portrait image of the end user's face (max 2MB; JPEG, PNG,
@@ -2940,7 +3040,11 @@ const (
 // also alter the user-facing flow. For Business Verification (KYB) workflows
 // only the business fields (`company_name`, `registry_country`,
 // `registration_number`) are used - they pre-fill the company registry search
-// for the user - and all person-level fields are ignored.
+// for the user - and all person-level fields are ignored. UAE PASS (an ID
+// Verification wallet) only confirms these details and never returns the
+// person's identity: it is offered only when they include
+// `identification_number` (the Emirates ID number), or a name (`first_name`
+// and/or `last_name`) with `date_of_birth`.
 type SessionsCreateParamsExpectedDetails struct {
 	// User's first name. For example, `John`. The matching uses fuzzy comparison,
 	// and you can tune the strictness by configuring the name match score threshold
@@ -3950,6 +4054,50 @@ const (
 	SessionFilesExportStatusExpired    SessionFilesExportStatus = "EXPIRED"
 )
 
+// SessionsGeneratePDFParams holds the parameters of
+// Client.Sessions.GeneratePDF.
+type SessionsGeneratePDFParams struct {
+	// Language of the report. Every word the report writes itself prints in this
+	// language: section titles, labels, table headers, statuses, check names and
+	// descriptions, notes, footers, page numbering, the cover, the PDF outline,
+	// dates (month names and order per language) and country names. What the end
+	// user submitted or a source returned (names, addresses, document fields, OCR
+	// values, watchlist profiles, free text, IDs) prints exactly as captured.
+	// Arabic (`ar`) prints right to left. Values are case-sensitive; an unknown
+	// value returns `400`. Applies to both KYC and KYB reports. Omit it for the
+	// English report.
+	Language Opt[SessionsGeneratePDFParamsLanguage] `json:"-" query:"language"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r SessionsGeneratePDFParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// SessionsGeneratePDFParamsLanguage is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type SessionsGeneratePDFParamsLanguage string
+
+// Known values of SessionsGeneratePDFParamsLanguage.
+const (
+	SessionsGeneratePDFParamsLanguageEn   SessionsGeneratePDFParamsLanguage = "en"
+	SessionsGeneratePDFParamsLanguageEs   SessionsGeneratePDFParamsLanguage = "es"
+	SessionsGeneratePDFParamsLanguageAr   SessionsGeneratePDFParamsLanguage = "ar"
+	SessionsGeneratePDFParamsLanguageCa   SessionsGeneratePDFParamsLanguage = "ca"
+	SessionsGeneratePDFParamsLanguageDe   SessionsGeneratePDFParamsLanguage = "de"
+	SessionsGeneratePDFParamsLanguageFr   SessionsGeneratePDFParamsLanguage = "fr"
+	SessionsGeneratePDFParamsLanguageHi   SessionsGeneratePDFParamsLanguage = "hi"
+	SessionsGeneratePDFParamsLanguageID   SessionsGeneratePDFParamsLanguage = "id"
+	SessionsGeneratePDFParamsLanguageIt   SessionsGeneratePDFParamsLanguage = "it"
+	SessionsGeneratePDFParamsLanguageJa   SessionsGeneratePDFParamsLanguage = "ja"
+	SessionsGeneratePDFParamsLanguageKo   SessionsGeneratePDFParamsLanguage = "ko"
+	SessionsGeneratePDFParamsLanguagePtBr SessionsGeneratePDFParamsLanguage = "pt-BR"
+	SessionsGeneratePDFParamsLanguagePtPt SessionsGeneratePDFParamsLanguage = "pt-PT"
+	SessionsGeneratePDFParamsLanguageRu   SessionsGeneratePDFParamsLanguage = "ru"
+	SessionsGeneratePDFParamsLanguageSw   SessionsGeneratePDFParamsLanguage = "sw"
+	SessionsGeneratePDFParamsLanguageZh   SessionsGeneratePDFParamsLanguage = "zh"
+)
+
 // SessionsImportSharedParams holds the parameters of
 // Client.Sessions.ImportShared.
 type SessionsImportSharedParams struct {
@@ -4813,7 +4961,12 @@ type SessionDecisionIDVerifications struct {
 	IDLookup SessionDecisionIDVerificationsIDLookup `json:"id_lookup"`
 
 	// Credential evidence. Present only when `verification_method` is `wallet`;
-	// `null` otherwise.
+	// `null` otherwise. UAE PASS (`provider` `uae_pass`) is outcome only: the
+	// identity fields of this ID verification (`full_name`, `first_name`,
+	// `last_name`, `date_of_birth`, `nationality`, the document numbers) stay
+	// `null`, `attributes` holds only whether each detail declared in
+	// `expected_details` matched, and nothing UAE PASS shared about the person is
+	// returned or kept.
 	WalletVerification SessionDecisionIDVerificationsWalletVerification `json:"wallet_verification"`
 
 	// Feature-level status of this ID verification step. Independent of the
@@ -4941,7 +5094,9 @@ type SessionDecisionIDVerifications struct {
 	ExtraFiles []string `json:"extra_files"`
 
 	// Face match score between the portrait extracted from the front document image
-	// and the front camera image
+	// and the front camera image. `null` when the comparison did not run; when the
+	// client reported no front-camera frame and neither side has a score, the ID
+	// verification warnings carry `SELFIE_MATCH_NOT_COMPUTED`.
 	FrontImageCameraFrontFaceMatchScore float64 `json:"front_image_camera_front_face_match_score"`
 
 	// Face match score between the portrait extracted from the back document image
@@ -5227,7 +5382,12 @@ const (
 )
 
 // SessionDecisionIDVerificationsWalletVerification: Credential evidence.
-// Present only when `verification_method` is `wallet`; `null` otherwise.
+// Present only when `verification_method` is `wallet`; `null` otherwise. UAE
+// PASS (`provider` `uae_pass`) is outcome only: the identity fields of this ID
+// verification (`full_name`, `first_name`, `last_name`, `date_of_birth`,
+// `nationality`, the document numbers) stay `null`, `attributes` holds only
+// whether each detail declared in `expected_details` matched, and nothing UAE
+// PASS shared about the person is returned or kept.
 type SessionDecisionIDVerificationsWalletVerification struct {
 	// Catalog wallet id, e.g. `mitid`.
 	Provider string `json:"provider"`
@@ -5255,7 +5415,14 @@ type SessionDecisionIDVerificationsWalletVerification struct {
 	SignatureValid bool `json:"signature_valid"`
 
 	// The attributes the wallet shared, keyed as the wallet's catalog entry lists
-	// them.
+	// them. For UAE PASS only the comparison with `expected_details`, one key per
+	// declared detail, each `match` or `no_match`: `name_match` (`first_name` /
+	// `last_name`), `date_of_birth_match` and `identification_number_match` (the
+	// Emirates ID number). A declared detail that does not match also raises the
+	// expected-details warning (`FULL_NAME_MISMATCH_WITH_PROVIDED`,
+	// `DOB_MISMATCH_WITH_PROVIDED` or
+	// `IDENTIFICATION_NUMBER_MISMATCH_WITH_PROVIDED`), handled by the workflow's
+	// expected-details mismatch action.
 	Attributes map[string]any `json:"attributes"`
 
 	// Short-lived presigned URL to the portrait the wallet shared, where it shares
@@ -5839,7 +6006,14 @@ type SessionDecisionIDVerificationsWarnings struct {
 	// but the enum above is authoritative across all feature warnings on the
 	// decision payload.
 	Feature SessionDecisionIDVerificationsWarningsFeature `json:"feature"`
-	Risk    string                                        `json:"risk"`
+
+	// Machine-readable risk code. In ID verification warnings,
+	// `SELFIE_MATCH_NOT_COMPUTED` means document selfie matching is enabled but the
+	// front-camera comparison never ran because the client reported no front-camera
+	// frame (`front_camera_image_unavailable`); it resolves to `In Review` by
+	// default or `Declined` when
+	// `document_selfie_portrait_match_not_computed_action` is `DECLINE`.
+	Risk string `json:"risk"`
 
 	// Additional contextual data about the warning
 	AdditionalData map[string]any `json:"additional_data"`
@@ -10346,6 +10520,12 @@ type GeolocationCheck struct {
 	// Nearest populated place, a label for reviewers.
 	City string `json:"city"`
 
+	// Street address at the device fix, reverse geocoded. `country_code`,
+	// `region_code` and `city` stay the offline place used by geofences; this is
+	// the address for reviewers and for comparison with `kyc.parsed_address` or
+	// `poa.parsed_address` in workflow rules. See the schema for when it is `null`.
+	ParsedAddress GeolocationParsedAddress `json:"parsed_address"`
+
 	// Result of the country and area rules of the step.
 	Geofence GeolocationCheckGeofence `json:"geofence"`
 
@@ -10542,6 +10722,70 @@ const (
 	GeolocationCheckIntegrityUnsupported   GeolocationCheckIntegrity = "unsupported"
 	GeolocationCheckIntegrityNotDetermined GeolocationCheckIntegrity = "not_determined"
 )
+
+// GeolocationParsedAddress: The street address at the device fix, reverse
+// geocoded, in the same shape as `id_verifications[].parsed_address` and
+// `poa_verifications[].poa_parsed_address`. It is only as precise as
+// `accuracy_m`. `null` when there is no device fix (permission denied, timeout
+// or skip), when the Location step only used the IP address, in sandbox
+// sessions, when the geocoder places the point nowhere, or when the geocoder
+// failed.
+type GeolocationParsedAddress struct {
+	// Street and number, for example `Puerta del Sol 7`.
+	Street1 string `json:"street_1"`
+
+	// Secondary address line, when the geocoder returns one.
+	Street2 string `json:"street_2"`
+
+	// City or locality of the address.
+	City string `json:"city"`
+
+	// Region, state or province of the address.
+	Region string `json:"region"`
+
+	// ISO 3166-1 alpha-2 country code of the address.
+	Country string `json:"country"`
+
+	// Postal code of the address.
+	PostalCode string `json:"postal_code"`
+
+	// Street-type prefix detected at the start of `street_1`, title-cased, for
+	// example `Calle` or `Avenue`. `null` when none is found.
+	AddressType string `json:"address_type"`
+
+	// The address as one display line.
+	FormattedAddress string `json:"formatted_address"`
+
+	// The geocoder's raw result, for audit.
+	RawResults map[string]any `json:"raw_results"`
+
+	// Coordinates of the address point.
+	DocumentLocation GeolocationParsedAddressDocumentLocation `json:"document_location"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationParsedAddress leniently.
+func (r *GeolocationParsedAddress) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// GeolocationParsedAddressDocumentLocation: Coordinates of the address point.
+type GeolocationParsedAddressDocumentLocation struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes GeolocationParsedAddressDocumentLocation leniently.
+func (r *GeolocationParsedAddressDocumentLocation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // GeolocationCheckGeofence: Result of the country and area rules of the step.
 type GeolocationCheckGeofence struct {
@@ -10771,6 +11015,12 @@ type GeolocationAttempt struct {
 
 	// Nearest populated place, a label for reviewers.
 	City string `json:"city"`
+
+	// Street address at the device fix, reverse geocoded. `country_code`,
+	// `region_code` and `city` stay the offline place used by geofences; this is
+	// the address for reviewers and for comparison with `kyc.parsed_address` or
+	// `poa.parsed_address` in workflow rules. See the schema for when it is `null`.
+	ParsedAddress GeolocationParsedAddress `json:"parsed_address"`
 
 	// Result of the country and area rules of the step.
 	Geofence GeolocationAttemptGeofence `json:"geofence"`
@@ -17597,7 +17847,14 @@ func (r *SessionsUploadKYBDocumentsResponse) UnmarshalJSON(data []byte) error {
 // SessionImportJob is a response object.
 type SessionImportJob struct {
 	// Import job id. Use this value to poll progress and fetch row errors.
-	UUID            string                       `json:"uuid"`
+	UUID string `json:"uuid"`
+
+	// `WAITING`: the month's limit is used up. The import continues by itself when
+	// the limit goes up (a top-up, the next month, or Didit approving a limit
+	// request). `HELD`: a check held the file for review by Didit; nothing is
+	// written. `DECLINED`: Didit declined the held file (`review_note` says why);
+	// nothing was written and the source and credentials are erased. `UNDOING` and
+	// `UNDONE`: an Undo import is running or has finished.
 	Status          SessionImportJobStatus       `json:"status"`
 	ImportType      SessionImportJobImportType   `json:"import_type"`
 	SourceFormat    SessionImportJobSourceFormat `json:"source_format"`
@@ -17617,7 +17874,9 @@ type SessionImportJob struct {
 	CompletedAt     time.Time                    `json:"completed_at"`
 
 	// The job's state as the console shows it; `errors` is a completed job with
-	// rejected rows.
+	// rejected rows. `waiting`: the month's import limit is used up. `held`: a
+	// check holds the import for review by Didit. `declined`: Didit declined the
+	// held import. `undoing` and `undone`: Undo import is running or finished.
 	State  SessionImportJobState  `json:"state"`
 	Source SessionImportJobSource `json:"source"`
 
@@ -17636,7 +17895,8 @@ type SessionImportJob struct {
 	IsDryRun      bool              `json:"is_dry_run"`
 
 	// What a dry run found: `total`, `by_status`, `already_in_didit`,
-	// `same_person`, `not_finished`, `failed`, `unmapped_statuses`.
+	// `same_person`, `not_finished`, `failed`, `unmapped_statuses` and `checks`
+	// (only the checks that fired, the same list as the job's `checks`).
 	DryRunSummary          map[string]any `json:"dry_run_summary"`
 	FaceTemplatesEnabled   bool           `json:"face_templates_enabled"`
 	LawfulBasisConfirmedAt time.Time      `json:"lawful_basis_confirmed_at"`
@@ -17648,6 +17908,38 @@ type SessionImportJob struct {
 	CreatedByName          string         `json:"created_by_name"`
 	CreatedByEmail         string         `json:"created_by_email"`
 
+	// The monthly limit this job counts against: `provider` for a migration read
+	// from another provider (`source=provider`), `file` for an upload or file URL.
+	LimitLane SessionImportJobLimitLane `json:"limit_lane"`
+
+	// Why a `WAITING` job waits. `null` otherwise.
+	WaitingReason SessionImportJobWaitingReason `json:"waiting_reason"`
+
+	// Only the checks that fired over the whole file or account, each saying
+	// whether it holds the import. Empty when nothing fired.
+	Checks []ImportCheck `json:"checks"`
+
+	// The note from Didit on a `DECLINED` job.
+	ReviewNote string `json:"review_note"`
+
+	// The request for a higher limit made for this job, or `null`.
+	LimitRequest ImportLimitRequest `json:"limit_request"`
+
+	// Records Didit approved for this job beyond the monthly limit.
+	GrantedRecords int64 `json:"granted_records"`
+
+	// `true` when the job recorded what it created, so `POST
+	// /v3/session/imports/{importId}/undo/` can delete it. Imports made before Undo
+	// import existed did not record it.
+	CanUndo bool `json:"can_undo"`
+
+	// Records deleted by Undo import.
+	UndoneCount int64     `json:"undone_count"`
+	UndoneAt    time.Time `json:"undone_at"`
+
+	// Who undid the import.
+	UndoneBy string `json:"undone_by"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -17658,6 +17950,14 @@ func (r *SessionImportJob) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SessionImportJobStatus: `WAITING`: the month's limit is used up. The import
+// continues by itself when the limit goes up (a top-up, the next month, or
+// Didit approving a limit request). `HELD`: a check held the file for review by
+// Didit; nothing is written. `DECLINED`: Didit declined the held file
+// (`review_note` says why); nothing was written and the source and credentials
+// are erased. `UNDOING` and `UNDONE`: an Undo import is running or has
+// finished.
+//
 // SessionImportJobStatus is a string with known values below. The set is open:
 // other values may appear and never cause an error.
 type SessionImportJobStatus string
@@ -17671,6 +17971,11 @@ const (
 	SessionImportJobStatusPaused     SessionImportJobStatus = "PAUSED"
 	SessionImportJobStatusCancelled  SessionImportJobStatus = "CANCELLED"
 	SessionImportJobStatusReady      SessionImportJobStatus = "READY"
+	SessionImportJobStatusWaiting    SessionImportJobStatus = "WAITING"
+	SessionImportJobStatusHeld       SessionImportJobStatus = "HELD"
+	SessionImportJobStatusDeclined   SessionImportJobStatus = "DECLINED"
+	SessionImportJobStatusUndoing    SessionImportJobStatus = "UNDOING"
+	SessionImportJobStatusUndone     SessionImportJobStatus = "UNDONE"
 )
 
 // SessionImportJobImportType is a string with known values below. The set is
@@ -17696,7 +18001,10 @@ const (
 )
 
 // SessionImportJobState: The job's state as the console shows it; `errors` is a
-// completed job with rejected rows.
+// completed job with rejected rows. `waiting`: the month's import limit is used
+// up. `held`: a check holds the import for review by Didit. `declined`: Didit
+// declined the held import. `undoing` and `undone`: Undo import is running or
+// finished.
 //
 // SessionImportJobState is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -17712,6 +18020,11 @@ const (
 	SessionImportJobStateErrors    SessionImportJobState = "errors"
 	SessionImportJobStateFailed    SessionImportJobState = "failed"
 	SessionImportJobStateCancelled SessionImportJobState = "cancelled"
+	SessionImportJobStateWaiting   SessionImportJobState = "waiting"
+	SessionImportJobStateHeld      SessionImportJobState = "held"
+	SessionImportJobStateDeclined  SessionImportJobState = "declined"
+	SessionImportJobStateUndoing   SessionImportJobState = "undoing"
+	SessionImportJobStateUndone    SessionImportJobState = "undone"
 )
 
 // SessionImportJobSource is a string with known values below. The set is open:
@@ -17723,6 +18036,124 @@ const (
 	SessionImportJobSourceFile     SessionImportJobSource = "file"
 	SessionImportJobSourceAPI      SessionImportJobSource = "api"
 	SessionImportJobSourceProvider SessionImportJobSource = "provider"
+)
+
+// SessionImportJobLimitLane: The monthly limit this job counts against:
+// `provider` for a migration read from another provider (`source=provider`),
+// `file` for an upload or file URL.
+//
+// SessionImportJobLimitLane is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SessionImportJobLimitLane string
+
+// Known values of SessionImportJobLimitLane.
+const (
+	SessionImportJobLimitLaneProvider SessionImportJobLimitLane = "provider"
+	SessionImportJobLimitLaneFile     SessionImportJobLimitLane = "file"
+)
+
+// SessionImportJobWaitingReason: Why a `WAITING` job waits. `null` otherwise.
+//
+// SessionImportJobWaitingReason is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type SessionImportJobWaitingReason string
+
+// Known values of SessionImportJobWaitingReason.
+const (
+	SessionImportJobWaitingReasonLimit SessionImportJobWaitingReason = "limit"
+)
+
+// ImportCheck is a response object.
+type ImportCheck struct {
+	// `all_approved_no_media`: at least 95% of the records are Approved and at most
+	// 5% carry any image (selfie, document or video), on 100 records or more. It
+	// applies to file imports only (a provider's export file included), because
+	// records read from a provider's API carry their images only once they are
+	// imported. `repeated_documents`: the same document number and issuing country
+	// appears under a different name or date of birth in at least 2% of the records
+	// and at least 20 records (User Verification imports). `implausible_dates`: a
+	// verification date in the future or before 2010, or a date of birth giving an
+	// age under 14 or over 110, in at least 2% of the records.
+	Code ImportCheckCode `json:"code"`
+
+	// Records the check flagged.
+	Count int64 `json:"count"`
+
+	// Flagged records as a fraction of the records checked.
+	Share float64 `json:"share"`
+
+	// `true` when this finding holds the import for review by Didit before anything
+	// is written (an organization on the automatic mode that has never paid).
+	// Otherwise the finding is a warning only.
+	Holds bool `json:"holds"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportCheck leniently.
+func (r *ImportCheck) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportCheckCode: `all_approved_no_media`: at least 95% of the records are
+// Approved and at most 5% carry any image (selfie, document or video), on 100
+// records or more. It applies to file imports only (a provider's export file
+// included), because records read from a provider's API carry their images only
+// once they are imported. `repeated_documents`: the same document number and
+// issuing country appears under a different name or date of birth in at least
+// 2% of the records and at least 20 records (User Verification imports).
+// `implausible_dates`: a verification date in the future or before 2010, or a
+// date of birth giving an age under 14 or over 110, in at least 2% of the
+// records.
+//
+// ImportCheckCode is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type ImportCheckCode string
+
+// Known values of ImportCheckCode.
+const (
+	ImportCheckCodeAllApprovedNoMedia ImportCheckCode = "all_approved_no_media"
+	ImportCheckCodeRepeatedDocuments  ImportCheckCode = "repeated_documents"
+	ImportCheckCodeImplausibleDates   ImportCheckCode = "implausible_dates"
+)
+
+// ImportLimitRequest is a response object.
+type ImportLimitRequest struct {
+	ID     string                   `json:"id"`
+	Status ImportLimitRequestStatus `json:"status"`
+
+	// Records the request asks to write beyond the monthly limit, for this import.
+	RequestedRecords int64 `json:"requested_records"`
+
+	// Your note, at most 1000 characters.
+	Note      string    `json:"note"`
+	CreatedAt time.Time `json:"created_at"`
+	DecidedAt time.Time `json:"decided_at"`
+
+	// The answer from Didit when the request was declined or approved.
+	StaffNote string `json:"staff_note"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportLimitRequest leniently.
+func (r *ImportLimitRequest) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportLimitRequestStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type ImportLimitRequestStatus string
+
+// Known values of ImportLimitRequestStatus.
+const (
+	ImportLimitRequestStatusPending  ImportLimitRequestStatus = "pending"
+	ImportLimitRequestStatusApproved ImportLimitRequestStatus = "approved"
+	ImportLimitRequestStatusDeclined ImportLimitRequestStatus = "declined"
 )
 
 // SessionsImportsCheckProviderParams holds the parameters of
@@ -17816,9 +18247,11 @@ type SessionsImportsCreateParams struct {
 	// Optional. Inferred from the URL's file extension when omitted.
 	SourceFormat Opt[SessionsImportsCreateParamsSourceFormat] `json:"source_format"`
 
-	// Alternative to file upload. Must be an HTTPS URL resolving to a public
-	// address (private/loopback networks are rejected). Mutually exclusive with
-	// `file`.
+	// HTTPS URL of the file, resolving to a public address (private/loopback
+	// networks are rejected). Required for a file import and for a provider
+	// migration whose provider is read from uploaded record IDs or an export file
+	// (`GET /v3/session/imports/providers/` gives each provider's mode). Not needed
+	// when `source` is `provider` and Didit reads the account with `credentials`.
 	SourceFileURL Opt[string] `json:"source_file_url"`
 
 	// `provider` makes this a migration from another identity verification
@@ -17981,8 +18414,13 @@ type ImportJobSummary struct {
 	Filename     string                 `json:"filename"`
 
 	// The job's state as the console shows it; `errors` is a completed job with
-	// rejected rows.
-	State          ImportJobSummaryState         `json:"state"`
+	// rejected rows. `waiting`: the month's import limit is used up. `held`: a
+	// check holds the import for review by Didit. `declined`: Didit declined the
+	// held import. `undoing` and `undone`: Undo import is running or finished.
+	State ImportJobSummaryState `json:"state"`
+
+	// The job's status; the same values as a verification import job's `status`,
+	// including `WAITING`, `HELD`, `DECLINED`, `UNDOING` and `UNDONE`.
 	Status         string                        `json:"status"`
 	IsDryRun       bool                          `json:"is_dry_run"`
 	CredentialHint string                        `json:"credential_hint"`
@@ -17995,6 +18433,38 @@ type ImportJobSummary struct {
 	CreatedAt      time.Time                     `json:"created_at"`
 	StartedAt      time.Time                     `json:"started_at"`
 	CompletedAt    time.Time                     `json:"completed_at"`
+
+	// The monthly limit this job counts against: `provider` for a migration read
+	// from another provider (`source=provider`), `file` for an upload or file URL.
+	LimitLane ImportJobSummaryLimitLane `json:"limit_lane"`
+
+	// Why a `WAITING` job waits. `null` otherwise.
+	WaitingReason ImportJobSummaryWaitingReason `json:"waiting_reason"`
+
+	// What the checks found in the whole file or account. Empty when nothing was
+	// flagged.
+	Checks []ImportCheck `json:"checks"`
+
+	// The note from Didit on a `DECLINED` job.
+	ReviewNote string `json:"review_note"`
+
+	// The request for a higher limit made for this job, or `null`.
+	LimitRequest ImportLimitRequest `json:"limit_request"`
+
+	// Records Didit approved for this job beyond the monthly limit.
+	GrantedRecords int64 `json:"granted_records"`
+
+	// `true` when the job recorded what it created, so `POST
+	// /v3/session/imports/{importId}/undo/` can delete it. Imports made before Undo
+	// import existed did not record it.
+	CanUndo bool `json:"can_undo"`
+
+	// Records deleted by Undo import.
+	UndoneCount int64     `json:"undone_count"`
+	UndoneAt    time.Time `json:"undone_at"`
+
+	// Who undid the import.
+	UndoneBy string `json:"undone_by"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -18031,7 +18501,10 @@ const (
 )
 
 // ImportJobSummaryState: The job's state as the console shows it; `errors` is a
-// completed job with rejected rows.
+// completed job with rejected rows. `waiting`: the month's import limit is used
+// up. `held`: a check holds the import for review by Didit. `declined`: Didit
+// declined the held import. `undoing` and `undone`: Undo import is running or
+// finished.
 //
 // ImportJobSummaryState is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -18047,6 +18520,11 @@ const (
 	ImportJobSummaryStateErrors    ImportJobSummaryState = "errors"
 	ImportJobSummaryStateFailed    ImportJobSummaryState = "failed"
 	ImportJobSummaryStateCancelled ImportJobSummaryState = "cancelled"
+	ImportJobSummaryStateWaiting   ImportJobSummaryState = "waiting"
+	ImportJobSummaryStateHeld      ImportJobSummaryState = "held"
+	ImportJobSummaryStateDeclined  ImportJobSummaryState = "declined"
+	ImportJobSummaryStateUndoing   ImportJobSummaryState = "undoing"
+	ImportJobSummaryStateUndone    ImportJobSummaryState = "undone"
 )
 
 // ImportJobSummaryStartedBy is a response object.
@@ -18101,6 +18579,31 @@ type ImportJobSummaryFaceTemplates struct {
 func (r *ImportJobSummaryFaceTemplates) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// ImportJobSummaryLimitLane: The monthly limit this job counts against:
+// `provider` for a migration read from another provider (`source=provider`),
+// `file` for an upload or file URL.
+//
+// ImportJobSummaryLimitLane is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type ImportJobSummaryLimitLane string
+
+// Known values of ImportJobSummaryLimitLane.
+const (
+	ImportJobSummaryLimitLaneProvider ImportJobSummaryLimitLane = "provider"
+	ImportJobSummaryLimitLaneFile     ImportJobSummaryLimitLane = "file"
+)
+
+// ImportJobSummaryWaitingReason: Why a `WAITING` job waits. `null` otherwise.
+//
+// ImportJobSummaryWaitingReason is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type ImportJobSummaryWaitingReason string
+
+// Known values of ImportJobSummaryWaitingReason.
+const (
+	ImportJobSummaryWaitingReasonLimit ImportJobSummaryWaitingReason = "limit"
+)
 
 // SessionsImportsListErrorsParams holds the parameters of
 // Client.Sessions.Imports.ListErrors.
@@ -18300,6 +18803,157 @@ const (
 	ImportProviderStatusMappingNotFinished ImportProviderStatusMapping = "Not Finished"
 	ImportProviderStatusMappingAbandoned   ImportProviderStatusMapping = "Abandoned"
 )
+
+// ImportLimitRequestInput is a request object.
+type ImportLimitRequestInput struct {
+	// Optional. Tell Didit why you need a higher limit, at most 1000 characters.
+	Note Opt[string] `json:"note"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r ImportLimitRequestInput) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// ImportLimits is a response object.
+type ImportLimits struct {
+	// The import mode of the organization. `automatic` applies the monthly limits;
+	// `always_allowed` has no monthly limit and its files are never held for a
+	// check; `turned_off` imports nothing.
+	Mode ImportLimitsMode `json:"mode"`
+
+	// The level that sets the monthly limits: `never_paid` until the first paid
+	// top-up, `paid` after it, `contract` on an enterprise contract.
+	Level ImportLimitsLevel `json:"level"`
+
+	// `false` when imports are turned off or the application is a sandbox
+	// application.
+	CanImport bool `json:"can_import"`
+
+	// Why `can_import` is `false`; `null` otherwise.
+	Reason ImportLimitsReason `json:"reason"`
+
+	// `true` when a check can hold a file for review by Didit before anything is
+	// written: an organization on the automatic mode that has never paid.
+	ChecksCanHold bool               `json:"checks_can_hold"`
+	Period        ImportLimitsPeriod `json:"period"`
+
+	// Monthly limits per lane. `provider` counts migrations that read records from
+	// another provider with your key (`source=provider`); `file` counts file
+	// uploads and file URLs sent through the API.
+	Lanes ImportLimitsLanes `json:"lanes"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportLimits leniently.
+func (r *ImportLimits) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportLimitsMode: The import mode of the organization. `automatic` applies
+// the monthly limits; `always_allowed` has no monthly limit and its files are
+// never held for a check; `turned_off` imports nothing.
+//
+// ImportLimitsMode is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type ImportLimitsMode string
+
+// Known values of ImportLimitsMode.
+const (
+	ImportLimitsModeAutomatic     ImportLimitsMode = "automatic"
+	ImportLimitsModeAlwaysAllowed ImportLimitsMode = "always_allowed"
+	ImportLimitsModeTurnedOff     ImportLimitsMode = "turned_off"
+)
+
+// ImportLimitsLevel: The level that sets the monthly limits: `never_paid` until
+// the first paid top-up, `paid` after it, `contract` on an enterprise contract.
+//
+// ImportLimitsLevel is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type ImportLimitsLevel string
+
+// Known values of ImportLimitsLevel.
+const (
+	ImportLimitsLevelNeverPaid ImportLimitsLevel = "never_paid"
+	ImportLimitsLevelPaid      ImportLimitsLevel = "paid"
+	ImportLimitsLevelContract  ImportLimitsLevel = "contract"
+)
+
+// ImportLimitsReason: Why `can_import` is `false`; `null` otherwise.
+//
+// ImportLimitsReason is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type ImportLimitsReason string
+
+// Known values of ImportLimitsReason.
+const (
+	ImportLimitsReasonTurnedOff ImportLimitsReason = "turned_off"
+	ImportLimitsReasonSandbox   ImportLimitsReason = "sandbox"
+)
+
+// ImportLimitsPeriod is a response object.
+type ImportLimitsPeriod struct {
+	StartsAt time.Time `json:"starts_at"`
+
+	// When the monthly limits start again: the first day of the next calendar
+	// month, UTC.
+	ResetsAt time.Time `json:"resets_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportLimitsPeriod leniently.
+func (r *ImportLimitsPeriod) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportLimitsLanes: Monthly limits per lane. `provider` counts migrations that
+// read records from another provider with your key (`source=provider`); `file`
+// counts file uploads and file URLs sent through the API.
+type ImportLimitsLanes struct {
+	Provider ImportLimitLane `json:"provider"`
+	File     ImportLimitLane `json:"file"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportLimitsLanes leniently.
+func (r *ImportLimitsLanes) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// ImportLimitLane is a response object.
+type ImportLimitLane struct {
+	// Records this lane may write in the period. `null` when there is no monthly
+	// limit, `0` when imports are turned off.
+	Limit int64 `json:"limit"`
+
+	// Records written in the period by imports that are not dry runs, across all
+	// live applications of the organization. Records an import skipped because they
+	// were already in Didit, rejected rows and dry runs do not count, and records
+	// you undo are given back.
+	Used int64 `json:"used"`
+
+	// `limit` minus `used`. `null` when there is no monthly limit, `0` when imports
+	// are turned off.
+	Remaining int64 `json:"remaining"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes ImportLimitLane leniently.
+func (r *ImportLimitLane) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // SessionsImportsRetrieveTemplateParams holds the parameters of
 // Client.Sessions.Imports.RetrieveTemplate.
