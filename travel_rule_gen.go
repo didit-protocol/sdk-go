@@ -1149,10 +1149,12 @@ func (r TravelRuleVASPCreateRequest) MarshalJSON() ([]byte, error) {
 // with the routes your application has to it. A customer is a member of the
 // Didit network only while its application is live, its Travel Rule is on, its
 // profile is discoverable, has a legal name and a confirmed compliance email,
-// and Didit has not marked the application as a test, demo or internal one.
-// Each row also carries the shared due-diligence assessment (dd_score,
-// risk_level, responsiveness, essential_checks) and your application's own
-// decision, entity screening and questionnaires, which no other customer sees.
+// has an LEI that GLEIF lists as issued to an active entity and has been
+// reviewed by Didit as a virtual asset service provider, and Didit has not
+// marked the application as a test, demo, internal or not-a-VASP one. Each row
+// also carries the shared due-diligence assessment (dd_score, risk_level,
+// responsiveness, essential_checks) and your application's own decision, entity
+// screening and questionnaires, which no other customer sees.
 type VASPDirectoryEntry struct {
 	// The entry's id, for GET /v3/travel-rule/vasps/{vasp_id}/.
 	ID string `json:"id"`
@@ -1258,7 +1260,12 @@ type VASPDirectoryEntry struct {
 	// its register gives) and lei (its LEI record is active, issued and consistent
 	// with the entry's names and country). The essentials component of dd_score is
 	// the share of decided checks that pass. Empty until the weekly directory
-	// refresh first checks the entry, and always empty for a Didit network member.
+	// refresh first checks the entry. A Didit network member (kind didit) carries
+	// the report too: registration, licence and domain come from the registered
+	// directory entry with the same LEI when there is one (else registration fails
+	// with no_register, licence is unknown with no_licence_record and domain is
+	// unknown with no_domain), and the lei check is GLEIF's answer against the
+	// member's own legal name and country.
 	EssentialChecks VASPDirectoryEntryEssentialChecks `json:"essential_checks"`
 
 	// Your application's decision on this VASP, or for an entity with no decision
@@ -1731,8 +1738,12 @@ const (
 // or the website its register gives) and lei (its LEI record is active, issued
 // and consistent with the entry's names and country). The essentials component
 // of dd_score is the share of decided checks that pass. Empty until the weekly
-// directory refresh first checks the entry, and always empty for a Didit
-// network member.
+// directory refresh first checks the entry. A Didit network member (kind didit)
+// carries the report too: registration, licence and domain come from the
+// registered directory entry with the same LEI when there is one (else
+// registration fails with no_register, licence is unknown with
+// no_licence_record and domain is unknown with no_domain), and the lei check is
+// GLEIF's answer against the member's own legal name and country.
 type VASPDirectoryEntryEssentialChecks struct {
 	Level     VASPDirectoryEntryEssentialChecksLevel    `json:"level"`
 	CheckedAt time.Time                                 `json:"checked_at"`
@@ -1768,7 +1779,12 @@ type VASPDirectoryEntryEssentialChecksChecks struct {
 	// unknown when no source on record can decide the check.
 	Status VASPDirectoryEntryEssentialChecksChecksStatus `json:"status"`
 
-	// Machine-readable code of the verdict.
+	// Machine-readable code of the verdict. lei check: no_lei, no_gleif_record,
+	// gleif_lei_unknown (GLEIF has no record of the LEI), gleif_other_lei,
+	// gleif_entity_inactive, gleif_lei_not_issued, gleif_name_mismatch,
+	// gleif_country_mismatch, gleif_consistent. registration: gleif_issued,
+	// gleif_not_issued, no_register and the register reasons. licence:
+	// no_licence_record, no_authorisation_date. domain: no_domain.
 	Reason string `json:"reason"`
 
 	// One-line English explanation.
@@ -2567,7 +2583,10 @@ type TravelRuleSettingsDetail struct {
 	// Your VASP's legal name. Required (non-blank) to set is_enabled to true.
 	LegalName string `json:"legal_name"`
 
-	// Your Legal Entity Identifier, surfaced in the VASP directory.
+	// Your Legal Entity Identifier (ISO 17442): 20 letters and digits whose last
+	// two are check digits (ISO 7064 MOD 97-10). It is stored in upper case.
+	// Surfaced in the VASP directory. Didit checks it with GLEIF;
+	// didit_network.lei_check shows the answer.
 	Lei string `json:"lei"`
 
 	// Compliance contact email for your VASP profile. The Didit network lists your
@@ -2578,9 +2597,10 @@ type TravelRuleSettingsDetail struct {
 
 	// Whether your VASP profile can be listed in the Didit network: found in GET
 	// /v3/travel-rule/vasps/ by other Didit customers and reached on the INTERNAL
-	// rail. Listing also needs a live application, Travel Rule on, a legal name and
-	// a confirmed compliance email; didit_network says which are missing. Default
-	// true.
+	// rail. Listing also needs a live application, Travel Rule on, a legal name, a
+	// confirmed compliance email, an LEI that GLEIF lists as issued to an active
+	// entity and a review by Didit that you are a virtual asset service provider;
+	// didit_network says which are missing. Default true.
 	IsDiscoverable bool `json:"is_discoverable"`
 
 	// When true, an inbound TRP inquiry whose beneficiary wallet is a verified
@@ -2654,7 +2674,12 @@ type TravelRuleSettingsDetail struct {
 
 	// Whether the Didit network lists your VASP profile, so other Didit customers
 	// find it in the directory and reach it on the INTERNAL rail, and each
-	// condition it still misses.
+	// condition it still misses. Listing needs: a live (not sandbox) application
+	// with Travel Rule on, Discoverable on, a legal name, a compliance email
+	// confirmed through the emailed link, an LEI that GLEIF lists as issued to an
+	// active entity, and a review by Didit that the company is a virtual asset
+	// service provider (the review is for that LEI: changing the LEI or the legal
+	// name needs a new review).
 	DiditNetwork TravelRuleSettingsDetailDiditNetwork `json:"didit_network"`
 
 	// VASP licence or registration reference. Empty when not supplied.
@@ -3435,18 +3460,35 @@ const (
 
 // TravelRuleSettingsDetailDiditNetwork: Whether the Didit network lists your
 // VASP profile, so other Didit customers find it in the directory and reach it
-// on the INTERNAL rail, and each condition it still misses.
+// on the INTERNAL rail, and each condition it still misses. Listing needs: a
+// live (not sandbox) application with Travel Rule on, Discoverable on, a legal
+// name, a compliance email confirmed through the emailed link, an LEI that
+// GLEIF lists as issued to an active entity, and a review by Didit that the
+// company is a virtual asset service provider (the review is for that LEI:
+// changing the LEI or the legal name needs a new review).
 type TravelRuleSettingsDetailDiditNetwork struct {
 	Listed bool `json:"listed"`
 
-	// Empty when listed. compliance_email_unconfirmed: send the confirmation with
-	// POST /v3/travel-rule/settings/compliance-email/confirmation/ and open the
-	// emailed link. excluded_by_staff: Didit marked the application as a test, demo
-	// or internal one.
+	// Empty when listed, in this order when present. lei_missing: set lei with PUT
+	// /v3/travel-rule/settings/. lei_unverified: GLEIF does not list the LEI as
+	// issued to an active entity; see lei_check.reason.
+	// compliance_email_unconfirmed: send the confirmation with POST
+	// /v3/travel-rule/settings/compliance-email/confirmation/ and open the emailed
+	// link. excluded_by_staff: Didit marked the application as a test, demo,
+	// internal or not-a-VASP one. review_pending: Didit has not yet reviewed that
+	// the company is a virtual asset service provider for this LEI. A legal name or
+	// country that differs from GLEIF does not block the listing by itself: the
+	// reviewer sees it and counterparties read it in the lei check of
+	// essential_checks. Invited VASPs that joined free and proved their claim of a
+	// registered directory entry are listed through that claim.
 	Missing []TravelRuleSettingsDetailDiditNetworkMissing `json:"missing"`
 
 	// Whether the current compliance_email was confirmed through the emailed link.
 	ComplianceEmailConfirmed bool `json:"compliance_email_confirmed"`
+
+	// What GLEIF said about your current LEI. null before the LEI was first
+	// checked.
+	LeiCheck TravelRuleSettingsDetailDiditNetworkLeiCheck `json:"lei_check"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -3468,10 +3510,82 @@ const (
 	TravelRuleSettingsDetailDiditNetworkMissingSandboxApplication         TravelRuleSettingsDetailDiditNetworkMissing = "sandbox_application"
 	TravelRuleSettingsDetailDiditNetworkMissingNotDiscoverable            TravelRuleSettingsDetailDiditNetworkMissing = "not_discoverable"
 	TravelRuleSettingsDetailDiditNetworkMissingLegalNameMissing           TravelRuleSettingsDetailDiditNetworkMissing = "legal_name_missing"
+	TravelRuleSettingsDetailDiditNetworkMissingLeiMissing                 TravelRuleSettingsDetailDiditNetworkMissing = "lei_missing"
+	TravelRuleSettingsDetailDiditNetworkMissingLeiUnverified              TravelRuleSettingsDetailDiditNetworkMissing = "lei_unverified"
 	TravelRuleSettingsDetailDiditNetworkMissingComplianceEmailMissing     TravelRuleSettingsDetailDiditNetworkMissing = "compliance_email_missing"
 	TravelRuleSettingsDetailDiditNetworkMissingComplianceEmailUnconfirmed TravelRuleSettingsDetailDiditNetworkMissing = "compliance_email_unconfirmed"
 	TravelRuleSettingsDetailDiditNetworkMissingExcludedByStaff            TravelRuleSettingsDetailDiditNetworkMissing = "excluded_by_staff"
 	TravelRuleSettingsDetailDiditNetworkMissingInternalOrganization       TravelRuleSettingsDetailDiditNetworkMissing = "internal_organization"
+	TravelRuleSettingsDetailDiditNetworkMissingReviewPending              TravelRuleSettingsDetailDiditNetworkMissing = "review_pending"
+)
+
+// TravelRuleSettingsDetailDiditNetworkLeiCheck: What GLEIF said about your
+// current LEI. null before the LEI was first checked.
+type TravelRuleSettingsDetailDiditNetworkLeiCheck struct {
+	Status TravelRuleSettingsDetailDiditNetworkLeiCheckStatus `json:"status"`
+
+	// no_lei: no LEI is set. no_gleif_record: GLEIF has not been asked yet.
+	// gleif_lei_unknown: GLEIF has no record of this LEI. gleif_other_lei: the
+	// GLEIF record on file is for a different LEI. gleif_entity_inactive: the GLEIF
+	// entity is not active. gleif_lei_not_issued: the LEI is not in issued status
+	// (for example it lapsed). gleif_name_mismatch: GLEIF's legal name does not
+	// match your legal name. gleif_country_mismatch: GLEIF's country does not match
+	// your country. gleif_consistent: active, issued and consistent with your legal
+	// name and country.
+	Reason TravelRuleSettingsDetailDiditNetworkLeiCheckReason `json:"reason"`
+
+	// The legal name GLEIF holds for the LEI; empty when GLEIF has no record.
+	GleifLegalName string    `json:"gleif_legal_name"`
+	CheckedAt      time.Time `json:"checked_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TravelRuleSettingsDetailDiditNetworkLeiCheck leniently.
+func (r *TravelRuleSettingsDetailDiditNetworkLeiCheck) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TravelRuleSettingsDetailDiditNetworkLeiCheckStatus is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type TravelRuleSettingsDetailDiditNetworkLeiCheckStatus string
+
+// Known values of TravelRuleSettingsDetailDiditNetworkLeiCheckStatus.
+const (
+	TravelRuleSettingsDetailDiditNetworkLeiCheckStatusPass    TravelRuleSettingsDetailDiditNetworkLeiCheckStatus = "pass"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckStatusFail    TravelRuleSettingsDetailDiditNetworkLeiCheckStatus = "fail"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckStatusUnknown TravelRuleSettingsDetailDiditNetworkLeiCheckStatus = "unknown"
+)
+
+// TravelRuleSettingsDetailDiditNetworkLeiCheckReason: no_lei: no LEI is set.
+// no_gleif_record: GLEIF has not been asked yet. gleif_lei_unknown: GLEIF has
+// no record of this LEI. gleif_other_lei: the GLEIF record on file is for a
+// different LEI. gleif_entity_inactive: the GLEIF entity is not active.
+// gleif_lei_not_issued: the LEI is not in issued status (for example it
+// lapsed). gleif_name_mismatch: GLEIF's legal name does not match your legal
+// name. gleif_country_mismatch: GLEIF's country does not match your country.
+// gleif_consistent: active, issued and consistent with your legal name and
+// country.
+//
+// TravelRuleSettingsDetailDiditNetworkLeiCheckReason is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type TravelRuleSettingsDetailDiditNetworkLeiCheckReason string
+
+// Known values of TravelRuleSettingsDetailDiditNetworkLeiCheckReason.
+const (
+	TravelRuleSettingsDetailDiditNetworkLeiCheckReasonNoLei                TravelRuleSettingsDetailDiditNetworkLeiCheckReason = "no_lei"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckReasonNoGleifRecord        TravelRuleSettingsDetailDiditNetworkLeiCheckReason = "no_gleif_record"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckReasonGleifLeiUnknown      TravelRuleSettingsDetailDiditNetworkLeiCheckReason = "gleif_lei_unknown"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckReasonGleifOtherLei        TravelRuleSettingsDetailDiditNetworkLeiCheckReason = "gleif_other_lei"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckReasonGleifEntityInactive  TravelRuleSettingsDetailDiditNetworkLeiCheckReason = "gleif_entity_inactive"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckReasonGleifLeiNotIssued    TravelRuleSettingsDetailDiditNetworkLeiCheckReason = "gleif_lei_not_issued"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckReasonGleifNameMismatch    TravelRuleSettingsDetailDiditNetworkLeiCheckReason = "gleif_name_mismatch"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckReasonGleifCountryMismatch TravelRuleSettingsDetailDiditNetworkLeiCheckReason = "gleif_country_mismatch"
+	TravelRuleSettingsDetailDiditNetworkLeiCheckReasonGleifConsistent      TravelRuleSettingsDetailDiditNetworkLeiCheckReason = "gleif_consistent"
 )
 
 // TravelRuleCounterpartyScreeningStatus is a response object.
@@ -3664,8 +3778,15 @@ func (r *TravelRuleDocumentShare) UnmarshalJSON(data []byte) error {
 
 // TravelRuleSettingsUpdate: All fields optional; PUT applies a partial update.
 type TravelRuleSettingsUpdate struct {
-	IsEnabled    Opt[bool]   `json:"is_enabled"`
-	LegalName    Opt[string] `json:"legal_name"`
+	IsEnabled Opt[bool]   `json:"is_enabled"`
+	LegalName Opt[string] `json:"legal_name"`
+
+	// Your Legal Entity Identifier (ISO 17442): 20 letters and digits whose last
+	// two are check digits (ISO 7064 MOD 97-10). It is stored in upper case.
+	// Anything else answers 400 with 'Enter a valid LEI: 20 letters and digits
+	// whose last two are its check digits (ISO 17442).' Send an empty string to
+	// clear it. When the LEI, the legal name or the country changes, Didit checks
+	// the LEI with GLEIF; didit_network.lei_check shows the answer.
 	Lei          Opt[string] `json:"lei"`
 	Jurisdiction Opt[string] `json:"jurisdiction"`
 
@@ -3689,9 +3810,10 @@ type TravelRuleSettingsUpdate struct {
 
 	// Whether your VASP profile can be listed in the Didit network: found in GET
 	// /v3/travel-rule/vasps/ by other Didit customers and reached on the INTERNAL
-	// rail. Listing also needs a live application, Travel Rule on, a legal name and
-	// a confirmed compliance email; didit_network says which are missing. Default
-	// true.
+	// rail. Listing also needs a live application, Travel Rule on, a legal name, a
+	// confirmed compliance email, an LEI that GLEIF lists as issued to an active
+	// entity and a review by Didit that you are a virtual asset service provider;
+	// didit_network says which are missing. Default true.
 	IsDiscoverable Opt[bool] `json:"is_discoverable"`
 
 	// Decimal string, zero or greater, in your application's default currency.
@@ -5574,7 +5696,7 @@ type TravelRuleWorkspace struct {
 	BillingEnabledAt time.Time `json:"billing_enabled_at"`
 
 	// Whether the Didit network lists this VASP and, when not, each condition it
-	// still misses.
+	// still misses. Same shape as didit_network in GET /v3/travel-rule/settings/.
 	DiditNetwork  map[string]any                   `json:"didit_network"`
 	Settings      TravelRuleSettingsDetail         `json:"settings"`
 	OutboundPrice TravelRuleWorkspaceOutboundPrice `json:"outbound_price"`
