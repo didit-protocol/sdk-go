@@ -740,7 +740,7 @@ func TestJSONOrMultipart(t *testing.T) {
 
 func TestBinaryResponseIsStreamed(t *testing.T) {
 	client, _ := newMockClient(t, 200, "application/pdf", "%PDF-1.7 report", option.WithTimeout(time.Second))
-	res, err := client.Sessions.GeneratePDF(context.Background(), "s1")
+	res, err := client.Sessions.GeneratePDF(context.Background(), "s1", didit.SessionsGeneratePDFParams{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -753,7 +753,7 @@ func TestBinaryResponseIsStreamed(t *testing.T) {
 
 func TestBinaryErrorResponse(t *testing.T) {
 	client, _ := newMockClient(t, 404, "application/json", `{"detail":"not found"}`)
-	_, err := client.Sessions.GeneratePDF(context.Background(), "s1")
+	_, err := client.Sessions.GeneratePDF(context.Background(), "s1", didit.SessionsGeneratePDFParams{})
 	var nf *didit.NotFoundError
 	if !errors.As(err, &nf) {
 		t.Fatalf("err = %v", err)
