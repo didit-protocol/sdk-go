@@ -158,7 +158,7 @@ type DatabaseValidationValidateParams struct {
 	// The individual's last name. Required by some services/countries.
 	LastName Opt[string] `json:"last_name"`
 
-	// Middle name, used by some country services (AUS, NZL, …).
+	// Middle name, used by some country services (NZL, …).
 	MiddleName Opt[string] `json:"middle_name"`
 
 	// Full name - some services accept this in lieu of first/last name (e.g. CHN
@@ -229,21 +229,21 @@ type DatabaseValidationValidateParams struct {
 	// Postal code for address-based services (alias of `address_element_5`).
 	PostalCode Opt[string] `json:"postal_code"`
 
-	// Driver licence number for government document-verification services (AUS,
-	// NZL, IND).
+	// Driver licence number for government document-verification services (NZL,
+	// IND).
 	DriverLicenseNumber Opt[string] `json:"driver_license_number"`
 
 	// Physical driver licence card number, where required separately from the
-	// licence number (AUS).
+	// licence number.
 	DriverLicenseCardNumber Opt[string] `json:"driver_license_card_number"`
 
-	// Driver licence state or territory of issue (AUS).
+	// Driver licence state or territory of issue.
 	DriverLicenseState Opt[string] `json:"driver_license_state"`
 
 	// Driver licence version code (NZL).
 	DriverLicenseVersion Opt[string] `json:"driver_license_version"`
 
-	// Passport number for government passport-verification services (AUS, NZL, IND,
+	// Passport number for government passport-verification services (NZL, IND,
 	// CHN).
 	PassportNumber Opt[string] `json:"passport_number"`
 
@@ -257,37 +257,33 @@ type DatabaseValidationValidateParams struct {
 	// passport-verification services.
 	PassportIssueCountry Opt[string] `json:"passport_issue_country"`
 
-	// Medicare card number (AUS).
+	// Medicare card number.
 	MedicareCardNumber Opt[string] `json:"medicare_card_number"`
-
-	// Australian ImmiCard number.
-	ImmiCardNumber Opt[string] `json:"immi_card_number"`
-
-	// Australian ImmiCard expiry date.
+	ImmiCardNumber     Opt[string] `json:"immi_card_number"`
 	ImmiCardExpiryDate Opt[string] `json:"immi_card_expiry_date"`
 
-	// Citizenship certificate number (AUS).
+	// Citizenship certificate number.
 	CitizenshipCertificateNumber Opt[string] `json:"citizenship_certificate_number"`
 
-	// Birth-certificate registration number (AUS).
+	// Birth-certificate registration number.
 	BirthRegistrationNumber Opt[string] `json:"birth_registration_number"`
 
-	// Birth-certificate registration date (AUS).
+	// Birth-certificate registration date.
 	BirthRegistrationDate Opt[string] `json:"birth_registration_date"`
 
-	// Birth-certificate registration state (AUS).
+	// Birth-certificate registration state.
 	BirthRegistrationState Opt[string] `json:"birth_registration_state"`
 
-	// Marriage certificate number (AUS).
+	// Marriage certificate number.
 	MarriageCertificateNumber Opt[string] `json:"marriage_certificate_number"`
 
-	// Change-of-name certificate number (AUS).
+	// Change-of-name certificate number.
 	ChangeOfNameCertificateNumber Opt[string] `json:"change_of_name_certificate_number"`
 
-	// First name of the partner on a marriage certificate (AUS).
+	// First name of the partner on a marriage certificate.
 	FirstPartnerName Opt[string] `json:"first_partner_name"`
 
-	// Last name of the partner on a marriage certificate (AUS).
+	// Last name of the partner on a marriage certificate.
 	LastPartnerName Opt[string] `json:"last_partner_name"`
 
 	// Voter registration number (IND EPIC, IRL).
@@ -416,7 +412,10 @@ type DatabaseValidationValidateParams struct {
 	CountryOfResidence Opt[string] `json:"country_of_residence"`
 
 	// What a `partial_match` does to `database_validation.status`. Defaults to
-	// `NO_ACTION` (status stays `Approved`, with a warning).
+	// `NO_ACTION` (status stays `Approved`, with a warning). When the registry
+	// confirmed the identification number but returned a different name,
+	// `NO_ACTION` answers `In Review` instead of `Approved`; `DECLINE` still
+	// declines.
 	PartialMatchAction Opt[DatabaseValidationValidateParamsPartialMatchAction] `json:"partial_match_action"`
 
 	// What a `no_match` does to `database_validation.status`. Defaults to
@@ -489,7 +488,9 @@ const (
 
 // DatabaseValidationValidateParamsPartialMatchAction: What a `partial_match`
 // does to `database_validation.status`. Defaults to `NO_ACTION` (status stays
-// `Approved`, with a warning).
+// `Approved`, with a warning). When the registry confirmed the identification
+// number but returned a different name, `NO_ACTION` answers `In Review` instead
+// of `Approved`; `DECLINE` still declines.
 //
 // DatabaseValidationValidateParamsPartialMatchAction is a string with known
 // values below. The set is open: other values may appear and never cause an
@@ -545,9 +546,11 @@ type DatabaseValidationValidateResponseDatabaseValidation struct {
 	// (`no_match_action` defaults to `DECLINE`, `partial_match_action` to
 	// `NO_ACTION`); `In Review` when no service produced a usable comparison, for
 	// example when the only selected service came back `REGISTRY_UNAVAILABLE` or
-	// `INCONCLUSIVE`; `Approved` otherwise. A request that selected several
-	// services can be `Approved` on one service's match while another was
-	// unavailable, so check `errors` and the per-service `outcome_code`s too.
+	// `INCONCLUSIVE`, and when the registry confirmed the identification number but
+	// returned a different name while `partial_match_action` is `NO_ACTION`;
+	// `Approved` otherwise. A request that selected several services can be
+	// `Approved` on one service's match while another was unavailable, so check
+	// `errors` and the per-service `outcome_code`s too.
 	Status DatabaseValidationValidateResponseDatabaseValidationStatus `json:"status"`
 
 	// Echo of the ISO 3166-1 alpha-3 country validated against.
@@ -612,10 +615,12 @@ func (r *DatabaseValidationValidateResponseDatabaseValidation) UnmarshalJSON(dat
 // the overall `match_type` triggers a `DECLINE` action (`no_match_action`
 // defaults to `DECLINE`, `partial_match_action` to `NO_ACTION`); `In Review`
 // when no service produced a usable comparison, for example when the only
-// selected service came back `REGISTRY_UNAVAILABLE` or `INCONCLUSIVE`;
-// `Approved` otherwise. A request that selected several services can be
-// `Approved` on one service's match while another was unavailable, so check
-// `errors` and the per-service `outcome_code`s too.
+// selected service came back `REGISTRY_UNAVAILABLE` or `INCONCLUSIVE`, and when
+// the registry confirmed the identification number but returned a different
+// name while `partial_match_action` is `NO_ACTION`; `Approved` otherwise. A
+// request that selected several services can be `Approved` on one service's
+// match while another was unavailable, so check `errors` and the per-service
+// `outcome_code`s too.
 //
 // DatabaseValidationValidateResponseDatabaseValidationStatus is a string with
 // known values below. The set is open: other values may appear and never cause

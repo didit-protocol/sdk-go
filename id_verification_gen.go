@@ -37,29 +37,30 @@ type IDVerificationService struct {
 // **Decision logic.** `status` is `Approved` unless at least one warning
 // resolves to a decline. Fraud and hard-failure risks always decline:
 // `DOCUMENT_EXPIRED`, `SCREEN_CAPTURE_DETECTED`, `PRINTED_COPY_DETECTED`,
-// `PORTRAIT_MANIPULATION_DETECTED`, `PUBLIC_DOCUMENT_IMAGE_DETECTED`, plus
-// extraction failures (`NAME_NOT_DETECTED`, `DATE_OF_BIRTH_NOT_DETECTED`,
-// `DOCUMENT_NUMBER_NOT_DETECTED`). (`PORTRAIT_IMAGE_NOT_DETECTED`,
-// `INVALID_DATE`, and `MRZ_NOT_DETECTED` exist in workflow sessions but are
-// never produced by this standalone endpoint. `COULD_NOT_DETECT_DOCUMENT_TYPE`
-// is returned here when the front image does not match a known official
-// document design with high confidence, and declines the request.) Three risk
-// groups are configurable per request via `invalid_mrz_action`,
-// `inconsistent_data_action`, and `expiration_date_not_detected_action`
-// (`DECLINE` or `NO_ACTION`). All other warnings (e.g.
-// `POSSIBLE_DUPLICATED_USER`) are informational and never decline on their own.
-// When `perform_document_liveness=true` (the default) and the forgery check
-// returns no usable score - the provider failed, answered non-200, or answered
-// HTTP 200 with `status="ERR"` - the call returns `200` with `status: "In
-// Review"` and a `DOCUMENT_LIVENESS_NOT_COMPUTED` warning (`log_type:
-// "warning"`) instead of `Approved`: a check that did not run is not evidence
-// that the document is genuine. This escalation is not configurable and never
-// overrides a `Declined`; with `perform_document_liveness=false` the check is
-// skipped and the status follows the remaining warnings as before. A document
-// that cannot be processed at all returns `400` with `{"error":
-// "COULD_NOT_RECOGNIZE_DOCUMENT"}`; a readable but problematic document returns
-// `200` with `status: "Declined"` - always inspect `id_verification.status` and
-// `id_verification.warnings`, not just the HTTP code.
+// `PORTRAIT_MANIPULATION_DETECTED`, `PUBLIC_DOCUMENT_IMAGE_DETECTED`,
+// `SPECIMEN_DOCUMENT_DETECTED`, plus extraction failures (`NAME_NOT_DETECTED`,
+// `DATE_OF_BIRTH_NOT_DETECTED`, `DOCUMENT_NUMBER_NOT_DETECTED`).
+// (`PORTRAIT_IMAGE_NOT_DETECTED`, `INVALID_DATE`, and `MRZ_NOT_DETECTED` exist
+// in workflow sessions but are never produced by this standalone endpoint.
+// `COULD_NOT_DETECT_DOCUMENT_TYPE` is returned here when the front image does
+// not match a known official document design with high confidence, and declines
+// the request.) Three risk groups are configurable per request via
+// `invalid_mrz_action`, `inconsistent_data_action`, and
+// `expiration_date_not_detected_action` (`DECLINE` or `NO_ACTION`). All other
+// warnings (e.g. `POSSIBLE_DUPLICATED_USER`) are informational and never
+// decline on their own. When `perform_document_liveness=true` (the default) and
+// the forgery check returns no usable score - the provider failed, answered
+// non-200, or answered HTTP 200 with `status="ERR"` - the call returns `200`
+// with `status: "In Review"` and a `DOCUMENT_LIVENESS_NOT_COMPUTED` warning
+// (`log_type: "warning"`) instead of `Approved`: a check that did not run is
+// not evidence that the document is genuine. This escalation is not
+// configurable and never overrides a `Declined`; with
+// `perform_document_liveness=false` the check is skipped and the status follows
+// the remaining warnings as before. A document that cannot be processed at all
+// returns `400` with `{"error": "COULD_NOT_RECOGNIZE_DOCUMENT"}`; a readable
+// but problematic document returns `200` with `status: "Declined"` - always
+// inspect `id_verification.status` and `id_verification.warnings`, not just the
+// HTTP code.
 //
 // **Billing.** Each `200` response consumes one ID Verification API credit
 // (paid from your plan credit or top-up balance). When the organization's
@@ -664,21 +665,26 @@ type IDVerificationVerifyResponseIDVerificationWarnings struct {
 	// `MINIMUM_AGE_NOT_MET`, `PORTRAIT_IMAGE_NOT_DETECTED`,
 	// `SCREEN_CAPTURE_DETECTED`, `PRINTED_COPY_DETECTED`,
 	// `PORTRAIT_MANIPULATION_DETECTED`, `PUBLIC_DOCUMENT_IMAGE_DETECTED`,
-	// `INVALID_DATE`, `COULD_NOT_RECOGNIZE_DOCUMENT` (400-only, never a warning),
-	// `DOCUMENT_NUMBER_NOT_DETECTED`, `COULD_NOT_DETECT_DOCUMENT_TYPE`,
-	// `NAME_NOT_DETECTED`, `DATE_OF_BIRTH_NOT_DETECTED`. Governed by request
-	// options: `MRZ_NOT_DETECTED` / `MRZ_VALIDATION_FAILED` (`invalid_mrz_action`),
-	// `DATA_INCONSISTENT` / `MRZ_AND_DATA_EXTRACTED_FROM_OCR_NOT_SAME` /
+	// `SPECIMEN_DOCUMENT_DETECTED`, `INVALID_DATE`, `COULD_NOT_RECOGNIZE_DOCUMENT`
+	// (400-only, never a warning), `DOCUMENT_NUMBER_NOT_DETECTED`,
+	// `COULD_NOT_DETECT_DOCUMENT_TYPE`, `NAME_NOT_DETECTED`,
+	// `DATE_OF_BIRTH_NOT_DETECTED`. Governed by request options: `MRZ_NOT_DETECTED`
+	// / `MRZ_VALIDATION_FAILED` (`invalid_mrz_action`), `DATA_INCONSISTENT` /
+	// `MRZ_AND_DATA_EXTRACTED_FROM_OCR_NOT_SAME` /
 	// `DOCUMENT_NAME_DIFFERENT_FROM_OTHER_APPROVED_DOCUMENTS`
 	// (`inconsistent_data_action`), `EXPIRATION_DATE_NOT_DETECTED`
 	// (`expiration_date_not_detected_action`). Other risks (e.g.
-	// `POSSIBLE_DUPLICATED_USER`) are informational.
+	// `POSSIBLE_DUPLICATED_USER`) are informational. `SELFIE_MATCH_NOT_COMPUTED` is
+	// never raised on this endpoint, which has no front camera image.
 	// `DOCUMENT_LIVENESS_NOT_COMPUTED` is raised when
 	// `perform_document_liveness=true` but the forgery check returned no usable
 	// score; it sets `status` to `In Review`. `COULD_NOT_DETECT_DOCUMENT_TYPE` is
 	// also returned when the front of the document does not match a known official
 	// document design with high confidence, for example an edited or
 	// computer-generated document, or a design that is not supported yet.
+	// `SPECIMEN_DOCUMENT_DETECTED` is returned when the document is a specimen or
+	// sample rather than a document issued to a person, for example with the word
+	// SPECIMEN or SAMPLE printed on it, and it declines the request.
 	Risk string `json:"risk"`
 
 	// Feature that raised the warning. Always `ID_VERIFICATION` on this endpoint.
