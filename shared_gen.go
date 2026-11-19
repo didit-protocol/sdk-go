@@ -3831,9 +3831,9 @@ type TravelRuleTransferDetail struct {
 	// named a counterparty Didit can reach), `directory_match_no_route` (a step
 	// named a directory VASP that has no route),
 	// `picked_member_without_proven_wallet` (the end user picked a Didit customer
-	// that has not proven control of the wallet), or `no_directory_match` when the
-	// trace gives no other reason. A resend moves the transfer on, so the reason
-	// clears. See [Why a transfer is
+	// that has not proven control of the wallet and that the directory no longer
+	// lists), or `no_directory_match` when the trace gives no other reason. A
+	// resend moves the transfer on, so the reason clears. See [Why a transfer is
 	// stuck](/transaction-monitoring/travel-rule#why-a-transfer-is-stuck).
 	Reason string `json:"reason"`
 
