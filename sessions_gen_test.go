@@ -165,25 +165,9 @@ func TestSessionsExportFiles(t *testing.T) {
 
 func TestSessionsGeneratePDF(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/pdf", `binary-content`)
-	res, err := client.Sessions.GeneratePDF(context.Background(), "sessionId-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := mock.single(t)
-	req.expect(t, "GET", "/v3/session/sessionId-1/generate-pdf/")
-	req.expectAPIKey(t)
-	defer func() { _ = res.Body.Close() }()
-	data, err := io.ReadAll(res.Body)
-	if err != nil || string(data) != "binary-content" {
-		t.Fatalf("file body = %q, %v", data, err)
-	}
-}
-
-func TestSessionsGeneratePDFWithParams(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/pdf", `binary-content`)
 	var params didit.SessionsGeneratePDFParams
 	params.Language = didit.Some(didit.SessionsGeneratePDFParamsLanguageEs)
-	res, err := client.Sessions.GeneratePDFWithParams(context.Background(), "sessionId-1", params)
+	res, err := client.Sessions.GeneratePDF(context.Background(), "sessionId-1", params)
 	if err != nil {
 		t.Fatal(err)
 	}
