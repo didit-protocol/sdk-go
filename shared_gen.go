@@ -540,24 +540,29 @@ type AMLScreening struct {
 	ScreenedData AMLScreeningScreenedData `json:"screened_data"`
 
 	// Whether AML ongoing monitoring is enabled for this screening. When `true`,
-	// the entity is re-screened periodically and any new hits update the report.
+	// the provider watches the entity and any hit it adds, changes or withdraws
+	// updates the report. Didit does not screen the entity again.
 	IsOngoingMonitoringEnabled bool `json:"is_ongoing_monitoring_enabled"`
 
 	// Date (YYYY-MM-DD) when this ongoing-monitoring subscription will next be
 	// billed. Computed as the date of the last ongoing-monitoring billing plus 365
 	// days when `is_ongoing_monitoring_enabled = true`; otherwise `null`. This is a
-	// billing date, not a screening date - use `last_ongoing_screening_at` for
-	// that.
+	// billing date, not the monitoring date - use `last_ongoing_screening_at` for
+	// the daily monitoring date.
 	NextOngoingMonitoringBillDate string `json:"next_ongoing_monitoring_bill_date"`
 
-	// When ongoing monitoring last completed a re-screening of this record, whether
-	// or not the result changed. `null` when the record has never been re-screened;
-	// it is never back-filled from the enablement or billing date.
+	// The last day ongoing monitoring was in force for this record. Didit dates it
+	// every day while monitoring is enabled and the provider is watching the
+	// subject, and again whenever the provider sends an update, whether or not any
+	// hit changed. It is not the time of a screening: ongoing monitoring waits for
+	// the provider's updates and does not screen the subject again. `null` when no
+	// monitoring day has been recorded for the record; it is never back-filled from
+	// the enablement or billing date.
 	LastOngoingScreeningAt time.Time `json:"last_ongoing_screening_at"`
 
-	// The most recent AML dataset update date the provider reported at the time of
-	// that screening. `null` when the provider reported no dataset dates; never
-	// estimated.
+	// The most recent AML dataset update date the provider reported with a
+	// screening of this record. `null` when the provider reported no dataset dates;
+	// never estimated.
 	LastOngoingScreeningDatasetsUpdatedAt time.Time              `json:"last_ongoing_screening_datasets_updated_at"`
 	Warnings                              []AMLScreeningWarnings `json:"warnings"`
 
