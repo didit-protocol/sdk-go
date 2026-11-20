@@ -490,8 +490,81 @@ func (r *SessionsService) ExportFiles(ctx context.Context, sessionID string, opt
 // The response is a file (application/pdf). Read it from the returned
 // response's body and close it.
 //
+// GeneratePDF sends no parameters; GeneratePDFWithParams sends
+// SessionsGeneratePDFParams. Both call the same operation.
+//
 //	GET /v3/session/{sessionId}/generate-pdf/
-func (r *SessionsService) GeneratePDF(ctx context.Context, sessionID string, params SessionsGeneratePDFParams, opts ...option.RequestOption) (*http.Response, error) {
+func (r *SessionsService) GeneratePDF(ctx context.Context, sessionID string, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/generate-pdf/", pathParams: []string{"sessionId", sessionID}, binary: true, accept: "application/pdf"}, nil, opts)
+}
+
+// GeneratePDFWithParams: Download a PDF report for a verification session.
+//
+// Render and download a compliance-ready PDF report for a finished verification
+// session. The same path serves both User Verification (KYC) and Business
+// Verification (KYB) sessions - the server resolves the `sessionId` against
+// both session types and picks the matching report template.
+//
+// **Eligible statuses.** The session must already carry a final or reviewable
+// status:
+//
+//   - KYC sessions: `Approved`, `Declined`, `In Review`, or `Kyc Expired`.
+//   - KYB sessions: `Approved`, `Declined`, or `In Review`.
+//
+// Any other status (`Not Started`, `In Progress`, `Expired`, `Abandoned`, …)
+// returns `403` with an explanatory `detail` string - see the `403` response
+// below.
+//
+// **What the report contains.** The PDF mirrors the console session view at the
+// moment of the request:
+//
+//   - **KYC** - rolled-up session status, the warnings list, and one section
+//     per executed feature: ID Verification (document images plus extracted
+//     fields), NFC, Liveness, Face Match, Email Verification, Phone
+//     Verification, Proof of Address, Questionnaire answers, Database
+//     Validation, AML Screening, and IP Analysis - followed by session tags,
+//     console review activity (comments and status changes), and the session
+//     event timeline.
+//   - **KYB** - registry checks (company data), AML screenings, business
+//     document verifications, key-people checks, questionnaire responses,
+//     phone/email verifications, IP analyses, and the session event timeline,
+//     followed by tags and review activity.
+//
+// **Branding.** If your application has white-label customization, the report
+// is rendered with your logo and links to your privacy-policy URL; otherwise it
+// carries Didit branding. Reports are rendered in English by default; pass the
+// `language` query parameter to print every word the report writes itself
+// (section titles, labels, statuses, check names, notes, footers, dates and
+// country names) in one of 16 languages, while values the end user submitted or
+// a source returned print exactly as captured.
+//
+// **No caching.** Every call re-renders the PDF from the current session data,
+// so a report generated after a manual review reflects the reviewer’s decision.
+// Two calls for the same session can produce byte-different files - archive the
+// downloaded file if you need an immutable copy.
+//
+// **Latency.** Rendering downloads every stored image (document sides, selfies,
+// extra files) before composing the PDF, so media-heavy sessions can take
+// several seconds. Use a generous client read timeout (60 s recommended) and
+// stream the body to disk.
+//
+// **Trailing slash.** The canonical route ends with a trailing slash
+// (`…/generate-pdf/`). A request without it is served directly with the same
+// response - there is no `301` redirect, so no client has to follow redirects
+// and `curl` does not need `-L`. Use the slashed URL as in the samples.
+//
+// If you need the underlying data as JSON instead of a rendered report, use
+// `GET /v3/session/{sessionId}/decision/`. For every reportable session of one
+// user in a single document, use `GET /v3/users/{vendor_data}/generate-pdf/`.
+//
+// The response is a file (application/pdf). Read it from the returned
+// response's body and close it.
+//
+// GeneratePDFWithParams is GeneratePDF with SessionsGeneratePDFParams.
+// GeneratePDF keeps the signature without parameters it was released with.
+//
+//	GET /v3/session/{sessionId}/generate-pdf/
+func (r *SessionsService) GeneratePDFWithParams(ctx context.Context, sessionID string, params SessionsGeneratePDFParams, opts ...option.RequestOption) (*http.Response, error) {
 	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/session/{sessionId}/generate-pdf/", pathParams: []string{"sessionId", sessionID}, params: params, binary: true, accept: "application/pdf"}, nil, opts)
 }
 
@@ -4055,7 +4128,7 @@ const (
 )
 
 // SessionsGeneratePDFParams holds the parameters of
-// Client.Sessions.GeneratePDF.
+// Client.Sessions.GeneratePDFWithParams.
 type SessionsGeneratePDFParams struct {
 	// Language of the report. Every word the report writes itself prints in this
 	// language: section titles, labels, table headers, statuses, check names and
