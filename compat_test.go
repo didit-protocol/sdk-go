@@ -2,6 +2,7 @@ package didit
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/didit-protocol/sdk-go/option"
