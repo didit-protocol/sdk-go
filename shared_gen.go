@@ -365,6 +365,7 @@ const (
 	NetworkListItemSignalTypesPhone          NetworkListItemSignalTypes = "phone"
 	NetworkListItemSignalTypesEmail          NetworkListItemSignalTypes = "email"
 	NetworkListItemSignalTypesAddress        NetworkListItemSignalTypes = "address"
+	NetworkListItemSignalTypesWalletAddress  NetworkListItemSignalTypes = "wallet_address"
 )
 
 // EntityNetworkMembershipSignalTypes is a string with known values below. The
@@ -380,6 +381,7 @@ const (
 	EntityNetworkMembershipSignalTypesPhone          EntityNetworkMembershipSignalTypes = "phone"
 	EntityNetworkMembershipSignalTypesEmail          EntityNetworkMembershipSignalTypes = "email"
 	EntityNetworkMembershipSignalTypesAddress        EntityNetworkMembershipSignalTypes = "address"
+	EntityNetworkMembershipSignalTypesWalletAddress  EntityNetworkMembershipSignalTypes = "wallet_address"
 )
 
 // OngoingMonitoringJob is a response object.

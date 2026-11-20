@@ -147,12 +147,32 @@ func (r *UsersService) GeneratePDF(ctx context.Context, vendorData string, opts 
 	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/users/{vendor_data}/generate-pdf/", pathParams: []string{"vendor_data", vendorData}, binary: true, accept: "application/pdf"}, nil, opts)
 }
 
+// GetLookup: Get a user lookup.
+//
+// Read back a lookup made with [Look up users](#post-/v3/users/lookup/): the
+// same counts and `not_found` list, plus the `identifiers` you submitted after
+// blanks and duplicates were removed, in order. A lookup lives 24 hours and
+// belongs to the application that made it; an expired, unknown or other
+// application's `lookup_id` returns `404` with `code: lookup_not_found`.
+//
+//	GET /v3/users/lookup/{lookup_id}/
+func (r *UsersService) GetLookup(ctx context.Context, lookupID string, opts ...option.RequestOption) (*UsersLookupDetail, error) {
+	res := new(UsersLookupDetail)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/users/lookup/{lookup_id}/", pathParams: []string{"lookup_id", lookupID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // List: List users.
 //
 // List [users](/entities/users) Didit assembles from KYC sessions sharing the
 // same `vendor_data` (free-form string, NOT a UUID), plus users created via the
-// API. Paginated, ordered by `last_session_at` desc. This endpoint does not
-// support filtering or search parameters - fetch pages and filter client-side.
+// API. Paginated, ordered by `last_session_at` desc, or by the position in your
+// list when `lookup` is set. Pass `lookup` to read only the users a list of
+// identifiers resolved to (see [Look up users](#post-/v3/users/lookup/)). No
+// other filter or search parameter is supported: fetch pages and filter
+// client-side.
 //
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
@@ -179,6 +199,32 @@ func (r *UsersService) ListAutoPaging(ctx context.Context, params UsersListParam
 func (r *UsersService) ListNetworks(ctx context.Context, vendorUserUUID string, opts ...option.RequestOption) (*EntityNetworkMembershipList, error) {
 	res := new(EntityNetworkMembershipList)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/{organization_id}/application/{application_id}/users/{vendor_user_uuid}/networks/", pathParams: []string{"vendor_user_uuid", vendorUserUUID}, appScope: true}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Lookup: Look up users.
+//
+// Resolve a list of up to 20,000 identifiers to the users of your application,
+// in one call. Each identifier is matched, in this order, against `vendor_data`
+// (exactly), the Didit user ID (a UUID), then a verified email
+// (case-insensitive). An email can match several users, and all of them count.
+// Blank entries are dropped and duplicates removed, keeping the first; 1 to
+// 20,000 identifiers must remain, and a request sends at most 100,000 entries
+// before that clean-up. The call only reads. It answers with a `lookup_id`, the
+// counts and the identifiers that matched nobody, each with its 1-based
+// `position` in the submitted list.
+//
+// Pass the `lookup_id` as `lookup` to [List users](#get-/v3/users/) to page
+// through exactly the matched users, in the order you submitted them. The
+// result is kept for 24 hours for your application only, then answers `404`
+// with `code: lookup_not_found`.
+//
+//	POST /v3/users/lookup/
+func (r *UsersService) Lookup(ctx context.Context, params UsersLookupRequest, opts ...option.RequestOption) (*UsersLookupResponse, error) {
+	res := new(UsersLookupResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/users/lookup/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -733,6 +779,54 @@ func (r *UsersCreateResponseVerificationLink) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// UsersLookupDetail is a response object.
+type UsersLookupDetail struct {
+	// Pass it as `lookup` to List users.
+	LookupID string `json:"lookup_id"`
+
+	// Identifiers read, after blanks and duplicates were removed.
+	Requested int64 `json:"requested"`
+
+	// Identifiers that matched at least one user.
+	Found    int64                 `json:"found"`
+	NotFound []UsersLookupNotFound `json:"not_found"`
+
+	// When the result expires (24 hours after the lookup).
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// The identifiers submitted, after blanks and duplicates were removed, in
+	// order.
+	Identifiers []string `json:"identifiers"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UsersLookupDetail leniently.
+func (r *UsersLookupDetail) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UsersLookupNotFound is a response object.
+type UsersLookupNotFound struct {
+	// The identifier that matched no user.
+	Identifier string `json:"identifier"`
+
+	// 1-based position in the submitted list, after blanks and duplicates were
+	// removed.
+	Position int64 `json:"position"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UsersLookupNotFound leniently.
+func (r *UsersLookupNotFound) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // UsersListParams holds the parameters of Client.Users.List.
 type UsersListParams struct {
 	// Page size. Defaults to 50 when omitted. There is no enforced maximum, but
@@ -742,6 +836,13 @@ type UsersListParams struct {
 	// Zero-based offset of the first record to return. Prefer following the `next`
 	// URL from the previous page over computing this by hand.
 	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// A `lookup_id` returned by `POST /v3/users/lookup/`. The list returns only the
+	// users that lookup matched, ordered by the position of their identifier in the
+	// list you submitted, paginated with `limit` and `offset`. An expired or
+	// unknown `lookup_id` returns `404` with `code: lookup_not_found`; submit the
+	// list again.
+	Lookup Opt[string] `json:"-" query:"lookup"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -877,6 +978,46 @@ type UserListItemTags struct {
 
 // UnmarshalJSON decodes UserListItemTags leniently.
 func (r *UserListItemTags) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// UsersLookupRequest is a request object.
+type UsersLookupRequest struct {
+	// Each entry is a `vendor_data` value, a Didit user ID or a verified email.
+	// Send at most 100,000 entries. Blank entries are dropped and duplicates
+	// removed, keeping the first, and at most 20,000 identifiers must remain.
+	// Either limit exceeded is a `400` with `code: too_many_identifiers`, and an
+	// empty list is a `400` too. Required.
+	Identifiers []string `json:"identifiers"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r UsersLookupRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// UsersLookupResponse is a response object.
+type UsersLookupResponse struct {
+	// Pass it as `lookup` to List users.
+	LookupID string `json:"lookup_id"`
+
+	// Identifiers read, after blanks and duplicates were removed.
+	Requested int64 `json:"requested"`
+
+	// Identifiers that matched at least one user.
+	Found    int64                 `json:"found"`
+	NotFound []UsersLookupNotFound `json:"not_found"`
+
+	// When the result expires (24 hours after the lookup).
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes UsersLookupResponse leniently.
+func (r *UsersLookupResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 

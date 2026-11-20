@@ -213,6 +213,31 @@ func (r *NetworksService) RetrieveTimeline(ctx context.Context, networkUUID stri
 	return res, nil
 }
 
+// SearchSignals: Search signals.
+//
+// Check one value against every network of your organization before you open an
+// investigation. Choose a `signal_type` and send its value: an address, a phone
+// number, an email, a device fingerprint, a document number with its issuing
+// state and type, or a face image. A `wallet_address` search takes the address
+// and optionally its destination tag or memo in `tag`, and answers with the
+// `wallet` object: accounts, payouts, the amount paid out and the payout dates.
+// A wallet many accounts use is a shared service: it answers `match_count: 0`
+// and no matches, with `is_shared_service: true`.
+//
+// Requires the `read:networks` permission. Searches are limited per
+// organization: when the budget is spent the call answers `429`.
+//
+// The organization and application ids come from the client options.
+//
+//	POST /v3/organization/{organization_id}/application/{application_id}/networks/signals/search/
+func (r *NetworksService) SearchSignals(ctx context.Context, params NetworkSignalSearchRequest, opts ...option.RequestOption) (*NetworkSignalSearchResponse, error) {
+	res := new(NetworkSignalSearchResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/organization/{organization_id}/application/{application_id}/networks/signals/search/", appScope: true, params: params, body: bodyJSONOrMultipart}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // NetworksNotesService holds the networks notes operations. Use it through
 // Client.Networks.Notes.
 type NetworksNotesService struct {
@@ -414,6 +439,7 @@ const (
 	NetworkDetailResponseSignalTypesPhone          NetworkDetailResponseSignalTypes = "phone"
 	NetworkDetailResponseSignalTypesEmail          NetworkDetailResponseSignalTypes = "email"
 	NetworkDetailResponseSignalTypesAddress        NetworkDetailResponseSignalTypes = "address"
+	NetworkDetailResponseSignalTypesWalletAddress  NetworkDetailResponseSignalTypes = "wallet_address"
 )
 
 // NetworkDetailResponseSharingMode: The organization's cross-organization
@@ -867,6 +893,7 @@ const (
 	NetworkSignalSignalTypePhone          NetworkSignalSignalType = "phone"
 	NetworkSignalSignalTypeEmail          NetworkSignalSignalType = "email"
 	NetworkSignalSignalTypeAddress        NetworkSignalSignalType = "address"
+	NetworkSignalSignalTypeWalletAddress  NetworkSignalSignalType = "wallet_address"
 )
 
 // NetworkSignalNodeStatus is a string with known values below. The set is open:
@@ -1047,6 +1074,7 @@ const (
 	NetworkDetailSignalTypesPhone          NetworkDetailSignalTypes = "phone"
 	NetworkDetailSignalTypesEmail          NetworkDetailSignalTypes = "email"
 	NetworkDetailSignalTypesAddress        NetworkDetailSignalTypes = "address"
+	NetworkDetailSignalTypesWalletAddress  NetworkDetailSignalTypes = "wallet_address"
 )
 
 // NetworkGraphNode: A subject node or a signal node, distinguished by kind.
@@ -1055,10 +1083,15 @@ const (
 // not_completed), and tags. Signal nodes (kind: signal) carry id, kind, uuid,
 // signal_type, subject_count, coverage, is_hub, is_datacenter_ip,
 // is_high_collision_device, node_status (signal_active | signal_guarded), tags,
-// risk_evidence, first_seen_at, and last_seen_at.
+// risk_evidence, first_seen_at, and last_seen_at. A signal node with
+// `signal_type: wallet_address` also carries `wallet`: where the money went
+// through that wallet. Every other node has no `wallet` key.
 type NetworkGraphNode struct {
 	ID   string               `json:"id"`
 	Kind NetworkGraphNodeKind `json:"kind"`
+
+	// Only on a signal node of type `wallet_address`.
+	Wallet NetworkGraphNodeWallet `json:"wallet"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -1081,6 +1114,68 @@ const (
 	NetworkGraphNodeKindTransactionParty NetworkGraphNodeKind = "transaction_party"
 	NetworkGraphNodeKindSignal           NetworkGraphNodeKind = "signal"
 )
+
+// NetworkGraphNodeWallet: Only on a signal node of type `wallet_address`.
+type NetworkGraphNodeWallet struct {
+	// The currency most of the payouts to this wallet were made in.
+	Asset string `json:"asset"`
+
+	// The blockchain, read from the address format only. `null` for EVM addresses
+	// and other formats.
+	Network NetworkGraphNodeWalletNetwork `json:"network"`
+
+	// Users and businesses of the application the wallet links.
+	AccountCount int64 `json:"account_count"`
+
+	// The application's outbound transactions to this wallet.
+	PayoutCount int64 `json:"payout_count"`
+
+	// Sum of each payout's amount in the application's default currency. Payouts
+	// without one are counted but not summed. `null` when none.
+	PaidOut       NetworkGraphNodeWalletPaidOut `json:"paid_out"`
+	FirstPayoutAt time.Time                     `json:"first_payout_at"`
+	LastPayoutAt  time.Time                     `json:"last_payout_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkGraphNodeWallet leniently.
+func (r *NetworkGraphNodeWallet) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkGraphNodeWalletNetwork: The blockchain, read from the address format
+// only. `null` for EVM addresses and other formats.
+//
+// NetworkGraphNodeWalletNetwork is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type NetworkGraphNodeWalletNetwork string
+
+// Known values of NetworkGraphNodeWalletNetwork.
+const (
+	NetworkGraphNodeWalletNetworkTron    NetworkGraphNodeWalletNetwork = "tron"
+	NetworkGraphNodeWalletNetworkBitcoin NetworkGraphNodeWalletNetwork = "bitcoin"
+	NetworkGraphNodeWalletNetworkSolana  NetworkGraphNodeWalletNetwork = "solana"
+)
+
+// NetworkGraphNodeWalletPaidOut: Sum of each payout's amount in the
+// application's default currency. Payouts without one are counted but not
+// summed. `null` when none.
+type NetworkGraphNodeWalletPaidOut struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkGraphNodeWalletPaidOut leniently.
+func (r *NetworkGraphNodeWalletPaidOut) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // NetworkGraphEdge is a response object.
 type NetworkGraphEdge struct {
@@ -1134,6 +1229,7 @@ const (
 	NetworkGraphEdgeSignalTypePhone          NetworkGraphEdgeSignalType = "phone"
 	NetworkGraphEdgeSignalTypeEmail          NetworkGraphEdgeSignalType = "email"
 	NetworkGraphEdgeSignalTypeAddress        NetworkGraphEdgeSignalType = "address"
+	NetworkGraphEdgeSignalTypeWalletAddress  NetworkGraphEdgeSignalType = "wallet_address"
 )
 
 // NetworkGraphMetrics is a response object.
@@ -1655,6 +1751,230 @@ type NetworkTimelineNoteAdded struct {
 
 // UnmarshalJSON decodes NetworkTimelineNoteAdded leniently.
 func (r *NetworkTimelineNoteAdded) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkSignalSearchRequest is a request object.
+type NetworkSignalSearchRequest struct {
+	// Required.
+	SignalType NetworkSignalSearchRequestSignalType `json:"signal_type"`
+
+	// The value to search. Required for every type but `face`, which refuses it.
+	// For `wallet_address` it is the address.
+	Value Opt[string] `json:"value"`
+
+	// A JPG, JPEG, PNG, WebP or TIFF image of at most 5 MB. `face` only, and
+	// required there. Send the request as `multipart/form-data`.
+	Image Opt[File] `json:"-" form:"image"`
+
+	// `document_number` only, and required there.
+	IssuingState Opt[string] `json:"issuing_state"`
+
+	// `document_number` only, and required there.
+	DocumentType Opt[string] `json:"document_type"`
+
+	// `document_number` only, required for a regionally issued document.
+	Region Opt[string] `json:"region"`
+
+	// The destination tag or memo of a wallet. `wallet_address` only, blank
+	// allowed. Any other type returns `400` `tag only applies to wallet_address
+	// searches.`
+	Tag Opt[string] `json:"tag"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r NetworkSignalSearchRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// NetworkSignalSearchRequestSignalType is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type NetworkSignalSearchRequestSignalType string
+
+// Known values of NetworkSignalSearchRequestSignalType.
+const (
+	NetworkSignalSearchRequestSignalTypeIPAddress      NetworkSignalSearchRequestSignalType = "ip_address"
+	NetworkSignalSearchRequestSignalTypeDevice         NetworkSignalSearchRequestSignalType = "device"
+	NetworkSignalSearchRequestSignalTypeFace           NetworkSignalSearchRequestSignalType = "face"
+	NetworkSignalSearchRequestSignalTypeDocumentNumber NetworkSignalSearchRequestSignalType = "document_number"
+	NetworkSignalSearchRequestSignalTypePhone          NetworkSignalSearchRequestSignalType = "phone"
+	NetworkSignalSearchRequestSignalTypeEmail          NetworkSignalSearchRequestSignalType = "email"
+	NetworkSignalSearchRequestSignalTypeAddress        NetworkSignalSearchRequestSignalType = "address"
+	NetworkSignalSearchRequestSignalTypeWalletAddress  NetworkSignalSearchRequestSignalType = "wallet_address"
+)
+
+// NetworkSignalSearchResponse is a response object.
+type NetworkSignalSearchResponse struct {
+	SignalType          string                     `json:"signal_type"`
+	MatchCount          int64                      `json:"match_count"`
+	Matches             []NetworkSignalSearchMatch `json:"matches"`
+	EnrichmentAvailable bool                       `json:"enrichment_available"`
+
+	// Email and phone searches only, optional: `data`, `score`, `session_id`,
+	// `observed_at`.
+	Enrichment        map[string]any                               `json:"enrichment"`
+	CrossOrganization NetworkSignalSearchResponseCrossOrganization `json:"cross_organization"`
+	Wallet            NetworkSignalSearchWallet                    `json:"wallet"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkSignalSearchResponse leniently.
+func (r *NetworkSignalSearchResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkSignalSearchMatch is a response object.
+type NetworkSignalSearchMatch struct {
+	UUID         string                               `json:"uuid"`
+	SignalType   string                               `json:"signal_type"`
+	QualityFlags NetworkSignalSearchMatchQualityFlags `json:"quality_flags"`
+	SubjectCount int64                                `json:"subject_count"`
+	FirstSeenAt  time.Time                            `json:"first_seen_at"`
+	LastSeenAt   time.Time                            `json:"last_seen_at"`
+	Subjects     []map[string]any                     `json:"subjects"`
+	Networks     []NetworkListItem                    `json:"networks"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkSignalSearchMatch leniently.
+func (r *NetworkSignalSearchMatch) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkSignalSearchMatchQualityFlags is a response object.
+type NetworkSignalSearchMatchQualityFlags struct {
+	IsDatacenterIP        bool `json:"is_datacenter_ip"`
+	IsHighCollisionDevice bool `json:"is_high_collision_device"`
+	IsHub                 bool `json:"is_hub"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkSignalSearchMatchQualityFlags leniently.
+func (r *NetworkSignalSearchMatchQualityFlags) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkSignalSearchResponseCrossOrganization is a response object.
+type NetworkSignalSearchResponseCrossOrganization struct {
+	Available      bool             `json:"available"`
+	SignalsChecked int64            `json:"signals_checked"`
+	Insights       []map[string]any `json:"insights"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkSignalSearchResponseCrossOrganization leniently.
+func (r *NetworkSignalSearchResponseCrossOrganization) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkSignalSearchWallet: Only on a `wallet_address` search: what the
+// address did in your organization.
+type NetworkSignalSearchWallet struct {
+	SignalID string `json:"signal_id"`
+
+	// `true` for an address many accounts use (an exchange or payment service). It
+	// links nobody, so `match_count` is 0 and `matches` is empty.
+	IsSharedService bool  `json:"is_shared_service"`
+	AccountCount    int64 `json:"account_count"`
+	PayoutCount     int64 `json:"payout_count"`
+
+	// Sum of each payout's amount in the application's default currency. Payouts
+	// without one are counted but not summed.
+	PaidOut       NetworkSignalSearchWalletPaidOut `json:"paid_out"`
+	FirstPayoutAt time.Time                        `json:"first_payout_at"`
+	LastPayoutAt  time.Time                        `json:"last_payout_at"`
+
+	// The newest 5 payouts.
+	RecentPayouts []NetworkSignalSearchRecentPayout `json:"recent_payouts"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkSignalSearchWallet leniently.
+func (r *NetworkSignalSearchWallet) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkSignalSearchWalletPaidOut: Sum of each payout's amount in the
+// application's default currency. Payouts without one are counted but not
+// summed.
+type NetworkSignalSearchWalletPaidOut struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkSignalSearchWalletPaidOut leniently.
+func (r *NetworkSignalSearchWalletPaidOut) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkSignalSearchRecentPayout is a response object.
+type NetworkSignalSearchRecentPayout struct {
+	UUID              string                                 `json:"uuid"`
+	TransactionNumber int64                                  `json:"transaction_number"`
+	TxnID             string                                 `json:"txn_id"`
+	TxnDate           time.Time                              `json:"txn_date"`
+	Amount            string                                 `json:"amount"`
+	Currency          string                                 `json:"currency"`
+	PaidOut           NetworkSignalSearchRecentPayoutPaidOut `json:"paid_out"`
+	Account           NetworkSignalSearchRecentPayoutAccount `json:"account"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkSignalSearchRecentPayout leniently.
+func (r *NetworkSignalSearchRecentPayout) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkSignalSearchRecentPayoutPaidOut is a response object.
+type NetworkSignalSearchRecentPayoutPaidOut struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkSignalSearchRecentPayoutPaidOut leniently.
+func (r *NetworkSignalSearchRecentPayoutPaidOut) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// NetworkSignalSearchRecentPayoutAccount is a response object.
+type NetworkSignalSearchRecentPayoutAccount struct {
+	VendorUserID string `json:"vendor_user_id"`
+	VendorData   string `json:"vendor_data"`
+	FullName     string `json:"full_name"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes NetworkSignalSearchRecentPayoutAccount leniently.
+func (r *NetworkSignalSearchRecentPayoutAccount) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 

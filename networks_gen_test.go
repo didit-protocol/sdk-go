@@ -134,7 +134,7 @@ func TestNetworksRetrieve(t *testing.T) {
 }
 
 func TestNetworksRetrieveGraph(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"network":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","network_id":"string","name":"string","status":"active","risk":{"score":1,"band":"low","bar":1.5},"pattern_types":["exact_same_device"],"signal_types":["ip_address"],"member_counts":{"key":"value"},"member_status":{"key":"value"},"signal_coverage":{"key":"value"},"first_activity_at":"2025-01-02T03:04:05Z","last_activity_at":"2025-01-02T03:04:05Z","stats":{"key":"value"},"fraud_tags":[{"key":"value"}],"risk_signals":{"key":"value"},"reviewed_at":"2025-01-02T03:04:05Z","reviewed_by":"string","review_reason":"string","notes_count":0},"depth":1,"truncated":true,"nodes":[{"id":"string","kind":"vendor_user"}],"edges":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","source":"string","target":"string","subject_kind":"vendor_user","signal_type":"ip_address","confidence":1.5,"observation_count":1,"first_seen_at":"2025-01-02T03:04:05Z","last_seen_at":"2025-01-02T03:04:05Z"}],"metrics":{"node_count":1,"edge_count":1,"hub_signal_count":1}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"network":{"uuid":"3fa85f64-5717-4562-b3fc-2c963f66afa6","network_id":"string","name":"string","status":"active","risk":{"score":1,"band":"low","bar":1.5},"pattern_types":["exact_same_device"],"signal_types":["ip_address"],"member_counts":{"key":"value"},"member_status":{"key":"value"},"signal_coverage":{"key":"value"},"first_activity_at":"2025-01-02T03:04:05Z","last_activity_at":"2025-01-02T03:04:05Z","stats":{"key":"value"},"fraud_tags":[{"key":"value"}],"risk_signals":{"key":"value"},"reviewed_at":"2025-01-02T03:04:05Z","reviewed_by":"string","review_reason":"string","notes_count":0},"depth":1,"truncated":true,"nodes":[{"id":"string","kind":"vendor_user","wallet":{"asset":"USDT","network":"tron","account_count":1,"payout_count":1,"paid_out":{"amount":"5950.00","currency":"USD"},"first_payout_at":"2025-01-02T03:04:05Z","last_payout_at":"2025-01-02T03:04:05Z"}}],"edges":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","source":"string","target":"string","subject_kind":"vendor_user","signal_type":"ip_address","confidence":1.5,"observation_count":1,"first_seen_at":"2025-01-02T03:04:05Z","last_seen_at":"2025-01-02T03:04:05Z"}],"metrics":{"node_count":1,"edge_count":1,"hub_signal_count":1}}`)
 	var params didit.NetworksRetrieveGraphParams
 	params.Depth = didit.Some(didit.NetworksRetrieveGraphParamsDepth1)
 	params.FocusKind = didit.Some(didit.NetworksRetrieveGraphParamsFocusKindVendorUser)
@@ -177,6 +177,21 @@ func TestNetworksRetrieveTimeline(t *testing.T) {
 	req.expectAPIKey(t)
 	req.expectQuery(t, map[string]string{"contract": "2", "cursor": "value", "limit": "100"})
 	expectFields(t, res.JSON, []string{"results"})
+}
+
+func TestNetworksSearchSignals(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"signal_type":"wallet_address","match_count":1,"matches":[],"cross_organization":{"available":false,"signals_checked":0,"insights":[]},"wallet":{"signal_id":"8f1f6b0e-2f64-4f0b-9e0d-3c5b9a2f7d10","is_shared_service":false,"account_count":3,"payout_count":14,"paid_out":{"amount":"5950.00","currency":"USD"},"first_payout_at":"2026-09-02T10:14:00Z","last_payout_at":"2026-11-16T18:02:00Z","recent_payouts":[]}}`)
+	var params didit.NetworkSignalSearchRequest
+	mustUnmarshal(t, `{"signal_type":"wallet_address","value":"TXyZ1k3m9q2Ho8vJ6cWn5aRb4dLpUe7sFt","tag":""}`, &params)
+	res, err := client.Networks.SearchSignals(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/organization/org-test/application/app-test/networks/signals/search/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"signal_type":"wallet_address","value":"TXyZ1k3m9q2Ho8vJ6cWn5aRb4dLpUe7sFt","tag":""}`)
+	expectFields(t, res.JSON, []string{"signal_type", "match_count", "matches", "cross_organization", "wallet"})
 }
 
 func TestNetworksNotesCreate(t *testing.T) {
