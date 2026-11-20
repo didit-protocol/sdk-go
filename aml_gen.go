@@ -74,9 +74,9 @@ func (r *AMLService) RetrieveDatasetFreshness(ctx context.Context, opts ...optio
 // /v3/session/{sessionId}/decision/`), it appears in the console, a
 // `status.updated` webhook fires, and hit review statuses can be updated later.
 // With `save_api_request=false` nothing is stored and `request_id` is a
-// transient correlation id. `include_ongoing_monitoring=true` keeps
-// re-screening the profile and requires `save_api_request=true` (enforced with
-// a `400`).
+// transient correlation id. `include_ongoing_monitoring=true` keeps the profile
+// under provider-driven monitoring, so the provider's updates reach the report,
+// and requires `save_api_request=true` (enforced with a `400`).
 //
 // **Idempotency.** Send an `Idempotency-Key` header when retrying after a
 // timeout or transient error. The key is scoped to your application and the
@@ -194,8 +194,9 @@ type AMLScreenParams struct {
 	// while results are gathered - use a ≥60 s client timeout.
 	IncludeAdverseMedia Opt[bool] `json:"include_adverse_media"`
 
-	// Keep re-screening this profile and push changes via webhook. Requires
-	// `save_api_request=true` (else `400`).
+	// Keep this profile under provider-driven ongoing monitoring and push the
+	// provider's updates via webhook. Requires `save_api_request=true` (else
+	// `400`).
 	IncludeOngoingMonitoring Opt[bool] `json:"include_ongoing_monitoring"`
 
 	// Persist the screening as a session (console visibility, decision endpoint,
