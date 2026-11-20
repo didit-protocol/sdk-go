@@ -56,11 +56,24 @@ func TestUsersGeneratePDF(t *testing.T) {
 	}
 }
 
+func TestUsersGetLookup(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"lookup_id":"b3a6f0c2-6a2e-4c0a-9d0e-5f3c1d2a7e11","requested":4,"found":3,"not_found":[{"identifier":"usr_7001","position":4}],"expires_at":"2026-11-19T10:30:00Z","identifiers":["usr_8842","maria.o@gmail.com","f4e5e1f2-94a9-4f86-8c16-2b7d9b4db418","usr_7001"]}`)
+	res, err := client.Users.GetLookup(context.Background(), "lookup-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/users/lookup/lookup-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"lookup_id", "requested", "found", "not_found", "expires_at", "identifiers"})
+}
+
 func TestUsersList(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"count":2,"next":null,"previous":null,"results":[{"didit_internal_id":"f4e5e1f2-94a9-4f86-8c16-2b7d9b4db418","vendor_data":"user-abc-123","display_name":null,"full_name":"John Michael Doe","date_of_birth":"1990-05-15","effective_name":"John Michael Doe","status":"ACTIVE","portrait_image_url":"https://\u003cmedia-host\u003e/...","session_count":3,"approved_count":2,"declined_count":0,"in_review_count":1,"issuing_states":["USA"],"approved_emails":["john@example.com"],"approved_phones":["+14155551234"],"features":{"ID_VERIFICATION":"Approved","LIVENESS":"Approved","FACE_MATCH":"Approved","AML":"Approved"},"features_list":[{"feature":"ID_VERIFICATION","status":"Approved"},{"feature":"LIVENESS","status":"Approved"},{"feature":"FACE_MATCH","status":"Approved"},{"feature":"AML","status":"Approved"}],"last_session_at":"2025-06-15T10:30:00Z","last_activity_at":"2025-06-15T10:30:00Z","first_session_at":"2025-06-01T08:00:00Z","tags":[{"uuid":"9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d","name":"VIP","color":"#2567FF"}],"created_at":"2025-06-01T08:00:00Z"},{"didit_internal_id":"6ed99d53-e8f5-4cf8-9ac1-4a506cb40f6b","vendor_data":null,"display_name":"Jane S.","full_name":"Jane Elizabeth Smith","date_of_birth":"1985-11-22","effective_name":"Jane S.","status":"FLAGGED","portrait_image_url":null,"session_count":1,"approved_count":0,"declined_count":0,"in_review_count":1,"issuing_states":[],"approved_emails":[],"approved_phones":[],"features":{"ID_VERIFICATION":"In Review"},"features_list":[{"feature":"ID_VERIFICATION","status":"In Review"}],"last_session_at":"2025-06-20T14:00:00Z","last_activity_at":"2025-06-20T14:05:00Z","first_session_at":"2025-06-20T14:00:00Z","tags":[],"created_at":"2025-06-20T14:00:00Z"}]}`)
 	var params didit.UsersListParams
 	params.Limit = didit.Int(50)
 	params.Offset = didit.Int(0)
+	params.Lookup = didit.String("3fa85f64-5717-4562-b3fc-2c963f66afa6")
 	res, err := client.Users.List(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +81,7 @@ func TestUsersList(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/users/")
 	req.expectAPIKey(t)
-	req.expectQuery(t, map[string]string{"limit": "50", "offset": "0"})
+	req.expectQuery(t, map[string]string{"limit": "50", "lookup": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "offset": "0"})
 	if res == nil {
 		t.Fatal("nil page")
 	}
@@ -88,6 +101,21 @@ func TestUsersListNetworks(t *testing.T) {
 	req.expect(t, "GET", "/v3/organization/org-test/application/app-test/users/vendor-user-uuid-1/networks/")
 	req.expectAPIKey(t)
 	expectFields(t, res.JSON, []string{"results"})
+}
+
+func TestUsersLookup(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"lookup_id":"b3a6f0c2-6a2e-4c0a-9d0e-5f3c1d2a7e11","requested":4,"found":3,"not_found":[{"identifier":"usr_7001","position":4}],"expires_at":"2026-11-19T10:30:00Z"}`)
+	var params didit.UsersLookupRequest
+	mustUnmarshal(t, `{"identifiers":["usr_8842","maria.o@gmail.com","f4e5e1f2-94a9-4f86-8c16-2b7d9b4db418","usr_7001"]}`, &params)
+	res, err := client.Users.Lookup(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/users/lookup/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"identifiers":["usr_8842","maria.o@gmail.com","f4e5e1f2-94a9-4f86-8c16-2b7d9b4db418","usr_7001"]}`)
+	expectFields(t, res.JSON, []string{"lookup_id", "requested", "found", "not_found", "expires_at"})
 }
 
 func TestUsersRetrieve(t *testing.T) {
