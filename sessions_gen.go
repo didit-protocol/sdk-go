@@ -14380,8 +14380,11 @@ type AMLScreeningRun struct {
 	StartedAt time.Time `json:"started_at"`
 
 	// `NO_CHANGE`: completed and the result did not move. `CHANGED`: completed and
-	// the score, status, hit count or hits changed. `FAILED`: no usable answer for
-	// this subject, so the check was left as it was.
+	// the score, the status or a match at or above your Match Score Threshold
+	// changed (added, removed or updated). Matches below that threshold start as
+	// False Positive and can come and go between runs without making a run
+	// `CHANGED`. `FAILED`: no usable answer for this subject, so the check was left
+	// as it was.
 	Outcome AMLScreeningRunOutcome `json:"outcome"`
 
 	// What started the screening. Always `ONGOING_MONITORING` today.
@@ -14423,8 +14426,11 @@ func (r *AMLScreeningRun) UnmarshalJSON(data []byte) error {
 }
 
 // AMLScreeningRunOutcome: `NO_CHANGE`: completed and the result did not move.
-// `CHANGED`: completed and the score, status, hit count or hits changed.
-// `FAILED`: no usable answer for this subject, so the check was left as it was.
+// `CHANGED`: completed and the score, the status or a match at or above your
+// Match Score Threshold changed (added, removed or updated). Matches below that
+// threshold start as False Positive and can come and go between runs without
+// making a run `CHANGED`. `FAILED`: no usable answer for this subject, so the
+// check was left as it was.
 //
 // AMLScreeningRunOutcome is a string with known values below. The set is open:
 // other values may appear and never cause an error.
