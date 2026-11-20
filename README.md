@@ -229,6 +229,12 @@ if err != nil {
 }
 defer resp.Body.Close()
 _, err = io.Copy(file, resp.Body)
+
+// The report language is a parameter the API added later, so it lives on the
+// companion method; GeneratePDF keeps the signature it was released with.
+resp, err = client.Sessions.GeneratePDFWithParams(ctx, sessionID, didit.SessionsGeneratePDFParams{
+	Language: didit.Some(didit.SessionsGeneratePDFParamsLanguageEs),
+})
 ```
 
 ## Webhooks

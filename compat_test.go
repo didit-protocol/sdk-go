@@ -18,6 +18,13 @@ func TestReleasedNamesCompile(t *testing.T) {
 	}
 	_ = deleteReport
 
+	// GeneratePDF was released without parameters; the report language is a
+	// parameter of GeneratePDFWithParams.
+	generatePDF := func(r *SessionsService, opts ...option.RequestOption) (*http.Response, error) {
+		return r.GeneratePDF(context.Background(), "session-1", opts...)
+	}
+	_ = generatePDF
+
 	// The released types of the Travel Rule settings networks.
 	released := func(
 		TravelRuleSettingsDetailNetworksGtr, TravelRuleSettingsDetailNetworksTrust,
