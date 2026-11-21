@@ -2734,6 +2734,7 @@ const (
 	WebhookEventInvestigatorSLABreached           WebhookEvent = "investigator.sla.breached"
 	WebhookEventInvestigatorQaFailed              WebhookEvent = "investigator.qa.failed"
 	WebhookEventInvestigatorExternalReportReady   WebhookEvent = "investigator.external.report.ready"
+	WebhookEventMessageStatusUpdated              WebhookEvent = "message.status.updated"
 )
 
 // TravelRuleUtxo: The inputs and outputs of a UTXO transfer (BTC, LTC, BCH,

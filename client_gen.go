@@ -38,6 +38,7 @@ type Client struct {
 	IP                  *IPService
 	KYB                 *KYBService
 	Lists               *ListsService
+	Messages            *MessagesService
 	MonitoringEvents    *MonitoringEventsService
 	Networks            *NetworksService
 	PassiveLiveness     *PassiveLivenessService
@@ -97,6 +98,7 @@ func (c *Client) init() {
 	c.KYB = &KYBService{client: c}
 	c.Lists = &ListsService{client: c}
 	c.Lists.Entries = &ListsEntriesService{client: c}
+	c.Messages = &MessagesService{client: c}
 	c.MonitoringEvents = &MonitoringEventsService{client: c}
 	c.Networks = &NetworksService{client: c}
 	c.Networks.Notes = &NetworksNotesService{client: c}
