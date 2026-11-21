@@ -223,7 +223,7 @@ res, err := client.IDVerification.Verify(ctx, didit.IDVerificationVerifyParams{
 File responses (PDF reports, CSV templates, attachments) return the `*http.Response`; read its body and close it:
 
 ```go
-resp, err := client.Sessions.GeneratePDF(ctx, sessionID)
+resp, err := client.Sessions.GeneratePDF(ctx, sessionID, didit.SessionsGeneratePDFParams{})
 if err != nil {
 	return err
 }
