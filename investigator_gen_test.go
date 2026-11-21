@@ -100,7 +100,7 @@ func TestInvestigatorListGuardrails(t *testing.T) {
 }
 
 func TestInvestigatorListQueue(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"string","previous":"string","counts":{"key":"value"},"results":[{"run_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","kind":"session","queue":"kyc","stage":"shadow","subject":{"key":"value"},"recommendation":"approve","recommendation_detail":"string","confidence":"high","summary":"string","sources_count":1,"ready_to_accept":true,"guardrails":"value","waiting_since":"2025-01-02T03:04:05Z","due_at":"2025-01-02T03:04:05Z","prepared_at":"2025-01-02T03:04:05Z"}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"string","previous":"string","counts":{"key":"value"},"results":[{"run_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","kind":"session","queue":"kyc","stage":"none","subject":{"key":"value"},"recommendation":"approve","recommendation_detail":"string","confidence":"high","summary":"string","sources_count":1,"ready_to_accept":true,"guardrails":"value","waiting_since":"2025-01-02T03:04:05Z","due_at":"2025-01-02T03:04:05Z","prepared_at":"2025-01-02T03:04:05Z","free_report":true,"example":true}]}`)
 	var params didit.InvestigatorListQueueParams
 	params.Scope = didit.Some(didit.InvestigatorListQueueParamsScopeAll)
 	params.Kind = didit.String("value")
@@ -125,7 +125,7 @@ func TestInvestigatorListQueue(t *testing.T) {
 	if len(res.Results) == 0 {
 		t.Fatal("no results")
 	}
-	expectFields(t, res.Results[0].JSON, []string{"run_id", "kind", "queue", "stage", "subject", "recommendation", "recommendation_detail", "confidence", "summary", "sources_count", "ready_to_accept", "guardrails", "waiting_since", "due_at", "prepared_at"})
+	expectFields(t, res.Results[0].JSON, []string{"run_id", "kind", "queue", "stage", "subject", "recommendation", "recommendation_detail", "confidence", "summary", "sources_count", "ready_to_accept", "guardrails", "waiting_since", "due_at", "prepared_at", "free_report", "example"})
 }
 
 func TestInvestigatorOverrideRun(t *testing.T) {
@@ -158,6 +158,18 @@ func TestInvestigatorRetrieveDashboard(t *testing.T) {
 	expectFields(t, res.JSON, []string{"stage", "window_days", "reviews", "decided", "automated", "automation_rate", "hours_saved"})
 }
 
+func TestInvestigatorRetrieveOffer(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"show":true,"manual_decisions_30d":1,"avg_handling_seconds":1,"stopped_halfway_30d":1,"stage":"none","followups_on":true}`)
+	res, err := client.Investigator.RetrieveOffer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/investigator/offer/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"show", "manual_decisions_30d", "avg_handling_seconds", "stopped_halfway_30d", "stage", "followups_on"})
+}
+
 func TestInvestigatorRetrievePerformance(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"period":1,"start":"2025-01-02","end":"2025-01-02","investigated":1}`)
 	var params didit.InvestigatorRetrievePerformanceParams
@@ -175,7 +187,7 @@ func TestInvestigatorRetrievePerformance(t *testing.T) {
 }
 
 func TestInvestigatorRetrieveRun(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"run_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","kind":"session","queue":"kyc","stage":"shadow","subject":{"key":"value"},"recommendation":"approve","recommendation_detail":"string","confidence":"high","summary":"string","sources_count":1,"ready_to_accept":true,"guardrails":"value","waiting_since":"2025-01-02T03:04:05Z","due_at":"2025-01-02T03:04:05Z","prepared_at":"2025-01-02T03:04:05Z","status":"string","is_open":true,"lookups":1,"duration_ms":1,"agent_version":"string","prepared_before_opened":true,"report":{"key":"value"},"trail":"value","decision":{"outcome":"accepted","action":"approve","actor_email":"string","actor_name":"string","override_category":"missing_context","override_reason":"string","final_status":"string","agreed":true,"decided_at":"2025-01-02T03:04:05Z","billed":true,"decided_by":"investigator","original_outcome":{"action":"string","final_status":"string","decided_at":"2025-01-02T03:04:05Z"},"overrides":[{"action":"string","actor_email":"string","actor_name":"string","override_category":"string","override_reason":"string","previous_status":"string","final_status":"string","agreed":true,"overridden_at":"2025-01-02T03:04:05Z"}]},"autonomy":{"key":"value"}}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"run_id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","kind":"session","queue":"kyc","stage":"none","subject":{"key":"value"},"recommendation":"approve","recommendation_detail":"string","confidence":"high","summary":"string","sources_count":1,"ready_to_accept":true,"guardrails":"value","waiting_since":"2025-01-02T03:04:05Z","due_at":"2025-01-02T03:04:05Z","prepared_at":"2025-01-02T03:04:05Z","free_report":true,"example":true,"status":"string","is_open":true,"lookups":1,"duration_ms":1,"agent_version":"string","prepared_before_opened":true,"report":{"key":"value"},"trail":"value","decision":{"outcome":"accepted","action":"approve","actor_email":"string","actor_name":"string","override_category":"missing_context","override_reason":"string","final_status":"string","agreed":true,"decided_at":"2025-01-02T03:04:05Z","billed":true,"decided_by":"investigator","original_outcome":{"action":"string","final_status":"string","decided_at":"2025-01-02T03:04:05Z"},"overrides":[{"action":"string","actor_email":"string","actor_name":"string","override_category":"string","override_reason":"string","previous_status":"string","final_status":"string","agreed":true,"overridden_at":"2025-01-02T03:04:05Z"}]},"autonomy":{"key":"value"}}`)
 	res, err := client.Investigator.RetrieveRun(context.Background(), "run-id-1")
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +195,7 @@ func TestInvestigatorRetrieveRun(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/investigator/runs/run-id-1/")
 	req.expectAPIKey(t)
-	expectFields(t, res.JSON, []string{"run_id", "kind", "queue", "stage", "subject", "recommendation", "recommendation_detail", "confidence", "summary", "sources_count", "ready_to_accept", "guardrails", "waiting_since", "due_at", "prepared_at", "status", "is_open", "lookups", "duration_ms", "agent_version", "prepared_before_opened", "report", "trail", "decision", "autonomy"})
+	expectFields(t, res.JSON, []string{"run_id", "kind", "queue", "stage", "subject", "recommendation", "recommendation_detail", "confidence", "summary", "sources_count", "ready_to_accept", "guardrails", "waiting_since", "due_at", "prepared_at", "free_report", "example", "status", "is_open", "lookups", "duration_ms", "agent_version", "prepared_before_opened", "report", "trail", "decision", "autonomy"})
 }
 
 func TestInvestigatorRetrieveSettings(t *testing.T) {
@@ -199,7 +211,7 @@ func TestInvestigatorRetrieveSettings(t *testing.T) {
 }
 
 func TestInvestigatorRetrieveSummary(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"stage":"string","last_report_at":"2025-01-02T03:04:05Z","prepared_today":1,"ready_to_accept":1,"open":1,"decided_today":1,"automation_rate_month":1.5,"preparing":1}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"stage":"string","last_report_at":"2025-01-02T03:04:05Z","prepared_today":1,"ready_to_accept":1,"open":1,"decided_today":1,"automation_rate_month":1.5,"preparing":1,"free_reports":{"limit":1,"used":1,"remaining":1}}`)
 	var params didit.InvestigatorRetrieveSummaryParams
 	params.Scope = didit.Some(didit.InvestigatorRetrieveSummaryParamsScopeAll)
 	params.Timezone = didit.String("value")
@@ -211,7 +223,7 @@ func TestInvestigatorRetrieveSummary(t *testing.T) {
 	req.expect(t, "GET", "/v3/investigator/summary/")
 	req.expectAPIKey(t)
 	req.expectQuery(t, map[string]string{"scope": "all", "timezone": "value"})
-	expectFields(t, res.JSON, []string{"stage", "last_report_at", "prepared_today", "ready_to_accept", "open", "decided_today", "automation_rate_month", "preparing"})
+	expectFields(t, res.JSON, []string{"stage", "last_report_at", "prepared_today", "ready_to_accept", "open", "decided_today", "automation_rate_month", "preparing", "free_reports"})
 }
 
 func TestInvestigatorRetrieveTransaction(t *testing.T) {
