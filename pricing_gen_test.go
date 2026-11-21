@@ -5,6 +5,8 @@ package didit_test
 import (
 	"context"
 	"testing"
+
+	"github.com/didit-protocol/sdk-go"
 )
 
 func TestPricingBankVerification(t *testing.T) {
@@ -17,4 +19,19 @@ func TestPricingBankVerification(t *testing.T) {
 	req.expect(t, "GET", "/v3/organization/bank-verification-pricing/")
 	req.expectNoCredentials(t)
 	expectFields(t, res.JSON, []string{"currency", "statement_upload", "own_provider_fee_usd", "countries"})
+}
+
+func TestPricingPriceBook(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"currency":"USD","plans":[{"key":"free","price_usd_month":"0.00","price_usd_year":null,"discount_percent":0,"transactions_included_per_month":1000},{"key":"growth","price_usd_month":"99.00","price_usd_year":"1128.00","discount_percent":4,"transactions_included_per_month":10000},{"key":"scale","price_usd_month":"299.00","price_usd_year":"3408.00","discount_percent":10,"transactions_included_per_month":100000},{"key":"enterprise","price_usd_month":null,"price_usd_year":null,"discount_percent":null,"transactions_included_per_month":null}],"white_label_usd":"0.10","messages_fee_usd":"0.02","message_fee_usd_by_channel":{"sms":"0.02","whatsapp":"0.004"},"lines":[{"key":"message_email","product":"identity","feature":"email","unit":"message","list_price_usd":"0.02"}]}`)
+	var params didit.PricingPriceBookParams
+	params.IfNoneMatch = didit.String("value")
+	res, err := client.Pricing.PriceBook(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/organization/price-book/")
+	req.expectNoCredentials(t)
+	req.expectHeader(t, "If-None-Match", "value")
+	expectFields(t, res.JSON, []string{"currency", "plans", "white_label_usd", "messages_fee_usd", "message_fee_usd_by_channel", "lines"})
 }

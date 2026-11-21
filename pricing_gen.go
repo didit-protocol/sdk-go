@@ -45,6 +45,41 @@ func (r *PricingService) BankVerification(ctx context.Context, opts ...option.Re
 	return res, nil
 }
 
+// PriceBook: Get the price book (public, unauthenticated).
+//
+// Returns Didit's public list prices: every plan with its monthly and yearly
+// price and its discount, the white label price, Didit's fee on each Messages
+// channel, and every flat usage price. Use it to quote Didit's prices in your
+// own product or to check a price before you build a workflow.
+//
+// Public: send no auth header. The response contains no organization data and
+// is the same for every caller. It carries an `ETag`, so send `If-None-Match`
+// to get a `304 Not Modified` when nothing changed.
+//
+// **Messages fees.** An SMS costs the carrier's price per segment plus Didit's
+// fee per segment (`message_fee_usd_by_channel.sms`, also `messages_fee_usd`).
+// A WhatsApp message sent from Didit's number costs WhatsApp's rate plus
+// Didit's own WhatsApp fee (`message_fee_usd_by_channel.whatsapp`); sent from
+// your own WhatsApp Business account, WhatsApp bills you directly and Didit
+// charges only its fee. The carrier's and WhatsApp's parts are passed on at
+// cost.
+//
+// These are list prices before your plan discount, which applies to Didit's fee
+// only on carrier-priced items and to the whole price everywhere else. A
+// negotiated or contract price replaces the list price for your organization.
+// Per-item prices are on their own feeds, such as [phone verification
+// prices](/getting-started/phone-verification-pricing) and [bank verification
+// prices](/getting-started/bank-verification-pricing).
+//
+//	GET /v3/organization/price-book/
+func (r *PricingService) PriceBook(ctx context.Context, params PricingPriceBookParams, opts ...option.RequestOption) (*PublicPriceBook, error) {
+	res := new(PublicPriceBook)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/price-book/", auth: authNone, params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // BankVerificationPricing: Public Bank Verification list prices: the statement
 // upload, the own provider key fee and each country's methods.
 type BankVerificationPricing struct {
@@ -206,5 +241,149 @@ type BankAccountCheckPricing struct {
 
 // UnmarshalJSON decodes BankAccountCheckPricing leniently.
 func (r *BankAccountCheckPricing) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PricingPriceBookParams holds the parameters of Client.Pricing.PriceBook.
+type PricingPriceBookParams struct {
+	// The `ETag` of a price book you already hold: the response is `304 Not
+	// Modified`, with no body, when nothing changed.
+	IfNoneMatch Opt[string] `json:"-" header:"If-None-Match"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PricingPriceBookParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PublicPriceBook is a response object.
+type PublicPriceBook struct {
+	Currency PublicPriceBookCurrency `json:"currency"`
+	Plans    []PublicPriceBookPlan   `json:"plans"`
+
+	// The white label price per finished session.
+	WhiteLabelUsd string `json:"white_label_usd"`
+
+	// Didit's fee per SMS segment, excluding the carrier's price. A WhatsApp
+	// message's own, lower fee is in `message_fee_usd_by_channel`.
+	MessagesFeeUsd         string                     `json:"messages_fee_usd"`
+	MessageFeeUsdByChannel PublicPriceBookMessageFees `json:"message_fee_usd_by_channel"`
+
+	// Flat usage prices. A price a catalog sets per item (a phone code by country
+	// and channel, a database or ID number lookup by service, a KYB registry check
+	// by country and tier, a bank check by market) is on that catalog's own public
+	// feed.
+	Lines []PublicPriceBookLine `json:"lines"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PublicPriceBook leniently.
+func (r *PublicPriceBook) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PublicPriceBookCurrency is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PublicPriceBookCurrency string
+
+// Known values of PublicPriceBookCurrency.
+const (
+	PublicPriceBookCurrencyUsd PublicPriceBookCurrency = "USD"
+)
+
+// PublicPriceBookPlan is a response object.
+type PublicPriceBookPlan struct {
+	// The plan.
+	Key PublicPriceBookPlanKey `json:"key"`
+
+	// The plan's monthly price in USD. Null on Enterprise, which has contract
+	// terms.
+	PriceUsdMonth string `json:"price_usd_month"`
+
+	// The plan paid a year up front; its credit still lands monthly. Null on Free
+	// and Enterprise.
+	PriceUsdYear string `json:"price_usd_year"`
+
+	// The discount the plan takes off every list price (on a carrier-priced item,
+	// off Didit's fee only). Null on Enterprise.
+	DiscountPercent int64 `json:"discount_percent"`
+
+	// Monitored transactions included each month. Null on Enterprise, whose
+	// contract sets it.
+	TransactionsIncludedPerMonth int64 `json:"transactions_included_per_month"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PublicPriceBookPlan leniently.
+func (r *PublicPriceBookPlan) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PublicPriceBookPlanKey: The plan.
+//
+// PublicPriceBookPlanKey is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PublicPriceBookPlanKey string
+
+// Known values of PublicPriceBookPlanKey.
+const (
+	PublicPriceBookPlanKeyFree       PublicPriceBookPlanKey = "free"
+	PublicPriceBookPlanKeyGrowth     PublicPriceBookPlanKey = "growth"
+	PublicPriceBookPlanKeyScale      PublicPriceBookPlanKey = "scale"
+	PublicPriceBookPlanKeyEnterprise PublicPriceBookPlanKey = "enterprise"
+)
+
+// PublicPriceBookMessageFees: Didit's fee on each carrier-priced Messages
+// channel, excluding the carrier's or WhatsApp's price, which is passed on at
+// cost. Null where the fee is not published.
+type PublicPriceBookMessageFees struct {
+	// Didit's fee per SMS segment (the standard fee; a few countries take less).
+	SMS string `json:"sms"`
+
+	// Didit's fee per WhatsApp message, on top of WhatsApp's rate from Didit's
+	// number, alone from your own WhatsApp Business account.
+	Whatsapp string `json:"whatsapp"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PublicPriceBookMessageFees leniently.
+func (r *PublicPriceBookMessageFees) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PublicPriceBookLine is a response object.
+type PublicPriceBookLine struct {
+	// The usage type the price applies to, as usage and invoices name it.
+	Key string `json:"key"`
+
+	// The product the usage belongs to.
+	Product string `json:"product"`
+
+	// Together with `key`, identifies a price, including the managed and
+	// own-provider variants of one usage.
+	Feature string `json:"feature"`
+
+	// What one unit of the price is.
+	Unit string `json:"unit"`
+
+	// The list price of one unit in USD, before your plan discount.
+	ListPriceUsd string `json:"list_price_usd"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PublicPriceBookLine leniently.
+func (r *PublicPriceBookLine) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
