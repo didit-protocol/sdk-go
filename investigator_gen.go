@@ -160,6 +160,24 @@ func (r *InvestigatorService) RetrieveDashboard(ctx context.Context, params Inve
 	return res, nil
 }
 
+// RetrieveOffer: Investigator agent offer.
+//
+// Whether to offer the Investigator agent to this application: its decisions
+// taken by hand in the last 30 days, the average handling time, the people who
+// stopped halfway and whether follow-ups are on. Read from the daily analytics,
+// never from a scan of sessions. `show` is true when 20 or more decisions were
+// taken by hand and the agent is not set up, or when follow-ups are off and 50
+// or more people stopped halfway.
+//
+//	GET /v3/investigator/offer/
+func (r *InvestigatorService) RetrieveOffer(ctx context.Context, opts ...option.RequestOption) (*InvestigatorRetrieveOfferResponse, error) {
+	res := new(InvestigatorRetrieveOfferResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/investigator/offer/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // RetrievePerformance: Investigator performance.
 //
 // Agreement with your team, volume, time saved, confidence calibration,
@@ -566,6 +584,14 @@ type InvestigatorQueueRow struct {
 	DueAt        time.Time `json:"due_at"`
 	PreparedAt   time.Time `json:"prepared_at"`
 
+	// True for one of the organization's free reports: a review run at stage
+	// `none`, with no setup, never charged.
+	FreeReport bool `json:"free_report"`
+
+	// True for an example report shown on a sandbox application. Example reports
+	// are read only and never cost anything.
+	Example bool `json:"example"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -607,6 +633,7 @@ type InvestigatorQueueRowStage string
 
 // Known values of InvestigatorQueueRowStage.
 const (
+	InvestigatorQueueRowStageNone   InvestigatorQueueRowStage = "none"
 	InvestigatorQueueRowStageShadow InvestigatorQueueRowStage = "shadow"
 	InvestigatorQueueRowStageLive   InvestigatorQueueRowStage = "live"
 )
@@ -727,6 +754,36 @@ func (r *InvestigatorRetrieveDashboardResponse) UnmarshalJSON(data []byte) error
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// InvestigatorRetrieveOfferResponse is a response object.
+type InvestigatorRetrieveOfferResponse struct {
+	Show               bool                                   `json:"show"`
+	ManualDecisions30d int64                                  `json:"manual_decisions_30d"`
+	AvgHandlingSeconds int64                                  `json:"avg_handling_seconds"`
+	StoppedHalfway30d  int64                                  `json:"stopped_halfway_30d"`
+	Stage              InvestigatorRetrieveOfferResponseStage `json:"stage"`
+	FollowupsOn        bool                                   `json:"followups_on"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes InvestigatorRetrieveOfferResponse leniently.
+func (r *InvestigatorRetrieveOfferResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// InvestigatorRetrieveOfferResponseStage is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type InvestigatorRetrieveOfferResponseStage string
+
+// Known values of InvestigatorRetrieveOfferResponseStage.
+const (
+	InvestigatorRetrieveOfferResponseStageNone   InvestigatorRetrieveOfferResponseStage = "none"
+	InvestigatorRetrieveOfferResponseStageShadow InvestigatorRetrieveOfferResponseStage = "shadow"
+	InvestigatorRetrieveOfferResponseStageLive   InvestigatorRetrieveOfferResponseStage = "live"
+)
+
 // InvestigatorRetrievePerformanceParams holds the parameters of
 // Client.Investigator.RetrievePerformance.
 type InvestigatorRetrievePerformanceParams struct {
@@ -805,8 +862,16 @@ type InvestigatorRunDetail struct {
 	WaitingSince time.Time `json:"waiting_since"`
 	DueAt        time.Time `json:"due_at"`
 	PreparedAt   time.Time `json:"prepared_at"`
-	Status       string    `json:"status"`
-	IsOpen       bool      `json:"is_open"`
+
+	// True for one of the organization's free reports: a review run at stage
+	// `none`, with no setup, never charged.
+	FreeReport bool `json:"free_report"`
+
+	// True for an example report shown on a sandbox application. Example reports
+	// are read only and never cost anything.
+	Example bool   `json:"example"`
+	Status  string `json:"status"`
+	IsOpen  bool   `json:"is_open"`
 
 	// How many sections and linked records it read.
 	Lookups              int64  `json:"lookups"`
@@ -869,6 +934,7 @@ type InvestigatorRunDetailStage string
 
 // Known values of InvestigatorRunDetailStage.
 const (
+	InvestigatorRunDetailStageNone   InvestigatorRunDetailStage = "none"
 	InvestigatorRunDetailStageShadow InvestigatorRunDetailStage = "shadow"
 	InvestigatorRunDetailStageLive   InvestigatorRunDetailStage = "live"
 )
@@ -982,6 +1048,8 @@ const (
 
 // InvestigatorRetrieveSummaryResponse is a response object.
 type InvestigatorRetrieveSummaryResponse struct {
+	// `none` (not set up; free reports still run while `free_reports.remaining` is
+	// above 0), `shadow` or `live`.
 	Stage               string    `json:"stage"`
 	LastReportAt        time.Time `json:"last_report_at"`
 	PreparedToday       int64     `json:"prepared_today"`
@@ -991,6 +1059,10 @@ type InvestigatorRetrieveSummaryResponse struct {
 	AutomationRateMonth float64   `json:"automation_rate_month"`
 	Preparing           int64     `json:"preparing"`
 
+	// The organization's free reports: the first reports run with no setup, on any
+	// plan, and are never charged.
+	FreeReports InvestigatorRetrieveSummaryResponseFreeReports `json:"free_reports"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -998,6 +1070,24 @@ type InvestigatorRetrieveSummaryResponse struct {
 
 // UnmarshalJSON decodes InvestigatorRetrieveSummaryResponse leniently.
 func (r *InvestigatorRetrieveSummaryResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// InvestigatorRetrieveSummaryResponseFreeReports: The organization's free
+// reports: the first reports run with no setup, on any plan, and are never
+// charged.
+type InvestigatorRetrieveSummaryResponseFreeReports struct {
+	Limit     int64 `json:"limit"`
+	Used      int64 `json:"used"`
+	Remaining int64 `json:"remaining"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes InvestigatorRetrieveSummaryResponseFreeReports leniently.
+func (r *InvestigatorRetrieveSummaryResponseFreeReports) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 

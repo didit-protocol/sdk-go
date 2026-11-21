@@ -11,50 +11,51 @@ import (
 type Client struct {
 	options []option.RequestOption
 
-	Account            *AccountService
-	AddressValidation  *AddressValidationService
-	AgeEstimation      *AgeEstimationService
-	AML                *AMLService
-	AMLMonitoring      *AMLMonitoringService
-	Analytics          *AnalyticsService
-	Bank               *BankService
-	Billing            *BillingService
-	BiometricTemplates *BiometricTemplatesService
-	Blocklist          *BlocklistService
-	BusinessSessions   *BusinessSessionsService
-	Businesses         *BusinessesService
-	Cases              *CasesService
-	Customization      *CustomizationService
-	DatabaseValidation *DatabaseValidationService
-	DocumentAi         *DocumentAiService
-	Email              *EmailService
-	FaceMatch          *FaceMatchService
-	FaceSearch         *FaceSearchService
-	FraudChecks        *FraudChecksService
-	IDVerification     *IDVerificationService
-	IDWallets          *IDWalletsService
-	Investigator       *InvestigatorService
-	IP                 *IPService
-	KYB                *KYBService
-	Lists              *ListsService
-	MonitoringEvents   *MonitoringEventsService
-	Networks           *NetworksService
-	PassiveLiveness    *PassiveLivenessService
-	Phone              *PhoneService
-	Pricing            *PricingService
-	ProofOfAddress     *ProofOfAddressService
-	Questionnaires     *QuestionnairesService
-	RegulatoryReports  *RegulatoryReportsService
-	ReportTemplates    *ReportTemplatesService
-	Reports            *ReportsService
-	Sandbox            *SandboxService
-	Sessions           *SessionsService
-	Transactions       *TransactionsService
-	TravelRule         *TravelRuleService
-	Users              *UsersService
-	WalletScreening    *WalletScreeningService
-	Webhooks           *WebhooksService
-	Workflows          *WorkflowsService
+	Account             *AccountService
+	AddressValidation   *AddressValidationService
+	AgeEstimation       *AgeEstimationService
+	AML                 *AMLService
+	AMLMonitoring       *AMLMonitoringService
+	Analytics           *AnalyticsService
+	AuthenticationSetup *AuthenticationSetupService
+	Bank                *BankService
+	Billing             *BillingService
+	BiometricTemplates  *BiometricTemplatesService
+	Blocklist           *BlocklistService
+	BusinessSessions    *BusinessSessionsService
+	Businesses          *BusinessesService
+	Cases               *CasesService
+	Customization       *CustomizationService
+	DatabaseValidation  *DatabaseValidationService
+	DocumentAi          *DocumentAiService
+	Email               *EmailService
+	FaceMatch           *FaceMatchService
+	FaceSearch          *FaceSearchService
+	FraudChecks         *FraudChecksService
+	IDVerification      *IDVerificationService
+	IDWallets           *IDWalletsService
+	Investigator        *InvestigatorService
+	IP                  *IPService
+	KYB                 *KYBService
+	Lists               *ListsService
+	MonitoringEvents    *MonitoringEventsService
+	Networks            *NetworksService
+	PassiveLiveness     *PassiveLivenessService
+	Phone               *PhoneService
+	Pricing             *PricingService
+	ProofOfAddress      *ProofOfAddressService
+	Questionnaires      *QuestionnairesService
+	RegulatoryReports   *RegulatoryReportsService
+	ReportTemplates     *ReportTemplatesService
+	Reports             *ReportsService
+	Sandbox             *SandboxService
+	Sessions            *SessionsService
+	Transactions        *TransactionsService
+	TravelRule          *TravelRuleService
+	Users               *UsersService
+	WalletScreening     *WalletScreeningService
+	Webhooks            *WebhooksService
+	Workflows           *WorkflowsService
 }
 
 func (c *Client) init() {
@@ -66,6 +67,7 @@ func (c *Client) init() {
 	c.AML = &AMLService{client: c}
 	c.AMLMonitoring = &AMLMonitoringService{client: c}
 	c.Analytics = &AnalyticsService{client: c}
+	c.AuthenticationSetup = &AuthenticationSetupService{client: c}
 	c.Bank = &BankService{client: c}
 	c.Billing = &BillingService{client: c}
 	c.BiometricTemplates = &BiometricTemplatesService{client: c}
