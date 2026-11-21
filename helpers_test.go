@@ -162,7 +162,9 @@ func (r recordedRequest) expectAPIKey(t *testing.T) {
 	if got := r.Header.Get("X-Api-Key"); got != testAPIKey {
 		t.Errorf("x-api-key = %q, want the test key", got)
 	}
-	if !strings.HasPrefix(r.URL, testBaseURL+"/") {
+	// The key goes to base_url, or to account_base_url for an account operation that takes it
+	// (authentication_setup); never to any other origin (docs/DESIGN.md section 6).
+	if !strings.HasPrefix(r.URL, testBaseURL+"/") && !strings.HasPrefix(r.URL, testAccountURL+"/") {
 		t.Errorf("API key sent to %s", r.URL)
 	}
 }
