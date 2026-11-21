@@ -1,0 +1,541 @@
+package authentication
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math/rand/v2"
+	"net"
+	"net/http"
+	"net/url"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	didit "github.com/didit-protocol/sdk-go"
+	"github.com/didit-protocol/sdk-go/internal/version"
+)
+
+var (
+	userAgent = "didit-go/" + version.Version +
+		" (Go " + strings.TrimPrefix(runtime.Version(), "go") + "; " + runtime.GOOS + "/" + runtime.GOARCH + ")"
+	clientHeader = "go/" + version.Version
+)
+
+// maxResponseBytes bounds every response body the package reads.
+const maxResponseBytes = 1 << 20
+
+const (
+	contentTypeJSON = "application/json"
+	contentTypeForm = "application/x-www-form-urlencoded"
+)
+
+type request struct {
+	method      string
+	url         string
+	bearer      string // sent as Authorization: Bearer <bearer>
+	contentType string
+	body        []byte
+	// retry allows one retry after a connection error or a 5xx answer. Only
+	// requests that are safe to repeat set it.
+	retry bool
+	// secrets are strings that must never reach an error. When set, an error
+	// body is redacted structurally: the parsed JSON has every string (object
+	// key or value) that contains a secret replaced whole by "[redacted]", and
+	// a body that is not JSON becomes "[redacted]". The raw text is never kept.
+	secrets []string
+}
+
+type response struct {
+	header http.Header
+	body   []byte
+	// http is the response, its body already read into body. Errors carry a
+	// redacted copy of it.
+	http *http.Response
+}
+
+// send performs the request and maps failures to the module's error types:
+// *didit.APIConnectionError (or *didit.APITimeoutError) without a response,
+// didit.NewAPIStatusError for a status outside 2xx, and
+// *didit.UnexpectedResponseError for a 2xx body over the size limit.
+func (c *Client) send(ctx context.Context, r request) (*response, error) {
+	for attempt := 0; ; attempt++ {
+		resp, err := c.sendOnce(ctx, r)
+		if err == nil || !r.retry || attempt > 0 || !retryable(ctx, err) {
+			return resp, err
+		}
+		if waitErr := c.backoff(ctx); waitErr != nil {
+			return nil, requestError(r, waitErr)
+		}
+	}
+}
+
+func (c *Client) sendOnce(ctx context.Context, r request) (*response, error) {
+	var body io.Reader
+	if r.body != nil {
+		body = bytes.NewReader(r.body)
+	}
+	req, err := http.NewRequestWithContext(ctx, r.method, r.url, body)
+	if err != nil {
+		return nil, requestError(r, err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("X-Didit-Client", clientHeader)
+	req.Header.Set("Accept", contentTypeJSON)
+	if r.contentType != "" {
+		req.Header.Set("Content-Type", r.contentType)
+	}
+	if r.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+r.bearer)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, requestError(r, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if err != nil {
+		return nil, requestError(r, err)
+	}
+	ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
+	if ok {
+		// A successful response reaches the caller unchanged.
+		if len(data) > maxResponseBytes {
+			return nil, unexpectedResponse(r, resp, "is larger than 1 MiB", nil, data)
+		}
+		return &response{header: resp.Header, body: data, http: resp}, nil
+	}
+	// Every error of a consent call is built from a sanitized copy of the response only.
+	var kept []byte // the content the error's response carries: only ever sanitized bytes
+	if len(r.secrets) > 0 {
+		resp, data = sanitizeResponse(resp, data, r.secrets)
+		kept = data
+	} else if len(data) > maxResponseBytes {
+		data = data[:maxResponseBytes]
+	}
+	return nil, didit.NewAPIStatusError(&didit.APIStatusError{
+		StatusCode: resp.StatusCode,
+		Body:       parseBody(data),
+		RawBody:    data,
+		Header:     resp.Header,
+		RequestID:  resp.Header.Get("X-Request-Id"),
+		Method:     r.method,
+		URL:        redactURL(r.url),
+		Response:   redactedResponse(resp, kept),
+	})
+}
+
+// sanitizeResponse returns the response of a call whose answer may echo secrets
+// (agent consent) sanitized as a whole: the status code kept, the status text
+// redacted, each header whose name contains a secret dropped, the other values
+// redacted, and the body redacted by redactBody ("[redacted]" when it is cut at
+// the size limit, not JSON or empty). Every error of these calls is built from
+// the result only.
+func sanitizeResponse(resp *http.Response, data []byte, secrets []string) (*http.Response, []byte) {
+	if len(data) > maxResponseBytes {
+		// Cut at the size limit: never JSON, whatever its first MiB looks like.
+		data = []byte(redactedMarker)
+	} else {
+		data = redactBody(data, secrets)
+	}
+	copied := *resp
+	copied.Status = redactString(resp.Status, secrets)
+	copied.Header = redactHeader(resp.Header, secrets)
+	if resp.Request != nil {
+		// A redirect may carry the challenge in the path, userinfo, query or fragment: the copy's request URL keeps only scheme and host.
+		req := resp.Request.Clone(context.Background())
+		req.URL = &url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host}
+		copied.Request = req
+	}
+	copied.Trailer = nil // a trailer is issuer-controlled too: the copy carries none
+	return &copied, data
+}
+
+// retryable reports whether a failed GET may be sent once more: the
+// connection failed (and the caller's context is still live) or the issuer
+// answered 5xx.
+func retryable(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	var status *didit.APIStatusError
+	if errors.As(err, &status) {
+		return status.StatusCode >= 500
+	}
+	var conn *didit.APIConnectionError
+	return errors.As(err, &conn)
+}
+
+// backoff waits a random delay between half and all of retryDelay.
+func (c *Client) backoff(ctx context.Context) error {
+	half := c.retryDelay / 2
+	timer := time.NewTimer(half + rand.N(half+1))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// decodeJSON decodes a 2xx response body. A body that does not decode is a
+// *didit.UnexpectedResponseError.
+func decodeJSON(r request, resp *response, v any) error {
+	if err := json.Unmarshal(resp.body, v); err != nil {
+		return unexpectedResponse(r, resp.http, "is not valid JSON", err, resp.body)
+	}
+	return nil
+}
+
+// unexpectedResponse reports a 2xx response the package cannot use, with a
+// redacted copy of the response.
+func unexpectedResponse(r request, resp *http.Response, problem string, cause error, body []byte) error {
+	if len(r.secrets) == 0 {
+		body = nil
+	} else {
+		cause = nil // the decoder's error quotes the raw input
+		// A copy sanitized to build this error; the successful path never sees it.
+		resp, body = sanitizeResponse(resp, body, r.secrets)
+	}
+	return &didit.UnexpectedResponseError{
+		Message:  fmt.Sprintf("%s %s: the %d response %s", r.method, redactURL(r.url), resp.StatusCode, problem),
+		Cause:    cause,
+		Response: redactedResponse(resp, body),
+	}
+}
+
+// requestError is the connection or timeout error of request r. A request that
+// carries secrets (agent consent) reports a fixed cause: a transport may quote
+// the serialized body in its error, in a spelling no decoded-string match finds.
+func requestError(r request, cause error) error {
+	if len(r.secrets) > 0 {
+		cause = withheldCause(cause)
+	}
+	return connectionError(r.method, r.url, cause)
+}
+
+// withheldCause keeps what callers branch on (cancellation, deadline, timeout)
+// and drops the underlying text.
+func withheldCause(cause error) error {
+	switch {
+	case errors.Is(cause, context.Canceled):
+		return context.Canceled
+	case errors.Is(cause, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	}
+	return withheldError{timeout: isTimeout(cause)}
+}
+
+type withheldError struct{ timeout bool }
+
+func (withheldError) Error() string   { return "transport failure (details withheld)" }
+func (e withheldError) Timeout() bool { return e.timeout }
+func (withheldError) Temporary() bool { return false }
+
+func connectionError(method, rawURL string, cause error) error {
+	e := &didit.APIConnectionError{Method: method, URL: redactURL(rawURL), Cause: cause}
+	if isTimeout(cause) {
+		return &didit.APITimeoutError{APIConnectionError: e}
+	}
+	return e
+}
+
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// parseBody returns an error body as parsed JSON when possible, otherwise as
+// a string, or nil when empty.
+func parseBody(data []byte) any {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal(data, &v); err == nil {
+		return v
+	}
+	return string(data)
+}
+
+// redactURL drops credentials, query and fragment from a URL for errors.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
+	return u.String()
+}
+
+// redactedResponse copies a response for an error value, so that the error
+// does not carry the access token (request header) or the request body (codes
+// and refresh tokens) through resp.Request. After a redirect,
+// resp.Request.Response is the redirect response, whose Request is the
+// original request; it is dropped too.
+//
+// body is the already redacted content the copy carries (nil for none), with the
+// length headers made to match.
+func redactedResponse(resp *http.Response, body []byte) *http.Response {
+	copied := *resp
+	copied.Body = http.NoBody
+	if len(body) > 0 {
+		copied.Body = io.NopCloser(bytes.NewReader(body))
+	}
+	copied.ContentLength = int64(len(body))
+	copied.Header = resp.Header.Clone()
+	copied.Header.Del("Content-Length")
+	copied.Header.Del("Content-Encoding")
+	copied.Header.Del("Transfer-Encoding")
+	copied.TransferEncoding = nil
+	copied.Uncompressed = false
+	if resp.Request != nil {
+		req := resp.Request.WithContext(context.Background())
+		req.Header = resp.Request.Header.Clone()
+		if req.Header.Get("Authorization") != "" {
+			req.Header.Set("Authorization", "Bearer [redacted]")
+		}
+		req.Body, req.GetBody = http.NoBody, nil
+		req.Response = nil
+		copied.Request = req
+	}
+	return &copied
+}
+
+// withRedirectPolicy returns a copy of hc (or a default client) that never
+// follows a redirect to another origin: the 3xx response is returned instead,
+// so an access token, code or refresh token never leaves the issuer's origin.
+func withRedirectPolicy(hc *http.Client) *http.Client {
+	copied := http.Client{Timeout: DefaultTimeout}
+	if hc != nil {
+		copied = *hc
+	}
+	next := copied.CheckRedirect
+	copied.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 || !sameOrigin(req.URL, via[0].URL) {
+			return http.ErrUseLastResponse
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		return nil
+	}
+	return &copied
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		effectivePort(a) == effectivePort(b)
+}
+
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	return "80"
+}
+
+// checkBearer validates an access token argument without echoing it.
+func checkBearer(token string) error {
+	if token == "" {
+		return configError("access token is required")
+	}
+	for i := 0; i < len(token); i++ {
+		if token[i] <= ' ' || token[i] >= 0x7f {
+			return configError("access token contains invalid characters")
+		}
+	}
+	return nil
+}
+
+const redactedMarker = "[redacted]"
+
+// minSecretLength is the length from which an assertion string is a secret.
+// Shorter ones (field names such as "id", values such as "public-key") are not:
+// matching them would erase error codes like "invalid_grant" (docs/DESIGN.md
+// section 10).
+// Sensitive values are 16+ chars: user handles are 16-byte ids (22 base64url), credential ids 16+ bytes.
+const minSecretLength = 16
+
+// assertionSecrets returns every string of at least 16 characters of the
+// passkey assertion in the JSON document body (object keys and values, at any
+// depth), followed by extra. The body is read token by token, so duplicate
+// object members, which a decode into a map would collapse, are all kept. The
+// decision, scopes and organization ids are not secrets and stay readable in
+// errors.
+func assertionSecrets(body []byte, extra ...string) []string {
+	var out []string
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return extra
+	}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		if key, _ := keyTok.(string); key == "assertion" {
+			out = append(out, tokenStrings(dec)...)
+			continue
+		}
+		var skip json.RawMessage
+		if dec.Decode(&skip) != nil {
+			break
+		}
+	}
+	return append(out, extra...)
+}
+
+// tokenStrings reads one JSON value from dec and returns every string token of
+// at least minSecretLength characters in it, keys included.
+func tokenStrings(dec *json.Decoder) []string {
+	var out []string
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return out
+		}
+		switch t := tok.(type) {
+		case json.Delim:
+			if t == '{' || t == '[' {
+				depth++
+			} else {
+				depth--
+			}
+		case string:
+			if len(t) >= minSecretLength {
+				out = append(out, t)
+			}
+		}
+		if depth == 0 {
+			return out
+		}
+	}
+}
+
+// redactBody returns an error body with the secrets removed from the parsed
+// value, never from its raw text: valid JSON comes back re-encoded with
+// redactValue applied, anything else (an HTML error page, a body cut at the
+// size limit, an empty body) comes back as "[redacted]".
+func redactBody(data []byte, secrets []string) []byte {
+	if len(bytes.TrimSpace(data)) == 0 {
+		// An empty body is not JSON.
+		return []byte(redactedMarker)
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v any
+	// Anything after the first value, a closing delimiter included, means the body is not JSON.
+	if err := dec.Decode(&v); err != nil || dec.Decode(&struct{}{}) != io.EOF {
+		return []byte(redactedMarker)
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(redactValue(v, secrets)); err != nil {
+		return []byte(redactedMarker)
+	}
+	return bytes.TrimSpace(buf.Bytes())
+}
+
+// redactValue replaces every string of v that contains a secret, object keys
+// included, by "[redacted]" as a whole. Strings are compared as decoded, so the
+// spelling of the raw JSON does not matter. A redacted key that collides with
+// another key is numbered ("[redacted]", "[redacted]2", ...).
+func redactValue(v any, secrets []string) any {
+	switch t := v.(type) {
+	case string:
+		return redactString(t, secrets)
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = redactValue(e, secrets)
+		}
+		return out
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		// Reserve every safe key name first, so a placeholder never takes one.
+		out := make(map[string]any, len(t))
+		taken := make(map[string]bool, len(t))
+		for _, k := range keys {
+			if redactString(k, secrets) == k {
+				taken[k] = true
+			}
+		}
+		next := 1
+		for _, k := range keys {
+			name := k
+			if redactString(k, secrets) != k {
+				for {
+					name = redactedMarker
+					if next > 1 {
+						name += strconv.Itoa(next)
+					}
+					next++
+					if !taken[name] {
+						break
+					}
+				}
+				taken[name] = true
+			}
+			out[name] = redactValue(t[k], secrets)
+		}
+		return out
+	}
+	return v
+}
+
+// redactHeader copies h without the headers whose name contains a secret, and with every value that contains one replaced whole.
+// nameHasSecret reports whether a header name contains a secret; names are
+// case-insensitive, so both sides are case-folded.
+func nameHasSecret(name string, secrets []string) bool {
+	folded := strings.ToLower(name)
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(folded, strings.ToLower(secret)) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactHeader(h http.Header, secrets []string) http.Header {
+	out := make(http.Header, len(h))
+	for name, values := range h {
+		if nameHasSecret(name, secrets) {
+			continue
+		}
+		clean := make([]string, len(values))
+		for i, v := range values {
+			clean[i] = redactString(v, secrets)
+		}
+		out[name] = clean
+	}
+	return out
+}
+
+func redactString(s string, secrets []string) string {
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(s, secret) {
+			return redactedMarker
+		}
+	}
+	return s
+}
