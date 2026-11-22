@@ -214,7 +214,7 @@ Parse the verified body into a discriminated union on `webhook_type`: `status.up
 Envelope fields on every event: `event_id`, `webhook_type`, `timestamp`, `created_at`, `application_id`, `environment` (`live` or `sandbox`).
 Session events add `session_id`, `business_session_id`, `session_kind`, `status`, `workflow_id`, `workflow_version`, `vendor_data`, `metadata`, `decision`, `resubmit_info`; transaction events add `transaction_id`, `txn_id`, `status`, `score`, `severity`, `amount`, `currency`, `direction`, `action_required`; Travel Rule events add `transaction_id`, `txn_id`, `travel_rule_status`, `rail`, `direction`; user and business events add `vendor_user_id` or `vendor_business_id`, `vendor_data`, `status`.
 Where the spec has a schema for the payload (for example the session decision), reuse the generated type.
-Bank events carry their ids and statuses under `data`; section 16.3 lists the fields.
+Bank events carry their fields next to the envelope fields; section 16.3 lists them.
 
 ## 10. Authentication (Didit customer authentication)
 
@@ -318,4 +318,4 @@ A live sync beyond the bank's daily limit answers `429` with `code: refresh_limi
 
 ### 16.3 Webhook events
 
-The typed `bank.*` events are part of the union in section 9.4. Their `data` object is ids and statuses only: `connection_id`, `link_id`, `check_id`, `status`, `status_reason`, `ended_by`, `account_ids`, the counts `added`, `modified` and `removed`, `outcome` and `changed`. The first read of a connection also publishes `bank.data.updated`. `bank.connection.consent_expiring` also carries `days_left`, `expires_at` and, when automatic renew links are on, `renew_url` (a credential: never log it). The envelope is the same as every other event.
+The typed `bank.*` events are part of the union in section 9.4. Their fields sit next to the envelope fields and are ids, statuses and counts only: `connection_id`, `link_id`, `check_id`, `status`, `status_reason`, `initial_status`, `revocation_status`, `reason`, `ended_by`, `ended_at`, `retain_until`, `erasure_status`, `erased_at`, `consent_version`, `consent_expires_at`, `days_left`, `renew_by`, `renewable_until`, `accounts` (each account with `account_id`, `added`, `modified` and `removed`), `trigger`, `outcome`, `changed`, `balances_changed`, `error_code`, `failing_since` and `sync_id`. The envelope is the same as every other event.
