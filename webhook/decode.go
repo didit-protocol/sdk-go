@@ -343,8 +343,8 @@ func timeField(body map[string]any, key string) time.Time {
 func stringSliceField(body map[string]any, key string) []string {
 	items, ok := body[key].([]any)
 	if !ok {
-		if strings, ok := body[key].([]string); ok {
-			return strings
+		if values, ok := body[key].([]string); ok {
+			return values
 		}
 		return nil
 	}
