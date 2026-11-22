@@ -53,7 +53,7 @@ func TestBankCreateLink(t *testing.T) {
 }
 
 func TestBankDeleteConnection(t *testing.T) {
-	client, mock := newMockClient(t, 202, "application/json", `{"id":"5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35","erasure":{"status":"pending","requested_at":"2026-11-21T15:10:00Z","erased_at":null}}`)
+	client, mock := newMockClient(t, 202, "application/json", `{"id":"5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35","erasure":{"status":"erased","requested_at":"2026-11-21T15:10:00Z","erased_at":"2026-11-21T15:10:00Z"}}`)
 	res, err := client.Bank.DeleteConnection(context.Background(), "id-1")
 	if err != nil {
 		t.Fatal(err)

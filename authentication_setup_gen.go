@@ -83,16 +83,18 @@ func (r *AuthenticationSetupService) GetDomain(ctx context.Context, organization
 // GetEmail: Preview a sign-in email.
 //
 // Returns one email as it renders, with sample codes and links. An invitation
-// preview uses a sample organization for a grant or named key. A console
-// session can see a customer organization's name. The address of a console
-// member is left out for a grant or a key, which have no mailbox. An email
-// Authentication does not send answers `{"error":
+// preview uses a sample organization for a grant or named key, or the
+// `organization` and `role` you pass. `agentoff` is the email a person receives
+// when your team ends an agent's access with a notification; `agent` names the
+// agent. A console session can see a customer organization's name. The address
+// of a console member is left out for a grant or a key, which have no mailbox.
+// An email Authentication does not send answers `{"error":
 // "email_not_sent_by_authentication"}`.
 //
 //	GET /organizations/{organization_id}/applications/{application_id}/authentication/emails/{key}/
-func (r *AuthenticationSetupService) GetEmail(ctx context.Context, organizationID string, applicationID string, key string, opts ...option.RequestOption) (*SetupEmail, error) {
+func (r *AuthenticationSetupService) GetEmail(ctx context.Context, organizationID string, applicationID string, key string, params AuthenticationSetupGetEmailParams, opts ...option.RequestOption) (*SetupEmail, error) {
 	res := new(SetupEmail)
-	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/organizations/{organization_id}/applications/{application_id}/authentication/emails/{key}/", pathParams: []string{"organization_id", organizationID, "application_id", applicationID, "key", key}, api: apiAccount}, res, opts); err != nil {
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/organizations/{organization_id}/applications/{application_id}/authentication/emails/{key}/", pathParams: []string{"organization_id", organizationID, "application_id", applicationID, "key", key}, api: apiAccount, params: params}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -742,6 +744,41 @@ const (
 	SetupConfigurationSignupPolicyAnyone         SetupConfigurationSignupPolicy = "anyone"
 	SetupConfigurationSignupPolicyInvited        SetupConfigurationSignupPolicy = "invited"
 	SetupConfigurationSignupPolicyAllowedDomains SetupConfigurationSignupPolicy = "allowed_domains"
+)
+
+// AuthenticationSetupGetEmailParams holds the parameters of
+// Client.AuthenticationSetup.GetEmail.
+type AuthenticationSetupGetEmailParams struct {
+	// For `org` only: the organization the invitation is for, so the preview shows
+	// it as it will be sent. At most 200 characters, the longest organization name
+	// an application holds. Without it, a sample organization (a console session
+	// sees the application's first customer organization).
+	Organization Opt[string] `json:"-" query:"organization"`
+
+	// For `org` only: the role the invitation grants.
+	Role Opt[AuthenticationSetupGetEmailParamsRole] `json:"-" query:"role"`
+
+	// For `agentoff` only: the name of the agent whose access ends. At most 200
+	// characters, the longest agent name an application registers. Without it, the
+	// agent of the application's latest agent client in a console session, or a
+	// sample name.
+	Agent Opt[string] `json:"-" query:"agent"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r AuthenticationSetupGetEmailParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// AuthenticationSetupGetEmailParamsRole is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type AuthenticationSetupGetEmailParamsRole string
+
+// Known values of AuthenticationSetupGetEmailParamsRole.
+const (
+	AuthenticationSetupGetEmailParamsRoleMember  AuthenticationSetupGetEmailParamsRole = "member"
+	AuthenticationSetupGetEmailParamsRoleBilling AuthenticationSetupGetEmailParamsRole = "billing"
+	AuthenticationSetupGetEmailParamsRoleAdmin   AuthenticationSetupGetEmailParamsRole = "admin"
 )
 
 // SetupEmail is a response object.
