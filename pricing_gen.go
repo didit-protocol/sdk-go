@@ -119,8 +119,9 @@ const (
 
 // BankStatementUploadPricing: How the bank statement upload is priced.
 type BankStatementUploadPricing struct {
-	// Price of a statement upload after a charged bank attempt. Decimal string with
-	// 4 decimals, in USD.
+	// Price of a statement upload with no charged bank attempt before it. After a
+	// charged bank attempt in the same session the statement costs nothing extra.
+	// Decimal string with 4 decimals, in USD.
 	PriceUsd string `json:"price_usd"`
 
 	// `true` when the upload is included at no extra charge after a charged bank
@@ -128,7 +129,7 @@ type BankStatementUploadPricing struct {
 	IncludedAfterChargedBankAttempt bool `json:"included_after_charged_bank_attempt"`
 
 	// `true` when a statement upload can run on its own, with no bank attempt
-	// first. `false` in production; sandbox sessions can test it without billing.
+	// first, at `price_usd`.
 	StandaloneAvailable bool `json:"standalone_available"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -197,7 +198,10 @@ type BankSignInPricing struct {
 	Ongoing BankSignInPricingOngoing `json:"ongoing"`
 
 	// One-time data prices of a Bank Link, present only where Bank data is switched
-	// on. `null` where the country offers no one-time data: use `add_ons`.
+	// on. `null` where the country offers no one-time data: use `add_ons`. Where
+	// the country offers the one-time bundle, the object also carries
+	// `bundle_included: true` and `transactions_usd` is that bundle: one read of
+	// transactions and balances.
 	OneTimeData BankSignInPricingOneTimeData `json:"one_time_data"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -242,8 +246,7 @@ type BankSignInPricingOngoing struct {
 	// active connection per month, with every account, reads, refreshes within the
 	// bank's limits and renewals included; the current price is on the pricing page
 	// (https://docs.didit.me/getting-started/pricing). Amounts in examples are
-	// illustrative; the price for a country is shown on the pricing page and in the
-	// console.
+	// illustrative; the price for a country is shown on the pricing page.
 	PriceUsdPerMonth string `json:"price_usd_per_month"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -264,6 +267,13 @@ type BankSignInPricingOneTimeData struct {
 	// Price of one read of transactions, with or without balances. Decimal string
 	// with 4 decimals in USD.
 	TransactionsUsd string `json:"transactions_usd"`
+
+	// `true` when `transactions_usd` is the one-time bundle: one read that carries
+	// transactions and balances together, so the `balance` add-on is not charged on
+	// top of it. Absent - never `false` - where `transactions_usd` is the separate
+	// transactions add-on price, including while the one-time bundle is not offered
+	// in the country.
+	BundleIncluded bool `json:"bundle_included"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
