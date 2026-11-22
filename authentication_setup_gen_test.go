@@ -62,13 +62,18 @@ func TestAuthenticationSetupGetDomain(t *testing.T) {
 
 func TestAuthenticationSetupGetEmail(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"key":"code","from":"Example \u003cno-reply@example.com\u003e","to":"","subject":"Your Example code: 123456","html":"\u003chtml\u003e...\u003c/html\u003e","enabled":true}`)
-	res, err := client.AuthenticationSetup.GetEmail(context.Background(), "organization-id-1", "application-id-1", "key-1")
+	var params didit.AuthenticationSetupGetEmailParams
+	params.Organization = didit.String("Northwind Traders")
+	params.Role = didit.Some(didit.AuthenticationSetupGetEmailParamsRoleMember)
+	params.Agent = didit.String("Nova")
+	res, err := client.AuthenticationSetup.GetEmail(context.Background(), "organization-id-1", "application-id-1", "key-1", params)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req := mock.single(t)
 	req.expect(t, "GET", "/auth/v2/organizations/organization-id-1/applications/application-id-1/authentication/emails/key-1/")
 	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"agent": "Nova", "organization": "Northwind Traders", "role": "member"})
 	expectFields(t, res.JSON, []string{"key", "from", "to", "subject", "html", "enabled"})
 }
 
