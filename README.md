@@ -247,7 +247,7 @@ switch e := event.(type) {
 case *webhook.StatusUpdatedEvent:            // status.updated: e.SessionID, e.Status, e.Decision
 case *webhook.TransactionStatusUpdatedEvent: // transaction.status.updated: e.TransactionID, e.Status, e.Score
 case *webhook.TravelRuleStatusUpdatedEvent:  // travel_rule.status.updated
-case *webhook.BankConnectionCreatedEvent:    // bank.connection.created: e.ConnectionID, e.Status
+case *webhook.BankConnectionCreatedEvent:    // bank.connection.created: e.ConnectionID, e.InitialStatus
 case *webhook.UnknownEvent:                  // a type this version does not know: e.Payload
 }
 ```
