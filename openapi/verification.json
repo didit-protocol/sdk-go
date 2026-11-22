@@ -13,7 +13,7 @@
   "tags": [
     {
       "name": "Bank Data",
-      "description": "Bank Link, connections, accounts, balances, transactions, institutions and coverage. Every operation needs an API key with the Bank data permission (`bank-data`): read for reads, write for operations that change something. Bank data is not part of full access: a full-access key is refused, and the call answers `403 bank_data_access_denied` until you create a key that carries the permission.\n\nEvery refusal under `/v3/bank/` has the same JSON body (`code`, `message`, `request_id`, `field`, `next_action`, `retry_after`). A path that is not an operation, an id that is not a UUID or an unknown sub-resource answers `404 not_found` for every method, and any unexpected error answers `500 internal_error` with a `request_id`."
+      "description": "Bank Link, connections, accounts, balances, transactions, institutions and coverage. Bank data is available for sandbox applications. A live application's calls answer `404` until live access is announced. Nothing is charged in sandbox. A call made with an API key needs a key that carries the Bank data permission (`bank-data`): read for reads, write for operations that change something. Bank data is not part of full access: a full-access key is refused, and the call answers `403 bank_data_access_denied` until you create a key that carries the permission. Raw bank data (accounts, balances, transactions and the change feed) also refuses a request that carries no API key.\n\nEvery refusal under `/v3/bank/` has the same JSON body (`code`, `message`, `request_id`, `field`, `next_action`, `retry_after`). A path that is not an operation, an id that is not a UUID or an unknown sub-resource answers `404 not_found` for every method, and any unexpected error answers `500 internal_error` with a `request_id`. Where Bank data is not available, every operation answers the platform's standard `404`, exactly as an unknown route does."
     }
   ],
   "paths": {
@@ -99674,8 +99674,8 @@
                       "mode": "connect",
                       "access": "ongoing",
                       "status": "created",
-                      "url": "https://verify.didit.me/bank/link/blu_7Xq2k9Lm3Vd8Rt5Yw1Ns6Ph4Zc0Bj",
-                      "client_token": "blt_2Hf8Kd5Wq9Zx3Mn7Pv1Ts6Ra4Ye0Cg",
+                      "url": "https://verify.didit.me/bank/link/example-link-token",
+                      "client_token": "example-client-token",
                       "expires_at": "2026-11-21T13:00:00Z",
                       "connection_id": null,
                       "check_id": null,
@@ -99707,7 +99707,7 @@
             }
           },
           "400": {
-            "description": "The request was refused before any screen. `field` names what to correct.",
+            "description": "The request was refused before any screen. `field` names what to correct: `invalid_request` for a value outside its range or a combination that is not allowed, and the more specific codes shown here.",
             "content": {
               "application/json": {
                 "schema": {
@@ -99740,7 +99740,7 @@
                     "summary": "Redirect URL not registered",
                     "value": {
                       "code": "redirect_url_not_registered",
-                      "message": "This redirect_url is not registered for your application.",
+                      "message": "This redirect_url is not one of the return addresses registered for your application. Addresses are matched exactly (scheme, host, port, path and query); in sandbox a plain http localhost address needs no registration. Send a registered address, or leave redirect_url out (automatic return to your page is then not promised).",
                       "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
                       "field": "redirect_url",
                       "next_action": null,
@@ -99764,7 +99764,18 @@
                       "code": "window_not_available",
                       "message": "This bank cannot deliver the requested history window.",
                       "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
-                      "field": "history_days",
+                      "field": "history_from",
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  },
+                  "Invalid request": {
+                    "summary": "Invalid request",
+                    "value": {
+                      "code": "invalid_request",
+                      "message": "The request is not valid.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": "expires_in",
                       "next_action": null,
                       "retry_after": null
                     }
@@ -100336,7 +100347,8 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             },
             "description": "Only this bank."
           },
@@ -100355,7 +100367,8 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 255
             },
             "description": "Only connections with this `vendor_data`."
           },
@@ -100364,7 +100377,8 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 255
             },
             "description": "Only connections with this `end_user.reference`."
           },
@@ -100977,7 +100991,7 @@
       },
       "delete": {
         "summary": "Delete a bank connection",
-        "description": "Deletes the connection's bank data and stops access at the bank. The connection's accounts, balances, transactions, sync history, consent records and ownership results are deleted. Deletion is irreversible.\n\nIt starts at once: from the moment you call, every read and write of the connection answers `409 connection_not_active`, and the response is `202` with `erasure.status` `pending`. The connection then reads with `erasure.status` `erased`, or `failed` if deletion could not be confirmed within 24 hours; a failed deletion is retried until it completes. A deleted connection reads as a minimal record: its id, `status: deleted`, the reason, its dates and its `erasure` status, and it holds no accounts, balances, transactions, consent or sync data.\n\nNot affected: your other connections, the charges already made (they are not refunded), and any data you already downloaded, which is your own copy. Repeating the call returns the current state. To stop access without deleting, use `revoke_connection`.\n\nNeeds an API key with the Bank data permission (`bank-data`): write for this operation, which changes something. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`.",
+        "description": "Deletes the connection's bank data and stops access at the bank. The connection's accounts, balances, transactions, sync history, consent records and ownership results are deleted. Deletion is irreversible.\n\nIt starts at once: the response is `202` with `erasure.status` `pending`, and from that moment the connection's data operations (refresh, sync runs, accounts, balances, transactions and the change feed) answer `409 connection_not_active`. The connection then reads with `erasure.status` `erased`, or `failed` if deletion could not be confirmed within 24 hours; a failed deletion is retried until it completes. A deleted connection reads as a minimal record: its id, `status: deleted`, the reason, its dates and its `erasure` status, and it holds no accounts, balances, transactions, consent or sync data.\n\nNot affected: your other connections, the charges already made (they are not refunded), and any data you already downloaded, which is your own copy. Repeating the call returns the current state. To stop access without deleting, use `revoke_connection`.\n\nNeeds an API key with the Bank data permission (`bank-data`): write for this operation, which changes something. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`.",
         "operationId": "deleteBankConnection",
         "tags": [
           "Bank Data"
@@ -101023,7 +101037,8 @@
                       "id": "5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35",
                       "erasure": {
                         "status": "pending",
-                        "requested_at": "2026-11-21T15:10:00Z"
+                        "requested_at": "2026-11-21T15:10:00Z",
+                        "erased_at": null
                       }
                     }
                   }
@@ -101114,7 +101129,7 @@
     "/v3/bank/connections/{id}/refresh/": {
       "post": {
         "summary": "Refresh a bank connection",
-        "description": "Syncs now: reads the bank for new data at any moment. Answers `202` with the `sync_id`; if a sync is already running you get that same `sync_id`, not a second job. With `\"wait\": true` in the body, or the header `Prefer: wait=<seconds>` (up to 25), the call holds for up to 25 seconds and answers `200` with the finished sync (`outcome`, the per-account counts and `balances_changed`), so one request returns fresh data. If the bank has not answered in that time it answers `202`: read the sync with `get_sync_run` using the `sync_id`, or subscribe to `bank.sync.completed`. `bank.data.updated` follows only when the sync stores changes.\n\nLive syncs are included in the monthly price of the connection, like the automatic syncs: nothing extra is charged. The only limit is the bank's. Banks limit reads without the person present, for example to four a day per account under the European rules, so `sync.budgets` shows what is left and `sync.live_syncs_left_today` how many live syncs remain today. The automatic schedule never uses the last two reads of a day. When the budget is used up the call answers `429 refresh_limit_reached` with `Retry-After` (the seconds until the budget resets, 1 to 86400) and a `sync` object with `live_syncs_left_today` and `budgets`. The limit is a ceiling set by the bank, not a promise of a number of syncs.\n\nWhen a sync stores changes, `bank.data.updated` tells you; then read the change feed.\n\nNeeds an API key with the Bank data permission (`bank-data`): write for this operation, which changes something. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`.\n\nRefreshing a deleted connection answers `409 connection_not_active`.",
+        "description": "Syncs now: reads the bank for new data at any moment. Answers `202` with the `sync_id`; if a sync is already running you get that same `sync_id`, not a second job. With `\"wait\": true` in the body, or the header `Prefer: wait=<seconds>` (up to 25), the call holds for up to 25 seconds and answers `200` with the finished sync (`outcome`, the per-account counts and `balances_changed`), so one request returns fresh data. If the bank has not answered in that time it answers `202`: read the sync with `get_sync_run` using the `sync_id`, or subscribe to `bank.sync.completed`. `bank.data.updated` follows only when the sync stores changes.\n\nLive syncs are included in the monthly price of the connection, like the automatic syncs: nothing extra is charged. The only limit is the bank's. Banks limit reads without the person present, for example to four a day (the Didit Test Bank in sandbox does the same). The automatic syncs of the day (`sync.frequency_per_day`) are set aside first and the rest are yours, so `sync.budgets` shows what is left and `sync.live_syncs_left_today` how many live syncs remain today. The automatic schedule never uses the last two reads of a day, so two live syncs always remain. When the budget is used up the call answers `429 refresh_limit_reached` with `Retry-After` (the seconds until the budget resets, 1 to 86400) and a `sync` object with `live_syncs_left_today` and `budgets`. The limit is a ceiling set by the bank, not a promise of a number of syncs.\n\nWhen a sync stores changes, `bank.data.updated` tells you; then read the change feed.\n\nNeeds an API key with the Bank data permission (`bank-data`): write for this operation, which changes something. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`.\n\nRefreshing a deleted connection answers `409 connection_not_active`.",
         "operationId": "refreshBankConnection",
         "tags": [
           "Bank Data"
@@ -101207,6 +101222,29 @@
                       "sync_id": "d4a9e7b2-1c58-4f03-96ab-5e2d8c7f0b14",
                       "status": "queued",
                       "next_refresh_at": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not valid, for example `wait` is not a boolean. `field` names it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankDataError"
+                },
+                "examples": {
+                  "Invalid request": {
+                    "summary": "Invalid request",
+                    "value": {
+                      "code": "invalid_request",
+                      "message": "The request is not valid.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": "wait",
+                      "next_action": null,
+                      "retry_after": null
                     }
                   }
                 }
@@ -101895,8 +101933,8 @@
                       "mode": "renew",
                       "access": "ongoing",
                       "status": "created",
-                      "url": "https://verify.didit.me/bank/link/blu_7Xq2k9Lm3Vd8Rt5Yw1Ns6Ph4Zc0Bj",
-                      "client_token": "blt_2Hf8Kd5Wq9Zx3Mn7Pv1Ts6Ra4Ye0Cg",
+                      "url": "https://verify.didit.me/bank/link/example-link-token",
+                      "client_token": "example-client-token",
                       "expires_at": "2026-11-21T13:00:00Z",
                       "connection_id": "5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35",
                       "check_id": null,
@@ -101939,7 +101977,7 @@
                     "summary": "Redirect url not registered",
                     "value": {
                       "code": "redirect_url_not_registered",
-                      "message": "This redirect_url is not registered for your application.",
+                      "message": "This redirect_url is not one of the return addresses registered for your application. Addresses are matched exactly (scheme, host, port, path and query); in sandbox a plain http localhost address needs no registration. Send a registered address, or leave redirect_url out (automatic return to your page is then not promised).",
                       "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
                       "field": "redirect_url",
                       "next_action": null,
@@ -101988,7 +102026,49 @@
             }
           },
           "403": {
-            "$ref": "#/components/responses/BankDataAccessDenied"
+            "description": "Refused: the key lacks the Bank data permission (`bank_data_access_denied`), an allowed origin is not among your application's allowed domains (`link_origin_not_allowed`), or your contract has no rate for the connection's country (`contract_rate_missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankDataError"
+                },
+                "examples": {
+                  "Origin not allowed": {
+                    "summary": "Origin not allowed",
+                    "value": {
+                      "code": "link_origin_not_allowed",
+                      "message": "This origin is not allowed to open this link.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": "allowed_origins",
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  },
+                  "No contract rate": {
+                    "summary": "No contract rate",
+                    "value": {
+                      "code": "contract_rate_missing",
+                      "message": "Your contract has no rate for bank data in this country.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": null,
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  },
+                  "Bank data not allowed": {
+                    "summary": "Bank data not allowed",
+                    "value": {
+                      "code": "bank_data_access_denied",
+                      "message": "Reading bank data needs the application setting Bank data in the API and an API key with the bank data permission.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": null,
+                      "next_action": "enable_bank_data_access",
+                      "retry_after": null
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "description": "The resource does not exist in this application and environment.",
@@ -102350,7 +102430,7 @@
     "/v3/bank/connections/{id}/accounts/": {
       "get": {
         "summary": "List accounts of a connection",
-        "description": "Lists every account of the connection with full identifiers and holders. A read never bills.\n\nNeeds an API key with the Bank data permission (`bank-data`): read for this operation. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`. Reading accounts, balances and transactions in a live application also needs the application setting \"Bank data in the API\"; a sandbox application reads its Test Bank data with the key alone. A request without an API key (client credentials) is refused on raw data with the same `403`.",
+        "description": "Lists every account of the connection, oldest first, with full identifiers and holders. A read never bills.\n\nNeeds an API key with the Bank data permission (`bank-data`): read for this operation. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`. Reading accounts, balances and transactions in a live application also needs the application setting \"Bank data in the API\"; a sandbox application reads its Test Bank data with the key alone. A request without an API key (client credentials) is refused on raw data with the same `403`.",
         "operationId": "listBankAccounts",
         "tags": [
           "Bank Data"
@@ -102547,14 +102627,14 @@
                   "$ref": "#/components/schemas/BankDataError"
                 },
                 "examples": {
-                  "Access removed": {
-                    "summary": "Access removed",
+                  "Not active": {
+                    "summary": "Not active",
                     "value": {
-                      "code": "access_removed",
-                      "message": "The person no longer shares this account.",
+                      "code": "connection_not_active",
+                      "message": "This connection is not active.",
                       "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
                       "field": null,
-                      "next_action": null,
+                      "next_action": "create_link",
                       "retry_after": null
                     }
                   }
@@ -102996,7 +103076,7 @@
     "/v3/bank/accounts/{account_id}/transactions/": {
       "get": {
         "summary": "List account transactions",
-        "description": "Date-range read of an account's transactions, sorted by `effective_date` descending, then `id` descending, in pages of up to 500. `date_from` and `date_to` are calendar dates, inclusive, in the bank's own time zone with nothing converted. They apply to `effective_date`: the booking date of a booked transaction, and for a pending one its transaction date or, failing that, the date it was first seen. By default `date_from` is the start of the stored history and `date_to` has no upper bound, and booked and pending are both returned.\n\nThe first page pins which transactions are included and each is served in its current state: a transaction removed while you page drops out of later pages and is reported by the change feed (`sync_transactions`). `page_token` continues one read and lives one hour; an expired token answers `410 page_expired`, so restart the read from its original query. To keep a copy up to date, use the change feed instead of re-reading ranges.\n\nResponse headers: `X-Bank-Last-Synced-At` and `Cache-Control: no-store`.\n\nNeeds an API key with the Bank data permission (`bank-data`): read for this operation. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`. Reading accounts, balances and transactions in a live application also needs the application setting \"Bank data in the API\"; a sandbox application reads its Test Bank data with the key alone. A request without an API key (client credentials) is refused on raw data with the same `403`.",
+        "description": "Date-range read of an account's transactions, sorted by `effective_date` descending, then `id` descending, in pages of up to 500. `date_from` and `date_to` are calendar dates, inclusive, in the bank's own time zone with nothing converted. They apply to `effective_date`: for a booked transaction its booking date, else its value date, else the date it was first seen; for a pending one its transaction date, else the date it was first seen. By default `date_from` is the start of the stored history and `date_to` has no upper bound, and booked and pending are both returned.\n\nThe first page pins which transactions are included and each is served in its current state: a transaction removed while you page drops out of later pages and is reported by the change feed (`sync_transactions`). `page_token` continues one read and lives one hour; an expired token answers `410 page_expired`, so restart the read from its original query. To keep a copy up to date, use the change feed instead of re-reading ranges.\n\nResponse headers: `X-Bank-Last-Synced-At` and `Cache-Control: no-store`.\n\nNeeds an API key with the Bank data permission (`bank-data`): read for this operation. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`. Reading accounts, balances and transactions in a live application also needs the application setting \"Bank data in the API\"; a sandbox application reads its Test Bank data with the key alone. A request without an API key (client credentials) is refused on raw data with the same `403`.",
         "operationId": "listBankTransactions",
         "tags": [
           "Bank Data"
@@ -103231,7 +103311,7 @@
             }
           },
           "400": {
-            "description": "The request was refused.",
+            "description": "The page token is not valid or belongs to another read, or a parameter is out of range (`date_from` after `date_to` included). `field` names it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -103256,6 +103336,17 @@
                       "message": "The page token belongs to a different read. Restart with the same filters.",
                       "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
                       "field": "page_token",
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  },
+                  "Invalid request": {
+                    "summary": "Invalid request",
+                    "value": {
+                      "code": "invalid_request",
+                      "message": "The request is not valid.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": "date_from",
                       "next_action": null,
                       "retry_after": null
                     }
@@ -103439,7 +103530,7 @@
               "maximum": 500,
               "default": 100
             },
-            "description": "Page size, 1 to 500."
+            "description": "Page size, 1 to 500. Default 100."
           },
           {
             "name": "page_token",
@@ -103621,7 +103712,7 @@
             }
           },
           "400": {
-            "description": "The cursor or page token is not valid.",
+            "description": "The cursor or page token is not valid, or a parameter is out of range. `field` names it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -103646,6 +103737,17 @@
                       "message": "The page token belongs to a different read. Restart with the same filters.",
                       "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
                       "field": "page_token",
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  },
+                  "Invalid request": {
+                    "summary": "Invalid request",
+                    "value": {
+                      "code": "invalid_request",
+                      "message": "The request is not valid.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": "limit",
                       "next_action": null,
                       "retry_after": null
                     }
@@ -103699,17 +103801,6 @@
                       "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
                       "field": null,
                       "next_action": "create_link",
-                      "retry_after": null
-                    }
-                  },
-                  "Access removed": {
-                    "summary": "Access removed",
-                    "value": {
-                      "code": "access_removed",
-                      "message": "The person no longer shares this account.",
-                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
-                      "field": null,
-                      "next_action": null,
                       "retry_after": null
                     }
                   }
@@ -103864,9 +103955,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 100
             },
-            "description": "Search by name."
+            "description": "Search by name or id, case-insensitive."
           },
           {
             "name": "limit",
@@ -146118,8 +146210,6 @@
               "page_expired",
               "invalid_cursor",
               "page_token_mismatch",
-              "link_already_redeemed",
-              "link_expired",
               "contract_rate_missing",
               "insufficient_credits",
               "invalid_request",
@@ -146331,7 +146421,8 @@
               "consent_declined",
               "read_limit",
               "renewal_not_needed",
-              "renewal_window_expired"
+              "renewal_window_expired",
+              "first_sync_failed"
             ],
             "description": "Why the link failed. A failed link is not an HTTP error: the link reads with `status: failed` and this object. A renew link whose connection changed meanwhile reads `renewal_not_needed` or `renewal_window_expired`."
           },
@@ -146366,7 +146457,7 @@
               "person",
               "business"
             ],
-            "description": "What the holder of the account is compared with. `none` (default) gives no verdict and needs no reference. `person` needs `reference_identity` or `session_id`. `business` needs `business` or `business_session_id`.",
+            "description": "What the holder of the account is compared with. `none` (default) gives no verdict and needs no reference. `person` needs `reference_identity` or `session_id`. `business` needs `business` or `business_session_id`. Send exactly one reference of the kind you compare with, and none with `none`.",
             "default": "none"
           },
           "match": {
@@ -146383,20 +146474,24 @@
             "description": "Caller-supplied values to compare with the account holder. Cannot be sent with `session_id`.",
             "properties": {
               "full_name": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 255
               },
               "date_of_birth": {
                 "type": "string",
                 "format": "date"
               },
               "address": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 500
               },
               "phone": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 64
               },
               "email": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 255
               }
             }
           },
@@ -146410,10 +146505,12 @@
             "description": "The company to compare with the account holder.",
             "properties": {
               "legal_name": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 255
               },
               "registration_id": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 128
               }
             },
             "required": [
@@ -146439,7 +146536,8 @@
           "email": {
             "type": "string",
             "description": "Optional. Where the bank route needs a verified address for the person and you did not send one, Bank Link asks the person for it. Never used for marketing.",
-            "format": "email"
+            "format": "email",
+            "maxLength": 254
           }
         }
       },
@@ -146477,7 +146575,8 @@
           },
           "institution_id": {
             "type": "string",
-            "description": "Optional bank to preselect, from `list_institutions`. Skips the picker."
+            "description": "Optional bank to preselect, from `list_institutions`. Skips the picker.",
+            "maxLength": 64
           },
           "segment": {
             "type": "string",
@@ -146502,7 +146601,8 @@
             "description": "What to read. `accounts` is always included: name, type, currency, identifiers and the holder name where the bank shares it. Default `[\"accounts\"]`.",
             "default": [
               "accounts"
-            ]
+            ],
+            "maxItems": 3
           },
           "history_days": {
             "type": "integer",
@@ -146513,7 +146613,7 @@
           },
           "history_from": {
             "type": "string",
-            "description": "Start date of the history to request, instead of `history_days`. Cannot be sent with `history_days`: both together answer `400 history_window_ambiguous`. A date older than 365 days answers `400 window_not_available`.",
+            "description": "Start date of the history to request, instead of `history_days`. Cannot be sent with `history_days`: both together answer `400 history_window_ambiguous`. A date older than 365 days, or in the future, answers `400 window_not_available`.",
             "format": "date"
           },
           "extended_history": {
@@ -146527,8 +146627,9 @@
           },
           "consent_days": {
             "type": "integer",
-            "description": "Ongoing only. How many days to ask the bank to keep access open, 1 or more. Default: the longest the bank allows. The connection reports the date the bank actually granted in `consent.expires_at`.",
-            "minimum": 1
+            "description": "Ongoing only. How many days to ask the bank to keep access open, 1 or more. Default: the longest the bank allows. The connection reports the date the bank actually granted in `consent.expires_at`. With `access: one_time` it answers `400 invalid_request` with `field: consent_days`.",
+            "minimum": 1,
+            "maximum": 32767
           },
           "ownership": {
             "$ref": "#/components/schemas/BankLinkOwnershipRequest"
@@ -146538,8 +146639,9 @@
           },
           "redirect_url": {
             "type": "string",
-            "description": "Where the browser goes at the end, with `link_id`, `status` and a signed `state` (for display only: the webhook and `get_link` are authoritative). Must exactly match a redirect URL registered in your application settings. Without one, the flow ends on Didit's own result page.",
-            "format": "uri"
+            "description": "Where the browser goes at the end, with `link_id`, `status` and a signed `state` (for display only: the webhook and `get_link` are authoritative). Must exactly match a redirect URL registered for your application (scheme, host, port, path and query: no prefix, no trailing-slash or case tolerance), otherwise the call answers `400 redirect_url_not_registered`. In sandbox only, a plain `http` address of `localhost`, `127.0.0.1` or `[::1]` (any port and path, no credentials, no fragment) needs no registration. Without one, automatic return to your page is not promised: after a full-page bank hop the person returns to the page that opened the link when its origin is in `allowed_origins`, and otherwise the flow ends on Didit's own result page.",
+            "format": "uri",
+            "maxLength": 2048
           },
           "allowed_origins": {
             "type": "array",
@@ -146547,15 +146649,19 @@
               "type": "string",
               "format": "uri"
             },
-            "description": "HTTPS origins allowed to embed this link. Must be among your application's allowed domains, which are the default."
+            "description": "HTTPS origins allowed to embed this link, up to 50. Must be among your application's allowed domains, which are the default; an origin outside them answers `403 link_origin_not_allowed`.",
+            "maxItems": 50
           },
           "language": {
             "type": "string",
-            "description": "Optional language code. Otherwise the browser language."
+            "description": "Optional language code such as `es` or `pt-BR`. Otherwise the browser language.",
+            "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
+            "maxLength": 16
           },
           "vendor_data": {
             "type": "string",
-            "description": "Your own reference, returned on the link and the connection."
+            "description": "Your own reference, returned on the link and the connection.",
+            "maxLength": 255
           },
           "expires_in": {
             "type": "integer",
@@ -146575,13 +146681,47 @@
           },
           "allow_one_time_fallback": {
             "type": "boolean",
-            "description": "With `ongoing`, lets the person continue with a one-time read at a bank that cannot keep access open, after confirming the reduced access on its own screen. The quote shows what that costs.",
+            "description": "With `ongoing`, lets the person continue with a one-time read at a bank that cannot keep access open, after confirming the reduced access on its own screen. The quote shows what that costs. Only with `access: ongoing`: with one-time access it answers `400 invalid_request` with `field: allow_one_time_fallback`.",
             "default": false
           },
           "accept_reduced_grant": {
             "type": "boolean",
             "description": "When the bank or the person grants less than you asked for, complete the link and charge only the granted scopes. Otherwise the link ends `failed` with `reduced_grant` and nothing is charged.",
             "default": false
+          },
+          "sandbox": {
+            "type": "object",
+            "description": "Sandbox applications only: shapes what the Didit Test Bank does in this link, so a test can reach each outcome. Ignored in a live application.",
+            "properties": {
+              "persona": {
+                "type": "string",
+                "enum": [
+                  "personal_basic",
+                  "business_multi",
+                  "long_history",
+                  "pending",
+                  "sparse_fields",
+                  "no_ongoing"
+                ],
+                "description": "The account set the Test Bank offers. `no_ongoing` makes the bank refuse ongoing access."
+              },
+              "switches": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "partial_grant",
+                    "renewal_other_login",
+                    "expired_cursor",
+                    "webhook_twice",
+                    "midnight_booking",
+                    "blocked_popup",
+                    "bank_app_return"
+                  ]
+                },
+                "description": "Behaviours to switch on for the run."
+              }
+            }
           }
         }
       },
@@ -146750,14 +146890,15 @@
           },
           "at": {
             "type": "string",
-            "description": "When it happened.",
+            "description": "When it happened. `null` on a per-account result.",
             "format": "date-time",
             "nullable": true
           }
         },
         "required": [
           "code",
-          "message"
+          "message",
+          "at"
         ]
       },
       "BankConnectionSync": {
@@ -147099,7 +147240,11 @@
         "properties": {
           "unit": {
             "type": "string",
-            "description": "Billing unit, `connection_month` for ongoing access, `one_time` otherwise."
+            "description": "Billing unit, `connection_month` for ongoing access, `one_time` otherwise.",
+            "enum": [
+              "connection_month",
+              "one_time"
+            ]
           },
           "price_usd": {
             "type": "string",
@@ -147131,21 +147276,28 @@
               "erased",
               "failed"
             ],
-            "description": "`pending` while deletion runs, `erased` when no stored copy and no access at the bank remain, `failed` when it could not be confirmed within 24 hours. A failed deletion keeps every read and write of the connection blocked, is retried, and Didit is alerted."
+            "description": "`pending` while deletion runs, `erased` when no stored copy and no access at the bank remain, `failed` when it could not be confirmed within 24 hours. A failed deletion keeps the connection's data closed, is retried, and Didit is alerted."
           },
           "requested_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "erased_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the deletion finished. `null` until `status` is `erased`."
           }
         },
         "required": [
           "status",
-          "requested_at"
+          "requested_at",
+          "erased_at"
         ]
       },
       "BankConnection": {
         "type": "object",
-        "description": "The person's permission for your application to read one bank. A renewal keeps the connection id and every account id.",
+        "description": "The person's permission for your application to read one bank. A renewal keeps the connection id and every account id. A deleted connection answers only `id`, `status`, `status_reason`, `created_at` and `erasure`: every other field is absent, and no bank, person or account data remains in it.",
         "properties": {
           "id": {
             "type": "string",
@@ -147177,7 +147329,7 @@
               "deleted",
               "failed"
             ],
-            "description": "`pending`: first sync running. `active`: consent valid. `renewal_required`: the consent ended or the bank wants the person to sign in again, data readable as last synced and nothing charged. `paused`: balance too low for the month. `revoked`: access stopped by the person, the bank or you. `deleted`: only the id, dates and reason remain. `failed`: the first sync never succeeded."
+            "description": "`pending`: first sync running. `active`: consent valid. `renewal_required`: the consent ended or the bank wants the person to sign in again, data readable as last synced and nothing charged. `paused`: balance too low for the month. `revoked`: access stopped by the person, the bank or you. `deleted`: only `id`, `status`, `status_reason`, `created_at` and `erasure` remain. `failed`: the first sync never succeeded."
           },
           "status_reason": {
             "type": "string",
@@ -147192,9 +147344,13 @@
               "insufficient_balance",
               "paused_by_customer",
               "first_sync_failed",
+              "deleted_by_customer",
+              "retention_elapsed",
+              "application_deleted",
+              "restored_after_deletion",
               null
             ],
-            "description": "Why the connection is in this status. `paused_by_customer` is reserved.",
+            "description": "Why the connection is in this status. `paused_by_customer` is reserved. On a `deleted` connection: `deleted_by_customer`, `consent_lapsed`, `retention_elapsed`, `application_deleted` or `restored_after_deletion`.",
             "nullable": true
           },
           "institution": {
@@ -147252,7 +147408,7 @@
           },
           "manage_url": {
             "type": "string",
-            "description": "Reserved. Always `null` for now.",
+            "description": "Reserved. Always `null`.",
             "nullable": true,
             "format": "uri"
           },
@@ -147289,25 +147445,10 @@
         },
         "required": [
           "id",
-          "environment",
-          "access",
           "status",
           "status_reason",
-          "institution",
-          "segment",
-          "data",
-          "consent",
-          "sync",
-          "accounts",
-          "ownership",
-          "end_user",
-          "manage_url",
-          "billing",
-          "possible_duplicate_of",
-          "erasure",
-          "vendor_data",
           "created_at",
-          "updated_at"
+          "erasure"
         ]
       },
       "BankConnectionList": {
@@ -147333,7 +147474,7 @@
       },
       "BankConnectionDeletion": {
         "type": "object",
-        "description": "Accepted deletion. The connection's bank data is being deleted and every read and write of it is refused; the connection reads as a minimal record with this `erasure` status.",
+        "description": "Accepted deletion. The connection's bank data is being deleted and its data operations answer `409 connection_not_active`; reading the connection returns a minimal record with this `erasure` status.",
         "properties": {
           "id": {
             "type": "string",
@@ -147356,17 +147497,22 @@
           "redirect_url": {
             "type": "string",
             "format": "uri",
-            "description": "Where the browser goes at the end. Must exactly match a registered redirect URL."
+            "description": "Where the browser goes at the end. Must exactly match a registered redirect URL (scheme, host, port, path and query), otherwise `400 redirect_url_not_registered`. In sandbox only, a plain `http` localhost address needs no registration.",
+            "maxLength": 2048
           },
           "allowed_origins": {
             "type": "array",
             "items": {
               "type": "string",
               "format": "uri"
-            }
+            },
+            "maxItems": 50,
+            "description": "HTTPS origins allowed to embed this link, up to 50, among your application's allowed domains."
           },
           "language": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
+            "maxLength": 16
           },
           "expires_in": {
             "type": "integer",
@@ -147902,7 +148048,7 @@
           },
           "effective_date": {
             "type": "string",
-            "description": "The date the date filters use, as the bank reports it in its own time zone with nothing converted: the booking date of a booked transaction, and for a pending one its transaction date or, failing that, the date it was first seen.",
+            "description": "The date the date filters use, as the bank reports it in its own time zone with nothing converted: for a booked transaction its booking date, else its value date, else the date it was first seen; for a pending one its transaction date, else the date it was first seen.",
             "format": "date"
           },
           "amount": {
@@ -148522,7 +148668,6 @@
           },
           "business_accounts": {
             "type": "boolean",
-            "nullable": true,
             "description": "Whether at least one bank supports business accounts."
           }
         },
@@ -148596,6 +148741,9 @@
               "bank_cancelled",
               "consent_declined",
               "read_limit",
+              "renewal_not_needed",
+              "renewal_window_expired",
+              "first_sync_failed",
               null
             ],
             "description": "With `bank.link.failed`.",
@@ -148610,97 +148758,58 @@
           "error_code"
         ]
       },
-      "BankConnectionEventData": {
-        "type": "object",
-        "description": "Ids and statuses of a connection. No personal data.",
-        "properties": {
-          "connection_id": {
-            "type": "string",
-            "description": "The connection id.",
-            "format": "uuid"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "active",
-              "renewal_required",
-              "paused",
-              "revoked",
-              "deleted",
-              "failed"
-            ]
-          },
-          "status_reason": {
-            "type": "string",
-            "enum": [
-              "collection_complete",
-              "consent_expired",
-              "consent_lapsed",
-              "bank_requires_sign_in",
-              "revoked_by_end_user",
-              "revoked_by_bank",
-              "revoked_by_customer",
-              "insufficient_balance",
-              "paused_by_customer",
-              "first_sync_failed",
-              null
-            ],
-            "nullable": true
-          }
-        },
-        "required": [
-          "connection_id",
-          "status",
-          "status_reason"
-        ]
-      },
       "BankConnectionConsentExpiringData": {
         "type": "object",
+        "description": "Fields of `bank.connection.consent_expiring`. The fields are at the top level of the body, next to the envelope fields.",
         "properties": {
           "connection_id": {
             "type": "string",
-            "description": "The connection id.",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The connection id."
           },
           "days_left": {
             "type": "integer",
-            "description": "14, 7 or 1."
+            "enum": [
+              14,
+              7,
+              1
+            ],
+            "description": "Days left before the consent ends: 14, 7 or 1."
           },
-          "expires_at": {
+          "consent_expires_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When the consent ends."
           },
-          "renew_url": {
+          "renew_by": {
             "type": "string",
-            "description": "A ready renew link, only when your application turned automatic renew links on. It is a credential: never log it.",
+            "format": "date-time",
             "nullable": true,
-            "format": "uri"
+            "description": "The consent's end: renew before it for no gap."
           }
         },
         "required": [
           "connection_id",
           "days_left",
-          "expires_at",
-          "renew_url"
+          "consent_expires_at",
+          "renew_by"
         ]
       },
       "BankConnectionRevokedData": {
         "type": "object",
+        "description": "Fields of `bank.connection.revoked`. The fields are at the top level of the body, next to the envelope fields.",
         "properties": {
           "connection_id": {
             "type": "string",
-            "description": "The connection id.",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The connection id."
           },
           "status": {
             "type": "string",
             "enum": [
-              "revocation_pending",
-              "revoked",
-              "revocation_failed"
+              "revoked"
             ],
-            "description": "Consent status."
+            "description": "Consent status once access is terminated."
           },
           "ended_by": {
             "type": "string",
@@ -148711,99 +148820,187 @@
               "unknown"
             ],
             "description": "Who ended access."
+          },
+          "status_reason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "revoked_by_end_user",
+              "revoked_by_bank",
+              "revoked_by_customer",
+              "consent_expired",
+              "consent_lapsed",
+              "bank_requires_sign_in",
+              "insufficient_balance",
+              "paused_by_customer",
+              "first_sync_failed",
+              "collection_complete",
+              null
+            ],
+            "description": "Why the connection is in this status."
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When access ended."
+          },
+          "retain_until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "How long the stored data stays readable, set by the retention setting of your application."
           }
         },
         "required": [
           "connection_id",
           "status",
-          "ended_by"
+          "ended_by",
+          "status_reason",
+          "ended_at",
+          "retain_until"
         ]
       },
       "BankConnectionDeletedData": {
         "type": "object",
+        "description": "Fields of `bank.connection.deleted`. The fields are at the top level of the body, next to the envelope fields.",
         "properties": {
           "connection_id": {
             "type": "string",
-            "description": "The connection id.",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The connection id."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "deleted"
+            ]
           },
           "erasure_status": {
             "type": "string",
             "enum": [
               "erased"
-            ]
+            ],
+            "description": "The deletion finished."
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "deleted_by_customer",
+              "consent_lapsed",
+              "retention_elapsed",
+              "application_deleted",
+              "restored_after_deletion",
+              null
+            ],
+            "description": "Why the connection was deleted."
+          },
+          "erased_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the deletion finished."
           }
         },
         "required": [
           "connection_id",
-          "erasure_status"
+          "status",
+          "erasure_status",
+          "reason",
+          "erased_at"
         ]
       },
       "BankDataUpdatedData": {
         "type": "object",
+        "description": "Fields of `bank.data.updated`. The fields are at the top level of the body, next to the envelope fields.",
         "properties": {
           "connection_id": {
             "type": "string",
-            "description": "The connection id.",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The connection id."
           },
           "sync_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The sync run id."
           },
-          "account_ids": {
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "initial",
+              "scheduled",
+              "requested"
+            ],
+            "description": "What started the sync."
+          },
+          "accounts": {
             "type": "array",
+            "description": "The accounts whose transactions changed, with counts.",
             "items": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "description": "Accounts whose data changed."
-          },
-          "added": {
-            "type": "integer",
-            "description": "Transactions added."
-          },
-          "modified": {
-            "type": "integer",
-            "description": "Transactions modified."
-          },
-          "removed": {
-            "type": "integer",
-            "description": "Transactions removed."
+              "type": "object",
+              "description": "Transactions changed in one account.",
+              "properties": {
+                "account_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The account id."
+                },
+                "added": {
+                  "type": "integer",
+                  "description": "Transactions added."
+                },
+                "modified": {
+                  "type": "integer",
+                  "description": "Transactions modified."
+                },
+                "removed": {
+                  "type": "integer",
+                  "description": "Transactions removed."
+                }
+              },
+              "required": [
+                "account_id",
+                "added",
+                "modified",
+                "removed"
+              ]
+            }
           },
           "balances_changed": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether any balance changed."
           }
         },
         "required": [
           "connection_id",
           "sync_id",
-          "account_ids",
-          "added",
-          "modified",
-          "removed",
+          "trigger",
+          "accounts",
           "balances_changed"
         ]
       },
       "BankSyncCompletedData": {
         "type": "object",
+        "description": "Fields of `bank.sync.completed`. The fields are at the top level of the body, next to the envelope fields.",
         "properties": {
           "connection_id": {
             "type": "string",
-            "description": "The connection id.",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The connection id."
           },
           "sync_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The sync run id."
           },
           "trigger": {
             "type": "string",
             "enum": [
+              "initial",
               "scheduled",
-              "requested",
-              "initial"
-            ]
+              "requested"
+            ],
+            "description": "What started the sync."
           },
           "outcome": {
             "type": "string",
@@ -148811,10 +149008,12 @@
               "succeeded",
               "partial",
               "failed"
-            ]
+            ],
+            "description": "How the sync ended."
           },
           "changed": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the sync stored changes."
           }
         },
         "required": [
@@ -148827,41 +149026,48 @@
       },
       "BankSyncFailedData": {
         "type": "object",
+        "description": "Fields of `bank.sync.failed`. The fields are at the top level of the body, next to the envelope fields.",
         "properties": {
           "connection_id": {
             "type": "string",
-            "description": "The connection id.",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The connection id."
           },
           "sync_id": {
             "type": "string",
-            "description": "The latest failed sync.",
             "format": "uuid",
-            "nullable": true
+            "description": "The latest failed sync."
           },
           "error_code": {
             "type": "string",
-            "nullable": true
+            "description": "Didit error code of the failure."
+          },
+          "failing_since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the syncs started to fail."
           }
         },
         "required": [
           "connection_id",
           "sync_id",
-          "error_code"
+          "error_code",
+          "failing_since"
         ]
       },
       "BankSyncRecoveredData": {
         "type": "object",
+        "description": "Fields of `bank.sync.recovered`. The fields are at the top level of the body, next to the envelope fields.",
         "properties": {
           "connection_id": {
             "type": "string",
-            "description": "The connection id.",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The connection id."
           },
           "sync_id": {
             "type": "string",
-            "description": "The sync that succeeded.",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The sync that succeeded."
           }
         },
         "required": [
@@ -148978,10 +149184,13 @@
         ]
       },
       "BankConnectionCreatedEvent": {
-        "description": "The first sync of a connection finished and its accounts are readable. Read the connection, then its accounts. `sync.initial_status` says whether it `succeeded` or was `partial`. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
+        "description": "The first sync of a connection finished and its accounts are readable. Read the connection, then its accounts. `initial_status` says whether it `succeeded` or was `partial`. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
         "allOf": [
           {
             "$ref": "#/components/schemas/WebhookEventEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/BankConnectionCreatedData"
           },
           {
             "type": "object",
@@ -148992,23 +149201,22 @@
                   "bank.connection.created"
                 ],
                 "description": "Always `bank.connection.created`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankConnectionEventData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
       },
       "BankConnectionUpdatedEvent": {
-        "description": "A connection's status, consent or sync state changed. Read the connection to see what. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
+        "description": "A connection's status changed in a way no other event reports. It is sent when a revocation starts: `revocation_status` is `pending` until the bank confirms, then `bank.connection.revoked` follows. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
         "allOf": [
           {
             "$ref": "#/components/schemas/WebhookEventEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/BankConnectionUpdatedData"
           },
           {
             "type": "object",
@@ -149019,23 +149227,22 @@
                   "bank.connection.updated"
                 ],
                 "description": "Always `bank.connection.updated`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankConnectionEventData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
       },
       "BankConnectionConsentExpiringEvent": {
-        "description": "The consent ends soon. Sent 14, 7 and 1 day before the end. Renew with `renew_connection`, or send the person `data.renew_url` when your application turned automatic renew links on. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
+        "description": "The consent ends soon. Sent 14, 7 and 1 day before the end. Renew with `renew_connection`. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
         "allOf": [
           {
             "$ref": "#/components/schemas/WebhookEventEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/BankConnectionConsentExpiringData"
           },
           {
             "type": "object",
@@ -149046,14 +149253,10 @@
                   "bank.connection.consent_expiring"
                 ],
                 "description": "Always `bank.connection.consent_expiring`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankConnectionConsentExpiringData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
@@ -149065,6 +149268,9 @@
             "$ref": "#/components/schemas/WebhookEventEnvelope"
           },
           {
+            "$ref": "#/components/schemas/BankConnectionRenewalRequiredData"
+          },
+          {
             "type": "object",
             "properties": {
               "webhook_type": {
@@ -149073,14 +149279,10 @@
                   "bank.connection.renewal_required"
                 ],
                 "description": "Always `bank.connection.renewal_required`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankConnectionEventData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
@@ -149092,6 +149294,9 @@
             "$ref": "#/components/schemas/WebhookEventEnvelope"
           },
           {
+            "$ref": "#/components/schemas/BankConnectionRenewedData"
+          },
+          {
             "type": "object",
             "properties": {
               "webhook_type": {
@@ -149100,23 +149305,22 @@
                   "bank.connection.renewed"
                 ],
                 "description": "Always `bank.connection.renewed`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankConnectionEventData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
       },
       "BankConnectionRevokedEvent": {
-        "description": "Access ended. `data.ended_by` says who ended it: the person, the bank or you. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
+        "description": "Access ended and the bank confirmed it. `ended_by` says who ended it: the person, the bank or you. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
         "allOf": [
           {
             "$ref": "#/components/schemas/WebhookEventEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/BankConnectionRevokedData"
           },
           {
             "type": "object",
@@ -149127,23 +149331,22 @@
                   "bank.connection.revoked"
                 ],
                 "description": "Always `bank.connection.revoked`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankConnectionRevokedData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
       },
       "BankConnectionDeletedEvent": {
-        "description": "The data of a connection was deleted. `data.erasure_status` is `erased`. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
+        "description": "The data of a connection was deleted. `erasure_status` is `erased`. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
         "allOf": [
           {
             "$ref": "#/components/schemas/WebhookEventEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/BankConnectionDeletedData"
           },
           {
             "type": "object",
@@ -149154,14 +149357,10 @@
                   "bank.connection.deleted"
                 ],
                 "description": "Always `bank.connection.deleted`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankConnectionDeletedData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
@@ -149173,6 +149372,9 @@
             "$ref": "#/components/schemas/WebhookEventEnvelope"
           },
           {
+            "$ref": "#/components/schemas/BankConnectionHistoryCompleteData"
+          },
+          {
             "type": "object",
             "properties": {
               "webhook_type": {
@@ -149181,14 +149383,10 @@
                   "bank.connection.history_complete"
                 ],
                 "description": "Always `bank.connection.history_complete`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankConnectionEventData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
@@ -149200,6 +149398,9 @@
             "$ref": "#/components/schemas/WebhookEventEnvelope"
           },
           {
+            "$ref": "#/components/schemas/BankDataUpdatedData"
+          },
+          {
             "type": "object",
             "properties": {
               "webhook_type": {
@@ -149208,14 +149409,10 @@
                   "bank.data.updated"
                 ],
                 "description": "Always `bank.data.updated`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankDataUpdatedData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
@@ -149227,6 +149424,9 @@
             "$ref": "#/components/schemas/WebhookEventEnvelope"
           },
           {
+            "$ref": "#/components/schemas/BankSyncCompletedData"
+          },
+          {
             "type": "object",
             "properties": {
               "webhook_type": {
@@ -149235,14 +149435,10 @@
                   "bank.sync.completed"
                 ],
                 "description": "Always `bank.sync.completed`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankSyncCompletedData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
@@ -149254,6 +149450,9 @@
             "$ref": "#/components/schemas/WebhookEventEnvelope"
           },
           {
+            "$ref": "#/components/schemas/BankSyncFailedData"
+          },
+          {
             "type": "object",
             "properties": {
               "webhook_type": {
@@ -149262,14 +149461,10 @@
                   "bank.sync.failed"
                 ],
                 "description": "Always `bank.sync.failed`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankSyncFailedData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
@@ -149281,6 +149476,9 @@
             "$ref": "#/components/schemas/WebhookEventEnvelope"
           },
           {
+            "$ref": "#/components/schemas/BankSyncRecoveredData"
+          },
+          {
             "type": "object",
             "properties": {
               "webhook_type": {
@@ -149289,14 +149487,10 @@
                   "bank.sync.recovered"
                 ],
                 "description": "Always `bank.sync.recovered`."
-              },
-              "data": {
-                "$ref": "#/components/schemas/BankSyncRecoveredData"
               }
             },
             "required": [
-              "webhook_type",
-              "data"
+              "webhook_type"
             ]
           }
         ]
@@ -150327,6 +150521,179 @@
               }
             }
           }
+        ]
+      },
+      "BankConnectionCreatedData": {
+        "type": "object",
+        "description": "Fields of `bank.connection.created`. The fields are at the top level of the body, next to the envelope fields.",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection id."
+          },
+          "initial_status": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "partial"
+            ],
+            "description": "How the first sync ended."
+          }
+        },
+        "required": [
+          "connection_id",
+          "initial_status"
+        ]
+      },
+      "BankConnectionUpdatedData": {
+        "type": "object",
+        "description": "Fields of `bank.connection.updated`. The fields are at the top level of the body, next to the envelope fields.",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection id."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "renewal_required",
+              "paused",
+              "revoked",
+              "deleted",
+              "failed"
+            ],
+            "description": "The connection status."
+          },
+          "revocation_status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "`pending`: a revocation was requested and the bank has not confirmed it yet."
+          }
+        },
+        "required": [
+          "connection_id",
+          "status",
+          "revocation_status"
+        ]
+      },
+      "BankConnectionRenewalRequiredData": {
+        "type": "object",
+        "description": "Fields of `bank.connection.renewal_required`. The fields are at the top level of the body, next to the envelope fields.",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection id."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "renewal_required"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "consent_expired",
+              "bank_requires_sign_in"
+            ],
+            "description": "Why renewal is needed."
+          },
+          "renew_by": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "The consent's end, when there is one."
+          },
+          "renewable_until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "The last moment the same connection can be revived. After it the person connects again."
+          }
+        },
+        "required": [
+          "connection_id",
+          "status",
+          "reason",
+          "renew_by",
+          "renewable_until"
+        ]
+      },
+      "BankConnectionRenewedData": {
+        "type": "object",
+        "description": "Fields of `bank.connection.renewed`. The fields are at the top level of the body, next to the envelope fields.",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection id."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "renewal_required",
+              "paused",
+              "revoked",
+              "deleted",
+              "failed"
+            ],
+            "description": "The connection status."
+          },
+          "consent_version": {
+            "type": "integer",
+            "description": "The consent version the renewal created."
+          },
+          "link_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "The renew link that completed, when there is one."
+          },
+          "consent_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the renewed consent ends."
+          }
+        },
+        "required": [
+          "connection_id",
+          "status",
+          "consent_version",
+          "link_id",
+          "consent_expires_at"
+        ]
+      },
+      "BankConnectionHistoryCompleteData": {
+        "type": "object",
+        "description": "Fields of `bank.connection.history_complete`. The fields are at the top level of the body, next to the envelope fields.",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection id."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "partial"
+            ],
+            "description": "`partial` when the bank could not deliver every range you asked for."
+          }
+        },
+        "required": [
+          "connection_id",
+          "status"
         ]
       }
     },
@@ -151421,7 +151788,7 @@
     "bank.connection.created": {
       "post": {
         "summary": "Bank connection created",
-        "description": "The first sync of a connection finished and its accounts are readable. Read the connection, then its accounts. `sync.initial_status` says whether it `succeeded` or was `partial`. Sent for live and sandbox applications.",
+        "description": "The first sync of a connection finished and its accounts are readable. Read the connection, then its accounts. `initial_status` says whether it `succeeded` or was `partial`. Sent for live and sandbox applications.",
         "tags": [
           "Webhook"
         ],
@@ -151459,7 +151826,7 @@
     "bank.connection.updated": {
       "post": {
         "summary": "Bank connection updated",
-        "description": "A connection's status, consent or sync state changed. Read the connection to see what. Sent for live and sandbox applications.",
+        "description": "A connection's status changed in a way no other event reports. It is sent when a revocation starts: `revocation_status` is `pending` until the bank confirms, then `bank.connection.revoked` follows. Sent for live and sandbox applications.",
         "tags": [
           "Webhook"
         ],
@@ -151497,7 +151864,7 @@
     "bank.connection.consent_expiring": {
       "post": {
         "summary": "Bank connection consent expiring",
-        "description": "The consent ends soon. Sent 14, 7 and 1 day before the end. Renew with `renew_connection`, or send the person `data.renew_url` when your application turned automatic renew links on. Sent for live and sandbox applications.",
+        "description": "The consent ends soon. Sent 14, 7 and 1 day before the end. Renew with `renew_connection`. Sent for live and sandbox applications.",
         "tags": [
           "Webhook"
         ],
@@ -151611,7 +151978,7 @@
     "bank.connection.revoked": {
       "post": {
         "summary": "Bank connection revoked",
-        "description": "Access ended. `data.ended_by` says who ended it: the person, the bank or you. Sent for live and sandbox applications.",
+        "description": "Access ended and the bank confirmed it. `ended_by` says who ended it: the person, the bank or you. Sent for live and sandbox applications.",
         "tags": [
           "Webhook"
         ],
@@ -151649,7 +152016,7 @@
     "bank.connection.deleted": {
       "post": {
         "summary": "Bank connection deleted",
-        "description": "The data of a connection was deleted. `data.erasure_status` is `erased`. Sent for live and sandbox applications.",
+        "description": "The data of a connection was deleted. `erasure_status` is `erased`. Sent for live and sandbox applications.",
         "tags": [
           "Webhook"
         ],
@@ -151725,7 +152092,7 @@
     "bank.data.updated": {
       "post": {
         "summary": "Bank data updated",
-        "description": "A sync stored changes. Call the change feed (`sync_transactions`) to read them. Nothing is pushed. Sent for live and sandbox applications.",
+        "description": "A sync stored changes, or the first read of a connection published its accounts (a one-time link included). Call the change feed (`sync_transactions`) to read them. Nothing is pushed. Sent for live and sandbox applications.",
         "tags": [
           "Webhook"
         ],

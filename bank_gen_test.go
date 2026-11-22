@@ -38,7 +38,7 @@ func TestBankCancelLink(t *testing.T) {
 }
 
 func TestBankCreateLink(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"id":"0b9c4f1e-6a2d-4e8b-9f31-7c5d2e1a8b40","mode":"connect","access":"ongoing","status":"created","url":"https://verify.didit.me/bank/link/blu_7Xq2k9Lm3Vd8Rt5Yw1Ns6Ph4Zc0Bj","client_token":"sample-client-token","expires_at":"2026-11-21T13:00:00Z","connection_id":null,"check_id":null,"reused":false,"error":null,"quote":{"id":"7a3e9c52-1d84-4b06-8f2a-c5e0b9d17a43","lines":[{"meter":"bank_data_connection_month","unit":"connection_month","price_usd":"0.9000"}],"fallback_lines":null,"total_usd":"0.9000","valid_until":"2026-11-21T13:00:00Z","scopes":["accounts","balances","transactions"]},"vendor_data":"client-7731"}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"id":"0b9c4f1e-6a2d-4e8b-9f31-7c5d2e1a8b40","mode":"connect","access":"ongoing","status":"created","url":"https://verify.didit.me/bank/link/example-link-token","client_token":"sample-client-token","expires_at":"2026-11-21T13:00:00Z","connection_id":null,"check_id":null,"reused":false,"error":null,"quote":{"id":"7a3e9c52-1d84-4b06-8f2a-c5e0b9d17a43","lines":[{"meter":"bank_data_connection_month","unit":"connection_month","price_usd":"0.9000"}],"fallback_lines":null,"total_usd":"0.9000","valid_until":"2026-11-21T13:00:00Z","scopes":["accounts","balances","transactions"]},"vendor_data":"client-7731"}`)
 	var params didit.BankLinkCreateRequest
 	mustUnmarshal(t, `{"mode":"connect","access":"ongoing","country":"ESP","segment":"business","data":["accounts","balances","transactions"],"history_from":"2026-01-01","consent_days":180,"ownership":{"compare":"none"},"end_user":{"reference":"client-7731","email":"ana@example.com"},"redirect_url":"https://app.example.com/bank/return","allowed_origins":["https://app.example.com"],"language":"es","vendor_data":"client-7731"}`, &params)
 	res, err := client.Bank.CreateLink(context.Background(), params)
@@ -53,7 +53,7 @@ func TestBankCreateLink(t *testing.T) {
 }
 
 func TestBankDeleteConnection(t *testing.T) {
-	client, mock := newMockClient(t, 202, "application/json", `{"id":"5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35","erasure":{"status":"pending","requested_at":"2026-11-21T15:10:00Z"}}`)
+	client, mock := newMockClient(t, 202, "application/json", `{"id":"5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35","erasure":{"status":"pending","requested_at":"2026-11-21T15:10:00Z","erased_at":null}}`)
 	res, err := client.Bank.DeleteConnection(context.Background(), "id-1")
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestBankRefreshConnection(t *testing.T) {
 }
 
 func TestBankRenewConnection(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"id":"0b9c4f1e-6a2d-4e8b-9f31-7c5d2e1a8b40","mode":"renew","access":"ongoing","status":"created","url":"https://verify.didit.me/bank/link/blu_7Xq2k9Lm3Vd8Rt5Yw1Ns6Ph4Zc0Bj","client_token":"sample-client-token","expires_at":"2026-11-21T13:00:00Z","connection_id":"5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35","check_id":null,"reused":false,"error":null,"quote":{"id":"7a3e9c52-1d84-4b06-8f2a-c5e0b9d17a43","lines":[{"meter":"bank_data_connection_month","unit":"connection_month","price_usd":"0.9000"}],"fallback_lines":null,"total_usd":"0.9000","valid_until":"2026-11-21T13:00:00Z","scopes":["accounts","balances","transactions"]},"vendor_data":"client-7731"}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"id":"0b9c4f1e-6a2d-4e8b-9f31-7c5d2e1a8b40","mode":"renew","access":"ongoing","status":"created","url":"https://verify.didit.me/bank/link/example-link-token","client_token":"sample-client-token","expires_at":"2026-11-21T13:00:00Z","connection_id":"5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35","check_id":null,"reused":false,"error":null,"quote":{"id":"7a3e9c52-1d84-4b06-8f2a-c5e0b9d17a43","lines":[{"meter":"bank_data_connection_month","unit":"connection_month","price_usd":"0.9000"}],"fallback_lines":null,"total_usd":"0.9000","valid_until":"2026-11-21T13:00:00Z","scopes":["accounts","balances","transactions"]},"vendor_data":"client-7731"}`)
 	var params didit.BankRenewLinkRequest
 	mustUnmarshal(t, `{"redirect_url":"https://app.example.com/bank/return","language":"es"}`, &params)
 	res, err := client.Bank.RenewConnection(context.Background(), "id-1", params)

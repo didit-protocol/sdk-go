@@ -70,7 +70,7 @@ func main() {
 		}
 		switch e := event.(type) {
 		case *webhook.BankConnectionCreatedEvent:
-			fmt.Printf("connection %s created (status %s)\n", e.ConnectionID, e.Status)
+			fmt.Printf("connection %s created (first sync %s)\n", e.ConnectionID, e.InitialStatus)
 			select {
 			case connections <- e.ConnectionID:
 			default:
