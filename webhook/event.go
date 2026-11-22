@@ -447,7 +447,8 @@ const (
 	BankLinkErrorCodeFirstSyncFailed               BankLinkErrorCode = "first_sync_failed"
 )
 
-// BankLinkFields are the fields of the bank.link.* events.
+// BankLinkFields are the fields of the bank.link.* events. Unlike the other
+// bank.* events, a link event carries them in a nested data object.
 type BankLinkFields struct {
 	// LinkID is the Bank Link the event is about.
 	LinkID string
