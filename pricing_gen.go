@@ -17,10 +17,10 @@ type PricingService struct {
 // BankVerification: Get bank verification prices (public, unauthenticated).
 //
 // Returns the list price of each Bank Verification method in every country:
-// bank sign-in with its balance and transactions add-ons, and the account
-// check. A method a country does not offer today shows as not available, with
-// no price. Use it to quote a bank step before you build a workflow, or to show
-// bank prices in your own product.
+// bank sign-in with its balance and transactions add-ons, ongoing access to
+// bank data, and the account check. A method a country does not offer today
+// shows as not available, with no price. Use it to quote a bank step before you
+// build a workflow, or to show bank prices in your own product.
 //
 // Public: send no auth header. The response contains no organization data and
 // is the same for every caller. It is cached publicly for one hour and carries
@@ -193,6 +193,17 @@ type BankSignInPricing struct {
 	// listed; empty when bank sign-in is not available.
 	AddOns BankSignInPricingAddOns `json:"add_ons"`
 
+	// Ongoing access to bank data (Bank Link `access: ongoing`). Present only where
+	// Bank data is switched on.
+	Ongoing BankSignInPricingOngoing `json:"ongoing"`
+
+	// One-time data prices of a Bank Link, present only where Bank data is switched
+	// on. `null` where the country offers no one-time data: use `add_ons`. Where
+	// the country offers the one-time bundle, the object also carries
+	// `bundle_included: true` and `transactions_usd` is that bundle: one read of
+	// transactions and balances.
+	OneTimeData BankSignInPricingOneTimeData `json:"one_time_data"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -221,6 +232,56 @@ type BankSignInPricingAddOns struct {
 
 // UnmarshalJSON decodes BankSignInPricingAddOns leniently.
 func (r *BankSignInPricingAddOns) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankSignInPricingOngoing: Ongoing access to bank data (Bank Link `access:
+// ongoing`). Present only where Bank data is switched on.
+type BankSignInPricingOngoing struct {
+	// `true` only where at least one bank offers ongoing access in this country.
+	Available bool `json:"available"`
+
+	// List price per active connection per calendar month, a decimal string with 4
+	// decimals in USD. `null` when not available. Ongoing access is billed per
+	// active connection per month, with every account, reads, refreshes within the
+	// bank's limits and renewals included; the current price is on the pricing page
+	// (https://docs.didit.me/getting-started/pricing). Amounts in examples are
+	// illustrative; the price for a country is shown on the pricing page.
+	PriceUsdPerMonth string `json:"price_usd_per_month"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankSignInPricingOngoing leniently.
+func (r *BankSignInPricingOngoing) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankSignInPricingOneTimeData is a response object.
+type BankSignInPricingOneTimeData struct {
+	// Price of one read of balances only. Decimal string with 4 decimals in USD.
+	BalancesUsd string `json:"balances_usd"`
+
+	// Price of one read of transactions, with or without balances. Decimal string
+	// with 4 decimals in USD.
+	TransactionsUsd string `json:"transactions_usd"`
+
+	// `true` when `transactions_usd` is the one-time bundle: one read that carries
+	// transactions and balances together, so the `balance` add-on is not charged on
+	// top of it. Absent - never `false` - where `transactions_usd` is the separate
+	// transactions add-on price, including while the one-time bundle is not offered
+	// in the country.
+	BundleIncluded bool `json:"bundle_included"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankSignInPricingOneTimeData leniently.
+func (r *BankSignInPricingOneTimeData) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
