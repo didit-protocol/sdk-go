@@ -283,6 +283,28 @@ The list prices of every Bank Verification method, by country, come from a publi
 prices, err := client.Pricing.BankVerification(ctx)
 ```
 
+## Bank data and Bank Link
+
+The `bank` resource covers Bank Link, connections, accounts, balances, transactions, sync runs, institutions and coverage. Bank data needs the `bank-data` permission on the API key (a key without it answers `403 bank_data_access_denied`).
+
+```go
+link, err := client.Bank.CreateLink(ctx, didit.BankLinkCreateRequest{
+	Access: didit.Some(didit.BankLinkCreateRequestAccessOngoing),
+	Data: didit.Some([]didit.BankLinkCreateRequestData{
+		didit.BankLinkCreateRequestDataAccounts,
+		didit.BankLinkCreateRequestDataBalances,
+		didit.BankLinkCreateRequestDataTransactions,
+	}),
+})
+fmt.Println("send the person to", link.URL)
+
+// Wait for the bank.connection.created webhook, then read the accounts.
+accounts, err := client.Bank.ListAccounts(ctx, link.ConnectionID, didit.BankListAccountsParams{})
+next := accounts.NextCursor // pass it back as Cursor for the next page
+```
+
+Bank lists are cursor-paginated (`Cursor` and `NextCursor`), transaction reads use `PageToken` and `NextPageToken`, and amounts are decimal strings, never floats. Writes take `option.WithIdempotencyKey("...")`. The `bank.link.*`, `bank.connection.*`, `bank.data.updated` and `bank.sync.*` webhooks have typed events. See the [bank example](examples/bank) for the full wait-for-connection flow.
+
 ## Authentication
 
 The `authentication` package validates the tokens of [Didit Authentication](https://docs.didit.me/authentication) (customer sign-in for your application's users) in your backend. It talks to your application's issuer and never needs the API key.
