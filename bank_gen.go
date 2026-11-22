@@ -87,8 +87,9 @@ func (r *BankService) CancelLink(ctx context.Context, id string, opts ...option.
 // CreateLink: Create a bank link.
 //
 // Creates a Bank Link: one run of the flow in which a person connects a bank,
-// or renews a connection. Send the person to `url`, or pass `client_token` to
-// the web or native SDK. A completed link yields a connection.
+// or renews a connection. Send the person to `url`. The `client_token` is for
+// Didit's embedded Bank Link, which is not released yet: open the `url` today.
+// A completed link yields a connection.
 //
 // The smallest request is `{}` plus what you want. Defaults: `mode` connect,
 // `access` one_time, `data` accounts only, `history_days` 90,
@@ -97,9 +98,8 @@ func (r *BankService) CancelLink(ctx context.Context, id string, opts ...option.
 // the bank allows.
 //
 // The response carries the quote: the price is pinned to the link and charged
-// as quoted. The API key never reaches a browser or an app: only `client_token`
-// and `url` do. They are redeemed once between them, and whichever arrives
-// first wins.
+// as quoted. The API key never reaches a browser or an app: only the `url`
+// does.
 //
 // Confirm the outcome yourself with `get_link` or the `bank.link.completed`
 // webhook; never trust a link id sent by the browser. History: send
@@ -123,24 +123,25 @@ func (r *BankService) CreateLink(ctx context.Context, params BankLinkCreateReque
 
 // DeleteConnection: Delete a bank connection.
 //
-// Deletes the connection's bank data and stops access at the bank. The
-// connection's accounts, balances, transactions, sync history, consent records
-// and ownership results are deleted. Deletion is irreversible.
+// Deletes the connection's bank data and stops access at the bank. Deletion is
+// immediate and irreversible: when the call returns, the connection's accounts,
+// balances, transactions, sync history, consent records and ownership results
+// are deleted, and its data operations (refresh, sync runs, accounts, balances,
+// transactions and the change feed) answer `409 connection_not_active`.
 //
-// It starts at once: the response is `202` with `erasure.status` `pending`, and
-// from that moment the connection's data operations (refresh, sync runs,
-// accounts, balances, transactions and the change feed) answer `409
-// connection_not_active`. The connection then reads with `erasure.status`
-// `erased`, or `failed` if deletion could not be confirmed within 24 hours; a
-// failed deletion is retried until it completes. A deleted connection reads as
-// a minimal record: its id, `status: deleted`, the reason, its dates and its
-// `erasure` status, and it holds no accounts, balances, transactions, consent
-// or sync data.
+// A deleted connection reads as a minimal record: its id, `status: deleted`,
+// the reason, its dates and its `erasure` record (`requested_at`, `erased_at`
+// and `status`, the confirmation of the deletion: `pending` while it is being
+// confirmed, including the end of access at the bank, `erased` once confirmed,
+// `failed` if the confirmation has not arrived yet and is repeated
+// automatically, with nothing needed from you). It holds no accounts, balances,
+// transactions, consent or sync data. `bank.connection.deleted` confirms the
+// deletion.
 //
 // Not affected: your other connections, the charges already made (they are not
 // refunded), and any data you already downloaded, which is your own copy.
-// Repeating the call returns the current state. To stop access without
-// deleting, use `revoke_connection`.
+// Repeating the call is safe. To stop access without deleting, use
+// `revoke_connection`.
 //
 // Needs an API key with the Bank data permission (`bank-data`): write for this
 // operation, which changes something. A key with full access does not include
@@ -165,11 +166,10 @@ func (r *BankService) DeleteConnection(ctx context.Context, id string, opts ...o
 //
 // Needs an API key with the Bank data permission (`bank-data`): read for this
 // operation. A key with full access does not include it: grant it explicitly
-// when you create the key, or the call answers `403 bank_data_access_denied`.
-// Reading accounts, balances and transactions in a live application also needs
-// the application setting "Bank data in the API"; a sandbox application reads
-// its Test Bank data with the key alone. A request without an API key (client
-// credentials) is refused on raw data with the same `403`.
+// when you create the key, or the call answers `403 bank_data_access_denied`. A
+// sandbox application reads its Test Bank data with the key alone. A request
+// without an API key (client credentials) is refused on raw data with the same
+// `403`.
 //
 //	GET /v3/bank/accounts/{account_id}/
 func (r *BankService) GetAccount(ctx context.Context, accountID string, opts ...option.RequestOption) (*BankAccount, error) {
@@ -187,11 +187,10 @@ func (r *BankService) GetAccount(ctx context.Context, accountID string, opts ...
 //
 // Needs an API key with the Bank data permission (`bank-data`): read for this
 // operation. A key with full access does not include it: grant it explicitly
-// when you create the key, or the call answers `403 bank_data_access_denied`.
-// Reading accounts, balances and transactions in a live application also needs
-// the application setting "Bank data in the API"; a sandbox application reads
-// its Test Bank data with the key alone. A request without an API key (client
-// credentials) is refused on raw data with the same `403`.
+// when you create the key, or the call answers `403 bank_data_access_denied`. A
+// sandbox application reads its Test Bank data with the key alone. A request
+// without an API key (client credentials) is refused on raw data with the same
+// `403`.
 //
 //	GET /v3/bank/accounts/{account_id}/balances/
 func (r *BankService) GetBalances(ctx context.Context, accountID string, opts ...option.RequestOption) (*BankBalances, error) {
@@ -311,11 +310,10 @@ func (r *BankService) GetSyncRun(ctx context.Context, id string, syncID string, 
 //
 // Needs an API key with the Bank data permission (`bank-data`): read for this
 // operation. A key with full access does not include it: grant it explicitly
-// when you create the key, or the call answers `403 bank_data_access_denied`.
-// Reading accounts, balances and transactions in a live application also needs
-// the application setting "Bank data in the API"; a sandbox application reads
-// its Test Bank data with the key alone. A request without an API key (client
-// credentials) is refused on raw data with the same `403`.
+// when you create the key, or the call answers `403 bank_data_access_denied`. A
+// sandbox application reads its Test Bank data with the key alone. A request
+// without an API key (client credentials) is refused on raw data with the same
+// `403`.
 //
 //	GET /v3/bank/connections/{id}/accounts/
 func (r *BankService) ListAccounts(ctx context.Context, id string, params BankListAccountsParams, opts ...option.RequestOption) (*BankAccountList, error) {
@@ -415,11 +413,10 @@ func (r *BankService) ListSyncRuns(ctx context.Context, id string, params BankLi
 //
 // Needs an API key with the Bank data permission (`bank-data`): read for this
 // operation. A key with full access does not include it: grant it explicitly
-// when you create the key, or the call answers `403 bank_data_access_denied`.
-// Reading accounts, balances and transactions in a live application also needs
-// the application setting "Bank data in the API"; a sandbox application reads
-// its Test Bank data with the key alone. A request without an API key (client
-// credentials) is refused on raw data with the same `403`.
+// when you create the key, or the call answers `403 bank_data_access_denied`. A
+// sandbox application reads its Test Bank data with the key alone. A request
+// without an API key (client credentials) is refused on raw data with the same
+// `403`.
 //
 //	GET /v3/bank/accounts/{account_id}/transactions/
 func (r *BankService) ListTransactions(ctx context.Context, accountID string, params BankListTransactionsParams, opts ...option.RequestOption) (*BankTransactionPage, error) {
@@ -477,16 +474,14 @@ func (r *BankService) RefreshConnection(ctx context.Context, id string, params B
 // RenewConnection: Renew a bank connection.
 //
 // Creates a renew link for this connection, a shortcut for `create_link` with
-// `mode: renew`. The person confirms what continues to be shared and signs in
-// at the bank, or reconfirms on Didit's screen where the bank and country allow
-// it (`consent.renewal_action`). The connection id and every account id stay
-// the same, and history continues without duplicates.
+// `mode: renew`. The connection id and every account id stay the same.
+//
+// Opening the returned link on the hosted page is not available yet: the page
+// that lets the person renew is still to be built.
 //
 // Until the consent has 30 days left or fewer it answers `409
 // renewal_not_needed`; after `consent.renewable_until` it answers `409
-// renewal_window_expired` and the person connects again. If the person renews
-// with another bank login, the link ends `failed` with `renewal_login_mismatch`
-// and nothing changes.
+// renewal_window_expired` and the person connects again.
 //
 // Needs an API key with the Bank data permission (`bank-data`): write for this
 // operation, which changes something. A key with full access does not include
@@ -558,11 +553,10 @@ func (r *BankService) RevokeConnection(ctx context.Context, id string, opts ...o
 //
 // Needs an API key with the Bank data permission (`bank-data`): read for this
 // operation. A key with full access does not include it: grant it explicitly
-// when you create the key, or the call answers `403 bank_data_access_denied`.
-// Reading accounts, balances and transactions in a live application also needs
-// the application setting "Bank data in the API"; a sandbox application reads
-// its Test Bank data with the key alone. A request without an API key (client
-// credentials) is refused on raw data with the same `403`.
+// when you create the key, or the call answers `403 bank_data_access_denied`. A
+// sandbox application reads its Test Bank data with the key alone. A request
+// without an API key (client credentials) is refused on raw data with the same
+// `403`.
 //
 //	GET /v3/bank/connections/{id}/transactions/sync/
 func (r *BankService) SyncTransactions(ctx context.Context, id string, params BankSyncTransactionsParams, opts ...option.RequestOption) (*BankTransactionChanges, error) {
@@ -757,10 +751,9 @@ type BankLink struct {
 	// created; `null` on later reads, because the token is not stored.
 	URL string `json:"url"`
 
-	// The token the web and native SDKs take. Returned only when the link is
-	// created; `null` on later reads. Single purpose and short lived: the hosted
-	// `url` and this token are redeemed once between them, and whichever arrives
-	// first wins. It carries no personal data. Never log it.
+	// The token for Didit's embedded Bank Link, which is not released yet: open
+	// `url` today. Returned only when the link is created; `null` on later reads.
+	// Single purpose and short lived. It carries no personal data. Never log it.
 	ClientToken string `json:"client_token"`
 
 	// When an unredeemed link stops working.
@@ -930,7 +923,7 @@ type BankLinkQuoteLine struct {
 
 	// Price of one unit in USD, a decimal string with 4 decimals. Amounts in
 	// examples are illustrative; the price for a country is shown on the pricing
-	// page and in the console.
+	// page.
 	PriceUsd string `json:"price_usd"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -1012,20 +1005,16 @@ type BankLinkCreateRequest struct {
 	EndUser     Opt[BankLinkEndUser]          `json:"end_user"`
 
 	// Where the browser goes at the end, with `link_id`, `status` and a signed
-	// `state` (for display only: the webhook and `get_link` are authoritative).
-	// Must exactly match a redirect URL registered for your application (scheme,
-	// host, port, path and query: no prefix, no trailing-slash or case tolerance),
-	// otherwise the call answers `400 redirect_url_not_registered`. In sandbox
-	// only, a plain `http` address of `localhost`, `127.0.0.1` or `[::1]` (any port
-	// and path, no credentials, no fragment) needs no registration. Without one,
-	// automatic return to your page is not promised: after a full-page bank hop the
-	// person returns to the page that opened the link when its origin is in
-	// `allowed_origins`, and otherwise the flow ends on Didit's own result page.
+	// `state` (for display only: the webhook and `get_link` are authoritative). In
+	// a sandbox application a plain `http` address of `localhost`, `127.0.0.1` or
+	// `[::1]` (any port and path, no credentials, no fragment) needs no
+	// registration. Any other address answers `400 redirect_url_not_registered`:
+	// registering other addresses is not available yet. Without a `redirect_url`
+	// the person finishes on Didit's own result page.
 	RedirectURL Opt[string] `json:"redirect_url"`
 
-	// HTTPS origins allowed to embed this link, up to 50. Must be among your
-	// application's allowed domains, which are the default; an origin outside them
-	// answers `403 link_origin_not_allowed`.
+	// Accepted and not used today: reserved for Didit's embedded Bank Link, which
+	// is not released yet. HTTPS origins, up to 50.
 	AllowedOrigins Opt[[]string] `json:"allowed_origins"`
 
 	// Optional language code such as `es` or `pt-BR`. Otherwise the browser
@@ -1055,8 +1044,8 @@ type BankLinkCreateRequest struct {
 	// `reduced_grant` and nothing is charged.
 	AcceptReducedGrant Opt[bool] `json:"accept_reduced_grant"`
 
-	// Sandbox applications only: shapes what the Didit Test Bank does in this link,
-	// so a test can reach each outcome. Ignored in a live application.
+	// Sandbox applications only: picks the Didit Test Bank customer. Ignored in a
+	// live application.
 	Sandbox Opt[BankLinkCreateRequestSandbox] `json:"sandbox"`
 }
 
@@ -1255,15 +1244,20 @@ const (
 	BankLinkCreateRequestDuplicatesAllow BankLinkCreateRequestDuplicates = "allow"
 )
 
-// BankLinkCreateRequestSandbox: Sandbox applications only: shapes what the
-// Didit Test Bank does in this link, so a test can reach each outcome. Ignored
-// in a live application.
+// BankLinkCreateRequestSandbox: Sandbox applications only: picks the Didit Test
+// Bank customer. Ignored in a live application.
 type BankLinkCreateRequestSandbox struct {
-	// The account set the Test Bank offers. `no_ongoing` makes the bank refuse
-	// ongoing access.
+	// The Test Bank customer: `personal_basic` (one current account, 60 movements),
+	// `business_multi` (three accounts held by a company), `long_history` (one
+	// account with 400 days and 1,400 movements; a read returns the last 365 days,
+	// so set `history_days` to 365), `pending` (includes pending transactions),
+	// `sparse_fields` (no value date, no counterparty IBAN, no bank reference) or
+	// `no_ongoing` (a bank that only allows one-time access: use
+	// `allow_one_time_fallback`).
 	Persona Opt[BankLinkCreateRequestSandboxPersona] `json:"persona"`
 
-	// Behaviours to switch on for the run.
+	// Accepted and reserved for the sandbox simulator: the values change nothing
+	// today.
 	Switches Opt[[]BankLinkCreateRequestSandboxSwitches] `json:"switches"`
 }
 
@@ -1272,8 +1266,13 @@ func (r BankLinkCreateRequestSandbox) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
-// BankLinkCreateRequestSandboxPersona: The account set the Test Bank offers.
-// `no_ongoing` makes the bank refuse ongoing access.
+// BankLinkCreateRequestSandboxPersona: The Test Bank customer: `personal_basic`
+// (one current account, 60 movements), `business_multi` (three accounts held by
+// a company), `long_history` (one account with 400 days and 1,400 movements; a
+// read returns the last 365 days, so set `history_days` to 365), `pending`
+// (includes pending transactions), `sparse_fields` (no value date, no
+// counterparty IBAN, no bank reference) or `no_ongoing` (a bank that only
+// allows one-time access: use `allow_one_time_fallback`).
 //
 // BankLinkCreateRequestSandboxPersona is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -1304,9 +1303,9 @@ const (
 	BankLinkCreateRequestSandboxSwitchesBankAppReturn     BankLinkCreateRequestSandboxSwitches = "bank_app_return"
 )
 
-// BankConnectionDeletion: Accepted deletion. The connection's bank data is
-// being deleted and its data operations answer `409 connection_not_active`;
-// reading the connection returns a minimal record with this `erasure` status.
+// BankConnectionDeletion: The record of a deletion. The connection's bank data
+// is deleted and its data operations answer `409 connection_not_active`;
+// reading the connection returns a minimal record with this `erasure` record.
 type BankConnectionDeletion struct {
 	// The connection id.
 	ID      string                `json:"id"`
@@ -1322,16 +1321,21 @@ func (r *BankConnectionDeletion) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// BankConnectionErasure: Progress of a deletion you asked for.
+// BankConnectionErasure: The record of a deletion you asked for. The deletion
+// itself is immediate: the connection's data is deleted and unreadable when the
+// call returns. `status` is the confirmation of it.
 type BankConnectionErasure struct {
-	// `pending` while deletion runs, `erased` when no stored copy and no access at
-	// the bank remain, `failed` when it could not be confirmed within 24 hours. A
-	// failed deletion keeps the connection's data closed, is retried, and Didit is
-	// alerted.
-	Status      BankConnectionErasureStatus `json:"status"`
-	RequestedAt time.Time                   `json:"requested_at"`
+	// The confirmation of the deletion. `pending`: the deletion is being confirmed,
+	// including the end of access at the bank. `erased`: confirmed, with
+	// `erased_at`. `failed`: the confirmation has not arrived yet and is repeated
+	// automatically; nothing is needed from you. The data is deleted and not
+	// readable in any of the three.
+	Status BankConnectionErasureStatus `json:"status"`
 
-	// When the deletion finished. `null` until `status` is `erased`.
+	// When you asked for the deletion.
+	RequestedAt time.Time `json:"requested_at"`
+
+	// When the deletion was confirmed. `null` until `status` is `erased`.
 	ErasedAt time.Time `json:"erased_at"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -1344,10 +1348,11 @@ func (r *BankConnectionErasure) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// BankConnectionErasureStatus: `pending` while deletion runs, `erased` when no
-// stored copy and no access at the bank remain, `failed` when it could not be
-// confirmed within 24 hours. A failed deletion keeps the connection's data
-// closed, is retried, and Didit is alerted.
+// BankConnectionErasureStatus: The confirmation of the deletion. `pending`: the
+// deletion is being confirmed, including the end of access at the bank.
+// `erased`: confirmed, with `erased_at`. `failed`: the confirmation has not
+// arrived yet and is repeated automatically; nothing is needed from you. The
+// data is deleted and not readable in any of the three.
 //
 // BankConnectionErasureStatus is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -1710,7 +1715,7 @@ type BankConnection struct {
 
 	// Why the connection is in this status. `paused_by_customer` is reserved. On a
 	// `deleted` connection: `deleted_by_customer`, `consent_lapsed`,
-	// `retention_elapsed`, `application_deleted` or `restored_after_deletion`.
+	// `retention_elapsed` or `application_deleted`.
 	StatusReason BankConnectionStatusReason `json:"status_reason"`
 	Institution  BankInstitutionSummary     `json:"institution"`
 	Segment      BankConnectionSegment      `json:"segment"`
@@ -1726,7 +1731,7 @@ type BankConnection struct {
 	Ownership BankConnectionOwnership        `json:"ownership"`
 	EndUser   BankConnectionEndUser          `json:"end_user"`
 
-	// Reserved. Always `null`.
+	// The person's own access page. `null` until the access page is available.
 	ManageURL string                `json:"manage_url"`
 	Billing   BankConnectionBilling `json:"billing"`
 
@@ -1794,8 +1799,8 @@ const (
 
 // BankConnectionStatusReason: Why the connection is in this status.
 // `paused_by_customer` is reserved. On a `deleted` connection:
-// `deleted_by_customer`, `consent_lapsed`, `retention_elapsed`,
-// `application_deleted` or `restored_after_deletion`.
+// `deleted_by_customer`, `consent_lapsed`, `retention_elapsed` or
+// `application_deleted`.
 //
 // BankConnectionStatusReason is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -1803,20 +1808,19 @@ type BankConnectionStatusReason string
 
 // Known values of BankConnectionStatusReason.
 const (
-	BankConnectionStatusReasonCollectionComplete    BankConnectionStatusReason = "collection_complete"
-	BankConnectionStatusReasonConsentExpired        BankConnectionStatusReason = "consent_expired"
-	BankConnectionStatusReasonConsentLapsed         BankConnectionStatusReason = "consent_lapsed"
-	BankConnectionStatusReasonBankRequiresSignIn    BankConnectionStatusReason = "bank_requires_sign_in"
-	BankConnectionStatusReasonRevokedByEndUser      BankConnectionStatusReason = "revoked_by_end_user"
-	BankConnectionStatusReasonRevokedByBank         BankConnectionStatusReason = "revoked_by_bank"
-	BankConnectionStatusReasonRevokedByCustomer     BankConnectionStatusReason = "revoked_by_customer"
-	BankConnectionStatusReasonInsufficientBalance   BankConnectionStatusReason = "insufficient_balance"
-	BankConnectionStatusReasonPausedByCustomer      BankConnectionStatusReason = "paused_by_customer"
-	BankConnectionStatusReasonFirstSyncFailed       BankConnectionStatusReason = "first_sync_failed"
-	BankConnectionStatusReasonDeletedByCustomer     BankConnectionStatusReason = "deleted_by_customer"
-	BankConnectionStatusReasonRetentionElapsed      BankConnectionStatusReason = "retention_elapsed"
-	BankConnectionStatusReasonApplicationDeleted    BankConnectionStatusReason = "application_deleted"
-	BankConnectionStatusReasonRestoredAfterDeletion BankConnectionStatusReason = "restored_after_deletion"
+	BankConnectionStatusReasonCollectionComplete  BankConnectionStatusReason = "collection_complete"
+	BankConnectionStatusReasonConsentExpired      BankConnectionStatusReason = "consent_expired"
+	BankConnectionStatusReasonConsentLapsed       BankConnectionStatusReason = "consent_lapsed"
+	BankConnectionStatusReasonBankRequiresSignIn  BankConnectionStatusReason = "bank_requires_sign_in"
+	BankConnectionStatusReasonRevokedByEndUser    BankConnectionStatusReason = "revoked_by_end_user"
+	BankConnectionStatusReasonRevokedByBank       BankConnectionStatusReason = "revoked_by_bank"
+	BankConnectionStatusReasonRevokedByCustomer   BankConnectionStatusReason = "revoked_by_customer"
+	BankConnectionStatusReasonInsufficientBalance BankConnectionStatusReason = "insufficient_balance"
+	BankConnectionStatusReasonPausedByCustomer    BankConnectionStatusReason = "paused_by_customer"
+	BankConnectionStatusReasonFirstSyncFailed     BankConnectionStatusReason = "first_sync_failed"
+	BankConnectionStatusReasonDeletedByCustomer   BankConnectionStatusReason = "deleted_by_customer"
+	BankConnectionStatusReasonRetentionElapsed    BankConnectionStatusReason = "retention_elapsed"
+	BankConnectionStatusReasonApplicationDeleted  BankConnectionStatusReason = "application_deleted"
 )
 
 // BankInstitutionSummary: The bank a connection or link is for.
@@ -2026,8 +2030,7 @@ type BankConnectionSync struct {
 
 	// How many times a day the automatic sync runs for this connection, between one
 	// and four depending on the bank. Where the bank allows more unattended reads,
-	// at least two a day always remain for live syncs. Your application can lower
-	// it to once a day in its settings.
+	// at least two a day always remain for live syncs.
 	FrequencyPerDay int64 `json:"frequency_per_day"`
 
 	// How many live syncs (`refresh_connection`) are left today within the bank's
@@ -2301,7 +2304,7 @@ type BankConnectionBilling struct {
 	// access is billed per active connection per month; the current price is on the
 	// pricing page (https://docs.didit.me/getting-started/pricing). Amounts in
 	// examples are illustrative; the price for a country is shown on the pricing
-	// page and in the console.
+	// page.
 	PriceUsd string `json:"price_usd"`
 
 	// The last month end already settled.
@@ -3185,14 +3188,14 @@ const (
 // BankRenewLinkRequest: Optional settings of a renew link. The rest comes from
 // the connection.
 type BankRenewLinkRequest struct {
-	// Where the browser goes at the end. Must exactly match a registered redirect
-	// URL (scheme, host, port, path and query), otherwise `400
-	// redirect_url_not_registered`. In sandbox only, a plain `http` localhost
-	// address needs no registration.
+	// Where the browser goes at the end. In a sandbox application a plain `http`
+	// address of `localhost`, `127.0.0.1` or `[::1]` needs no registration. Any
+	// other address answers `400 redirect_url_not_registered`: registering other
+	// addresses is not available yet.
 	RedirectURL Opt[string] `json:"redirect_url"`
 
-	// HTTPS origins allowed to embed this link, up to 50, among your application's
-	// allowed domains.
+	// Accepted and not used today: reserved for Didit's embedded Bank Link, which
+	// is not released yet. HTTPS origins, up to 50.
 	AllowedOrigins Opt[[]string] `json:"allowed_origins"`
 	Language       Opt[string]   `json:"language"`
 
