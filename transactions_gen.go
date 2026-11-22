@@ -714,13 +714,11 @@ type TransactionsCreateParams struct {
 	// required and obligations_count, and uses originator_data, beneficiary_data
 	// and metadata. Otherwise Didit stores these values as a passive Travel Rule
 	// record. While Travel Rule is on, an outbound transfer at or above your
-	// threshold must carry what its regime requires (EU TFR, FINTRAC for `canada`,
-	// FinCEN for `us`, or FATF Recommendation 16), checked on the sides you send: a
-	// missing field answers 400 under `travel_rule_details.originator_data` or
+	// threshold must carry what its regime requires (EU TFR or FATF Recommendation
+	// 16), checked on the sides you send: a missing field answers 400 under
+	// `travel_rule_details.originator_data` or
 	// `travel_rule_details.beneficiary_data`, for example "EU TFR requires the
-	// originator name." or "FinCEN's travel rule requires the originator's address
-	// (structured: town_name, country and an address_line, or a street_name with a
-	// building_number or building_name)."
+	// originator name."
 	TravelRuleDetails Opt[TransactionsCreateParamsTravelRuleDetails] `json:"travel_rule_details"`
 
 	// Pre-computed network graph snapshot.
@@ -1220,13 +1218,10 @@ func (r TransactionsCreateParamsCounterpartyPaymentMethod) MarshalJSON() ([]byte
 // originator_data, beneficiary_data and metadata. Otherwise Didit stores these
 // values as a passive Travel Rule record. While Travel Rule is on, an outbound
 // transfer at or above your threshold must carry what its regime requires (EU
-// TFR, FINTRAC for `canada`, FinCEN for `us`, or FATF Recommendation 16),
-// checked on the sides you send: a missing field answers 400 under
-// `travel_rule_details.originator_data` or
+// TFR or FATF Recommendation 16), checked on the sides you send: a missing
+// field answers 400 under `travel_rule_details.originator_data` or
 // `travel_rule_details.beneficiary_data`, for example "EU TFR requires the
-// originator name." or "FinCEN's travel rule requires the originator's address
-// (structured: town_name, country and an address_line, or a street_name with a
-// building_number or building_name)."
+// originator name."
 type TransactionsCreateParamsTravelRuleDetails struct {
 	// Required whenever you send travel_rule_details. One of the Travel Rule
 	// transfer statuses (for example AWAITING_COUNTERPARTY, COMPLETED,
