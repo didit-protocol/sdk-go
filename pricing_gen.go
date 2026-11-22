@@ -119,8 +119,9 @@ const (
 
 // BankStatementUploadPricing: How the bank statement upload is priced.
 type BankStatementUploadPricing struct {
-	// Price of a statement upload after a charged bank attempt. Decimal string with
-	// 4 decimals, in USD.
+	// Price of a statement upload with no charged bank attempt before it. After a
+	// charged bank attempt in the same session the statement costs nothing extra.
+	// Decimal string with 4 decimals, in USD.
 	PriceUsd string `json:"price_usd"`
 
 	// `true` when the upload is included at no extra charge after a charged bank
@@ -128,7 +129,7 @@ type BankStatementUploadPricing struct {
 	IncludedAfterChargedBankAttempt bool `json:"included_after_charged_bank_attempt"`
 
 	// `true` when a statement upload can run on its own, with no bank attempt
-	// first. `false` in production; sandbox sessions can test it without billing.
+	// first, at `price_usd`.
 	StandaloneAvailable bool `json:"standalone_available"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
