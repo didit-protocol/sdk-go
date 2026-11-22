@@ -1,0 +1,4 @@
+{
+ "description": "Public SDK methods kept for one more minor version after the API contract dropped them (docs/DESIGN.md section 3.1). Written by `go run ./codegen sync`, keyed by resource.method. reason is removed (the operation left the contract) or renamed (its x-didit-sdk naming changed; replacement names the new method). Each entry holds the operation as it was, with its $refs intact, and under components every component it reaches, so the generator keeps the method and its types under the same Go names. codegen/deprecated_test.go fails once internal/version.Version reaches remove_in: delete the entry and run `go run ./codegen` in that release.",
+ "methods": {}
+}
