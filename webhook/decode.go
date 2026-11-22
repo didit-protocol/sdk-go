@@ -77,6 +77,85 @@ func newEvent(body map[string]any, raw []byte, authenticated bool, limit int) Ev
 			SearchResolved: boolField(body, "search_resolved"),
 			KYBRegistry:    rawField(body, "kyb_registry", limit),
 		}
+	case TypeBankLinkCompleted:
+		return &BankLinkCompletedEvent{EventEnvelope: env, BankLinkFields: bankLinkFields(body)}
+	case TypeBankLinkCancelled:
+		return &BankLinkCancelledEvent{EventEnvelope: env, BankLinkFields: bankLinkFields(body)}
+	case TypeBankLinkExpired:
+		return &BankLinkExpiredEvent{EventEnvelope: env, BankLinkFields: bankLinkFields(body)}
+	case TypeBankLinkFailed:
+		return &BankLinkFailedEvent{EventEnvelope: env, BankLinkFields: bankLinkFields(body)}
+	case TypeBankConnectionCreated:
+		return &BankConnectionCreatedEvent{EventEnvelope: env, BankConnectionFields: bankConnectionFields(body)}
+	case TypeBankConnectionUpdated:
+		return &BankConnectionUpdatedEvent{EventEnvelope: env, BankConnectionFields: bankConnectionFields(body)}
+	case TypeBankConnectionRenewalRequired:
+		return &BankConnectionRenewalRequiredEvent{EventEnvelope: env, BankConnectionFields: bankConnectionFields(body)}
+	case TypeBankConnectionRenewed:
+		return &BankConnectionRenewedEvent{EventEnvelope: env, BankConnectionFields: bankConnectionFields(body)}
+	case TypeBankConnectionHistoryComplete:
+		return &BankConnectionHistoryCompleteEvent{EventEnvelope: env, BankConnectionFields: bankConnectionFields(body)}
+	case TypeBankConnectionConsentExpiring:
+		data := bankData(body)
+		return &BankConnectionConsentExpiringEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(data, "connection_id"),
+			DaysLeft:      intField(data, "days_left"),
+			ExpiresAt:     timeField(data, "expires_at"),
+			RenewURL:      stringField(data, "renew_url"),
+		}
+	case TypeBankConnectionRevoked:
+		data := bankData(body)
+		return &BankConnectionRevokedEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(data, "connection_id"),
+			Status:        BankConnectionRevokedStatus(stringField(data, "status")),
+			EndedBy:       BankConnectionEndedBy(stringField(data, "ended_by")),
+		}
+	case TypeBankConnectionDeleted:
+		data := bankData(body)
+		return &BankConnectionDeletedEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(data, "connection_id"),
+			ErasureStatus: BankErasureStatus(stringField(data, "erasure_status")),
+		}
+	case TypeBankDataUpdated:
+		data := bankData(body)
+		return &BankDataUpdatedEvent{
+			EventEnvelope:   env,
+			ConnectionID:    stringField(data, "connection_id"),
+			SyncID:          stringField(data, "sync_id"),
+			AccountIDs:      stringSliceField(data, "account_ids"),
+			Added:           intField(data, "added"),
+			Modified:        intField(data, "modified"),
+			Removed:         intField(data, "removed"),
+			BalancesChanged: boolField(data, "balances_changed"),
+		}
+	case TypeBankSyncCompleted:
+		data := bankData(body)
+		return &BankSyncCompletedEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(data, "connection_id"),
+			SyncID:        stringField(data, "sync_id"),
+			Trigger:       BankSyncTrigger(stringField(data, "trigger")),
+			Outcome:       BankSyncOutcome(stringField(data, "outcome")),
+			Changed:       boolField(data, "changed"),
+		}
+	case TypeBankSyncFailed:
+		data := bankData(body)
+		return &BankSyncFailedEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(data, "connection_id"),
+			SyncID:        stringField(data, "sync_id"),
+			ErrorCode:     stringField(data, "error_code"),
+		}
+	case TypeBankSyncRecovered:
+		data := bankData(body)
+		return &BankSyncRecoveredEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(data, "connection_id"),
+			SyncID:        stringField(data, "sync_id"),
+		}
 	default:
 		return &UnknownEvent{EventEnvelope: env, Payload: body}
 	}
@@ -111,6 +190,33 @@ func businessFields(body map[string]any) BusinessFields {
 		VendorData:       stringField(body, "vendor_data"),
 		Status:           EntityStatus(stringField(body, "status")),
 	}
+}
+
+func bankLinkFields(body map[string]any) BankLinkFields {
+	data := bankData(body)
+	return BankLinkFields{
+		LinkID:       stringField(data, "link_id"),
+		Status:       BankLinkStatus(stringField(data, "status")),
+		ConnectionID: stringField(data, "connection_id"),
+		CheckID:      stringField(data, "check_id"),
+		ErrorCode:    BankLinkErrorCode(stringField(data, "error_code")),
+	}
+}
+
+func bankConnectionFields(body map[string]any) BankConnectionFields {
+	data := bankData(body)
+	return BankConnectionFields{
+		ConnectionID: stringField(data, "connection_id"),
+		Status:       BankConnectionStatus(stringField(data, "status")),
+		StatusReason: BankConnectionStatusReason(stringField(data, "status_reason")),
+	}
+}
+
+// bankData returns the event's data object, or nil when it is missing or not
+// an object. Every field read from a nil map is left at its zero value.
+func bankData(body map[string]any) map[string]any {
+	data, _ := body["data"].(map[string]any)
+	return data
 }
 
 func transactionFields(body map[string]any, limit int) TransactionFields {
@@ -216,6 +322,46 @@ func unixField(body map[string]any, key string) int64 {
 func boolField(body map[string]any, key string) bool {
 	b, _ := body[key].(bool)
 	return b
+}
+
+// timeField returns an RFC 3339 date-time field, or the zero time when it is
+// missing or not a date-time.
+func timeField(body map[string]any, key string) time.Time {
+	s, ok := body[key].(string)
+	if !ok {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// stringSliceField returns a string array field. Values of another JSON type
+// are skipped; a missing or non-array field gives nil.
+func stringSliceField(body map[string]any, key string) []string {
+	items, ok := body[key].([]any)
+	if !ok {
+		if strings, ok := body[key].([]string); ok {
+			return strings
+		}
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+			continue
+		}
+		if s := stringField(map[string]any{"value": item}, "value"); s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // rawField returns a field as JSON in canonical form, or nil when the field
