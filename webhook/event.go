@@ -61,6 +61,23 @@ const (
 	TypeTravelRuleStatusUpdated   Type = "travel_rule.status.updated"
 	TypeWorkflowComplianceChanged Type = "workflow.compliance_changed"
 	TypeKYBRegistrySearchResolved Type = "kyb.registry_search.resolved"
+
+	TypeBankLinkCompleted               Type = "bank.link.completed"
+	TypeBankLinkCancelled               Type = "bank.link.cancelled"
+	TypeBankLinkExpired                 Type = "bank.link.expired"
+	TypeBankLinkFailed                  Type = "bank.link.failed"
+	TypeBankConnectionCreated           Type = "bank.connection.created"
+	TypeBankConnectionUpdated           Type = "bank.connection.updated"
+	TypeBankConnectionConsentExpiring   Type = "bank.connection.consent_expiring"
+	TypeBankConnectionRenewalRequired   Type = "bank.connection.renewal_required"
+	TypeBankConnectionRenewed           Type = "bank.connection.renewed"
+	TypeBankConnectionRevoked           Type = "bank.connection.revoked"
+	TypeBankConnectionDeleted           Type = "bank.connection.deleted"
+	TypeBankConnectionHistoryComplete   Type = "bank.connection.history_complete"
+	TypeBankDataUpdated                 Type = "bank.data.updated"
+	TypeBankSyncCompleted               Type = "bank.sync.completed"
+	TypeBankSyncFailed                  Type = "bank.sync.failed"
+	TypeBankSyncRecovered               Type = "bank.sync.recovered"
 )
 
 // Environment is the environment of the application that sent the webhook.
