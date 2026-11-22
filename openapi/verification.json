@@ -100980,7 +100980,7 @@
       },
       "delete": {
         "summary": "Delete a bank connection",
-        "description": "Deletes the connection's bank data and stops access at the bank. The connection's accounts, balances, transactions, sync history, consent records and ownership results are deleted. Deletion is irreversible.\n\nIt starts at once: the response is `202` with `erasure.status` `pending`, and from that moment the connection's data operations (refresh, sync runs, accounts, balances, transactions and the change feed) answer `409 connection_not_active`. The connection then reads with `erasure.status` `erased`, or `failed` if deletion could not be confirmed within 24 hours; a failed deletion is retried until it completes. A deleted connection reads as a minimal record: its id, `status: deleted`, the reason, its dates and its `erasure` status, and it holds no accounts, balances, transactions, consent or sync data.\n\nNot affected: your other connections, the charges already made (they are not refunded), and any data you already downloaded, which is your own copy. Repeating the call returns the current state. To stop access without deleting, use `revoke_connection`.\n\nNeeds an API key with the Bank data permission (`bank-data`): write for this operation, which changes something. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`.",
+        "description": "Deletes the connection's bank data and stops access at the bank. Deletion is immediate and irreversible: when the call returns, the connection's accounts, balances, transactions, sync history, consent records and ownership results are deleted, and its data operations (refresh, sync runs, accounts, balances, transactions and the change feed) answer `409 connection_not_active`.\n\nA deleted connection reads as a minimal record: its id, `status: deleted`, the reason, its dates and its `erasure` record (`requested_at`, `erased_at` and `status`, the confirmation of the deletion: `pending` while it is being confirmed, including the end of access at the bank, `erased` once confirmed, `failed` if the confirmation has not arrived yet and is repeated automatically, with nothing needed from you). It holds no accounts, balances, transactions, consent or sync data. `bank.connection.deleted` confirms the deletion.\n\nNot affected: your other connections, the charges already made (they are not refunded), and any data you already downloaded, which is your own copy. Repeating the call is safe. To stop access without deleting, use `revoke_connection`.\n\nNeeds an API key with the Bank data permission (`bank-data`): write for this operation, which changes something. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`.",
         "operationId": "deleteBankConnection",
         "tags": [
           "Bank Data"
@@ -101013,7 +101013,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Deletion accepted.",
+            "description": "The connection was deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -101021,13 +101021,13 @@
                 },
                 "examples": {
                   "Accepted": {
-                    "summary": "Deletion pending",
+                    "summary": "A deleted connection",
                     "value": {
                       "id": "5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35",
                       "erasure": {
-                        "status": "pending",
+                        "status": "erased",
                         "requested_at": "2026-11-21T15:10:00Z",
-                        "erased_at": null
+                        "erased_at": "2026-11-21T15:10:00Z"
                       }
                     }
                   }
@@ -147250,7 +147250,7 @@
       },
       "BankConnectionErasure": {
         "type": "object",
-        "description": "Progress of a deletion you asked for.",
+        "description": "The record of a deletion you asked for. The deletion itself is immediate: the connection's data is deleted and unreadable when the call returns. `status` is the confirmation of it.",
         "properties": {
           "status": {
             "type": "string",
@@ -147259,17 +147259,18 @@
               "erased",
               "failed"
             ],
-            "description": "`pending` while deletion runs, `erased` when no stored copy and no access at the bank remain, `failed` when it could not be confirmed within 24 hours. A failed deletion keeps the connection's data closed, is retried, and Didit is alerted."
+            "description": "The confirmation of the deletion. `pending`: the deletion is being confirmed, including the end of access at the bank. `erased`: confirmed, with `erased_at`. `failed`: the confirmation has not arrived yet and is repeated automatically; nothing is needed from you. The data is deleted and not readable in any of the three."
           },
           "requested_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When you asked for the deletion."
           },
           "erased_at": {
             "type": "string",
             "format": "date-time",
             "nullable": true,
-            "description": "When the deletion finished. `null` until `status` is `erased`."
+            "description": "When the deletion was confirmed. `null` until `status` is `erased`."
           }
         },
         "required": [
@@ -147456,7 +147457,7 @@
       },
       "BankConnectionDeletion": {
         "type": "object",
-        "description": "Accepted deletion. The connection's bank data is being deleted and its data operations answer `409 connection_not_active`; reading the connection returns a minimal record with this `erasure` status.",
+        "description": "The record of a deletion. The connection's bank data is deleted and its data operations answer `409 connection_not_active`; reading the connection returns a minimal record with this `erasure` record.",
         "properties": {
           "id": {
             "type": "string",
@@ -148863,7 +148864,7 @@
             "enum": [
               "erased"
             ],
-            "description": "The deletion finished."
+            "description": "The confirmation of the deletion: `erased`."
           },
           "reason": {
             "type": "string",
