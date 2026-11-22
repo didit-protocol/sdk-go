@@ -247,6 +247,7 @@ switch e := event.(type) {
 case *webhook.StatusUpdatedEvent:            // status.updated: e.SessionID, e.Status, e.Decision
 case *webhook.TransactionStatusUpdatedEvent: // transaction.status.updated: e.TransactionID, e.Status, e.Score
 case *webhook.TravelRuleStatusUpdatedEvent:  // travel_rule.status.updated
+case *webhook.BankConnectionCreatedEvent:    // bank.connection.created: e.ConnectionID, e.Status
 case *webhook.UnknownEvent:                  // a type this version does not know: e.Payload
 }
 ```
@@ -282,6 +283,29 @@ The list prices of every Bank Verification method, by country, come from a publi
 ```go
 prices, err := client.Pricing.BankVerification(ctx)
 ```
+
+## Bank data and Bank Link
+
+The `bank` resource covers Bank Link, connections, accounts, balances, transactions, sync runs, institutions and coverage. Bank data needs the `bank-data` permission on the API key (a key without it answers `403 bank_data_access_denied`).
+
+```go
+link, err := client.Bank.CreateLink(ctx, didit.BankLinkCreateRequest{
+	Access: didit.Some(didit.BankLinkCreateRequestAccessOngoing),
+	Data: didit.Some([]didit.BankLinkCreateRequestData{
+		didit.BankLinkCreateRequestDataAccounts,
+		didit.BankLinkCreateRequestDataBalances,
+		didit.BankLinkCreateRequestDataTransactions,
+	}),
+})
+fmt.Println("send the person to", link.URL)
+
+// Wait for the bank.connection.created webhook; its ConnectionID is the
+// connection to read.
+accounts, err := client.Bank.ListAccounts(ctx, connectionID, didit.BankListAccountsParams{})
+next := accounts.NextCursor // pass it back as Cursor for the next page
+```
+
+Bank lists are cursor-paginated (`Cursor` and `NextCursor`), transaction reads use `PageToken` and `NextPageToken`, and amounts are decimal strings, never floats. Writes take `option.WithIdempotencyKey("...")`. The `bank.link.*`, `bank.connection.*`, `bank.data.updated` and `bank.sync.*` webhooks have typed events. See the [bank example](examples/bank) for the full wait-for-connection flow.
 
 ## Authentication
 

@@ -21,6 +21,23 @@ var expectedType = map[string]reflect.Type{
 	"user.status.updated":        reflect.TypeOf(&webhook.UserStatusUpdatedEvent{}),
 	"transaction.status.updated": reflect.TypeOf(&webhook.TransactionStatusUpdatedEvent{}),
 	"travel_rule.status.updated": reflect.TypeOf(&webhook.TravelRuleStatusUpdatedEvent{}),
+
+	"bank.link.completed":              reflect.TypeOf(&webhook.BankLinkCompletedEvent{}),
+	"bank.link.cancelled":              reflect.TypeOf(&webhook.BankLinkCancelledEvent{}),
+	"bank.link.expired":                reflect.TypeOf(&webhook.BankLinkExpiredEvent{}),
+	"bank.link.failed":                 reflect.TypeOf(&webhook.BankLinkFailedEvent{}),
+	"bank.connection.created":          reflect.TypeOf(&webhook.BankConnectionCreatedEvent{}),
+	"bank.connection.updated":          reflect.TypeOf(&webhook.BankConnectionUpdatedEvent{}),
+	"bank.connection.consent_expiring": reflect.TypeOf(&webhook.BankConnectionConsentExpiringEvent{}),
+	"bank.connection.renewal_required": reflect.TypeOf(&webhook.BankConnectionRenewalRequiredEvent{}),
+	"bank.connection.renewed":          reflect.TypeOf(&webhook.BankConnectionRenewedEvent{}),
+	"bank.connection.revoked":          reflect.TypeOf(&webhook.BankConnectionRevokedEvent{}),
+	"bank.connection.deleted":          reflect.TypeOf(&webhook.BankConnectionDeletedEvent{}),
+	"bank.connection.history_complete": reflect.TypeOf(&webhook.BankConnectionHistoryCompleteEvent{}),
+	"bank.data.updated":                reflect.TypeOf(&webhook.BankDataUpdatedEvent{}),
+	"bank.sync.completed":              reflect.TypeOf(&webhook.BankSyncCompletedEvent{}),
+	"bank.sync.failed":                 reflect.TypeOf(&webhook.BankSyncFailedEvent{}),
+	"bank.sync.recovered":              reflect.TypeOf(&webhook.BankSyncRecoveredEvent{}),
 }
 
 func TestVectorsCanonical(t *testing.T) {

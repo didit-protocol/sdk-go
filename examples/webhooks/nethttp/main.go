@@ -66,6 +66,8 @@ func handle(event webhook.Event) {
 		log.Printf("transaction %s is %s (score %v)", e.TxnID, e.Status, e.Score)
 	case *webhook.TravelRuleStatusUpdatedEvent:
 		log.Printf("Travel Rule for transaction %s is %s", e.TxnID, e.TravelRuleStatus)
+	case *webhook.BankConnectionCreatedEvent:
+		log.Printf("bank connection %s is %s", e.ConnectionID, e.Status)
 	case *webhook.UnknownEvent:
 		log.Printf("ignoring webhook type %s", e.Type())
 	}
