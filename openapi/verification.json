@@ -83709,9 +83709,9 @@
                     "value": {
                       "currency": "USD",
                       "statement_upload": {
-                        "price_usd": "0.0000",
+                        "price_usd": "0.2000",
                         "included_after_charged_bank_attempt": true,
-                        "standalone_available": false
+                        "standalone_available": true
                       },
                       "own_provider_fee_usd": "0.0200",
                       "countries": {
@@ -135381,8 +135381,8 @@
         "properties": {
           "price_usd": {
             "type": "string",
-            "description": "Price of a statement upload after a charged bank attempt. Decimal string with 4 decimals, in USD.",
-            "example": "0.0000"
+            "description": "Price of a statement upload with no charged bank attempt before it. After a charged bank attempt in the same session the statement costs nothing extra. Decimal string with 4 decimals, in USD.",
+            "example": "0.2000"
           },
           "included_after_charged_bank_attempt": {
             "type": "boolean",
@@ -135391,8 +135391,8 @@
           },
           "standalone_available": {
             "type": "boolean",
-            "description": "`true` when a statement upload can run on its own, with no bank attempt first. `false` in production; sandbox sessions can test it without billing.",
-            "example": false
+            "description": "`true` when a statement upload can run on its own, with no bank attempt first, at `price_usd`.",
+            "example": true
           }
         }
       },
