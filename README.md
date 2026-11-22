@@ -299,8 +299,9 @@ link, err := client.Bank.CreateLink(ctx, didit.BankLinkCreateRequest{
 })
 fmt.Println("send the person to", link.URL)
 
-// Wait for the bank.connection.created webhook, then read the accounts.
-accounts, err := client.Bank.ListAccounts(ctx, link.ConnectionID, didit.BankListAccountsParams{})
+// Wait for the bank.connection.created webhook; its ConnectionID is the
+// connection to read.
+accounts, err := client.Bank.ListAccounts(ctx, connectionID, didit.BankListAccountsParams{})
 next := accounts.NextCursor // pass it back as Cursor for the next page
 ```
 
