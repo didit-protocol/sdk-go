@@ -318,4 +318,4 @@ A live sync beyond the bank's daily limit answers `429` with `code: refresh_limi
 
 ### 16.3 Webhook events
 
-The typed `bank.*` events are part of the union in section 9.4. Their `data` object is ids and statuses only: `connection_id`, `link_id`, `check_id`, `status`, `status_reason`, `ended_by`, `account_ids`, the counts `added`, `modified` and `removed`, `outcome` and `changed`. `bank.connection.consent_expiring` also carries `days_left`, `expires_at` and, when automatic renew links are on, `renew_url` (a credential: never log it). The envelope is the same as every other event.
+The typed `bank.*` events are part of the union in section 9.4. Their `data` object is ids and statuses only: `connection_id`, `link_id`, `check_id`, `status`, `status_reason`, `ended_by`, `account_ids`, the counts `added`, `modified` and `removed`, `outcome` and `changed`. The first read of a connection also publishes `bank.data.updated`. `bank.connection.consent_expiring` also carries `days_left`, `expires_at` and, when automatic renew links are on, `renew_url` (a credential: never log it). The envelope is the same as every other event.
