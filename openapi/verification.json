@@ -149875,7 +149875,7 @@
           },
           "language": {
             "type": "string",
-            "description": "Optional. One of the [supported languages](/integration/supported-languages), the same codes the `language` of the session API takes, for example `es`, `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and case-sensitive (`ES` and `pt-PT` are refused). A code outside that list answers `400 invalid_request` with `field: language`. Otherwise the browser language.",
+            "description": "Optional. One of the [supported languages](/integration/supported-languages), the same codes the `language` of the session API takes, for example `es`, `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and case-sensitive (`ES` and `pt-PT` are refused). A code outside that list answers `400 invalid_request` with `field: language`. The language of the hosted page and of the consent text is, in this order: the language the person chose on the page, this `language`, the browser's language, then English.",
             "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
             "maxLength": 16
           },
@@ -150736,7 +150736,7 @@
             "type": "string",
             "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
             "maxLength": 16,
-            "description": "Optional. One of the [supported languages](/integration/supported-languages), the same codes the `language` of the session API takes, for example `es`, `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and case-sensitive (`ES` and `pt-PT` are refused). A code outside that list answers `400 invalid_request` with `field: language`."
+            "description": "Optional. One of the [supported languages](/integration/supported-languages), the same codes the `language` of the session API takes, for example `es`, `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and case-sensitive (`ES` and `pt-PT` are refused). A code outside that list answers `400 invalid_request` with `field: language`. The language of the hosted page and of the consent text is, in this order: the language the person chose on the page, this `language`, the browser's language, then English."
           },
           "expires_in": {
             "type": "integer",

@@ -1160,8 +1160,10 @@ type BankLinkCreateRequest struct {
 	// the same codes the `language` of the session API takes, for example `es`,
 	// `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and
 	// case-sensitive (`ES` and `pt-PT` are refused). A code outside that list
-	// answers `400 invalid_request` with `field: language`. Otherwise the browser
-	// language.
+	// answers `400 invalid_request` with `field: language`. The language of the
+	// hosted page and of the consent text is, in this order: the language the
+	// person chose on the page, this `language`, the browser's language, then
+	// English.
 	Language Opt[string] `json:"language"`
 
 	// Your own reference, returned on the link and the connection.
@@ -3372,7 +3374,10 @@ type BankRenewLinkRequest struct {
 	// the same codes the `language` of the session API takes, for example `es`,
 	// `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and
 	// case-sensitive (`ES` and `pt-PT` are refused). A code outside that list
-	// answers `400 invalid_request` with `field: language`.
+	// answers `400 invalid_request` with `field: language`. The language of the
+	// hosted page and of the consent text is, in this order: the language the
+	// person chose on the page, this `language`, the browser's language, then
+	// English.
 	Language Opt[string] `json:"language"`
 
 	// Lifetime in seconds, 300 to 86400.
