@@ -93,19 +93,13 @@ func main() {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		current, err := client.Bank.GetLink(r.Context(), link.ID)
-		if err != nil || current.ConnectionID == "" {
-			// The creation event can arrive before the link exposes its connection.
-			http.Error(w, "retry link lookup", http.StatusServiceUnavailable)
-			return
-		}
-		if current.ConnectionID != created.ConnectionID {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		page, err := client.Bank.ListAccounts(r.Context(), current.ConnectionID, didit.BankListAccountsParams{})
+		page, err := accountsForConnection(r.Context(), client, link.ID, created.ConnectionID)
 		if err != nil {
 			http.Error(w, "retry account read", http.StatusServiceUnavailable)
+			return
+		}
+		if page == nil {
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -116,7 +110,6 @@ func main() {
 	})
 
 	srv := &http.Server{
-
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -146,7 +139,22 @@ func main() {
 	case <-timer.C:
 		log.Fatal("timed out waiting for bank.connection.created; open the link and check the webhook destination")
 	}
+}
 
+// An application receives connection events for all its users. A nil page
+// means this delivery belongs to another link.
+func accountsForConnection(ctx context.Context, client *didit.Client, linkID, connectionID string) (*didit.BankAccountList, error) {
+	link, err := client.Bank.GetLink(ctx, linkID)
+	if err != nil {
+		return nil, err
+	}
+	if link.ConnectionID == "" {
+		return nil, errors.New("link has no connection yet")
+	}
+	if connectionID != link.ConnectionID {
+		return nil, nil
+	}
+	return client.Bank.ListAccounts(ctx, link.ConnectionID, didit.BankListAccountsParams{})
 }
 
 func randomKey() string {
