@@ -329,6 +329,13 @@ func (r *BankService) ListAccounts(ctx context.Context, id string, params BankLi
 // Lists the connections of your application, newest first, with cursor
 // pagination. All filters apply inside your application and environment.
 //
+// Connections that were deleted are left out of the list by default. To list
+// them, ask with `status=deleted`, which returns only them. The `status` filter
+// takes one value, so a list of statuses answers `400 invalid_request` with
+// `field` `status`. A deleted connection is a record that the deletion
+// happened: it carries no bank data, and reading it by id returns the same
+// minimal record (`id`, `status`, `status_reason`, `created_at` and `erasure`).
+//
 // Needs an API key with the Bank data permission (`bank-data`): read for this
 // operation. A key with full access does not include it: grant it explicitly
 // when you create the key, or the call answers `403 bank_data_access_denied`.
@@ -1276,7 +1283,10 @@ type BankLinkCreateRequestSandbox struct {
 	// so set `history_days` to 365), `pending` (includes pending transactions),
 	// `sparse_fields` (no value date, no counterparty IBAN, no bank reference) or
 	// `no_ongoing` (a bank that only allows one-time access: use
-	// `allow_one_time_fallback`).
+	// `allow_one_time_fallback`). `requires_email`: the Test Bank behaves as a bank
+	// that needs the person's email, so the link asks for an email address and a
+	// code before the bank. In sandbox no email is sent and the code is always
+	// `123456`; ignored for live applications.
 	Persona Opt[BankLinkCreateRequestSandboxPersona] `json:"persona"`
 
 	// Accepted and reserved for the sandbox simulator: the values change nothing
@@ -1295,7 +1305,10 @@ func (r BankLinkCreateRequestSandbox) MarshalJSON() ([]byte, error) {
 // read returns the last 365 days, so set `history_days` to 365), `pending`
 // (includes pending transactions), `sparse_fields` (no value date, no
 // counterparty IBAN, no bank reference) or `no_ongoing` (a bank that only
-// allows one-time access: use `allow_one_time_fallback`).
+// allows one-time access: use `allow_one_time_fallback`). `requires_email`: the
+// Test Bank behaves as a bank that needs the person's email, so the link asks
+// for an email address and a code before the bank. In sandbox no email is sent
+// and the code is always `123456`; ignored for live applications.
 //
 // BankLinkCreateRequestSandboxPersona is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -1309,6 +1322,7 @@ const (
 	BankLinkCreateRequestSandboxPersonaPending       BankLinkCreateRequestSandboxPersona = "pending"
 	BankLinkCreateRequestSandboxPersonaSparseFields  BankLinkCreateRequestSandboxPersona = "sparse_fields"
 	BankLinkCreateRequestSandboxPersonaNoOngoing     BankLinkCreateRequestSandboxPersona = "no_ongoing"
+	BankLinkCreateRequestSandboxPersonaRequiresEmail BankLinkCreateRequestSandboxPersona = "requires_email"
 )
 
 // BankLinkCreateRequestSandboxSwitches is a string with known values below. The
@@ -1733,8 +1747,9 @@ type BankConnection struct {
 	// readable as last synced and nothing charged. `paused`: balance too low for
 	// the month. `revoked`: access stopped by the person, the bank or you, or ended
 	// because the read of a one-time connection is complete. `deleted`: only `id`,
-	// `status`, `status_reason`, `created_at` and `erasure` remain. `failed`: the
-	// first sync never succeeded.
+	// `status`, `status_reason`, `created_at` and `erasure` remain. The list
+	// returns these only for `status=deleted`; reading one by id always returns it.
+	// `failed`: the first sync never succeeded.
 	Status BankConnectionStatus `json:"status"`
 
 	// Why the connection is in this status. `collection_complete`: a one-time
@@ -1807,7 +1822,8 @@ const (
 // too low for the month. `revoked`: access stopped by the person, the bank or
 // you, or ended because the read of a one-time connection is complete.
 // `deleted`: only `id`, `status`, `status_reason`, `created_at` and `erasure`
-// remain. `failed`: the first sync never succeeded.
+// remain. The list returns these only for `status=deleted`; reading one by id
+// always returns it. `failed`: the first sync never succeeded.
 //
 // BankConnectionStatus is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -2693,7 +2709,9 @@ func (r *BankAccountList) UnmarshalJSON(data []byte) error {
 // BankListConnectionsParams holds the parameters of
 // Client.Bank.ListConnections.
 type BankListConnectionsParams struct {
-	// Only connections in this status.
+	// Only connections in this status, one value. Without this filter the list
+	// leaves out `deleted` connections; `status=deleted` returns only them. A
+	// deleted connection carries no bank data.
 	Status Opt[BankListConnectionsParamsStatus] `json:"-" query:"status"`
 
 	// Only this access mode.
@@ -2755,7 +2773,8 @@ const (
 	BankListConnectionsParamsAccessOngoing BankListConnectionsParamsAccess = "ongoing"
 )
 
-// BankConnectionList: A page of connections.
+// BankConnectionList: A page of connections. Deleted connections are not in it
+// unless the request asked for `status=deleted`.
 type BankConnectionList struct {
 	Items []BankConnection `json:"items"`
 
