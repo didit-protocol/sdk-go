@@ -4,7 +4,8 @@
 //	DIDIT_API_KEY=... DIDIT_WEBHOOK_SECRET=... go run ./bank
 //
 // Register the public URL of this server (POST /webhooks/didit) as a webhook
-// destination of your application, then open the printed link.
+// destination of your application. Run this example in the account holder's
+// private interactive terminal to receive and open the hosted URL.
 //
 // Environment:
 //
@@ -22,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -49,9 +51,27 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 1. Receive the bank.connection.created webhook. Start the receiver
-	// before creating the link so no delivery is missed.
-	connections := make(chan string, 1)
+	// A hosted URL is redeemable. Deliver it to the local account holder's
+	// controlling terminal even when stdout and stderr are redirected.
+	terminal, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
+	if err != nil {
+		log.Fatal("run the example in a private interactive terminal")
+	}
+	defer terminal.Close()
+
+	listener, err := net.Listen("tcp", ":"+envOr("PORT", "8080"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer listener.Close()
+
+	link, err := client.Bank.CreateLink(ctx, didit.BankLinkCreateRequest{
+		Duplicates: didit.Some(didit.BankLinkCreateRequestDuplicatesAllow),
+	}, option.WithIdempotencyKey(randomKey()))
+	if err != nil {
+		fail("create link", err)
+	}
+	accounts := make(chan *didit.BankAccountList, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /webhooks/didit", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
@@ -68,27 +88,34 @@ func main() {
 			http.Error(w, "invalid webhook", http.StatusBadRequest)
 			return
 		}
-		switch e := event.(type) {
-		case *webhook.BankConnectionCreatedEvent:
-			fmt.Printf("connection %s created (first sync %s)\n", e.ConnectionID, e.InitialStatus)
-			select {
-			case connections <- e.ConnectionID:
-			default:
-			}
-		case *webhook.BankLinkCompletedEvent:
-			fmt.Printf("link %s completed: connection %s\n", e.LinkID, e.ConnectionID)
+		created, ok := event.(*webhook.BankConnectionCreatedEvent)
+		if !ok || created.ConnectionID == "" {
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
-		w.WriteHeader(http.StatusOK)
+		page, err := accountsForConnection(r.Context(), client, link.ID, created.ConnectionID)
+		if err != nil {
+			http.Error(w, "retry account read", http.StatusServiceUnavailable)
+			return
+		}
+		if page == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		select {
+		case accounts <- page:
+		default:
+		}
 	})
 
 	srv := &http.Server{
-		Addr:              ":" + envOr("PORT", "8080"),
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
-		log.Printf("webhook receiver listening on %s", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("webhook receiver listening on %s", listener.Addr())
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("webhook receiver: %v", err)
 			stop()
 		}
@@ -99,47 +126,35 @@ func main() {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	// 2. Create the link and send the person to it.
-	link, err := client.Bank.CreateLink(ctx, didit.BankLinkCreateRequest{
-		Access: didit.Some(didit.BankLinkCreateRequestAccessOngoing),
-		Data: didit.Some([]didit.BankLinkCreateRequestData{
-			didit.BankLinkCreateRequestDataAccounts,
-			didit.BankLinkCreateRequestDataBalances,
-			didit.BankLinkCreateRequestDataTransactions,
-		}),
-		VendorData: didit.String("bank-example-" + randomKey()),
-	}, option.WithIdempotencyKey(randomKey()))
-	if err != nil {
-		fail("create link", err)
+	if _, err := fmt.Fprintln(terminal, "Open your Bank Link:", link.URL); err != nil {
+		log.Fatal("could not deliver the hosted link to the terminal")
 	}
-	fmt.Printf("bank link %s created (%s)\n", link.ID, link.Status)
-	fmt.Printf("send the person to %s\n", link.URL)
-	fmt.Println("waiting for bank.connection.created...")
-
-	// 3. Wait for the webhook, then read the accounts.
 	timer := time.NewTimer(15 * time.Minute)
 	defer timer.Stop()
-
-	var connectionID string
 	select {
-	case connectionID = <-connections:
+	case page := <-accounts:
+		fmt.Printf("Read %d account(s) on the first page.\n", len(page.Items))
 	case <-ctx.Done():
 		log.Fatal("stopped before the connection was created")
 	case <-timer.C:
 		log.Fatal("timed out waiting for bank.connection.created; open the link and check the webhook destination")
 	}
+}
 
-	accounts, err := client.Bank.ListAccounts(ctx, connectionID, didit.BankListAccountsParams{})
+// An application receives connection events for all its users. A nil page
+// means this delivery belongs to another link.
+func accountsForConnection(ctx context.Context, client *didit.Client, linkID, connectionID string) (*didit.BankAccountList, error) {
+	link, err := client.Bank.GetLink(ctx, linkID)
 	if err != nil {
-		fail("list accounts", err)
+		return nil, err
 	}
-	fmt.Printf("connection %s has %d account(s)\n", connectionID, len(accounts.Items))
-	for _, account := range accounts.Items {
-		fmt.Printf("- %s %s (%s, %s)\n", account.ID, account.Name, account.Type, account.Currency)
+	if link.ConnectionID == "" {
+		return nil, errors.New("link has no connection yet")
 	}
-	if accounts.NextCursor != "" {
-		fmt.Println("more accounts available: pass NextCursor back as Cursor")
+	if connectionID != link.ConnectionID {
+		return nil, nil
 	}
+	return client.Bank.ListAccounts(ctx, link.ConnectionID, didit.BankListAccountsParams{})
 }
 
 func randomKey() string {
