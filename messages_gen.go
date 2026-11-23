@@ -185,7 +185,8 @@ func (r *MessagesService) Send(ctx context.Context, params MessagesSendParams, o
 // (default 30). Shortening the retention erases, within the hour, the text and
 // recipient of every message already past the new one (irreversible); the
 // messages themselves, with their status, channel, country, segments, price and
-// timestamps, stay. Lengthening it applies to the messages not erased yet.
+// timestamps, stay. Lengthening it applies to the messages whose text and
+// recipient are still held.
 //
 // A scoped API key needs write access to application settings.
 //

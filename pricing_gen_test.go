@@ -21,6 +21,36 @@ func TestPricingBankVerification(t *testing.T) {
 	expectFields(t, res.JSON, []string{"currency", "statement_upload", "own_provider_fee_usd", "countries"})
 }
 
+func TestPricingBankVerificationCountryCoverage(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"country":"ESP","name":"Spain","updated_at":"2026-11-23T08:00:00Z","open":{"bank_verification_in_workflows":true,"bank_data_api_one_time":false,"bank_data_api_ongoing":false,"account_check":false},"data_read":["accounts","balances","transactions"],"balances_note":"Balances are read for every account a bank shares. The balance types a bank states are listed per bank only when Didit has observed them.","banks":[{"id":"es-bbva","name":"BBVA","country":"ESP","segments":["personal","business"],"access":["one_time"],"history_days_max":60,"pending_transactions":true,"status":"operational"},{"id":"es-caixabank","name":"CaixaBank","country":"ESP","segments":["personal","business"],"access":["one_time"],"history_days_max":60,"pending_transactions":false,"status":"operational"},{"id":"es-santander","name":"Santander","country":"ESP","segments":["personal","business"],"access":["one_time"],"history_days_max":60,"pending_transactions":true,"status":"operational"}]}`)
+	var params didit.PricingBankVerificationCountryCoverageParams
+	params.IfNoneMatch = didit.String("value")
+	res, err := client.Pricing.BankVerificationCountryCoverage(context.Background(), "country-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/organization/bank-verification-coverage/country-1/")
+	req.expectNoCredentials(t)
+	req.expectHeader(t, "If-None-Match", "value")
+	expectFields(t, res.JSON, []string{"country", "name", "updated_at", "open", "data_read", "balances_note", "banks"})
+}
+
+func TestPricingBankVerificationCoverage(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"updated_at":"2026-11-23T08:00:00Z","open":{"bank_verification_in_workflows":{"live":true,"countries":["ESP"]},"bank_data_api_one_time":{"live_applications":false,"countries":[]},"bank_data_api_ongoing":{"live_applications":false,"countries":[]}},"data_read":["accounts","balances","transactions"],"balances_note":"Balances are read for every account a bank shares. The balance types a bank states are listed per bank only when Didit has observed them.","countries":{"ESP":{"name":"Spain","banks":92,"banks_by_segment":{"personal":84,"business":87},"open":{"bank_verification_in_workflows":true,"bank_data_api_one_time":false,"bank_data_api_ongoing":false,"account_check":false},"banks_url":"/v3/organization/bank-verification-coverage/ESP/"}}}`)
+	var params didit.PricingBankVerificationCoverageParams
+	params.IfNoneMatch = didit.String("value")
+	res, err := client.Pricing.BankVerificationCoverage(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/organization/bank-verification-coverage/")
+	req.expectNoCredentials(t)
+	req.expectHeader(t, "If-None-Match", "value")
+	expectFields(t, res.JSON, []string{"updated_at", "open", "data_read", "balances_note", "countries"})
+}
+
 func TestPricingPriceBook(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"currency":"USD","plans":[{"key":"free","price_usd_month":"0.00","price_usd_year":null,"discount_percent":0,"transactions_included_per_month":1000},{"key":"growth","price_usd_month":"99.00","price_usd_year":"1128.00","discount_percent":4,"transactions_included_per_month":10000},{"key":"scale","price_usd_month":"299.00","price_usd_year":"3408.00","discount_percent":10,"transactions_included_per_month":100000},{"key":"enterprise","price_usd_month":null,"price_usd_year":null,"discount_percent":null,"transactions_included_per_month":null}],"white_label_usd":"0.10","messages_fee_usd":"0.02","message_fee_usd_by_channel":{"sms":"0.02","whatsapp":"0.004"},"lines":[{"key":"message_email","product":"identity","feature":"email","unit":"message","list_price_usd":"0.02"}]}`)
 	var params didit.PricingPriceBookParams

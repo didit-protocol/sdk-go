@@ -287,6 +287,36 @@ func TestBankRevokeConnection(t *testing.T) {
 	expectFields(t, res.JSON, []string{"id", "environment", "access", "status", "institution", "segment", "data", "consent", "sync", "accounts", "ownership", "end_user", "billing", "vendor_data", "created_at", "updated_at"})
 }
 
+func TestBankSimulateConnection(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"id":"5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35","environment":"sandbox","access":"ongoing","status":"active","status_reason":null,"institution":{"id":"es-banco-norte","name":"Banco Norte","country":"ESP","logo_url":"https://static.example.com/banks/es-banco-norte.png"},"segment":"business","data":["accounts","balances","transactions"],"consent":{"status":"granted","version":1,"granted_at":"2026-11-21T12:04:11Z","expires_at":"2027-05-20T12:04:11Z","days_granted":180,"renewed_count":0,"scopes_requested":["accounts","balances","transactions"],"scopes_granted":["accounts","balances","transactions"],"accounts_granted":["a71f0c2e-5d38-4b96-a1c4-3e9f8d2b7a10","c3d84e19-2a7b-4f60-b5e1-9a0c6d3f8e72"],"renewal_action":"bank_auth","renew_by":"2027-05-20T12:04:11Z","reconfirm_by":null,"renewable_until":null,"retain_until":null,"ended_at":null,"ended_by":null},"sync":{"status":"ok","initial_status":"succeeded","initial_complete":true,"history_complete":true,"last_synced_at":"2026-11-21T12:04:40Z","next_sync_at":"2026-11-22T06:00:00Z","budgets":[{"scope":"connection","resource":"all","limit":4,"remaining":3,"resets_at":"2026-11-22T00:00:00Z"}],"last_error":null,"frequency_per_day":1,"live_syncs_left_today":3},"accounts":[{"id":"a71f0c2e-5d38-4b96-a1c4-3e9f8d2b7a10","name":"Cuenta negocio","type":"current","usage":"business","currency":"EUR","iban_last4":"1332","status":"open"},{"id":"c3d84e19-2a7b-4f60-b5e1-9a0c6d3f8e72","name":"Cuenta de ahorro","type":"savings","usage":"business","currency":"EUR","iban_last4":"7708","status":"open"}],"ownership":{"compare":"none","match":null,"check_id":null,"result":null},"end_user":{"reference":"client-7731"},"manage_url":null,"billing":{"unit":"connection_month","price_usd":"0.9000","billed_through":"2026-11-30"},"possible_duplicate_of":null,"erasure":null,"vendor_data":"client-7731","created_at":"2026-11-21T12:03:02Z","updated_at":"2026-11-21T12:04:40Z"}`)
+	var params didit.BankConnectionSimulateRequest
+	mustUnmarshal(t, `{"action":"new_transactions","count":5}`, &params)
+	res, err := client.Bank.SimulateConnection(context.Background(), "id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/bank/connections/id-1/simulate/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"action":"new_transactions","count":5}`)
+	expectFields(t, res.JSON, []string{"id", "environment", "access", "status", "institution", "segment", "data", "consent", "sync", "accounts", "ownership", "end_user", "billing", "vendor_data", "created_at", "updated_at"})
+}
+
+func TestBankSimulateLink(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"id":"0b9c4f1e-6a2d-4e8b-9f31-7c5d2e1a8b40","mode":"connect","access":"ongoing","status":"completed","url":null,"client_token":null,"expires_at":"2026-11-21T13:00:00Z","connection_id":"5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35","check_id":null,"reused":false,"error":null,"quote":{"id":"7a3e9c52-1d84-4b06-8f2a-c5e0b9d17a43","lines":[{"meter":"bank_data_connection_month","unit":"connection_month","price_usd":"0.9000"}],"fallback_lines":null,"total_usd":"0.9000","valid_until":"2026-11-21T13:00:00Z","scopes":["accounts","balances","transactions"]},"vendor_data":"client-7731"}`)
+	var params didit.BankLinkSimulateRequest
+	mustUnmarshal(t, `{"persona":"personal_basic","outcome":"completed"}`, &params)
+	res, err := client.Bank.SimulateLink(context.Background(), "id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/bank/links/id-1/simulate/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"persona":"personal_basic","outcome":"completed"}`)
+	expectFields(t, res.JSON, []string{"id", "mode", "access", "status", "expires_at", "connection_id", "reused", "quote", "vendor_data"})
+}
+
 func TestBankSyncTransactions(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"added":[{"id":"8f2b6d41-9c3a-4e57-b0d8-1a7e5c4f2963","account_id":"a71f0c2e-5d38-4b96-a1c4-3e9f8d2b7a10","status":"booked","pending_id":null,"reverses_id":null,"booking_date":"2026-11-19","value_date":"2026-11-20","transaction_date":null,"effective_date":"2026-11-19","amount":"-1210.00","currency":"EUR","direction":"debit","description":"RECIBO SEGURIDAD SOCIAL","counterparty":{"name":"ENTIDAD PUBLICA DE EJEMPLO","iban":"ES0000000000000000005766","bic":null},"remittance":{"unstructured":["RECIBO SEGURIDAD SOCIAL 10/2026"],"structured":null,"reference":"0028123456789"},"bank_transaction_code":"PMNT-RDDT-ESDD","bank_reference":"2026111900012345","identity_quality":"bank_reference","end_to_end_id":"NOTPROVIDED","mandate_id":"ES-SS-000123","creditor_id":"ES00ZZZ00000000","merchant_category_code":null,"exchange":null,"balance_after":"18250.34","category":"taxes_and_social_security","first_seen_at":"2026-11-20T06:00:12Z","updated_at":"2026-11-20T06:00:12Z"}],"modified":[],"removed":[{"id":"e5b1f8a3-0d47-4c92-a6e0-7f3c2d9b1845","reason":"pending_booked"}],"has_more":false,"next_page_token":null,"next_cursor":"cur_01HZX9K4M2W7B3T8","reset":false}`)
 	var params didit.BankSyncTransactionsParams

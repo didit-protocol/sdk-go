@@ -104,6 +104,13 @@ func (c *Client) init() {
 	c.Networks.Notes = &NetworksNotesService{client: c}
 	c.PassiveLiveness = &PassiveLivenessService{client: c}
 	c.Phone = &PhoneService{client: c}
+	c.Phone.Factors = &PhoneFactorsService{client: c}
+	c.Phone.Network = &PhoneNetworkService{client: c}
+	c.Phone.Network.Registrations = &PhoneNetworkRegistrationsService{client: c}
+	c.Phone.Network.Registrations.TestNumbers = &PhoneNetworkRegistrationsTestNumbersService{client: c}
+	c.Phone.SDKKeys = &PhoneSDKKeysService{client: c}
+	c.Phone.Silent = &PhoneSilentService{client: c}
+	c.Phone.Silent.Registrations = &PhoneSilentRegistrationsService{client: c}
 	c.Pricing = &PricingService{client: c}
 	c.ProofOfAddress = &ProofOfAddressService{client: c}
 	c.Questionnaires = &QuestionnairesService{client: c}

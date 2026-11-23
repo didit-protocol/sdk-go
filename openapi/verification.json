@@ -550,7 +550,7 @@
     "/v3/phone/risk/": {
       "post": {
         "summary": "Risk-score a phone number",
-        "description": "Resolve a phone number and return carrier, line-type, porting, disposable-number, cross-session match, and normalized risk-intelligence signals without sending an OTP. The endpoint creates an API session and returns its id as `request_id`.\n\n**Decision.** The top-level `status` mirrors `phone.status`. It is normally `Approved`; the risk evaluation can produce `In Review` or `Declined`.\n\n**Compatibility aliases.** Live responses expose the normalized intelligence object as both `phone.phone_intelligence` and `phone.enrichment`. The values are identical. New integrations can read `phone.enrichment`. Both keys are absent when no usable intelligence data was returned.\n\n**Billing.** Live calls use Phone Risk API pricing. The request is billable once the lookup starts, even when some best-effort fields are unavailable.\n\n**Sandbox.** Sandbox keys validate the request and return deterministic approved data without sending an OTP, consuming credits, creating a session, or contributing to Networks.\n\n**Authentication.** Send your application's API key in `x-api-key`. Missing or invalid credentials return `403` - this API never returns `401`.\n\n**Rate limit.** Shared write budget of 300 requests per minute per API key across POST/PATCH/DELETE endpoints (transaction creates and event ingestion have a separate budget of 600).\n\n**Social footprint.** Set `enable_social` to `true` to add a `phone_social` block: the online platforms this number is registered on, with per-category counts and any profile details available. `profiles_registered: 0` means the platforms were checked and the number was found on none of them - a valid, billable answer. The block is absent when the add-on was not requested or the check could not be completed, and it is not billed in that case. Billing adds one `phone_social` unit per request on top of this endpoint's own price.",
+        "description": "Resolve a phone number and return carrier, line-type, porting, disposable-number, cross-session match, and normalized risk-intelligence signals without sending an OTP. The endpoint creates an API session and returns its id as `request_id`.\n\n**Decision.** The top-level `status` mirrors `phone.status`. It is normally `Approved`; the risk evaluation can produce `In Review` or `Declined`.\n\n**Compatibility aliases.** Live responses expose the normalized intelligence object as both `phone.phone_intelligence` and `phone.enrichment`. The values are identical. New integrations can read `phone.enrichment`. Both keys are absent when no usable intelligence data was returned.\n\n**Billing.** Live calls use Phone Risk API pricing. The request is billable once the lookup starts, even when some best-effort fields are unavailable. Phone Risk, including the optional `enable_social` add-on, is Phone usage: the free credit pays it only up to $1 a month, shared with phone verification codes, messages and the other Phone lookups. On the Free plan, what the $1 does not cover is paid from your top-up balance; Growth and Scale included credit pays for Phone in full. The request is refused with `403` only when the credit available to Phone, including the add-on, cannot cover it. Phone Risk has no first-top-up requirement; a top-up is needed only when the credit available to Phone (the free $1 or paid credit) cannot cover the lookup.\n\n**Sandbox.** Sandbox keys validate the request and return deterministic approved data without sending an OTP, consuming credits, creating a session, or contributing to Networks.\n\n**Authentication.** Send your application's API key in `x-api-key`. Missing or invalid credentials return `403` - this API never returns `401`.\n\n**Rate limit.** Shared write budget of 300 requests per minute per API key across POST/PATCH/DELETE endpoints (transaction creates and event ingestion have a separate budget of 600).\n\n**Social footprint.** Set `enable_social` to `true` to add a `phone_social` block: the online platforms this number is registered on, with per-category counts and any profile details available. `profiles_registered: 0` means the platforms were checked and the number was found on none of them - a valid, billable answer. The block is absent when the add-on was not requested or the check could not be completed, and it is not billed in that case. Billing adds one `phone_social` unit per request on top of this endpoint's own price.",
         "operationId": "post_v3phone_risk",
         "x-didit-sdk": {
           "resource": "phone",
@@ -778,7 +778,25 @@
             "$ref": "#/components/responses/PhoneRiskValidationError"
           },
           "403": {
-            "$ref": "#/components/responses/RiskPermissionDenied"
+            "description": "The API key is missing or invalid, or the credit that may pay a Phone lookup cannot cover it: paid credit, plus what this month's free credit has left of its $1 Phone allowance (shared with phone verification and the other Phone lookups, and covering the `enable_social` add-on). It is returned before the lookup starts, so nothing is charged. This API never returns `401`.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "Missing or invalid API key": {
+                    "summary": "No `x-api-key` header, or the key is invalid or revoked",
+                    "value": {
+                      "detail": "You do not have permission to perform this action."
+                    }
+                  },
+                  "Not enough credits": {
+                    "summary": "The credit available to Phone (paid credit plus what is left of the $1 monthly Phone allowance) cannot cover the lookup and its add-on",
+                    "value": {
+                      "error": "You don't have enough credits to perform this request."
+                    }
+                  }
+                }
+              }
+            }
           },
           "429": {
             "$ref": "#/components/responses/RateLimitedWrite"
@@ -16689,7 +16707,7 @@
             }
           },
           "403": {
-            "description": "Permission denied. Returned when the `x-api-key` header is missing (`{\"detail\": ...}`); a wrong, revoked or expired key returns `401`. Also returned before any send when the organization has never topped up (anti-abuse gate) or when its balance cannot cover the destination's send price (`{\"error\": ...}`).",
+            "description": "Permission denied. Returned when the `x-api-key` header is missing (`{\"detail\": ...}`); a wrong, revoked or expired key returns `401`. Also returned before any send when the organization has never topped up (anti-abuse gate) or when the credit that may pay it cannot cover the destination's send price: paid credit, plus what this month's free credit has left of its Phone allowance (`{\"error\": ...}`).",
             "content": {
               "application/json": {
                 "examples": {
@@ -16706,9 +16724,9 @@
                     }
                   },
                   "Not enough credits": {
-                    "summary": "Organization balance cannot cover the send price",
+                    "summary": "Neither the balance nor what this month's free credit has left of its Phone allowance covers the send price",
                     "value": {
-                      "error": "You don't have enough credits to perform this request."
+                      "error": "You don't have enough credits to perform this request. Please top up at https://business.didit.me"
                     }
                   }
                 }
@@ -16850,41 +16868,6 @@
             "lang": "curl",
             "label": "curl",
             "source": "curl -X POST https://verification.didit.me/v3/phone/check/ \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n    \"phone_number\": \"+14155552671\",\n    \"code\": \"123456\",\n    \"voip_number_action\": \"DECLINE\"\n  }'"
-          },
-          {
-            "lang": "python",
-            "label": "Python",
-            "source": "from didit import Didit\n\n# Reads DIDIT_API_KEY.\nclient = Didit()\n\nresult = client.phone.check_code(\n    phone_number=\"+14155552671\",\n    code=\"123456\",\n)\nprint(result)"
-          },
-          {
-            "lang": "javascript",
-            "label": "Node.js",
-            "source": "import Didit from \"@didit-protocol/sdk-node\";\n\n// Reads DIDIT_API_KEY.\nconst didit = new Didit();\n\nconst result = await didit.phone.checkCode({\n  phone_number: \"+14155552671\",\n  code: \"123456\",\n});\nconsole.log(result);"
-          },
-          {
-            "lang": "go",
-            "label": "Go",
-            "source": "ctx := context.Background()\n// Reads DIDIT_API_KEY.\nclient := didit.NewClient()\n\nresult, err := client.Phone.CheckCode(ctx, didit.PhoneCheckCodeParams{\n\tPhoneNumber: \"+14155552671\",\n\tCode:        \"123456\",\n})\nif err != nil {\n\tlog.Fatal(err)\n}\nfmt.Printf(\"%+v\\n\", result)"
-          },
-          {
-            "lang": "java",
-            "label": "Java",
-            "source": "import me.didit.Didit;\nimport me.didit.types.PhoneCheckCodeParams;\n\n// Reads DIDIT_API_KEY.\nDidit client = new Didit();\n\nvar result = client.phone().checkCode(PhoneCheckCodeParams.builder()\n        .phoneNumber(\"+14155552671\")\n        .code(\"123456\")\n        .build());\nSystem.out.println(result);"
-          },
-          {
-            "lang": "php",
-            "label": "PHP",
-            "source": "<?php\n\nrequire 'vendor/autoload.php';\n\nuse Didit\\DiditClient;\n\n// Reads DIDIT_API_KEY.\n$didit = new DiditClient();\n\n$result = $didit->phone->checkCode([\n    'phone_number' => '+14155552671',\n    'code' => '123456',\n]);\nprint_r($result->toArray());"
-          },
-          {
-            "lang": "ruby",
-            "label": "Ruby",
-            "source": "require \"didit\"\n\n# Reads DIDIT_API_KEY.\ndidit = Didit::Client.new\n\nresult = didit.phone.check_code(\n  phone_number: \"+14155552671\",\n  code: \"123456\"\n)\nputs result.to_h"
-          },
-          {
-            "lang": "csharp",
-            "label": ".NET",
-            "source": "using System;\nusing System.Text.Json;\nusing Didit;\n\n// Reads DIDIT_API_KEY.\nusing var client = new DiditClient();\n\nvar result = await client.Phone.CheckCodeAsync(new PhoneCheckCodeParams\n{\n    PhoneNumber = \"+14155552671\",\n    Code = \"123456\",\n});\nConsole.WriteLine(JsonSerializer.Serialize(result));"
           }
         ],
         "requestBody": {
@@ -16991,12 +16974,29 @@
                     ],
                     "default": "NO_ACTION",
                     "description": "Action when the social footprint check finds the number registered on none of the platforms it covers. Only NO_ACTION and DECLINE are accepted on this endpoint; REVIEW is available on the workflow configuration key of the same name."
+                  },
+                  "factor_id": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "description": "A TOTP factor being checked instead of a phone code, as returned when it was enrolled; send the 4-8 digit `code` its authenticator app shows. The answer is `{verification_id, status, attempts}` with `status` `verified` or `failed`; a factor that is `disabled` answers `400 factor_disabled`, an unknown one `404 not_found`.",
+                    "example": "fa_01JCH8K2"
                   }
                 },
-                "required": [
-                  "phone_number",
-                  "code"
-                ]
+                "anyOf": [
+                  {
+                    "required": [
+                      "phone_number",
+                      "code"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "factor_id",
+                      "code"
+                    ]
+                  }
+                ],
+                "description": "Send `phone_number` and `code` to check a phone code, or `factor_id` and `code` to check a TOTP factor enrolled with `POST /v3/phone/factors/`."
               },
               "examples": {
                 "Default": {
@@ -17014,6 +17014,13 @@
                     "voip_number_action": "DECLINE",
                     "disposable_number_action": "DECLINE"
                   }
+                },
+                "TOTP factor": {
+                  "summary": "Check a TOTP factor",
+                  "value": {
+                    "factor_id": "fa_01JCH8K2",
+                    "code": "123456"
+                  }
                 }
               }
             }
@@ -17025,7 +17032,25 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PhoneVerificationCheckResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PhoneVerificationCheckResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PhoneFactorCheckResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "status",
+                    "mapping": {
+                      "Approved": "#/components/schemas/PhoneVerificationCheckResponse",
+                      "Declined": "#/components/schemas/PhoneVerificationCheckResponse",
+                      "Failed": "#/components/schemas/PhoneVerificationCheckResponse",
+                      "Expired or Not Found": "#/components/schemas/PhoneVerificationCheckResponse",
+                      "verified": "#/components/schemas/PhoneFactorCheckResponse",
+                      "failed": "#/components/schemas/PhoneFactorCheckResponse"
+                    }
+                  }
                 },
                 "examples": {
                   "Approved": {
@@ -17284,7 +17309,7 @@
             }
           },
           "400": {
-            "description": "Validation error — DRF's field-error envelope: one array of messages per offending field.",
+            "description": "Validation error: DRF's field-error envelope (one array of messages per offending field), or, for a factor check, `{detail, code}` with `factor_disabled` (the factor is disabled: turn it back on before checking it) or `code_required` (a TOTP factor was sent without its `code`).",
             "content": {
               "application/json": {
                 "examples": {
@@ -17311,13 +17336,30 @@
                         "\"REVIEW\" is not a valid choice."
                       ]
                     }
+                  },
+                  "Factor disabled": {
+                    "summary": "The factor is `disabled`",
+                    "value": {
+                      "detail": "This factor is disabled. Turn it back on before checking it.",
+                      "code": "factor_disabled"
+                    }
                   }
+                },
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PhoneCheckFieldErrors"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PhoneApiError"
+                    }
+                  ]
                 }
               }
             }
           },
           "403": {
-            "description": "Permission denied. Returned when the `x-api-key` header is missing; a wrong, revoked or expired key returns `401`. Checks are free, so there is no credit check here.",
+            "description": "Permission denied. Returned when the `x-api-key` header is missing; a wrong, revoked or expired key returns `401`. The check itself is free; a check that asks for Phone enrichment add-ons is refused (`{\"error\": ...}`) when the account's credit cannot cover them.",
             "content": {
               "application/json": {
                 "examples": {
@@ -17325,6 +17367,30 @@
                     "summary": "No `x-api-key` header, or the key is invalid/revoked",
                     "value": {
                       "detail": "You do not have permission to perform this action."
+                    }
+                  },
+                  "Not enough credits": {
+                    "summary": "The account's credit cannot cover the Phone enrichment add-ons the check asks for",
+                    "value": {
+                      "error": "You don't have enough credits to perform this request. Please top up at https://business.didit.me"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A factor check names a `factor_id` that is not in your application: `{detail, code}` with `not_found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                },
+                "examples": {
+                  "Unknown factor": {
+                    "value": {
+                      "detail": "No factor with this id in your application.",
+                      "code": "not_found"
                     }
                   }
                 }
@@ -27195,6 +27261,8 @@
                       "description": "7.33293% indirect outgoing exposure to DeFi / Yield Aggregator (Example DeFi 2)"
                     }
                   ],
+                  "fallback_from_provider": null,
+                  "fallback_reason": null,
                   "raw_response": {
                     "...": "provider-specific details"
                   },
@@ -99818,7 +99886,7 @@
             }
           },
           "400": {
-            "description": "The request was refused before any screen. `field` names what to correct: `invalid_request` for a value outside its range or a combination that is not allowed, `country_not_available` for a country the product does not serve or where no bank is offered, and the more specific codes shown here.",
+            "description": "The request was refused before any screen. `field` names what to correct: `invalid_request` for a value outside its range or a combination that is not allowed, `country_not_available` for a country the product does not serve or where no bank is offered, and the more specific codes shown here. A `language` outside the supported list answers `invalid_request` with `field: language`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -99899,6 +99967,17 @@
                       "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
                       "field": "country",
                       "next_action": "create_link",
+                      "retry_after": null
+                    }
+                  },
+                  "Language not supported": {
+                    "summary": "Language not supported",
+                    "value": {
+                      "code": "invalid_request",
+                      "message": "Invalid language. Supported languages are: en, ar, bn, bg, bs, ca, cs, da, de, el, es, et, fa, fi, fr, he, hi, hr, hu, hy, id, it, ja, ka, kk, ko, ky, lt, lv, cnr, mk, mn, ms, nl, no, pl, pt-BR, pt, ro, ru, sk, sl, so, sq, sr, sv, th, tr, uk, uz, vi, zh-CN, zh-TW, zh.",
+                      "request_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+                      "field": "language",
+                      "next_action": null,
                       "retry_after": null
                     }
                   }
@@ -100398,6 +100477,255 @@
             "lang": "csharp",
             "label": ".NET",
             "source": "using System;\nusing System.Text.Json;\nusing Didit;\n\n// Reads DIDIT_API_KEY.\nusing var client = new DiditClient();\n\nvar result = await client.Bank.CancelLinkAsync(\"11111111-2222-3333-4444-555555555555\");\nConsole.WriteLine(JsonSerializer.Serialize(result));"
+          }
+        ]
+      }
+    },
+    "/v3/bank/links/{id}/simulate/": {
+      "post": {
+        "summary": "Simulate a bank link (sandbox)",
+        "description": "Finishes a link of your sandbox application in one call, as if the person had gone through the Didit Test Bank: you choose the Test Bank customer (`persona`) and how the link ends (`outcome`). The link goes through the same completion code as a real bank sign-in, so the connection, its accounts, the first sync and the `bank.*` webhooks happen exactly as they would for a real person. Answers the link, so read `status` and `connection_id`.\n\n`outcome` is `completed` (the default: the person agrees and the connection is created), `cancelled` (the person leaves, the link ends `cancelled`), `failed` (the link ends `failed`; `error_code` picks the reason, `bank_unavailable` by default), `duplicate_conflict` (the person already has a connection with the same bank), `reduced_grant` (the person shares less than you asked for) or `renewal_login_mismatch` (a renewal with another bank login; on a connect link it ends as the failure it is). `error_code` is only accepted with `outcome: failed`.\n\nA link that allows the one-time fallback and meets a bank that cannot keep access open accepts the reduced access and finishes in the same call. A link that is no longer open (completed, cancelled, expired or failed) is returned unchanged, so the call is safe to repeat.\n\nNeeds an API key with the Bank data permission (`bank-data`): write for this operation, which changes something. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`. Sandbox only: a live application, or a link or connection that belongs to the live environment, answers `404 not_found`, exactly as an unknown route does.",
+        "operationId": "simulateBankLink",
+        "tags": [
+          "Bank Data"
+        ],
+        "x-didit-sdk": {
+          "resource": "bank",
+          "method": "simulate_link",
+          "auth": "api_key",
+          "server": true
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The link id."
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankLinkSimulateRequest"
+              },
+              "examples": {
+                "Completed": {
+                  "summary": "The default: a personal customer agrees",
+                  "value": {
+                    "persona": "personal_basic",
+                    "outcome": "completed"
+                  }
+                },
+                "Failed": {
+                  "summary": "The bank cannot be reached",
+                  "value": {
+                    "persona": "personal_basic",
+                    "outcome": "failed",
+                    "error_code": "bank_unavailable"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The link after the simulated end.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankLink"
+                },
+                "examples": {
+                  "Completed": {
+                    "summary": "A completed link",
+                    "value": {
+                      "id": "0b9c4f1e-6a2d-4e8b-9f31-7c5d2e1a8b40",
+                      "mode": "connect",
+                      "access": "ongoing",
+                      "status": "completed",
+                      "url": null,
+                      "client_token": null,
+                      "expires_at": "2026-11-21T13:00:00Z",
+                      "connection_id": "5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35",
+                      "check_id": null,
+                      "reused": false,
+                      "error": null,
+                      "quote": {
+                        "id": "7a3e9c52-1d84-4b06-8f2a-c5e0b9d17a43",
+                        "lines": [
+                          {
+                            "meter": "bank_data_connection_month",
+                            "unit": "connection_month",
+                            "price_usd": "0.9000"
+                          }
+                        ],
+                        "fallback_lines": null,
+                        "total_usd": "0.9000",
+                        "valid_until": "2026-11-21T13:00:00Z",
+                        "scopes": [
+                          "accounts",
+                          "balances",
+                          "transactions"
+                        ]
+                      },
+                      "vendor_data": "client-7731"
+                    }
+                  },
+                  "Failed": {
+                    "summary": "A failed link",
+                    "value": {
+                      "id": "0b9c4f1e-6a2d-4e8b-9f31-7c5d2e1a8b40",
+                      "mode": "connect",
+                      "access": "ongoing",
+                      "status": "failed",
+                      "url": null,
+                      "client_token": null,
+                      "expires_at": "2026-11-21T13:00:00Z",
+                      "connection_id": null,
+                      "check_id": null,
+                      "reused": false,
+                      "error": {
+                        "code": "bank_unavailable",
+                        "message": "The bank could not be reached."
+                      },
+                      "quote": {
+                        "id": "7a3e9c52-1d84-4b06-8f2a-c5e0b9d17a43",
+                        "lines": [
+                          {
+                            "meter": "bank_data_connection_month",
+                            "unit": "connection_month",
+                            "price_usd": "0.9000"
+                          }
+                        ],
+                        "fallback_lines": null,
+                        "total_usd": "0.9000",
+                        "valid_until": "2026-11-21T13:00:00Z",
+                        "scopes": [
+                          "accounts",
+                          "balances",
+                          "transactions"
+                        ]
+                      },
+                      "vendor_data": "client-7731"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not valid: an unknown `persona`, `outcome` or `error_code`, or an `error_code` sent without `outcome: failed`. `field` names it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankDataError"
+                },
+                "examples": {
+                  "Invalid request": {
+                    "summary": "Invalid request",
+                    "value": {
+                      "code": "invalid_request",
+                      "message": "The request is not valid.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": "error_code",
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/BankDataAccessDenied"
+          },
+          "404": {
+            "description": "The link does not exist in this application and environment, or the application is not a sandbox application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankDataError"
+                },
+                "examples": {
+                  "Not found": {
+                    "summary": "Not found",
+                    "value": {
+                      "code": "not_found",
+                      "message": "The resource does not exist.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": null,
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The `Idempotency-Key` was used with another request (`idempotency_key_reused`), or the first request with it is still running (`idempotency_key_in_progress`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankIdempotencyConflictError"
+                },
+                "examples": {
+                  "Key reused": {
+                    "summary": "The key was used with another body",
+                    "value": {
+                      "detail": "This Idempotency-Key was already used with a different request.",
+                      "code": "idempotency_key_reused"
+                    }
+                  },
+                  "Key in progress": {
+                    "summary": "The first request is still running",
+                    "value": {
+                      "detail": "A request with this Idempotency-Key is still in progress.",
+                      "code": "idempotency_key_in_progress"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again (with `idempotency_key_in_progress`).",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          },
+          "500": {
+            "$ref": "#/components/responses/BankDataInternalError"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/bank/links/0b9c4f1e-6a2d-4e8b-9f31-7c5d2e1a8b40/simulate/' \\\n  -H 'x-api-key: YOUR_SANDBOX_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n    \"persona\": \"personal_basic\",\n    \"outcome\": \"completed\"\n  }'"
           }
         ]
       }
@@ -102088,7 +102416,7 @@
             }
           },
           "400": {
-            "description": "The request was refused.",
+            "description": "The request was refused. A `language` outside the supported list answers `invalid_request` with `field: language`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -102113,6 +102441,17 @@
                       "message": "The request is not valid.",
                       "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
                       "field": "expires_in",
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  },
+                  "Language not supported": {
+                    "summary": "Language not supported",
+                    "value": {
+                      "code": "invalid_request",
+                      "message": "Invalid language. Supported languages are: en, ar, bn, bg, bs, ca, cs, da, de, el, es, et, fa, fi, fr, he, hi, hr, hu, hy, id, it, ja, ka, kk, ko, ky, lt, lv, cnr, mk, mn, ms, nl, no, pl, pt-BR, pt, ro, ru, sk, sl, so, sq, sr, sv, th, tr, uk, uz, vi, zh-CN, zh-TW, zh.",
+                      "request_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+                      "field": "language",
                       "next_action": null,
                       "retry_after": null
                     }
@@ -102545,6 +102884,388 @@
             "lang": "csharp",
             "label": ".NET",
             "source": "using System;\nusing System.Text.Json;\nusing Didit;\n\n// Reads DIDIT_API_KEY.\nusing var client = new DiditClient();\n\nvar result = await client.Bank.RevokeConnectionAsync(\"11111111-2222-3333-4444-555555555555\");\nConsole.WriteLine(JsonSerializer.Serialize(result));"
+          }
+        ]
+      }
+    },
+    "/v3/bank/connections/{id}/simulate/": {
+      "post": {
+        "summary": "Simulate a bank connection event (sandbox)",
+        "description": "Moves a sandbox connection through time without waiting: new transactions, a pending row that posts, a consent that is about to end or has ended, a revocation, a failing sync, a duplicate webhook or a used-up refresh allowance. It uses the real sync engine and the real webhooks, so `bank.*` deliveries, the change feed and `sync` behave as they do for a real bank. Answers the connection as `get_connection` would.\n\n`action` is required and is one of:\n\n- `new_transactions`: the bank adds `count` booked transactions (1 to 500, default 3). A sync follows.\n- `pending_posted`: one day passes at the bank: pending rows leave the change feed as `removed` and their booked rows arrive as `added`. It needs a test customer with pending transactions (`pending`); with `personal_basic` nothing changes. A sync follows.\n- `booking_correction`: the next sync returns booked rows again with a corrected booking, so they arrive as `modified`. A sync follows.\n- `midnight_booking`: a row is booked across midnight, to test day boundaries. A sync follows.\n- `consent_expiring`: the consent now ends in `days` days and the expiry notice is sent (`bank.connection.consent_expiring`). `days` accepts only the notification thresholds, 14, 7 or 1 (default 7); any other value answers `400 invalid_request` with `field` `days`.\n- `consent_expired`: the consent has ended now and the connection becomes `renewal_required`.\n- `revoked_by_user` and `revoked_by_bank`: the bank tells Didit the consent ended, as if the person or the bank had revoked it. The connection reads `revoked` with `status_reason` `revoked_by_end_user` or `revoked_by_bank`, and `consent.ended_by` is `end_user` or `bank`.\n- `sync_failed`: the bank fails every read until `sync_recovered`; the connection has been failing for 24 hours, so `bank.sync.failed` is sent. A sync follows.\n- `sync_recovered`: the bank answers again. A sync follows.\n- `webhook_twice`: the last `bank.*` webhook of this connection is delivered again with the same `event_id` and a fresh signature, to test your deduplication. It answers `400 invalid_request` if the connection has no delivery yet.\n- `budget_used`: today's refresh allowance is used up on the bank's own day, so the next `refresh_connection` answers `429 refresh_limit_reached` with `Retry-After`, and `sync.live_syncs_left_today` and the `sync.budgets` `remaining` read 0.\n- `budget_reset`: today's refresh allowance is restored: `sync.live_syncs_left_today` and the `remaining` of `sync.budgets` read what they read on a new connection.\n\n`days` is only accepted with `consent_expiring` and `count` only with `new_transactions`: sent with another action, each answers `400 invalid_request` with `field` naming it.\n\nNeeds an API key with the Bank data permission (`bank-data`): write for this operation, which changes something. A key with full access does not include it: grant it explicitly when you create the key, or the call answers `403 bank_data_access_denied`. Sandbox only: a live application, or a link or connection that belongs to the live environment, answers `404 not_found`, exactly as an unknown route does.",
+        "operationId": "simulateBankConnection",
+        "tags": [
+          "Bank Data"
+        ],
+        "x-didit-sdk": {
+          "resource": "bank",
+          "method": "simulate_connection",
+          "auth": "api_key",
+          "server": true
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The connection id."
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankConnectionSimulateRequest"
+              },
+              "examples": {
+                "New transactions": {
+                  "summary": "Five new booked transactions",
+                  "value": {
+                    "action": "new_transactions",
+                    "count": 5
+                  }
+                },
+                "Consent expiring": {
+                  "summary": "The consent ends in 7 days",
+                  "value": {
+                    "action": "consent_expiring",
+                    "days": 7
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The connection after the simulated event.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankConnection"
+                },
+                "examples": {
+                  "Active": {
+                    "summary": "The connection",
+                    "value": {
+                      "id": "5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35",
+                      "environment": "sandbox",
+                      "access": "ongoing",
+                      "status": "active",
+                      "status_reason": null,
+                      "institution": {
+                        "id": "es-banco-norte",
+                        "name": "Banco Norte",
+                        "country": "ESP",
+                        "logo_url": "https://static.example.com/banks/es-banco-norte.png"
+                      },
+                      "segment": "business",
+                      "data": [
+                        "accounts",
+                        "balances",
+                        "transactions"
+                      ],
+                      "consent": {
+                        "status": "granted",
+                        "version": 1,
+                        "granted_at": "2026-11-21T12:04:11Z",
+                        "expires_at": "2027-05-20T12:04:11Z",
+                        "days_granted": 180,
+                        "renewed_count": 0,
+                        "scopes_requested": [
+                          "accounts",
+                          "balances",
+                          "transactions"
+                        ],
+                        "scopes_granted": [
+                          "accounts",
+                          "balances",
+                          "transactions"
+                        ],
+                        "accounts_granted": [
+                          "a71f0c2e-5d38-4b96-a1c4-3e9f8d2b7a10",
+                          "c3d84e19-2a7b-4f60-b5e1-9a0c6d3f8e72"
+                        ],
+                        "renewal_action": "bank_auth",
+                        "renew_by": "2027-05-20T12:04:11Z",
+                        "reconfirm_by": null,
+                        "renewable_until": null,
+                        "retain_until": null,
+                        "ended_at": null,
+                        "ended_by": null
+                      },
+                      "sync": {
+                        "status": "ok",
+                        "initial_status": "succeeded",
+                        "initial_complete": true,
+                        "history_complete": true,
+                        "last_synced_at": "2026-11-21T12:04:40Z",
+                        "next_sync_at": "2026-11-22T06:00:00Z",
+                        "budgets": [
+                          {
+                            "scope": "connection",
+                            "resource": "all",
+                            "limit": 4,
+                            "remaining": 3,
+                            "resets_at": "2026-11-22T00:00:00Z"
+                          }
+                        ],
+                        "last_error": null,
+                        "frequency_per_day": 1,
+                        "live_syncs_left_today": 3
+                      },
+                      "accounts": [
+                        {
+                          "id": "a71f0c2e-5d38-4b96-a1c4-3e9f8d2b7a10",
+                          "name": "Cuenta negocio",
+                          "type": "current",
+                          "usage": "business",
+                          "currency": "EUR",
+                          "iban_last4": "1332",
+                          "status": "open"
+                        },
+                        {
+                          "id": "c3d84e19-2a7b-4f60-b5e1-9a0c6d3f8e72",
+                          "name": "Cuenta de ahorro",
+                          "type": "savings",
+                          "usage": "business",
+                          "currency": "EUR",
+                          "iban_last4": "7708",
+                          "status": "open"
+                        }
+                      ],
+                      "ownership": {
+                        "compare": "none",
+                        "match": null,
+                        "check_id": null,
+                        "result": null
+                      },
+                      "end_user": {
+                        "reference": "client-7731"
+                      },
+                      "manage_url": null,
+                      "billing": {
+                        "unit": "connection_month",
+                        "price_usd": "0.9000",
+                        "billed_through": "2026-11-30"
+                      },
+                      "possible_duplicate_of": null,
+                      "erasure": null,
+                      "vendor_data": "client-7731",
+                      "created_at": "2026-11-21T12:03:02Z",
+                      "updated_at": "2026-11-21T12:04:40Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not valid: `action` is missing or unknown, `days` is not 14, 7 or 1, `count` is out of range, `days` or `count` is sent with an action that does not read it, or `webhook_twice` has no delivery to repeat. `field` names it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankDataError"
+                },
+                "examples": {
+                  "Invalid request": {
+                    "summary": "Invalid request",
+                    "value": {
+                      "code": "invalid_request",
+                      "message": "The request is not valid.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": "action",
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/BankDataAccessDenied"
+          },
+          "404": {
+            "description": "The connection does not exist in this application and environment, was deleted, or the application is not a sandbox application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankDataError"
+                },
+                "examples": {
+                  "Not found": {
+                    "summary": "Not found",
+                    "value": {
+                      "code": "not_found",
+                      "message": "The resource does not exist.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": null,
+                      "next_action": null,
+                      "retry_after": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The action cannot run on this connection: `connection_not_active` (revoked, paused, failed or deleted, when the action asks for a sync) or `one_time_connection` (a one-time read has ended: create a new link). The `Idempotency-Key` was used with another request (`idempotency_key_reused`), or the first request with it is still running (`idempotency_key_in_progress`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BankDataError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BankIdempotencyConflictError"
+                    }
+                  ]
+                },
+                "examples": {
+                  "Not active": {
+                    "summary": "Not active",
+                    "value": {
+                      "code": "connection_not_active",
+                      "message": "This connection is not active.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": null,
+                      "next_action": "create_link",
+                      "retry_after": null
+                    }
+                  },
+                  "One-time connection": {
+                    "summary": "One-time connection",
+                    "value": {
+                      "code": "one_time_connection",
+                      "message": "This connection was a one-time read and its access has ended. Create a new link to read this bank again.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": null,
+                      "next_action": "create_link",
+                      "retry_after": null
+                    }
+                  },
+                  "Key reused": {
+                    "summary": "The key was used with another body",
+                    "value": {
+                      "detail": "This Idempotency-Key was already used with a different request.",
+                      "code": "idempotency_key_reused"
+                    }
+                  },
+                  "Key in progress": {
+                    "summary": "The first request is still running",
+                    "value": {
+                      "detail": "A request with this Idempotency-Key is still in progress.",
+                      "code": "idempotency_key_in_progress"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again (with `idempotency_key_in_progress`).",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Either an action that asks for a sync found the day's budget of reads without the person present used up (`refresh_limit_reached`, with `Retry-After` and a `sync` object; `budget_reset` restores it in sandbox), or the shared write limit of 300 requests per minute per API key was exceeded (honor `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BankRefreshLimitError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RateLimitBudgetError"
+                    }
+                  ]
+                },
+                "examples": {
+                  "Refresh limit reached": {
+                    "summary": "Refresh limit reached",
+                    "value": {
+                      "code": "refresh_limit_reached",
+                      "message": "The bank's limit on fetches without the person present is used up for today.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": null,
+                      "next_action": "retry_later",
+                      "retry_after": 3600,
+                      "sync": {
+                        "live_syncs_left_today": 0,
+                        "budgets": [
+                          {
+                            "scope": "connection",
+                            "resource": "all",
+                            "limit": 4,
+                            "remaining": 0,
+                            "resets_at": "2026-11-22T00:00:00Z"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "Write rate limit": {
+                    "summary": "The shared write limit",
+                    "value": {
+                      "detail": "Write request rate limit exceeded. You can make up to 300 requests per minute.",
+                      "reference": "RL-00000000000040008000000000000001",
+                      "limit": 300,
+                      "remaining": 0,
+                      "reset": 1794358860,
+                      "window_seconds": 60
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/BudgetRetryAfter"
+              },
+              "X-RateLimit-Scope": {
+                "$ref": "#/components/headers/BudgetXRateLimitScope"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/BudgetXRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/BudgetXRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/BudgetXRateLimitReset"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/BankDataInternalError"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/bank/connections/5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35/simulate/' \\\n  -H 'x-api-key: YOUR_SANDBOX_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n    \"action\": \"new_transactions\",\n    \"count\": 5\n  }'"
           }
         ]
       }
@@ -105810,7 +106531,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "description": "Set how many days a message keeps its text and recipient, from 2 to 365 (default 30). Shortening the retention erases, within the hour, the text and recipient of every message already past the new one (irreversible); the messages themselves, with their status, channel, country, segments, price and timestamps, stay. Lengthening it applies to the messages not erased yet.\n\nA scoped API key needs write access to application settings.",
+        "description": "Set how many days a message keeps its text and recipient, from 2 to 365 (default 30). Shortening the retention erases, within the hour, the text and recipient of every message already past the new one (irreversible); the messages themselves, with their status, channel, country, segments, price and timestamps, stay. Lengthening it applies to the messages whose text and recipient are still held.\n\nA scoped API key needs write access to application settings.",
         "requestBody": {
           "required": true,
           "content": {
@@ -105887,6 +106608,2368 @@
             "description": "A scoped API key without write access to application settings."
           }
         }
+      }
+    },
+    "/v3/organization/bank-verification-coverage/": {
+      "get": {
+        "summary": "List the countries with bank coverage (public, unauthenticated)",
+        "description": "Lists the countries where Didit covers banks, how many, and what is open today for each product. Public: no auth header. Cached publicly and revalidated with an `ETag`. What is open is read on every request from the switches the API uses, so a product that is not open today reads `false` even when its banks are listed. It carries no prices (see the bank verification pricing feed) and never names a supplier.",
+        "operationId": "get_v3_bank_verification_coverage",
+        "tags": [
+          "Pricing"
+        ],
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "description": "The `ETag` of the coverage feed you already hold: the response is `304 Not Modified`, with no body, when nothing changed.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -fsS https://verification.didit.me/v3/organization/bank-verification-coverage/"
+          }
+        ],
+        "x-didit-sdk": {
+          "resource": "pricing",
+          "method": "bank_verification_coverage",
+          "auth": "none",
+          "server": true
+        },
+        "responses": {
+          "200": {
+            "description": "Lists the countries where Didit covers banks, how many, and what is open today for each product.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Weak validator; send it back in If-None-Match."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankVerificationCoverage"
+                },
+                "examples": {
+                  "Spain": {
+                    "value": {
+                      "updated_at": "2026-11-23T08:00:00Z",
+                      "open": {
+                        "bank_verification_in_workflows": {
+                          "live": true,
+                          "countries": [
+                            "ESP"
+                          ]
+                        },
+                        "bank_data_api_one_time": {
+                          "live_applications": false,
+                          "countries": []
+                        },
+                        "bank_data_api_ongoing": {
+                          "live_applications": false,
+                          "countries": []
+                        }
+                      },
+                      "data_read": [
+                        "accounts",
+                        "balances",
+                        "transactions"
+                      ],
+                      "balances_note": "Balances are read for every account a bank shares. The balance types a bank states are listed per bank only when Didit has observed them.",
+                      "countries": {
+                        "ESP": {
+                          "name": "Spain",
+                          "banks": 92,
+                          "banks_by_segment": {
+                            "personal": 84,
+                            "business": 87
+                          },
+                          "open": {
+                            "bank_verification_in_workflows": true,
+                            "bank_data_api_one_time": false,
+                            "bank_data_api_ongoing": false,
+                            "account_check": false
+                          },
+                          "banks_url": "/v3/organization/bank-verification-coverage/ESP/"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the `ETag` you sent in `If-None-Match` still matches. No body."
+          }
+        }
+      }
+    },
+    "/v3/organization/bank-verification-coverage/{country}/": {
+      "get": {
+        "summary": "List the banks of one country (public, unauthenticated)",
+        "description": "Lists the banks Didit covers in one country: id, name, segments, access modes, history days, pending transactions and whether the bank is operational. Public: no auth header. One cached document per country.",
+        "operationId": "get_v3_bank_verification_country_coverage",
+        "tags": [
+          "Pricing"
+        ],
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "country",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 3
+            },
+            "description": "ISO 3166-1 alpha-3 code, for example `ESP`."
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "description": "The `ETag` of the country feed you already hold: the response is `304 Not Modified`, with no body, when nothing changed.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -fsS https://verification.didit.me/v3/organization/bank-verification-coverage/ESP/"
+          }
+        ],
+        "x-didit-sdk": {
+          "resource": "pricing",
+          "method": "bank_verification_country_coverage",
+          "auth": "none",
+          "server": true
+        },
+        "responses": {
+          "200": {
+            "description": "Lists the banks Didit covers in one country: id, name, segments, access modes, history days, pending transactions and whether the bank is operational.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Weak validator; send it back in If-None-Match."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankVerificationCountryCoverage"
+                },
+                "examples": {
+                  "Spain": {
+                    "value": {
+                      "country": "ESP",
+                      "name": "Spain",
+                      "updated_at": "2026-11-23T08:00:00Z",
+                      "open": {
+                        "bank_verification_in_workflows": true,
+                        "bank_data_api_one_time": false,
+                        "bank_data_api_ongoing": false,
+                        "account_check": false
+                      },
+                      "data_read": [
+                        "accounts",
+                        "balances",
+                        "transactions"
+                      ],
+                      "balances_note": "Balances are read for every account a bank shares. The balance types a bank states are listed per bank only when Didit has observed them.",
+                      "banks": [
+                        {
+                          "id": "es-bbva",
+                          "name": "BBVA",
+                          "country": "ESP",
+                          "segments": [
+                            "personal",
+                            "business"
+                          ],
+                          "access": [
+                            "one_time"
+                          ],
+                          "history_days_max": 60,
+                          "pending_transactions": true,
+                          "status": "operational"
+                        },
+                        {
+                          "id": "es-caixabank",
+                          "name": "CaixaBank",
+                          "country": "ESP",
+                          "segments": [
+                            "personal",
+                            "business"
+                          ],
+                          "access": [
+                            "one_time"
+                          ],
+                          "history_days_max": 60,
+                          "pending_transactions": false,
+                          "status": "operational"
+                        },
+                        {
+                          "id": "es-santander",
+                          "name": "Santander",
+                          "country": "ESP",
+                          "segments": [
+                            "personal",
+                            "business"
+                          ],
+                          "access": [
+                            "one_time"
+                          ],
+                          "history_days_max": 60,
+                          "pending_transactions": true,
+                          "status": "operational"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No banks are listed for this country code, for example a code that is not an ISO 3166-1 alpha-3 code.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "detail": "No banks are listed for this country."
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the `ETag` you sent in `If-None-Match` still matches. No body."
+          }
+        }
+      }
+    },
+    "/v3/phone/silent/coverage/": {
+      "get": {
+        "summary": "List where silent verification runs",
+        "description": "Where silent verification runs: every country where at least one mobile network can run the check, and per country the networks that can. Read this instead of hardcoding a list, because coverage grows as networks approve the feature.\n\n`approval` says whether a network answers for production traffic (`live`) or only while it approves production use (`test`), in which case it answers for the verified test numbers of a registration. `wifi` says whether the SIM check also runs over Wi-Fi, so a device without mobile data can still complete it.\n\n**Narrowing.** `country` answers for one ISO 3166-1 alpha-2 country.\n\n**Before you start.** `POST /v3/phone/silent/eligibility/` answers for one number, and a silent check that cannot run falls back to the verification's code channels.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "get_phone_silent_coverage",
+        "x-didit-sdk": {
+          "resource": "phone.silent",
+          "method": "coverage",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "country",
+            "in": "query",
+            "required": false,
+            "description": "Only this ISO 3166-1 alpha-2 country.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$",
+              "example": "ES"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every country where silent verification runs, with its networks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneSilentCoverage"
+                },
+                "examples": {
+                  "Live network": {
+                    "summary": "Live network",
+                    "value": {
+                      "countries": [
+                        {
+                          "country": "ES",
+                          "wifi": true,
+                          "networks": [
+                            {
+                              "name": "Mobile network A",
+                              "approval": "live"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "Under review": {
+                    "summary": "Under review",
+                    "value": {
+                      "countries": [
+                        {
+                          "country": "BR",
+                          "wifi": false,
+                          "networks": [
+                            {
+                              "name": "Mobile network A",
+                              "approval": "test"
+                            },
+                            {
+                              "name": "Mobile network B",
+                              "approval": "test"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/silent/eligibility/": {
+      "post": {
+        "summary": "Check silent eligibility before you start",
+        "description": "Whether a silent check can run for one number now, so you can decide whether to offer it before you start a verification. `eligible` is the answer and, when it is `false`, `reason` says why: `unsupported_network` (the number's mobile network cannot run the check), `not_mobile_data` (the device is not on mobile data) or `country_not_covered` (silent verification does not run in the number's country).\n\n`network` is the mobile network the number belongs to, `country` its ISO 3166-1 alpha-2 code, and `wifi_possible` whether the SIM check can still run over Wi-Fi when the device has no mobile data.\n\n**Mobile data.** Send `ip_address`, the phone's public IP, to have the answer also confirm the device is on mobile data. Without it, the answer is about the network alone.\n\n**What follows.** A verification that runs the silent check first falls back to its next code channel when the check cannot run.\n\n**Authentication.** Send your application's API key in `x-api-key`. To check a client SDK's publishable key as well, include it in `X-Publishable-Key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "check_phone_silent_eligibility",
+        "x-didit-sdk": {
+          "resource": "phone.silent",
+          "method": "eligibility",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Publishable-Key",
+            "in": "header",
+            "required": false,
+            "description": "The client SDK's publishable key for this application.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneSilentEligibilityRequest"
+              },
+              "examples": {
+                "Eligible": {
+                  "summary": "Eligible",
+                  "value": {
+                    "phone_number": "+34600000012",
+                    "ip_address": "83.44.10.12"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer for this number.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneSilentEligibility"
+                },
+                "examples": {
+                  "Eligible": {
+                    "summary": "Eligible",
+                    "value": {
+                      "eligible": true,
+                      "reason": null,
+                      "network": "Mobile network A",
+                      "country": "ES",
+                      "wifi_possible": true
+                    }
+                  },
+                  "Not on mobile data": {
+                    "summary": "Not on mobile data",
+                    "value": {
+                      "eligible": false,
+                      "reason": "not_mobile_data",
+                      "network": "Mobile network A",
+                      "country": "ES",
+                      "wifi_possible": true
+                    }
+                  },
+                  "Unsupported network": {
+                    "summary": "Unsupported network",
+                    "value": {
+                      "eligible": false,
+                      "reason": "unsupported_network",
+                      "network": null,
+                      "country": "ES",
+                      "wifi_possible": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_phone_number` - Not a valid number in E.164.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_publishable_key` — the supplied publishable key is unknown, revoked, expired or belongs to another application. A wrong, revoked or expired `x-api-key` is also `401`: replace the credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                },
+                "examples": {
+                  "Invalid publishable key": {
+                    "summary": "Invalid publishable key",
+                    "value": {
+                      "detail": "This publishable key cannot start a check.",
+                      "code": "invalid_publishable_key"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/factors/": {
+      "post": {
+        "summary": "Enroll a TOTP factor",
+        "description": "Enroll a TOTP factor for one of your users, so they confirm a verification with an authenticator app instead of a code. `type` is `totp` and `user_id` is your id for the user.\n\nThe answer carries `totp.uri`, the `otpauth://` URI to show as a QR code; the authenticator app scans it and starts producing codes.\n\n**State.** A new factor is `unverified` until its first code passes `POST /v3/phone/check/`, then `verified`.\n\n**One of each type.** A user holds at most one factor: a second one answers `409 factor_exists`.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "create_phone_factor",
+        "x-didit-sdk": {
+          "resource": "phone.factors",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneFactorCreateRequest"
+              },
+              "examples": {
+                "TOTP in an authenticator app": {
+                  "summary": "TOTP in an authenticator app",
+                  "value": {
+                    "type": "totp",
+                    "user_id": "u_481",
+                    "friendly_name": "Demo App",
+                    "metadata": {
+                      "device": "iPhone 15"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The factor, with what the app needs to finish enrolling it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneFactorEnrollment"
+                },
+                "examples": {
+                  "TOTP": {
+                    "summary": "TOTP",
+                    "value": {
+                      "factor_id": "fa_01JCH8K2",
+                      "type": "totp",
+                      "status": "unverified",
+                      "totp": {
+                        "uri": "otpauth://totp/Demo%20App:u_481?secret=JBSWY3DP"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_type` - `type` is not `totp`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`factor_exists` - This user already has a factor of this type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      },
+      "get": {
+        "summary": "List a user's enrolled factors",
+        "description": "List the factors enrolled for one of your users, so your app can show them and let the user pick the one to check with. `user_id` is required; `type` and `status` narrow the list.\n\nThe answer is a page: `count`, `next`, `previous` and `results`, each result a factor as Retrieve returns it.\n\n**Export.** `format: csv` answers every row that matches the filters as a CSV file.\n\n**Paging.** `limit` is 20 by default and 100 at most.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "list_phone_factors",
+        "x-didit-sdk": {
+          "resource": "phone.factors",
+          "method": "list",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "description": "The user whose factors to list: required.",
+            "schema": {
+              "type": "string",
+              "example": "u_481"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "Only factors of this type.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "totp"
+              ],
+              "example": "totp"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Only factors in this state.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "unverified",
+                "verified",
+                "disabled"
+              ],
+              "example": "verified"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size: 20 by default, 100 at most.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Zero-based index of the first row. Prefer following `next`.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "description": "`json` (default) for a page, or `csv` to export every row that matches the filters as CSV.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "default": "json"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The factors of this user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneFactorsPage"
+                },
+                "examples": {
+                  "Page": {
+                    "summary": "The factors of this user.",
+                    "value": {
+                      "count": 1,
+                      "next": null,
+                      "previous": null,
+                      "results": [
+                        {
+                          "factor_id": "fa_01JCH8K2",
+                          "type": "totp",
+                          "status": "verified",
+                          "user_id": "u_481",
+                          "friendly_name": "Demo App",
+                          "metadata": {
+                            "device": "iPhone 15"
+                          },
+                          "created_at": "2026-11-02T08:14:00Z",
+                          "last_used_at": "2026-11-21T09:58:00Z"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "factor_id,type,status,user_id,friendly_name,created_at\nfa_01JCH8K2,totp,verified,u_481,Demo App,2026-11-02T08:14:00Z\n"
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_filter` - A filter value is not valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/factors/{factor_id}/": {
+      "delete": {
+        "summary": "Remove a factor",
+        "description": "Delete an enrolled factor. The factor is deleted at once: its `factor_id` stops working and the TOTP secret it held stop verifying, and the deletion cannot be undone. Verifications the factor already completed stay verified, and the user's other factors are not affected.\n\nEnroll the user again with `POST /v3/phone/factors/` to give them a new factor.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "delete_phone_factor",
+        "x-didit-sdk": {
+          "resource": "phone.factors",
+          "method": "delete",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "factor_id",
+            "in": "path",
+            "required": true,
+            "description": "The factor to delete.",
+            "schema": {
+              "type": "string",
+              "example": "fa_01JCH8K2"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The resource is gone. The answer has no body."
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No factor with this id in your application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      },
+      "get": {
+        "summary": "Retrieve one enrolled factor",
+        "description": "One enrolled factor: its type, state, user, name, metadata and when it was last used. Read it to show a factor's state after a check changed it, or after it was disabled, without reading the whole list.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "get_phone_factor",
+        "x-didit-sdk": {
+          "resource": "phone.factors",
+          "method": "retrieve",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "factor_id",
+            "in": "path",
+            "required": true,
+            "description": "The factor.",
+            "schema": {
+              "type": "string",
+              "example": "fa_01JCH8K2"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The factor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneFactor"
+                },
+                "examples": {
+                  "Verified TOTP": {
+                    "summary": "Verified TOTP",
+                    "value": {
+                      "factor_id": "fa_01JCH8K2",
+                      "type": "totp",
+                      "status": "verified",
+                      "user_id": "u_481",
+                      "friendly_name": "Demo App",
+                      "metadata": {
+                        "device": "iPhone 15"
+                      },
+                      "created_at": "2026-11-02T08:14:00Z",
+                      "last_used_at": "2026-11-21T09:58:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No factor with this id in your application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      },
+      "patch": {
+        "summary": "Change a factor's name, metadata or state",
+        "description": "Change a factor without enrolling it again: rename it (`friendly_name`), replace your `metadata`, or disable it or turn it back on (`status`). The answer is the factor as it now stands.\n\n`disabled` stops the factor's checks and `verified` turns a disabled factor back on. A factor that was never verified cannot be turned on: finish its first check instead, or the call answers `409 factor_unverified`.\n\n`metadata` replaces the keys and values you sent before: up to 10 keys, each value at most 500 characters, or the call answers `400 invalid_metadata`.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "update_phone_factor",
+        "x-didit-sdk": {
+          "resource": "phone.factors",
+          "method": "update",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "factor_id",
+            "in": "path",
+            "required": true,
+            "description": "The factor to change.",
+            "schema": {
+              "type": "string",
+              "example": "fa_01JCH8K2"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneFactorUpdateRequest"
+              },
+              "examples": {
+                "Rename and disable": {
+                  "summary": "Rename and disable",
+                  "value": {
+                    "friendly_name": "Work phone",
+                    "metadata": {
+                      "device": "iPhone 16"
+                    },
+                    "status": "disabled"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The factor as it now stands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneFactor"
+                },
+                "examples": {
+                  "Disabled": {
+                    "summary": "Disabled",
+                    "value": {
+                      "factor_id": "fa_01JCH8K2",
+                      "type": "totp",
+                      "status": "disabled",
+                      "user_id": "u_481",
+                      "friendly_name": "Work phone",
+                      "metadata": {
+                        "device": "iPhone 16"
+                      },
+                      "created_at": "2026-11-02T08:14:00Z",
+                      "last_used_at": "2026-11-21T09:58:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_metadata` - More than 10 keys, or a value over 500 characters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No factor with this id in your application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`factor_unverified` - An unverified factor cannot be turned back on: finish its first check.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/silent/registrations/": {
+      "post": {
+        "summary": "Submit a country for carrier approval of silent verification",
+        "description": "Submit a country for carrier approval of silent verification, so silent checks run for your application's production traffic there: `country`, the `use_case` it runs in, your `company_name` and the `website` where the flow runs. Optionally name the `networks` to ask, your expected `monthly_volume` and links to `flow_screenshots`.\n\nThe answer is the registration. `status` starts `submitted`, moves to `in_review`, and ends as `approved`, `partly_approved` (some networks approved and some rejected) or `rejected`. `networks` lists each mobile network's own decision and `live_at` is when silent verification went live for you in the country.\n\n**One per country.** A country with an open registration answers `409 registration_exists`: track that one with `GET /v3/phone/silent/registrations/{registration_id}/` instead.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "create_phone_silent_registration",
+        "x-didit-sdk": {
+          "resource": "phone.silent.registrations",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneSilentRegistrationRequest"
+              },
+              "examples": {
+                "Login in Brazil": {
+                  "summary": "Login in Brazil",
+                  "value": {
+                    "country": "BR",
+                    "use_case": "login",
+                    "company_name": "Demo Application S.L.",
+                    "website": "https://app.example.com",
+                    "monthly_volume": 40000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The registration, submitted to the networks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneSilentRegistration"
+                },
+                "examples": {
+                  "In review": {
+                    "summary": "In review",
+                    "value": {
+                      "registration_id": "sr_01JCP2F4Q8",
+                      "country": "BR",
+                      "status": "in_review",
+                      "networks": [
+                        {
+                          "name": "Mobile network A",
+                          "status": "approved",
+                          "decided_at": "2026-11-20T15:02:00Z",
+                          "reason": null
+                        },
+                        {
+                          "name": "Mobile network B",
+                          "status": "in_review",
+                          "decided_at": null,
+                          "reason": null
+                        }
+                      ],
+                      "live_at": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_country` - Not a country with silent verification.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`registration_exists` - A registration for this country is already open.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/silent/registrations/{registration_id}/": {
+      "get": {
+        "summary": "Track a carrier approval, network by network",
+        "description": "Track a carrier approval, network by network: the registration's `status`, each mobile network's decision (`status`, `decided_at` and, when it rejected the request, `reason`), and `live_at` once silent verification is live for you in the country.\n\nA registration that is `partly_approved` runs silent verification on the networks that approved it.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "get_phone_silent_registration",
+        "x-didit-sdk": {
+          "resource": "phone.silent.registrations",
+          "method": "retrieve",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "registration_id",
+            "in": "path",
+            "required": true,
+            "description": "The silent verification registration.",
+            "schema": {
+              "type": "string",
+              "example": "sr_01JCP2F4Q8"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The registration and each network's decision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneSilentRegistration"
+                },
+                "examples": {
+                  "Partly approved": {
+                    "summary": "Partly approved",
+                    "value": {
+                      "registration_id": "sr_01JCP2F4Q8",
+                      "country": "BR",
+                      "status": "partly_approved",
+                      "networks": [
+                        {
+                          "name": "Mobile network A",
+                          "status": "approved",
+                          "decided_at": "2026-11-20T15:02:00Z",
+                          "reason": null
+                        },
+                        {
+                          "name": "Mobile network B",
+                          "status": "rejected",
+                          "decided_at": "2026-11-20T16:40:00Z",
+                          "reason": "Use case not covered by the approval"
+                        }
+                      ],
+                      "live_at": "2026-11-21T08:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No registration with this id in your application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/sdk-keys/": {
+      "get": {
+        "summary": "List the publishable keys of your client SDKs",
+        "description": "List the key ID, platform and status of each client SDK key for your application.\n\n`platform` narrows the list to one platform.\n\n**Permissions.** Only an Owner or Admin API key may read publishable keys.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "list_phone_sdk_keys",
+        "x-didit-sdk": {
+          "resource": "phone.sdk_keys",
+          "method": "list",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "description": "Only keys for this platform.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ios",
+                "android",
+                "web"
+              ],
+              "example": "ios"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Your publishable keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneSdkKeysPage"
+                },
+                "examples": {
+                  "One iOS key": {
+                    "summary": "One iOS key",
+                    "value": {
+                      "results": [
+                        {
+                          "key_id": "sk_01JCL2B6",
+                          "platform": "ios",
+                          "status": "active"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is not an Owner or Admin key of the application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      },
+      "post": {
+        "summary": "Issue a publishable key for a client SDK",
+        "description": "Issue a publishable key for the iOS, Android or web build of your app: `platform`, the `app_ids` it may run in (bundle ids, package names or `https` origins) and an optional `name` shown in API keys. The answer carries `publishable_key`, which is safe to ship inside the app because it can only start the client SDK's checks.\n\n**Rotation.** To replace a key in an app that is already installed, rotate it (`POST /v3/phone/sdk-keys/{key_id}/rotate/`) rather than issuing a second one: the old value keeps working while your update ships.\n\n**Permissions.** Only an Owner or Admin API key may issue a publishable key.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "create_phone_sdk_key",
+        "x-didit-sdk": {
+          "resource": "phone.sdk_keys",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneSdkKeyRequest"
+              },
+              "examples": {
+                "iOS app": {
+                  "summary": "iOS app",
+                  "value": {
+                    "platform": "ios",
+                    "app_ids": [
+                      "com.demoapp.ios"
+                    ],
+                    "name": "iOS app"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The key, with the value to ship in the app.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneSdkKey"
+                },
+                "examples": {
+                  "Issued": {
+                    "summary": "Issued",
+                    "value": {
+                      "key_id": "sk_01JCL2B6",
+                      "platform": "ios",
+                      "publishable_key": "pk_live_ios_7Hq2",
+                      "app_ids": [
+                        "com.demoapp.ios"
+                      ],
+                      "status": "active",
+                      "created_at": "2026-11-21T09:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_app_id` - Not a bundle id, package name or `https` origin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is not an Owner or Admin key of the application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/sdk-keys/{key_id}/rotate/": {
+      "post": {
+        "summary": "Rotate a publishable key with an overlap",
+        "description": "Rotate a publishable key without breaking the app versions already installed: Didit issues a new value and keeps the old one working for `overlap_hours` (0 to 168), long enough for your update to ship. The answer is the key with its new `publishable_key`, and `previous_expires_at` is when the value it replaced stops working.\n\nShip the new value, then let the overlap end. A revoked key cannot be rotated: the call answers `409 revoked`.\n\n**Permissions.** Only an Owner or Admin API key may rotate a publishable key.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "rotate_phone_sdk_key",
+        "x-didit-sdk": {
+          "resource": "phone.sdk_keys",
+          "method": "rotate",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "description": "The publishable key to rotate.",
+            "schema": {
+              "type": "string",
+              "example": "sk_01JCL2B6"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneSdkKeyRotateRequest"
+              },
+              "examples": {
+                "Three-day overlap": {
+                  "summary": "Three-day overlap",
+                  "value": {
+                    "overlap_hours": 72
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The key with its new value.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneSdkKeyRotated"
+                },
+                "examples": {
+                  "Rotated": {
+                    "summary": "Rotated",
+                    "value": {
+                      "key_id": "sk_01JCL2B6",
+                      "platform": "ios",
+                      "publishable_key": "pk_live_ios_9Zt4",
+                      "app_ids": [
+                        "com.demoapp.ios"
+                      ],
+                      "status": "active",
+                      "created_at": "2026-11-21T09:00:00Z",
+                      "previous_expires_at": "2026-11-24T09:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is not an Owner or Admin key of the application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No key with this id in your application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`revoked` - A revoked key cannot be rotated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/sdk-keys/{key_id}/": {
+      "delete": {
+        "summary": "Revoke a publishable key",
+        "description": "Revoke a publishable key at once: it stops starting the client SDK's checks immediately, its status becomes `revoked`, and it can neither be restored nor rotated. Apps that still ship it fail until they are updated, so issue the replacement first (`POST /v3/phone/sdk-keys/`).\n\n**Permissions.** Only an Owner or Admin API key may revoke a publishable key.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "revoke_phone_sdk_key",
+        "x-didit-sdk": {
+          "resource": "phone.sdk_keys",
+          "method": "revoke",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "description": "The publishable key to revoke.",
+            "schema": {
+              "type": "string",
+              "example": "sk_01JCL2B6"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The resource is gone. The answer has no body."
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is not an Owner or Admin key of the application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No key with this id in your application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/network/registrations/": {
+      "post": {
+        "summary": "Ask the networks to approve a network feature",
+        "description": "Ask the mobile networks to approve a network feature for one country, so your application can use it for production traffic there: `feature` (`silent_verification`, `sim_swap` or `number_verification`), `country`, `use_case`, `company_name` and the `website` where the flow runs, plus optionally the `networks` to ask, a `purpose` shown to them and your expected `monthly_volume`.\n\nThe answer is the registration with each network's decision (`networks[].status`) and the overall `status`: `submitted`, `in_review`, `approved`, `partly_approved` or `rejected`.\n\n**Test access.** While the networks review, `test_access` is `on`: the feature answers for the registration's verified test numbers and marks those answers `test: true`. Add up to 5 with `POST /v3/phone/network/registrations/{registration_id}/test-numbers/`. It turns `off` once the registration is approved or rejected.\n\n**One per feature, use case and country.** The same three again while one is open answers `409 registration_exists`.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "create_phone_network_registration",
+        "x-didit-sdk": {
+          "resource": "phone.network.registrations",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneNetworkRegistrationRequest"
+              },
+              "examples": {
+                "SIM swap check in Brazil": {
+                  "summary": "SIM swap check in Brazil",
+                  "value": {
+                    "feature": "sim_swap",
+                    "country": "BR",
+                    "use_case": "account_recovery",
+                    "networks": [
+                      "Mobile network A",
+                      "Mobile network B"
+                    ],
+                    "company_name": "Demo Application S.L.",
+                    "website": "https://app.example.com",
+                    "purpose": "Check for a recent SIM change before a password reset",
+                    "monthly_volume": 20000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The registration, submitted to the networks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneNetworkRegistration"
+                },
+                "examples": {
+                  "Partly approved": {
+                    "summary": "Partly approved",
+                    "value": {
+                      "registration_id": "nr_01JCP2F4Q8",
+                      "feature": "sim_swap",
+                      "country": "BR",
+                      "use_case": "account_recovery",
+                      "status": "partly_approved",
+                      "networks": [
+                        {
+                          "name": "Mobile network A",
+                          "status": "approved",
+                          "decided_at": "2026-11-20T15:02:00Z",
+                          "reason": null
+                        },
+                        {
+                          "name": "Mobile network B",
+                          "status": "in_review",
+                          "decided_at": null,
+                          "reason": null
+                        }
+                      ],
+                      "live_at": null,
+                      "test_access": "on",
+                      "test_numbers": [
+                        {
+                          "phone_number": "+34600000012",
+                          "status": "verified"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_feature` - Not a network feature, or not offered in the country.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`registration_exists` - A registration for this feature, use case and country is already open.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      },
+      "get": {
+        "summary": "List your network feature registrations",
+        "description": "List your network feature registrations, newest first, with each one's feature, country, use case and status. `feature`, `country` and `status` narrow the list, and `format: csv` exports every row that matches the filters instead of a page. Read one in full with `GET /v3/phone/network/registrations/{registration_id}/`.\n\n**Paging.** `limit` is 20 by default and 100 at most.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "list_phone_network_registrations",
+        "x-didit-sdk": {
+          "resource": "phone.network.registrations",
+          "method": "list",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "feature",
+            "in": "query",
+            "required": false,
+            "description": "Only registrations of this network feature.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "silent_verification",
+                "sim_swap",
+                "number_verification"
+              ],
+              "example": "sim_swap"
+            }
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "required": false,
+            "description": "Only this ISO 3166-1 alpha-2 country.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$",
+              "example": "ES"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Only rows in this state.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "submitted",
+                "in_review",
+                "approved",
+                "partly_approved",
+                "rejected"
+              ],
+              "example": "partly_approved"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size: 20 by default, 100 at most.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Zero-based index of the first row. Prefer following `next`.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "description": "`json` (default) for a page, or `csv` to export every row that matches the filters as CSV.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "default": "json"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Your network feature registrations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneNetworkRegistrationsPage"
+                },
+                "examples": {
+                  "Page": {
+                    "summary": "Your network feature registrations.",
+                    "value": {
+                      "count": 1,
+                      "next": null,
+                      "previous": null,
+                      "results": [
+                        {
+                          "registration_id": "nr_01JCP2F4Q8",
+                          "feature": "sim_swap",
+                          "country": "BR",
+                          "use_case": "account_recovery",
+                          "status": "partly_approved"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "registration_id,feature,country,use_case,status\nnr_01JCP2F4Q8,sim_swap,BR,account_recovery,partly_approved\n"
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_filter` - A filter value is not valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/network/registrations/{registration_id}/": {
+      "get": {
+        "summary": "Track a feature approval, network by network",
+        "description": "Track one feature approval, network by network: the feature, country and use case you submitted, the overall `status`, each mobile network's decision (`status`, `decided_at` and, when it rejected the request, `reason`), `live_at` once the feature is live for you in the country, and the `test_numbers` that answer it while `test_access` is `on`.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "get_phone_network_registration",
+        "x-didit-sdk": {
+          "resource": "phone.network.registrations",
+          "method": "retrieve",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "registration_id",
+            "in": "path",
+            "required": true,
+            "description": "The network feature registration.",
+            "schema": {
+              "type": "string",
+              "example": "nr_01JCP2F4Q8"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The registration and each network's decision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneNetworkRegistration"
+                },
+                "examples": {
+                  "Under review, with a test number": {
+                    "summary": "Under review, with a test number",
+                    "value": {
+                      "registration_id": "nr_01JCP2F4Q8",
+                      "feature": "sim_swap",
+                      "country": "BR",
+                      "use_case": "account_recovery",
+                      "status": "partly_approved",
+                      "networks": [
+                        {
+                          "name": "Mobile network A",
+                          "status": "approved",
+                          "decided_at": "2026-11-20T15:02:00Z",
+                          "reason": null
+                        },
+                        {
+                          "name": "Mobile network B",
+                          "status": "in_review",
+                          "decided_at": null,
+                          "reason": null
+                        }
+                      ],
+                      "live_at": null,
+                      "test_access": "on",
+                      "test_numbers": [
+                        {
+                          "phone_number": "+34600000012",
+                          "status": "verified"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No registration with this id in your application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/network/registrations/{registration_id}/test-numbers/": {
+      "post": {
+        "summary": "Add a test number while the networks review",
+        "description": "Add a number you hold as a test number while the networks review a registration, so you can try the feature before it is approved: send it in E.164 (`phone_number`).\n\nDidit sends it a code and answers with `verification_id` and `status: code_sent`; check the code with `POST /v3/phone/check/` and the number. Once the code is checked the number is `verified`, and the feature answers for it under test access, marked `test: true`.\n\n**Limits.** A registration takes up to 5 test numbers (`409 too_many_test_numbers`), and test access ends when the networks decide (`409 review_finished`).\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "create_phone_network_registration_test_number",
+        "x-didit-sdk": {
+          "resource": "phone.network.registrations.test_numbers",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "registration_id",
+            "in": "path",
+            "required": true,
+            "description": "The network feature registration.",
+            "schema": {
+              "type": "string",
+              "example": "nr_01JCP2F4Q8"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneNetworkRegistrationTestNumberRequest"
+              },
+              "examples": {
+                "A number you hold": {
+                  "summary": "A number you hold",
+                  "value": {
+                    "phone_number": "+34600000012"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The test number, with the verification that confirms it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneNetworkRegistrationTestNumber"
+                },
+                "examples": {
+                  "Code sent": {
+                    "summary": "Code sent",
+                    "value": {
+                      "phone_number": "+34600000012",
+                      "status": "code_sent",
+                      "verification_id": "pv_01JCH6D4T7N2XK8F",
+                      "test_access": "on"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_phone_number` - Not a valid number in E.164.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No registration with this id in your application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`too_many_test_numbers` - A registration takes up to 5 test numbers. `review_finished` - The networks decided: test access has ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
+      }
+    },
+    "/v3/phone/network/registrations/{registration_id}/test-numbers/{phone_number}/": {
+      "delete": {
+        "summary": "Remove a test number",
+        "description": "Remove a test number from a registration: it is deleted at once, the feature stops answering for it, and the number can be added again while test access is on.\n\nThe number is in the path in E.164, URL-encoded: `+34600000012` becomes `%2B34600000012`.\n\n**Authentication.** Send your application's API key in `x-api-key`.\n\n**Rate limit.** Requests count against the key's budget; over it the answer is `429` with `Retry-After`.",
+        "operationId": "delete_phone_network_registration_test_number",
+        "x-didit-sdk": {
+          "resource": "phone.network.registrations.test_numbers",
+          "method": "delete",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "registration_id",
+            "in": "path",
+            "required": true,
+            "description": "The network feature registration.",
+            "schema": {
+              "type": "string",
+              "example": "nr_01JCP2F4Q8"
+            }
+          },
+          {
+            "name": "phone_number",
+            "in": "path",
+            "required": true,
+            "description": "The test number, in E.164 and URL-encoded.",
+            "schema": {
+              "type": "string",
+              "example": "+34600000012"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The resource is gone. The answer has no body."
+          },
+          "401": {
+            "description": "The `x-api-key` is wrong, revoked or expired: replace the credential."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or a scoped key lacks the permission this call needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No test number with this id in your application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` - Over 600 requests a minute for the key: wait for Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": []
       }
     }
   },
@@ -106841,7 +109924,10 @@
             "format": "date-time",
             "description": "Timestamp of this check response."
           }
-        }
+        },
+        "required": [
+          "status"
+        ]
       },
       "EmailVerificationSendResponse": {
         "type": "object",
@@ -146559,7 +149645,7 @@
               "renewal_window_expired",
               "first_sync_failed"
             ],
-            "description": "Why the link failed. A failed link is not an HTTP error: the link reads with `status: failed` and this object. A renew link whose connection changed meanwhile reads `renewal_not_needed` or `renewal_window_expired`."
+            "description": "Why the link failed. A failed link is not an HTTP error: the link reads with `status: failed` and this object. `bank_cancelled` ends a link only on the fifth cancel at the bank: until then a person who backs out at the bank returns to the list of banks with a notice and the link stays `opened`. A bank that cannot be reached (`bank_unavailable`) also returns the person to the list of banks and leaves the link `opened`. A link ended by the simulate operation fails at once. A renew link whose connection changed meanwhile reads `renewal_not_needed` or `renewal_window_expired`."
           },
           "message": {
             "type": "string",
@@ -146789,7 +149875,7 @@
           },
           "language": {
             "type": "string",
-            "description": "Optional language code such as `es` or `pt-BR`. Otherwise the browser language.",
+            "description": "Optional. One of the [supported languages](/integration/supported-languages), the same codes the `language` of the session API takes, for example `es`, `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and case-sensitive (`ES` and `pt-PT` are refused). A code outside that list answers `400 invalid_request` with `field: language`. Otherwise the browser language.",
             "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
             "maxLength": 16
           },
@@ -147649,7 +150735,8 @@
           "language": {
             "type": "string",
             "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
-            "maxLength": 16
+            "maxLength": 16,
+            "description": "Optional. One of the [supported languages](/integration/supported-languages), the same codes the `language` of the session API takes, for example `es`, `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and case-sensitive (`ES` and `pt-PT` are refused). A code outside that list answers `400 invalid_request` with `field: language`."
           },
           "expires_in": {
             "type": "integer",
@@ -149294,7 +152381,7 @@
         ]
       },
       "BankLinkFailedEvent": {
-        "description": "A Bank Link failed. `data.error_code` says why, for example `duplicate_conflict`. Nothing was published or charged. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
+        "description": "A Bank Link failed: it is over. `data.error_code` says why, for example `duplicate_conflict`. A cancel at the bank sends this event with `bank_cancelled` only on the fifth cancel; before that the person returns to the list of banks and the link stays open. A bank that cannot be reached (`bank_unavailable`) also leaves the link open and sends no event. Nothing was published or charged. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
         "allOf": [
           {
             "$ref": "#/components/schemas/WebhookEventEnvelope"
@@ -150832,6 +153919,1492 @@
           "connection_id",
           "status"
         ]
+      },
+      "BankLinkSimulateRequest": {
+        "type": "object",
+        "description": "How a sandbox link ends. Every field is optional: an empty body completes the link for the `personal_basic` Test Bank customer.",
+        "properties": {
+          "persona": {
+            "type": "string",
+            "enum": [
+              "personal_basic",
+              "business_multi",
+              "long_history",
+              "pending",
+              "sparse_fields",
+              "no_ongoing"
+            ],
+            "default": "personal_basic",
+            "description": "The Test Bank customer who signs in: `personal_basic` (one current account), `business_multi` (several business accounts), `long_history` (a long transaction history), `pending` (pending rows), `sparse_fields` (transactions with fields missing, one automatic sync a day) or `no_ongoing` (a bank that cannot keep access open)."
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "cancelled",
+              "failed",
+              "duplicate_conflict",
+              "reduced_grant",
+              "renewal_login_mismatch"
+            ],
+            "default": "completed",
+            "description": "How the link ends."
+          },
+          "error_code": {
+            "type": "string",
+            "enum": [
+              "duplicate_conflict",
+              "renewal_login_mismatch",
+              "reduced_grant",
+              "corporate_approval_not_supported",
+              "ongoing_access_not_available",
+              "bank_unavailable",
+              "bank_cancelled",
+              "consent_declined",
+              "read_limit"
+            ],
+            "description": "The failure the link records. Only accepted with `outcome: failed`, where it defaults to `bank_unavailable`."
+          }
+        }
+      },
+      "BankConnectionSimulateRequest": {
+        "type": "object",
+        "description": "The event to move on a sandbox connection.",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "new_transactions",
+              "pending_posted",
+              "booking_correction",
+              "consent_expiring",
+              "consent_expired",
+              "revoked_by_user",
+              "revoked_by_bank",
+              "sync_failed",
+              "sync_recovered",
+              "webhook_twice",
+              "midnight_booking",
+              "budget_used",
+              "budget_reset"
+            ],
+            "description": "What happens. The operation description explains each value."
+          },
+          "days": {
+            "type": "integer",
+            "enum": [
+              14,
+              7,
+              1
+            ],
+            "default": 7,
+            "description": "Only for `consent_expiring`: days until the consent ends. Only the notification thresholds are accepted: 14, 7 or 1. Any other value, or `days` with another action, answers `400 invalid_request` with `field` `days`."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 3,
+            "description": "Only for `new_transactions`: how many booked transactions the bank adds. With another action it answers `400 invalid_request` with `field` `count`."
+          }
+        }
+      },
+      "BankIdempotencyConflictError": {
+        "type": "object",
+        "description": "The refusal of the shared idempotency layer: the same `Idempotency-Key` was used with another request, or while the first request is still running (with `Retry-After`).",
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "Plain-language explanation."
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "idempotency_key_reused",
+              "idempotency_key_in_progress"
+            ],
+            "description": "`idempotency_key_reused`: the key was used with another endpoint, query or body. `idempotency_key_in_progress`: the first request with this key is still running."
+          }
+        },
+        "required": [
+          "detail",
+          "code"
+        ]
+      },
+      "BankVerificationCountryCoverage": {
+        "type": "object",
+        "required": [
+          "country",
+          "name",
+          "updated_at",
+          "open",
+          "data_read",
+          "balances_note",
+          "banks"
+        ],
+        "properties": {
+          "country": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "open": {
+            "$ref": "#/components/schemas/BankVerificationCoverageOpen"
+          },
+          "data_read": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "balances_note": {
+            "type": "string"
+          },
+          "banks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BankVerificationCoverageBank"
+            },
+            "description": "Alphabetical, a fixed order that says nothing about size."
+          }
+        }
+      },
+      "BankVerificationCoverage": {
+        "type": "object",
+        "description": "Where Didit covers bank data and what is open today. No prices: see the bank verification pricing feed.",
+        "required": [
+          "updated_at",
+          "open",
+          "data_read",
+          "balances_note",
+          "countries"
+        ],
+        "properties": {
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the catalogue was last refreshed."
+          },
+          "open": {
+            "$ref": "#/components/schemas/BankVerificationCoverageAvailability"
+          },
+          "data_read": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "accounts",
+                "balances",
+                "transactions"
+              ]
+            },
+            "description": "What a read of any covered bank returns."
+          },
+          "balances_note": {
+            "type": "string"
+          },
+          "countries": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "name",
+                "banks",
+                "banks_by_segment",
+                "open",
+                "banks_url"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "banks": {
+                  "type": "integer"
+                },
+                "banks_by_segment": {
+                  "type": "object",
+                  "properties": {
+                    "personal": {
+                      "type": "integer"
+                    },
+                    "business": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "open": {
+                  "$ref": "#/components/schemas/BankVerificationCoverageOpen"
+                },
+                "banks_url": {
+                  "type": "string",
+                  "description": "Path of the banks of this country, under `/v3/organization/bank-verification-coverage/`."
+                }
+              }
+            },
+            "description": "Countries keyed by ISO 3166-1 alpha-3 code."
+          }
+        }
+      },
+      "BankVerificationCoverageBank": {
+        "type": "object",
+        "description": "One bank. Only what the catalogue has: a field nobody observed is left out. The id is a permanent public identifier.",
+        "required": [
+          "id",
+          "name",
+          "country",
+          "segments",
+          "access",
+          "history_days_max",
+          "pending_transactions",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Permanent public identifier and URL slug, for example `es-santander`. Never changes once published."
+          },
+          "name": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-3."
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "personal",
+                "business"
+              ]
+            }
+          },
+          "access": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "one_time",
+                "ongoing"
+              ]
+            },
+            "description": "Access modes a link can use at this bank today, as far as the bank and its readiness go: `one_time`, plus `ongoing` only once Didit has marked the bank's route ready for ongoing access. The same value the authenticated institutions endpoint publishes."
+          },
+          "history_days_max": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Days of transaction history a read can obtain. The same number the authenticated institutions endpoint publishes, so a cap applied there applies here."
+          },
+          "pending_transactions": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "operational",
+              "degraded",
+              "down"
+            ],
+            "description": "Whether the bank can be reached today: `operational`, `degraded` or `down`."
+          },
+          "consent_days_max": {
+            "type": "integer",
+            "description": "Longest consent in days. Present only when `ongoing` is in `access`."
+          },
+          "balance_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Present only when the balance types were observed."
+          },
+          "logo_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Present only for a logo Didit hosts."
+          }
+        }
+      },
+      "BankVerificationCoverageOpen": {
+        "type": "object",
+        "required": [
+          "bank_verification_in_workflows",
+          "bank_data_api_one_time",
+          "bank_data_api_ongoing",
+          "account_check"
+        ],
+        "properties": {
+          "bank_verification_in_workflows": {
+            "type": "boolean"
+          },
+          "bank_data_api_one_time": {
+            "type": "boolean"
+          },
+          "bank_data_api_ongoing": {
+            "type": "boolean"
+          },
+          "account_check": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PhoneApiError": {
+        "type": "object",
+        "description": "An error answer. The HTTP status says the class of failure; `code` names the reason and `detail` says it in words.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Machine-readable reason, as each response documents it.",
+            "example": "not_found"
+          },
+          "detail": {
+            "type": "string",
+            "description": "What went wrong, in one sentence a user can act on.",
+            "example": "No factor with this id in your application."
+          }
+        },
+        "required": [
+          "detail"
+        ]
+      },
+      "PhoneSilentCoverageNetwork": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The mobile network, as the console names it in Coverage, for example `Mobile network A`.",
+            "example": "Mobile network A"
+          },
+          "approval": {
+            "type": "string",
+            "enum": [
+              "live",
+              "test"
+            ],
+            "description": "`live` - the network answers silent checks for production traffic. `test` - it answers only while it approves production use, for the verified test numbers of a registration.",
+            "example": "live"
+          }
+        },
+        "required": [
+          "name",
+          "approval"
+        ]
+      },
+      "PhoneSilentCoverageCountry": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "ISO 3166-1 alpha-2 country code.",
+            "example": "ES"
+          },
+          "wifi": {
+            "type": "boolean",
+            "description": "`true` when the SIM check also runs over Wi-Fi, so a device without mobile data can still complete it.",
+            "example": true
+          },
+          "networks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneSilentCoverageNetwork"
+            },
+            "description": "The mobile networks in this country that can run a silent check."
+          }
+        },
+        "required": [
+          "country",
+          "networks"
+        ]
+      },
+      "PhoneSilentCoverage": {
+        "type": "object",
+        "description": "Where silent verification runs: one entry per country, and per country the mobile networks that can run the check.",
+        "properties": {
+          "countries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneSilentCoverageCountry"
+            },
+            "description": "One entry per country where silent verification runs."
+          }
+        },
+        "required": [
+          "countries"
+        ]
+      },
+      "PhoneSilentEligibilityRequest": {
+        "type": "object",
+        "properties": {
+          "phone_number": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{6,14}$",
+            "description": "The number in international format (E.164), for example `+34600000012`.",
+            "example": "+34600000012"
+          },
+          "ip_address": {
+            "type": "string",
+            "description": "The phone's public IP, so the answer also confirms the device is on mobile data.",
+            "example": "83.44.10.12"
+          }
+        },
+        "required": [
+          "phone_number"
+        ]
+      },
+      "PhoneSilentEligibility": {
+        "type": "object",
+        "properties": {
+          "eligible": {
+            "type": "boolean",
+            "description": "`true` when a silent check can run for this number now.",
+            "example": true
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "unsupported_network",
+              "not_mobile_data",
+              "country_not_covered",
+              null
+            ],
+            "nullable": true,
+            "description": "When `eligible` is `false`, why: `unsupported_network` - the number's mobile network cannot run the check; `not_mobile_data` - the device is not on mobile data (send `ip_address` to have this checked); `country_not_covered` - silent verification does not run in the number's country."
+          },
+          "network": {
+            "type": "string",
+            "description": "The mobile network, or `null` when Didit has no supported network for the number.",
+            "example": "Mobile network A",
+            "nullable": true
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "ISO 3166-1 alpha-2 country code of the number.",
+            "example": "ES"
+          },
+          "wifi_possible": {
+            "type": "boolean",
+            "description": "`true` when the SIM check can run over Wi-Fi instead, so the device can complete it without mobile data.",
+            "example": true
+          }
+        },
+        "required": [
+          "eligible"
+        ]
+      },
+      "PhoneFactorCreateRequest": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "totp"
+            ],
+            "description": "The factor to enroll: `totp`, for an authenticator app.",
+            "example": "totp"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Your id for the user the factor belongs to; a check names the factor and the user.",
+            "example": "u_481"
+          },
+          "friendly_name": {
+            "type": "string",
+            "description": "Shown in the authenticator app and in the factor list.",
+            "example": "Demo App"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Up to 10 keys and values of your own, returned with the factor.",
+            "maxProperties": 10,
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "example": {
+              "device": "iPhone 15"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "user_id"
+        ]
+      },
+      "PhoneFactorUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "friendly_name": {
+            "type": "string",
+            "description": "A new name for the authenticator app.",
+            "example": "Work phone"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Replaces your keys and values with these, up to 10.",
+            "maxProperties": 10,
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "example": {
+              "device": "iPhone 16"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "verified"
+            ],
+            "description": "`disabled` stops the factor's checks; `verified` turns a disabled factor back on.",
+            "example": "disabled"
+          }
+        }
+      },
+      "PhoneFactorEnrollment": {
+        "type": "object",
+        "description": "The enrollment of a TOTP factor: `totp.uri` is what the authenticator app needs.",
+        "properties": {
+          "factor_id": {
+            "type": "string",
+            "description": "Check it with `POST /v3/phone/check/` by naming it as `factor_id` together with the `code` its app shows.",
+            "example": "fa_01JCH8K2"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "totp"
+            ],
+            "description": "The factor type.",
+            "example": "totp"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "verified",
+              "disabled"
+            ],
+            "description": "`unverified` until the first successful check, then `verified`.",
+            "example": "unverified"
+          },
+          "totp": {
+            "type": "object",
+            "description": "A `totp` factor: what the authenticator app needs.",
+            "properties": {
+              "uri": {
+                "type": "string",
+                "description": "The `otpauth://` URI to show as a QR code; the authenticator app scans it and starts producing codes.",
+                "example": "otpauth://totp/Demo%20App:u_481?secret=JBSWY3DP"
+              }
+            },
+            "required": [
+              "uri"
+            ]
+          }
+        },
+        "required": [
+          "factor_id",
+          "type",
+          "status",
+          "totp"
+        ]
+      },
+      "PhoneFactor": {
+        "type": "object",
+        "properties": {
+          "factor_id": {
+            "type": "string",
+            "description": "The factor.",
+            "example": "fa_01JCH8K2"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "totp"
+            ],
+            "description": "The factor.",
+            "example": "totp"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "verified",
+              "disabled"
+            ],
+            "description": "`unverified` until the first successful check, `verified` after it, `disabled` while its checks are turned off.",
+            "example": "verified"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Your id for the user it belongs to.",
+            "example": "u_481"
+          },
+          "friendly_name": {
+            "type": "string",
+            "description": "Shown in the authenticator app and in the factor list.",
+            "example": "Demo App"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Your keys and values, as you sent them.",
+            "maxProperties": 10,
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "example": {
+              "device": "iPhone 15"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was enrolled.",
+            "example": "2026-11-02T08:14:00Z"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Its last successful check, `null` until there is one.",
+            "example": "2026-11-21T09:58:00Z"
+          }
+        },
+        "required": [
+          "factor_id",
+          "type",
+          "status"
+        ]
+      },
+      "PhoneFactorsPage": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Rows that match the filters.",
+            "example": 1
+          },
+          "next": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "The next page, or `null` on the last one."
+          },
+          "previous": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "The previous page, or `null` on the first one."
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneFactor"
+            },
+            "description": "The factors of this user."
+          }
+        },
+        "required": [
+          "count",
+          "next",
+          "previous",
+          "results"
+        ]
+      },
+      "PhoneSilentRegistrationRequest": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "The ISO 3166-1 alpha-2 country to ask approval for.",
+            "example": "BR"
+          },
+          "networks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only these mobile networks; left out, every network in the country.",
+            "example": [
+              "Mobile network A",
+              "Mobile network B"
+            ]
+          },
+          "use_case": {
+            "type": "string",
+            "enum": [
+              "signup",
+              "login",
+              "payment",
+              "account_recovery"
+            ],
+            "description": "What silent verification is used for.",
+            "example": "login"
+          },
+          "company_name": {
+            "type": "string",
+            "description": "Your legal company name, as the networks see it.",
+            "example": "Demo Application S.L."
+          },
+          "website": {
+            "type": "string",
+            "format": "uri",
+            "description": "Where the flow runs, so the networks can review it.",
+            "example": "https://app.example.com"
+          },
+          "monthly_volume": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Expected silent checks a month.",
+            "example": 40000
+          },
+          "flow_screenshots": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "Links to screens of the flow, as the networks ask for them."
+          }
+        },
+        "required": [
+          "country",
+          "use_case",
+          "company_name",
+          "website"
+        ]
+      },
+      "PhoneNetworkDecision": {
+        "type": "object",
+        "description": "One mobile network's decision on a registration.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The mobile network.",
+            "example": "Mobile network A"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "in_review",
+              "approved",
+              "rejected"
+            ],
+            "description": "Where this network stands: `submitted` - the request reached it; `in_review` - it is reviewing; `approved`; `rejected`.",
+            "example": "approved"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the network decided, `null` until it has.",
+            "example": "2026-11-20T15:02:00Z"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Why a network rejected it, `null` when it approved or has not decided."
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ]
+      },
+      "PhoneSilentRegistration": {
+        "type": "object",
+        "properties": {
+          "registration_id": {
+            "type": "string",
+            "description": "The registration: track it with it.",
+            "example": "sr_01JCP2F4Q8"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "The country it asks approval for.",
+            "example": "BR"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "in_review",
+              "approved",
+              "partly_approved",
+              "rejected"
+            ],
+            "description": "`submitted` - sent to the networks; `in_review` - they are reviewing; `approved` - every network approved; `partly_approved` - some approved and some rejected; `rejected` - none approved.",
+            "example": "in_review"
+          },
+          "networks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneNetworkDecision"
+            },
+            "description": "Each mobile network's decision, network by network."
+          },
+          "live_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When silent verification went live for you in the country, `null` until it has."
+          }
+        },
+        "required": [
+          "registration_id",
+          "country",
+          "status"
+        ]
+      },
+      "PhoneNetworkRegistrationRequest": {
+        "type": "object",
+        "properties": {
+          "feature": {
+            "type": "string",
+            "enum": [
+              "silent_verification",
+              "sim_swap",
+              "number_verification"
+            ],
+            "description": "The network feature to ask approval for.",
+            "example": "sim_swap"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "The ISO 3166-1 alpha-2 country it runs in.",
+            "example": "BR"
+          },
+          "use_case": {
+            "type": "string",
+            "enum": [
+              "signup",
+              "login",
+              "payment",
+              "account_recovery",
+              "fraud_check"
+            ],
+            "description": "What you use the feature for.",
+            "example": "account_recovery"
+          },
+          "networks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only these mobile networks; left out, every network in the country.",
+            "example": [
+              "Mobile network A",
+              "Mobile network B"
+            ]
+          },
+          "company_name": {
+            "type": "string",
+            "description": "Your legal company name, as the networks see it.",
+            "example": "Demo Application S.L."
+          },
+          "website": {
+            "type": "string",
+            "format": "uri",
+            "description": "Where the flow runs, so the networks can review it.",
+            "example": "https://app.example.com"
+          },
+          "purpose": {
+            "type": "string",
+            "description": "Why the flow needs the feature, shown to the networks.",
+            "example": "Check for a recent SIM change before a password reset"
+          },
+          "monthly_volume": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Expected requests a month.",
+            "example": 20000
+          }
+        },
+        "required": [
+          "feature",
+          "country",
+          "use_case",
+          "company_name",
+          "website"
+        ]
+      },
+      "PhoneNetworkRegistrationSummary": {
+        "type": "object",
+        "properties": {
+          "registration_id": {
+            "type": "string",
+            "description": "The registration.",
+            "example": "nr_01JCP2F4Q8"
+          },
+          "feature": {
+            "type": "string",
+            "enum": [
+              "silent_verification",
+              "sim_swap",
+              "number_verification"
+            ],
+            "description": "The network feature.",
+            "example": "sim_swap"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "The ISO 3166-1 alpha-2 country.",
+            "example": "BR"
+          },
+          "use_case": {
+            "type": "string",
+            "description": "What you use the feature for.",
+            "example": "account_recovery"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "in_review",
+              "approved",
+              "partly_approved",
+              "rejected"
+            ],
+            "description": "Where the registration stands.",
+            "example": "partly_approved"
+          }
+        },
+        "required": [
+          "registration_id",
+          "feature",
+          "country",
+          "status"
+        ]
+      },
+      "PhoneNetworkRegistrationTestNumber": {
+        "type": "object",
+        "properties": {
+          "phone_number": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{6,14}$",
+            "description": "The test number.",
+            "example": "+34600000012"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "code_sent",
+              "verified"
+            ],
+            "description": "`code_sent` - Didit sent it a code, which makes it a verified test number once checked; `verified` - it answers the feature under test access.",
+            "example": "code_sent"
+          },
+          "verification_id": {
+            "type": "string",
+            "description": "The verification carrying the code: check it with `POST /v3/phone/check/`.",
+            "example": "pv_01JCH6D4T7N2XK8F"
+          },
+          "test_access": {
+            "type": "string",
+            "enum": [
+              "on"
+            ],
+            "description": "`on` - the registration is under review, so the feature answers for its test numbers, with `test: true` in the answer.",
+            "example": "on"
+          }
+        },
+        "required": [
+          "phone_number",
+          "status"
+        ]
+      },
+      "PhoneNetworkRegistration": {
+        "type": "object",
+        "properties": {
+          "registration_id": {
+            "type": "string",
+            "description": "The registration: track it with it.",
+            "example": "nr_01JCP2F4Q8"
+          },
+          "feature": {
+            "type": "string",
+            "enum": [
+              "silent_verification",
+              "sim_swap",
+              "number_verification"
+            ],
+            "description": "The network feature.",
+            "example": "sim_swap"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "The ISO 3166-1 alpha-2 country.",
+            "example": "BR"
+          },
+          "use_case": {
+            "type": "string",
+            "description": "What you use the feature for, as submitted.",
+            "example": "account_recovery"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "in_review",
+              "approved",
+              "partly_approved",
+              "rejected"
+            ],
+            "description": "`submitted` - sent to the networks; `in_review` - they are reviewing; `approved` - every network approved; `partly_approved` - some approved and some rejected; `rejected` - none approved.",
+            "example": "partly_approved"
+          },
+          "networks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneNetworkDecision"
+            },
+            "description": "Each mobile network's decision, network by network."
+          },
+          "live_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the feature went live for you in the country, `null` until it has."
+          },
+          "test_access": {
+            "type": "string",
+            "enum": [
+              "on",
+              "off"
+            ],
+            "description": "`on` while the networks review: the feature answers for your verified test numbers, marked `test: true`. `off` once the registration is approved or rejected.",
+            "example": "on"
+          },
+          "test_numbers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneNetworkRegistrationTestNumber"
+            },
+            "description": "Your test numbers for this registration, up to 5."
+          }
+        },
+        "required": [
+          "registration_id",
+          "feature",
+          "country",
+          "status"
+        ]
+      },
+      "PhoneNetworkRegistrationsPage": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Rows that match the filters.",
+            "example": 1
+          },
+          "next": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "The next page, or `null` on the last one."
+          },
+          "previous": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "The previous page, or `null` on the first one."
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneNetworkRegistrationSummary"
+            },
+            "description": "Your network feature registrations."
+          }
+        },
+        "required": [
+          "count",
+          "next",
+          "previous",
+          "results"
+        ]
+      },
+      "PhoneSdkKeyRequest": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android",
+              "web"
+            ],
+            "description": "The platform the key is for: `ios`, `android` or `web`.",
+            "example": "ios"
+          },
+          "app_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "example": "com.demoapp.ios"
+            },
+            "minItems": 1,
+            "description": "The bundle ids, package names or `https` origins the key works for.",
+            "example": [
+              "com.demoapp.ios"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Shown in API keys.",
+            "example": "iOS app"
+          }
+        },
+        "required": [
+          "platform",
+          "app_ids"
+        ]
+      },
+      "PhoneSdkKey": {
+        "type": "object",
+        "description": "A publishable key of a client SDK. It is not a secret: it is bound to the app ids it may run in and cannot make a server call.",
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "description": "The key.",
+            "example": "sk_01JCL2B6"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android",
+              "web"
+            ],
+            "description": "The platform it is for.",
+            "example": "ios"
+          },
+          "publishable_key": {
+            "type": "string",
+            "description": "Safe to ship inside the app: it can only start the checks the client SDK runs, never a server call.",
+            "example": "pk_live_ios_7Hq2"
+          },
+          "app_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "example": "com.demoapp.ios"
+            },
+            "description": "The bundle ids, package names or `https` origins it works for.",
+            "example": [
+              "com.demoapp.ios"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expiring",
+              "revoked"
+            ],
+            "description": "`active` - it works; `expiring` - it was rotated and stops working at `previous_expires_at`; `revoked` - it stopped working.",
+            "example": "active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was issued.",
+            "example": "2026-11-21T09:00:00Z"
+          }
+        },
+        "required": [
+          "key_id",
+          "platform",
+          "status"
+        ]
+      },
+      "PhoneSdkKeyRotated": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "description": "The key.",
+            "example": "sk_01JCL2B6"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android",
+              "web"
+            ],
+            "description": "The platform it is for.",
+            "example": "ios"
+          },
+          "publishable_key": {
+            "type": "string",
+            "description": "The new value to ship in the app.",
+            "example": "pk_live_ios_9Zt4"
+          },
+          "app_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "example": "com.demoapp.ios"
+            },
+            "description": "The bundle ids, package names or `https` origins it works for.",
+            "example": [
+              "com.demoapp.ios"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expiring",
+              "revoked"
+            ],
+            "description": "`active` - the new value works; `expiring` - it was rotated again; `revoked` - it stopped working.",
+            "example": "active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the key was first issued.",
+            "example": "2026-11-21T09:00:00Z"
+          },
+          "previous_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the value this rotation replaced stops working.",
+            "example": "2026-11-24T09:00:00Z"
+          }
+        },
+        "required": [
+          "key_id",
+          "platform",
+          "publishable_key",
+          "previous_expires_at"
+        ]
+      },
+      "PhoneSdkKeySummary": {
+        "type": "object",
+        "description": "A client SDK key as returned by the list operation.",
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "description": "The key.",
+            "example": "sk_01JCL2B6"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android",
+              "web"
+            ],
+            "description": "The platform it is for.",
+            "example": "ios"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expiring",
+              "revoked"
+            ],
+            "description": "An active key works, an expiring key works until its rotation overlap ends, and a revoked key has stopped working.",
+            "example": "active"
+          }
+        },
+        "required": [
+          "key_id",
+          "platform",
+          "status"
+        ]
+      },
+      "PhoneSdkKeysPage": {
+        "type": "object",
+        "description": "The publishable keys of your client SDKs.",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneSdkKeySummary"
+            },
+            "description": "One entry for each key that matches the platform filter."
+          }
+        },
+        "required": [
+          "results"
+        ]
+      },
+      "PhoneSdkKeyRotateRequest": {
+        "type": "object",
+        "description": "How long the old value of a rotated key keeps working.",
+        "properties": {
+          "overlap_hours": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 168,
+            "description": "How long the value being replaced keeps working, from 0 to 168 hours, while the app update ships.",
+            "example": 72
+          }
+        }
+      },
+      "PhoneNetworkRegistrationTestNumberRequest": {
+        "type": "object",
+        "properties": {
+          "phone_number": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{6,14}$",
+            "description": "A number you hold, in E.164. Didit sends it a code to confirm it.",
+            "example": "+34600000012"
+          }
+        },
+        "required": [
+          "phone_number"
+        ]
+      },
+      "PhoneFactorCheckResponse": {
+        "type": "object",
+        "description": "The answer to a factor check (a request that names `factor_id`).",
+        "properties": {
+          "verification_id": {
+            "type": "string",
+            "description": "The factor id.",
+            "example": "fa_01JCH8K2"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "failed"
+            ],
+            "description": "`verified` when the code matched; the factor is then `verified` too.",
+            "example": "verified"
+          },
+          "attempts": {
+            "type": "integer",
+            "example": 1
+          }
+        },
+        "required": [
+          "verification_id",
+          "status",
+          "attempts"
+        ]
+      },
+      "PhoneCheckFieldErrors": {
+        "type": "object",
+        "description": "The validation answer: one array of messages per offending field, keyed by the field's name.",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "example": {
+          "code": [
+            "Invalid code format. Enter 4 to 8 numeric digits."
+          ]
+        }
+      },
+      "BankVerificationWorkflowsAvailability": {
+        "type": "object",
+        "required": [
+          "live",
+          "countries"
+        ],
+        "properties": {
+          "live": {
+            "type": "boolean"
+          },
+          "countries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Bank Verification inside verification workflows."
+      },
+      "BankVerificationOneTimeAvailability": {
+        "type": "object",
+        "required": [
+          "live_applications",
+          "countries"
+        ],
+        "properties": {
+          "live_applications": {
+            "type": "boolean"
+          },
+          "countries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "The Bank data API with one-time access, for live applications."
+      },
+      "BankVerificationOngoingAvailability": {
+        "type": "object",
+        "required": [
+          "live_applications",
+          "countries"
+        ],
+        "properties": {
+          "live_applications": {
+            "type": "boolean"
+          },
+          "countries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "The Bank data API with ongoing access, for live applications."
+      },
+      "BankVerificationCoverageAvailability": {
+        "type": "object",
+        "required": [
+          "bank_verification_in_workflows",
+          "bank_data_api_one_time",
+          "bank_data_api_ongoing"
+        ],
+        "properties": {
+          "bank_verification_in_workflows": {
+            "$ref": "#/components/schemas/BankVerificationWorkflowsAvailability"
+          },
+          "bank_data_api_one_time": {
+            "$ref": "#/components/schemas/BankVerificationOneTimeAvailability"
+          },
+          "bank_data_api_ongoing": {
+            "$ref": "#/components/schemas/BankVerificationOngoingAvailability"
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -151887,7 +156460,7 @@
     "bank.link.failed": {
       "post": {
         "summary": "Bank link failed",
-        "description": "A Bank Link failed. `data.error_code` says why, for example `duplicate_conflict`. Nothing was published or charged. Sent for live and sandbox applications.",
+        "description": "A Bank Link failed: it is over. `data.error_code` says why, for example `duplicate_conflict`. A cancel at the bank sends this event with `bank_cancelled` only on the fifth cancel; before that the person returns to the list of banks and the link stays open. A bank that cannot be reached (`bank_unavailable`) also leaves the link open and sends no event. Nothing was published or charged. Sent for live and sandbox applications.",
         "tags": [
           "Webhook"
         ],

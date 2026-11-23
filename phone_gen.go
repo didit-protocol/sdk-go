@@ -13,6 +13,11 @@ import (
 // PhoneService holds the phone operations. Use it through Client.Phone.
 type PhoneService struct {
 	client *Client
+
+	Factors *PhoneFactorsService
+	Network *PhoneNetworkService
+	SDKKeys *PhoneSDKKeysService
+	Silent  *PhoneSilentService
 }
 
 // AssessRisk: Risk-score a phone number.
@@ -32,6 +37,14 @@ type PhoneService struct {
 //
 // **Billing.** Live calls use Phone Risk API pricing. The request is billable
 // once the lookup starts, even when some best-effort fields are unavailable.
+// Phone Risk, including the optional `enable_social` add-on, is Phone usage:
+// the free credit pays it only up to $1 a month, shared with phone verification
+// codes, messages and the other Phone lookups. On the Free plan, what the $1
+// does not cover is paid from your top-up balance; Growth and Scale included
+// credit pays for Phone in full. The request is refused with `403` only when
+// the credit available to Phone, including the add-on, cannot cover it. Phone
+// Risk has no first-top-up requirement; a top-up is needed only when the credit
+// available to Phone (the free $1 or paid credit) cannot cover the lookup.
 //
 // **Sandbox.** Sandbox keys validate the request and return deterministic
 // approved data without sending an OTP, consuming credits, creating a session,
@@ -126,8 +139,8 @@ func (r *PhoneService) AssessRisk(ctx context.Context, params PhoneRiskRequest, 
 // one `phone_social` unit per request on top of this endpoint's own price.
 //
 //	POST /v3/phone/check/
-func (r *PhoneService) CheckCode(ctx context.Context, params PhoneCheckCodeParams, opts ...option.RequestOption) (*PhoneVerificationCheckResponse, error) {
-	res := new(PhoneVerificationCheckResponse)
+func (r *PhoneService) CheckCode(ctx context.Context, params PhoneCheckCodeParams, opts ...option.RequestOption) (*PhoneCheckCodeResponse, error) {
+	res := new(PhoneCheckCodeResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/check/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
@@ -204,6 +217,545 @@ func (r *PhoneService) CheckCode(ctx context.Context, params PhoneCheckCodeParam
 func (r *PhoneService) SendCode(ctx context.Context, params PhoneSendCodeParams, opts ...option.RequestOption) (*PhoneVerificationSendResponse, error) {
 	res := new(PhoneVerificationSendResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/send/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneFactorsService holds the phone factors operations. Use it through
+// Client.Phone.Factors.
+type PhoneFactorsService struct {
+	client *Client
+}
+
+// Create: Enroll a TOTP factor.
+//
+// Enroll a TOTP factor for one of your users, so they confirm a verification
+// with an authenticator app instead of a code. `type` is `totp` and `user_id`
+// is your id for the user.
+//
+// The answer carries `totp.uri`, the `otpauth://` URI to show as a QR code; the
+// authenticator app scans it and starts producing codes.
+//
+// **State.** A new factor is `unverified` until its first code passes `POST
+// /v3/phone/check/`, then `verified`.
+//
+// **One of each type.** A user holds at most one factor: a second one answers
+// `409 factor_exists`.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	POST /v3/phone/factors/
+func (r *PhoneFactorsService) Create(ctx context.Context, params PhoneFactorCreateRequest, opts ...option.RequestOption) (*PhoneFactorEnrollment, error) {
+	res := new(PhoneFactorEnrollment)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/factors/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Delete: Remove a factor.
+//
+// Delete an enrolled factor. The factor is deleted at once: its `factor_id`
+// stops working and the TOTP secret it held stop verifying, and the deletion
+// cannot be undone. Verifications the factor already completed stay verified,
+// and the user's other factors are not affected.
+//
+// Enroll the user again with `POST /v3/phone/factors/` to give them a new
+// factor.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	DELETE /v3/phone/factors/{factor_id}/
+func (r *PhoneFactorsService) Delete(ctx context.Context, factorID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/factors/{factor_id}/", pathParams: []string{"factor_id", factorID}}, nil, opts)
+	return err
+}
+
+// List: List a user's enrolled factors.
+//
+// List the factors enrolled for one of your users, so your app can show them
+// and let the user pick the one to check with. `user_id` is required; `type`
+// and `status` narrow the list.
+//
+// The answer is a page: `count`, `next`, `previous` and `results`, each result
+// a factor as Retrieve returns it.
+//
+// **Export.** `format: csv` answers every row that matches the filters as a CSV
+// file.
+//
+// **Paging.** `limit` is 20 by default and 100 at most.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/phone/factors/
+func (r *PhoneFactorsService) List(ctx context.Context, params PhoneFactorsListParams, opts ...option.RequestOption) (*Page[PhoneFactor], error) {
+	return getPage[PhoneFactor](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/factors/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *PhoneFactorsService) ListAutoPaging(ctx context.Context, params PhoneFactorsListParams, opts ...option.RequestOption) *PageIterator[PhoneFactor] {
+	return newPageIterator(ctx, func() (*Page[PhoneFactor], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Retrieve: Retrieve one enrolled factor.
+//
+// One enrolled factor: its type, state, user, name, metadata and when it was
+// last used. Read it to show a factor's state after a check changed it, or
+// after it was disabled, without reading the whole list.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	GET /v3/phone/factors/{factor_id}/
+func (r *PhoneFactorsService) Retrieve(ctx context.Context, factorID string, opts ...option.RequestOption) (*PhoneFactor, error) {
+	res := new(PhoneFactor)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/factors/{factor_id}/", pathParams: []string{"factor_id", factorID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Update: Change a factor's name, metadata or state.
+//
+// Change a factor without enrolling it again: rename it (`friendly_name`),
+// replace your `metadata`, or disable it or turn it back on (`status`). The
+// answer is the factor as it now stands.
+//
+// `disabled` stops the factor's checks and `verified` turns a disabled factor
+// back on. A factor that was never verified cannot be turned on: finish its
+// first check instead, or the call answers `409 factor_unverified`.
+//
+// `metadata` replaces the keys and values you sent before: up to 10 keys, each
+// value at most 500 characters, or the call answers `400 invalid_metadata`.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	PATCH /v3/phone/factors/{factor_id}/
+func (r *PhoneFactorsService) Update(ctx context.Context, factorID string, params PhoneFactorUpdateRequest, opts ...option.RequestOption) (*PhoneFactor, error) {
+	res := new(PhoneFactor)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/phone/factors/{factor_id}/", pathParams: []string{"factor_id", factorID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneNetworkService holds the phone network operations. Use it through
+// Client.Phone.Network.
+type PhoneNetworkService struct {
+	client *Client
+
+	Registrations *PhoneNetworkRegistrationsService
+}
+
+// PhoneNetworkRegistrationsService holds the phone network registrations
+// operations. Use it through Client.Phone.Network.Registrations.
+type PhoneNetworkRegistrationsService struct {
+	client *Client
+
+	TestNumbers *PhoneNetworkRegistrationsTestNumbersService
+}
+
+// Create: Ask the networks to approve a network feature.
+//
+// Ask the mobile networks to approve a network feature for one country, so your
+// application can use it for production traffic there: `feature`
+// (`silent_verification`, `sim_swap` or `number_verification`), `country`,
+// `use_case`, `company_name` and the `website` where the flow runs, plus
+// optionally the `networks` to ask, a `purpose` shown to them and your expected
+// `monthly_volume`.
+//
+// The answer is the registration with each network's decision
+// (`networks[].status`) and the overall `status`: `submitted`, `in_review`,
+// `approved`, `partly_approved` or `rejected`.
+//
+// **Test access.** While the networks review, `test_access` is `on`: the
+// feature answers for the registration's verified test numbers and marks those
+// answers `test: true`. Add up to 5 with `POST
+// /v3/phone/network/registrations/{registration_id}/test-numbers/`. It turns
+// `off` once the registration is approved or rejected.
+//
+// **One per feature, use case and country.** The same three again while one is
+// open answers `409 registration_exists`.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	POST /v3/phone/network/registrations/
+func (r *PhoneNetworkRegistrationsService) Create(ctx context.Context, params PhoneNetworkRegistrationRequest, opts ...option.RequestOption) (*PhoneNetworkRegistration, error) {
+	res := new(PhoneNetworkRegistration)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/network/registrations/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// List: List your network feature registrations.
+//
+// List your network feature registrations, newest first, with each one's
+// feature, country, use case and status. `feature`, `country` and `status`
+// narrow the list, and `format: csv` exports every row that matches the filters
+// instead of a page. Read one in full with `GET
+// /v3/phone/network/registrations/{registration_id}/`.
+//
+// **Paging.** `limit` is 20 by default and 100 at most.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/phone/network/registrations/
+func (r *PhoneNetworkRegistrationsService) List(ctx context.Context, params PhoneNetworkRegistrationsListParams, opts ...option.RequestOption) (*Page[PhoneNetworkRegistrationSummary], error) {
+	return getPage[PhoneNetworkRegistrationSummary](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/network/registrations/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *PhoneNetworkRegistrationsService) ListAutoPaging(ctx context.Context, params PhoneNetworkRegistrationsListParams, opts ...option.RequestOption) *PageIterator[PhoneNetworkRegistrationSummary] {
+	return newPageIterator(ctx, func() (*Page[PhoneNetworkRegistrationSummary], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Retrieve: Track a feature approval, network by network.
+//
+// Track one feature approval, network by network: the feature, country and use
+// case you submitted, the overall `status`, each mobile network's decision
+// (`status`, `decided_at` and, when it rejected the request, `reason`),
+// `live_at` once the feature is live for you in the country, and the
+// `test_numbers` that answer it while `test_access` is `on`.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	GET /v3/phone/network/registrations/{registration_id}/
+func (r *PhoneNetworkRegistrationsService) Retrieve(ctx context.Context, registrationID string, opts ...option.RequestOption) (*PhoneNetworkRegistration, error) {
+	res := new(PhoneNetworkRegistration)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/network/registrations/{registration_id}/", pathParams: []string{"registration_id", registrationID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneNetworkRegistrationsTestNumbersService holds the phone network
+// registrations test_numbers operations. Use it through
+// Client.Phone.Network.Registrations.TestNumbers.
+type PhoneNetworkRegistrationsTestNumbersService struct {
+	client *Client
+}
+
+// Create: Add a test number while the networks review.
+//
+// Add a number you hold as a test number while the networks review a
+// registration, so you can try the feature before it is approved: send it in
+// E.164 (`phone_number`).
+//
+// Didit sends it a code and answers with `verification_id` and `status:
+// code_sent`; check the code with `POST /v3/phone/check/` and the number. Once
+// the code is checked the number is `verified`, and the feature answers for it
+// under test access, marked `test: true`.
+//
+// **Limits.** A registration takes up to 5 test numbers (`409
+// too_many_test_numbers`), and test access ends when the networks decide (`409
+// review_finished`).
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	POST /v3/phone/network/registrations/{registration_id}/test-numbers/
+func (r *PhoneNetworkRegistrationsTestNumbersService) Create(ctx context.Context, registrationID string, params PhoneNetworkRegistrationTestNumberRequest, opts ...option.RequestOption) (*PhoneNetworkRegistrationTestNumber, error) {
+	res := new(PhoneNetworkRegistrationTestNumber)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/network/registrations/{registration_id}/test-numbers/", pathParams: []string{"registration_id", registrationID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Delete: Remove a test number.
+//
+// Remove a test number from a registration: it is deleted at once, the feature
+// stops answering for it, and the number can be added again while test access
+// is on.
+//
+// The number is in the path in E.164, URL-encoded: `+34600000012` becomes
+// `%2B34600000012`.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	DELETE /v3/phone/network/registrations/{registration_id}/test-numbers/{phone_number}/
+func (r *PhoneNetworkRegistrationsTestNumbersService) Delete(ctx context.Context, registrationID string, phoneNumber string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/network/registrations/{registration_id}/test-numbers/{phone_number}/", pathParams: []string{"registration_id", registrationID, "phone_number", phoneNumber}}, nil, opts)
+	return err
+}
+
+// PhoneSDKKeysService holds the phone sdk_keys operations. Use it through
+// Client.Phone.SDKKeys.
+type PhoneSDKKeysService struct {
+	client *Client
+}
+
+// Create: Issue a publishable key for a client SDK.
+//
+// Issue a publishable key for the iOS, Android or web build of your app:
+// `platform`, the `app_ids` it may run in (bundle ids, package names or `https`
+// origins) and an optional `name` shown in API keys. The answer carries
+// `publishable_key`, which is safe to ship inside the app because it can only
+// start the client SDK's checks.
+//
+// **Rotation.** To replace a key in an app that is already installed, rotate it
+// (`POST /v3/phone/sdk-keys/{key_id}/rotate/`) rather than issuing a second
+// one: the old value keeps working while your update ships.
+//
+// **Permissions.** Only an Owner or Admin API key may issue a publishable key.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	POST /v3/phone/sdk-keys/
+func (r *PhoneSDKKeysService) Create(ctx context.Context, params PhoneSDKKeyRequest, opts ...option.RequestOption) (*PhoneSDKKey, error) {
+	res := new(PhoneSDKKey)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/sdk-keys/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// List: List the publishable keys of your client SDKs.
+//
+// List the key ID, platform and status of each client SDK key for your
+// application.
+//
+// `platform` narrows the list to one platform.
+//
+// **Permissions.** Only an Owner or Admin API key may read publishable keys.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	GET /v3/phone/sdk-keys/
+func (r *PhoneSDKKeysService) List(ctx context.Context, params PhoneSDKKeysListParams, opts ...option.RequestOption) (*PhoneSDKKeysPage, error) {
+	res := new(PhoneSDKKeysPage)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/sdk-keys/", params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Revoke: Revoke a publishable key.
+//
+// Revoke a publishable key at once: it stops starting the client SDK's checks
+// immediately, its status becomes `revoked`, and it can neither be restored nor
+// rotated. Apps that still ship it fail until they are updated, so issue the
+// replacement first (`POST /v3/phone/sdk-keys/`).
+//
+// **Permissions.** Only an Owner or Admin API key may revoke a publishable key.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	DELETE /v3/phone/sdk-keys/{key_id}/
+func (r *PhoneSDKKeysService) Revoke(ctx context.Context, keyID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/sdk-keys/{key_id}/", pathParams: []string{"key_id", keyID}}, nil, opts)
+	return err
+}
+
+// Rotate: Rotate a publishable key with an overlap.
+//
+// Rotate a publishable key without breaking the app versions already installed:
+// Didit issues a new value and keeps the old one working for `overlap_hours` (0
+// to 168), long enough for your update to ship. The answer is the key with its
+// new `publishable_key`, and `previous_expires_at` is when the value it
+// replaced stops working.
+//
+// Ship the new value, then let the overlap end. A revoked key cannot be
+// rotated: the call answers `409 revoked`.
+//
+// **Permissions.** Only an Owner or Admin API key may rotate a publishable key.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	POST /v3/phone/sdk-keys/{key_id}/rotate/
+func (r *PhoneSDKKeysService) Rotate(ctx context.Context, keyID string, params PhoneSDKKeyRotateRequest, opts ...option.RequestOption) (*PhoneSDKKeyRotated, error) {
+	res := new(PhoneSDKKeyRotated)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/sdk-keys/{key_id}/rotate/", pathParams: []string{"key_id", keyID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneSilentService holds the phone silent operations. Use it through
+// Client.Phone.Silent.
+type PhoneSilentService struct {
+	client *Client
+
+	Registrations *PhoneSilentRegistrationsService
+}
+
+// Coverage: List where silent verification runs.
+//
+// Where silent verification runs: every country where at least one mobile
+// network can run the check, and per country the networks that can. Read this
+// instead of hardcoding a list, because coverage grows as networks approve the
+// feature.
+//
+// `approval` says whether a network answers for production traffic (`live`) or
+// only while it approves production use (`test`), in which case it answers for
+// the verified test numbers of a registration. `wifi` says whether the SIM
+// check also runs over Wi-Fi, so a device without mobile data can still
+// complete it.
+//
+// **Narrowing.** `country` answers for one ISO 3166-1 alpha-2 country.
+//
+// **Before you start.** `POST /v3/phone/silent/eligibility/` answers for one
+// number, and a silent check that cannot run falls back to the verification's
+// code channels.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	GET /v3/phone/silent/coverage/
+func (r *PhoneSilentService) Coverage(ctx context.Context, params PhoneSilentCoverageParams, opts ...option.RequestOption) (*PhoneSilentCoverage, error) {
+	res := new(PhoneSilentCoverage)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/silent/coverage/", params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Eligibility: Check silent eligibility before you start.
+//
+// Whether a silent check can run for one number now, so you can decide whether
+// to offer it before you start a verification. `eligible` is the answer and,
+// when it is `false`, `reason` says why: `unsupported_network` (the number's
+// mobile network cannot run the check), `not_mobile_data` (the device is not on
+// mobile data) or `country_not_covered` (silent verification does not run in
+// the number's country).
+//
+// `network` is the mobile network the number belongs to, `country` its ISO
+// 3166-1 alpha-2 code, and `wifi_possible` whether the SIM check can still run
+// over Wi-Fi when the device has no mobile data.
+//
+// **Mobile data.** Send `ip_address`, the phone's public IP, to have the answer
+// also confirm the device is on mobile data. Without it, the answer is about
+// the network alone.
+//
+// **What follows.** A verification that runs the silent check first falls back
+// to its next code channel when the check cannot run.
+//
+// **Authentication.** Send your application's API key in `x-api-key`. To check
+// a client SDK's publishable key as well, include it in `X-Publishable-Key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	POST /v3/phone/silent/eligibility/
+func (r *PhoneSilentService) Eligibility(ctx context.Context, params PhoneSilentEligibilityParams, opts ...option.RequestOption) (*PhoneSilentEligibility, error) {
+	res := new(PhoneSilentEligibility)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/silent/eligibility/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneSilentRegistrationsService holds the phone silent registrations
+// operations. Use it through Client.Phone.Silent.Registrations.
+type PhoneSilentRegistrationsService struct {
+	client *Client
+}
+
+// Create: Submit a country for carrier approval of silent verification.
+//
+// Submit a country for carrier approval of silent verification, so silent
+// checks run for your application's production traffic there: `country`, the
+// `use_case` it runs in, your `company_name` and the `website` where the flow
+// runs. Optionally name the `networks` to ask, your expected `monthly_volume`
+// and links to `flow_screenshots`.
+//
+// The answer is the registration. `status` starts `submitted`, moves to
+// `in_review`, and ends as `approved`, `partly_approved` (some networks
+// approved and some rejected) or `rejected`. `networks` lists each mobile
+// network's own decision and `live_at` is when silent verification went live
+// for you in the country.
+//
+// **One per country.** A country with an open registration answers `409
+// registration_exists`: track that one with `GET
+// /v3/phone/silent/registrations/{registration_id}/` instead.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	POST /v3/phone/silent/registrations/
+func (r *PhoneSilentRegistrationsService) Create(ctx context.Context, params PhoneSilentRegistrationRequest, opts ...option.RequestOption) (*PhoneSilentRegistration, error) {
+	res := new(PhoneSilentRegistration)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/silent/registrations/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Retrieve: Track a carrier approval, network by network.
+//
+// Track a carrier approval, network by network: the registration's `status`,
+// each mobile network's decision (`status`, `decided_at` and, when it rejected
+// the request, `reason`), and `live_at` once silent verification is live for
+// you in the country.
+//
+// A registration that is `partly_approved` runs silent verification on the
+// networks that approved it.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// **Rate limit.** Requests count against the key's budget; over it the answer
+// is `429` with `Retry-After`.
+//
+//	GET /v3/phone/silent/registrations/{registration_id}/
+func (r *PhoneSilentRegistrationsService) Retrieve(ctx context.Context, registrationID string, opts ...option.RequestOption) (*PhoneSilentRegistration, error) {
+	res := new(PhoneSilentRegistration)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/silent/registrations/{registration_id}/", pathParams: []string{"registration_id", registrationID}}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -430,14 +982,13 @@ func (r *PhoneMatchItem) UnmarshalJSON(data []byte) error {
 type PhoneCheckCodeParams struct {
 	// The same phone number used in the matching [`POST
 	// /v3/phone/send/`](/standalone-apis/phone-send) call, in E.164 format. This is
-	// what links the check to the send. Required.
-	PhoneNumber string `json:"phone_number"`
+	// what links the check to the send.
+	PhoneNumber Opt[string] `json:"phone_number"`
 
 	// The OTP the end user received. Must be 4-8 numeric digits - anything else
 	// returns `400` without consuming an attempt. A well-formed but wrong code
 	// returns `200` with `status: "Failed"` and consumes one of the 3 attempts.
-	// Required.
-	Code string `json:"code"`
+	Code Opt[string] `json:"code"`
 
 	// What to do when the same number was already used by a different user
 	// (different `vendor_data`) of your application. `DECLINE` flips the final
@@ -494,6 +1045,13 @@ type PhoneCheckCodeParams struct {
 	// endpoint; REVIEW is available on the workflow configuration key of the same
 	// name.
 	PhoneNoSocialPresenceAction Opt[PhoneCheckCodeParamsPhoneNoSocialPresenceAction] `json:"phone_no_social_presence_action"`
+
+	// A TOTP factor being checked instead of a phone code, as returned when it was
+	// enrolled; send the 4-8 digit `code` its authenticator app shows. The answer
+	// is `{verification_id, status, attempts}` with `status` `verified` or
+	// `failed`; a factor that is `disabled` answers `400 factor_disabled`, an
+	// unknown one `404 not_found`.
+	FactorID Opt[string] `json:"factor_id"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -622,8 +1180,8 @@ const (
 	PhoneCheckCodeParamsPhoneNoSocialPresenceActionDecline  PhoneCheckCodeParamsPhoneNoSocialPresenceAction = "DECLINE"
 )
 
-// PhoneVerificationCheckResponse is a response object.
-type PhoneVerificationCheckResponse struct {
+// PhoneCheckCodeResponse is a response object.
+type PhoneCheckCodeResponse struct {
 	// On `Approved`/`Declined`: the session id of the matched verification -
 	// identical to the `request_id` returned by `POST /v3/phone/send/`. On `Failed`
 	// and `Expired or Not Found`: a random one-off UUID that cannot be looked up
@@ -634,7 +1192,7 @@ type PhoneVerificationCheckResponse struct {
 	// declining risk matched or the attempt budget (3) was exhausted. `Failed` -
 	// wrong code, attempts remaining. `Expired or Not Found` - no pending
 	// verification for this number in the last 5 minutes.
-	Status PhoneVerificationCheckResponseStatus `json:"status"`
+	Status PhoneCheckCodeResponseStatus `json:"status"`
 
 	// Human-readable explanation of the outcome, including the number of attempts
 	// remaining after a wrong code.
@@ -643,7 +1201,7 @@ type PhoneVerificationCheckResponse struct {
 	// Full phone report. Present (non-null) only on finalized outcomes
 	// (`Approved`/`Declined`); `null` on `Failed` and absent on `Expired or Not
 	// Found`.
-	Phone PhoneVerificationCheckResponsePhone `json:"phone"`
+	Phone PhoneCheckCodeResponsePhone `json:"phone"`
 
 	// `vendor_data` of the matched verification's session. `null` on `Expired or
 	// Not Found`.
@@ -656,40 +1214,41 @@ type PhoneVerificationCheckResponse struct {
 	// Timestamp of this check response.
 	CreatedAt time.Time `json:"created_at"`
 
+	// The factor id.
+	VerificationID string `json:"verification_id"`
+	Attempts       int64  `json:"attempts"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneVerificationCheckResponse leniently.
-func (r *PhoneVerificationCheckResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneCheckCodeResponse leniently.
+func (r *PhoneCheckCodeResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneVerificationCheckResponseStatus: `Approved` - correct code, no declining
-// risk. `Declined` - terminal: a declining risk matched or the attempt budget
-// (3) was exhausted. `Failed` - wrong code, attempts remaining. `Expired or Not
-// Found` - no pending verification for this number in the last 5 minutes.
-//
-// PhoneVerificationCheckResponseStatus is a string with known values below. The
-// set is open: other values may appear and never cause an error.
-type PhoneVerificationCheckResponseStatus string
+// PhoneCheckCodeResponseStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneCheckCodeResponseStatus string
 
-// Known values of PhoneVerificationCheckResponseStatus.
+// Known values of PhoneCheckCodeResponseStatus.
 const (
-	PhoneVerificationCheckResponseStatusApproved          PhoneVerificationCheckResponseStatus = "Approved"
-	PhoneVerificationCheckResponseStatusDeclined          PhoneVerificationCheckResponseStatus = "Declined"
-	PhoneVerificationCheckResponseStatusFailed            PhoneVerificationCheckResponseStatus = "Failed"
-	PhoneVerificationCheckResponseStatusExpiredOrNotFound PhoneVerificationCheckResponseStatus = "Expired or Not Found"
+	PhoneCheckCodeResponseStatusApproved          PhoneCheckCodeResponseStatus = "Approved"
+	PhoneCheckCodeResponseStatusDeclined          PhoneCheckCodeResponseStatus = "Declined"
+	PhoneCheckCodeResponseStatusFailed            PhoneCheckCodeResponseStatus = "Failed"
+	PhoneCheckCodeResponseStatusExpiredOrNotFound PhoneCheckCodeResponseStatus = "Expired or Not Found"
+	PhoneCheckCodeResponseStatusVerified          PhoneCheckCodeResponseStatus = "verified"
+	PhoneCheckCodeResponseStatusFailed2           PhoneCheckCodeResponseStatus = "failed"
 )
 
-// PhoneVerificationCheckResponsePhone: Full phone report. Present (non-null)
-// only on finalized outcomes (`Approved`/`Declined`); `null` on `Failed` and
-// absent on `Expired or Not Found`.
-type PhoneVerificationCheckResponsePhone struct {
+// PhoneCheckCodeResponsePhone: Full phone report. Present (non-null) only on
+// finalized outcomes (`Approved`/`Declined`); `null` on `Failed` and absent on
+// `Expired or Not Found`.
+type PhoneCheckCodeResponsePhone struct {
 	// Final status of the phone verification. Matches the top-level `status` for
 	// finalized checks.
-	Status PhoneVerificationCheckResponsePhoneStatus `json:"status"`
+	Status PhoneCheckCodeResponsePhoneStatus `json:"status"`
 
 	// Country calling code with leading `+` (e.g., `+1`).
 	PhoneNumberPrefix string `json:"phone_number_prefix"`
@@ -708,7 +1267,7 @@ type PhoneVerificationCheckResponsePhone struct {
 
 	// Current network serving the number, from the carrier lookup run at
 	// finalization.
-	Carrier PhoneVerificationCheckResponsePhoneCarrier `json:"carrier"`
+	Carrier PhoneCheckCodeResponsePhoneCarrier `json:"carrier"`
 
 	// `true` when the number belongs to a temporary/burner number service.
 	IsDisposable bool `json:"is_disposable"`
@@ -729,7 +1288,7 @@ type PhoneVerificationCheckResponsePhone struct {
 
 	// Risk warnings recorded during the verification (duplicate, disposable, VoIP,
 	// attempts exceeded, blocklist, etc.). Empty array when there are none.
-	Warnings []PhoneVerificationCheckResponsePhoneWarnings `json:"warnings"`
+	Warnings []PhoneCheckCodeResponsePhoneWarnings `json:"warnings"`
 
 	// Chronological audit trail of the verification. Event `type` is one of
 	// `PHONE_VERIFICATION_MESSAGE_SENT`, `PHONE_VERIFICATION_RETRY_MESSAGE_SENT`,
@@ -737,15 +1296,15 @@ type PhoneVerificationCheckResponsePhone struct {
 	// `PHONE_DELIVERY_UNDELIVERABLE`, `VALID_CODE_ENTERED`, `INVALID_CODE_ENTERED`,
 	// `PHONE_VERIFICATION_APPROVED`, `PHONE_VERIFICATION_DECLINED`,
 	// `PHONE_VERIFICATION_IN_REVIEW`, `PHONE_VERIFICATION_EXPIRED`.
-	Lifecycle []PhoneVerificationCheckResponsePhoneLifecycle `json:"lifecycle"`
+	Lifecycle []PhoneCheckCodeResponsePhoneLifecycle `json:"lifecycle"`
 
 	// Other sessions of your application (KYC, KYB, or API) where the same phone
 	// number was used by a different user (different `vendor_data`). Up to 5
 	// entries, a synthetic list-entry blocklist match first when present
 	// (session-derived matches keep query order). Empty array when there are no
 	// matches.
-	Matches     []PhoneVerificationCheckResponsePhoneMatches `json:"matches"`
-	PhoneSocial PhoneSocialFootprint                         `json:"phone_social"`
+	Matches     []PhoneCheckCodeResponsePhoneMatches `json:"matches"`
+	PhoneSocial PhoneSocialFootprint                 `json:"phone_social"`
 
 	// Phone intelligence signals. Present only when `enable_enrichment` was `true`
 	// on the check.
@@ -756,30 +1315,30 @@ type PhoneVerificationCheckResponsePhone struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneVerificationCheckResponsePhone leniently.
-func (r *PhoneVerificationCheckResponsePhone) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneCheckCodeResponsePhone leniently.
+func (r *PhoneCheckCodeResponsePhone) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneVerificationCheckResponsePhoneStatus: Final status of the phone
-// verification. Matches the top-level `status` for finalized checks.
+// PhoneCheckCodeResponsePhoneStatus: Final status of the phone verification.
+// Matches the top-level `status` for finalized checks.
 //
-// PhoneVerificationCheckResponsePhoneStatus is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type PhoneVerificationCheckResponsePhoneStatus string
+// PhoneCheckCodeResponsePhoneStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneCheckCodeResponsePhoneStatus string
 
-// Known values of PhoneVerificationCheckResponsePhoneStatus.
+// Known values of PhoneCheckCodeResponsePhoneStatus.
 const (
-	PhoneVerificationCheckResponsePhoneStatusApproved    PhoneVerificationCheckResponsePhoneStatus = "Approved"
-	PhoneVerificationCheckResponsePhoneStatusDeclined    PhoneVerificationCheckResponsePhoneStatus = "Declined"
-	PhoneVerificationCheckResponsePhoneStatusInReview    PhoneVerificationCheckResponsePhoneStatus = "In Review"
-	PhoneVerificationCheckResponsePhoneStatusNotFinished PhoneVerificationCheckResponsePhoneStatus = "Not Finished"
-	PhoneVerificationCheckResponsePhoneStatusExpired     PhoneVerificationCheckResponsePhoneStatus = "Expired"
+	PhoneCheckCodeResponsePhoneStatusApproved    PhoneCheckCodeResponsePhoneStatus = "Approved"
+	PhoneCheckCodeResponsePhoneStatusDeclined    PhoneCheckCodeResponsePhoneStatus = "Declined"
+	PhoneCheckCodeResponsePhoneStatusInReview    PhoneCheckCodeResponsePhoneStatus = "In Review"
+	PhoneCheckCodeResponsePhoneStatusNotFinished PhoneCheckCodeResponsePhoneStatus = "Not Finished"
+	PhoneCheckCodeResponsePhoneStatusExpired     PhoneCheckCodeResponsePhoneStatus = "Expired"
 )
 
-// PhoneVerificationCheckResponsePhoneCarrier: Current network serving the
-// number, from the carrier lookup run at finalization.
-type PhoneVerificationCheckResponsePhoneCarrier struct {
+// PhoneCheckCodeResponsePhoneCarrier: Current network serving the number, from
+// the carrier lookup run at finalization.
+type PhoneCheckCodeResponsePhoneCarrier struct {
 	// Carrier name. Empty string when the lookup could not identify it.
 	Name string `json:"name"`
 
@@ -794,13 +1353,13 @@ type PhoneVerificationCheckResponsePhoneCarrier struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneVerificationCheckResponsePhoneCarrier leniently.
-func (r *PhoneVerificationCheckResponsePhoneCarrier) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneCheckCodeResponsePhoneCarrier leniently.
+func (r *PhoneCheckCodeResponsePhoneCarrier) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneVerificationCheckResponsePhoneWarnings is a response object.
-type PhoneVerificationCheckResponsePhoneWarnings struct {
+// PhoneCheckCodeResponsePhoneWarnings is a response object.
+type PhoneCheckCodeResponsePhoneWarnings struct {
 	// Feature that produced the warning. Always `PHONE` here.
 	Feature string `json:"feature"`
 
@@ -813,7 +1372,7 @@ type PhoneVerificationCheckResponsePhoneWarnings struct {
 
 	// Severity. `error` risks decline the verification, `warning` flags it for
 	// review, `information` is recorded without affecting the status.
-	LogType PhoneVerificationCheckResponsePhoneWarningsLogType `json:"log_type"`
+	LogType PhoneCheckCodeResponsePhoneWarningsLogType `json:"log_type"`
 
 	// Human-readable one-line summary of the risk.
 	ShortDescription string `json:"short_description"`
@@ -826,29 +1385,28 @@ type PhoneVerificationCheckResponsePhoneWarnings struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneVerificationCheckResponsePhoneWarnings leniently.
-func (r *PhoneVerificationCheckResponsePhoneWarnings) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneCheckCodeResponsePhoneWarnings leniently.
+func (r *PhoneCheckCodeResponsePhoneWarnings) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneVerificationCheckResponsePhoneWarningsLogType: Severity. `error` risks
-// decline the verification, `warning` flags it for review, `information` is
-// recorded without affecting the status.
+// PhoneCheckCodeResponsePhoneWarningsLogType: Severity. `error` risks decline
+// the verification, `warning` flags it for review, `information` is recorded
+// without affecting the status.
 //
-// PhoneVerificationCheckResponsePhoneWarningsLogType is a string with known
-// values below. The set is open: other values may appear and never cause an
-// error.
-type PhoneVerificationCheckResponsePhoneWarningsLogType string
+// PhoneCheckCodeResponsePhoneWarningsLogType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneCheckCodeResponsePhoneWarningsLogType string
 
-// Known values of PhoneVerificationCheckResponsePhoneWarningsLogType.
+// Known values of PhoneCheckCodeResponsePhoneWarningsLogType.
 const (
-	PhoneVerificationCheckResponsePhoneWarningsLogTypeError       PhoneVerificationCheckResponsePhoneWarningsLogType = "error"
-	PhoneVerificationCheckResponsePhoneWarningsLogTypeWarning     PhoneVerificationCheckResponsePhoneWarningsLogType = "warning"
-	PhoneVerificationCheckResponsePhoneWarningsLogTypeInformation PhoneVerificationCheckResponsePhoneWarningsLogType = "information"
+	PhoneCheckCodeResponsePhoneWarningsLogTypeError       PhoneCheckCodeResponsePhoneWarningsLogType = "error"
+	PhoneCheckCodeResponsePhoneWarningsLogTypeWarning     PhoneCheckCodeResponsePhoneWarningsLogType = "warning"
+	PhoneCheckCodeResponsePhoneWarningsLogTypeInformation PhoneCheckCodeResponsePhoneWarningsLogType = "information"
 )
 
-// PhoneVerificationCheckResponsePhoneLifecycle is a response object.
-type PhoneVerificationCheckResponsePhoneLifecycle struct {
+// PhoneCheckCodeResponsePhoneLifecycle is a response object.
+type PhoneCheckCodeResponsePhoneLifecycle struct {
 	// Event type.
 	Type string `json:"type"`
 
@@ -878,13 +1436,13 @@ type PhoneVerificationCheckResponsePhoneLifecycle struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneVerificationCheckResponsePhoneLifecycle leniently.
-func (r *PhoneVerificationCheckResponsePhoneLifecycle) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneCheckCodeResponsePhoneLifecycle leniently.
+func (r *PhoneCheckCodeResponsePhoneLifecycle) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneVerificationCheckResponsePhoneMatches is a response object.
-type PhoneVerificationCheckResponsePhoneMatches struct {
+// PhoneCheckCodeResponsePhoneMatches is a response object.
+type PhoneCheckCodeResponsePhoneMatches struct {
 	// Session id of the other verification that used this phone number.
 	SessionID string `json:"session_id"`
 
@@ -920,8 +1478,8 @@ type PhoneVerificationCheckResponsePhoneMatches struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneVerificationCheckResponsePhoneMatches leniently.
-func (r *PhoneVerificationCheckResponsePhoneMatches) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneCheckCodeResponsePhoneMatches leniently.
+func (r *PhoneCheckCodeResponsePhoneMatches) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
@@ -1110,4 +1668,1131 @@ const (
 	PhoneVerificationSendResponseStatusSuccess PhoneVerificationSendResponseStatus = "Success"
 	PhoneVerificationSendResponseStatusRetry   PhoneVerificationSendResponseStatus = "Retry"
 	PhoneVerificationSendResponseStatusBlocked PhoneVerificationSendResponseStatus = "Blocked"
+)
+
+// PhoneFactorCreateRequest is a request object.
+type PhoneFactorCreateRequest struct {
+	// The factor to enroll: `totp`, for an authenticator app. Required.
+	Type PhoneFactorCreateRequestType `json:"type"`
+
+	// Your id for the user the factor belongs to; a check names the factor and the
+	// user. Required.
+	UserID string `json:"user_id"`
+
+	// Shown in the authenticator app and in the factor list.
+	FriendlyName Opt[string] `json:"friendly_name"`
+
+	// Up to 10 keys and values of your own, returned with the factor.
+	Metadata Opt[map[string]string] `json:"metadata"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFactorCreateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFactorCreateRequestType: The factor to enroll: `totp`, for an
+// authenticator app.
+//
+// PhoneFactorCreateRequestType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFactorCreateRequestType string
+
+// Known values of PhoneFactorCreateRequestType.
+const (
+	PhoneFactorCreateRequestTypeTotp PhoneFactorCreateRequestType = "totp"
+)
+
+// PhoneFactorEnrollment: The enrollment of a TOTP factor: `totp.uri` is what
+// the authenticator app needs.
+type PhoneFactorEnrollment struct {
+	// Check it with `POST /v3/phone/check/` by naming it as `factor_id` together
+	// with the `code` its app shows.
+	FactorID string `json:"factor_id"`
+
+	// The factor type.
+	Type PhoneFactorEnrollmentType `json:"type"`
+
+	// `unverified` until the first successful check, then `verified`.
+	Status PhoneFactorEnrollmentStatus `json:"status"`
+
+	// A `totp` factor: what the authenticator app needs.
+	Totp PhoneFactorEnrollmentTotp `json:"totp"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFactorEnrollment leniently.
+func (r *PhoneFactorEnrollment) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFactorEnrollmentType: The factor type.
+//
+// PhoneFactorEnrollmentType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFactorEnrollmentType string
+
+// Known values of PhoneFactorEnrollmentType.
+const (
+	PhoneFactorEnrollmentTypeTotp PhoneFactorEnrollmentType = "totp"
+)
+
+// PhoneFactorEnrollmentStatus: `unverified` until the first successful check,
+// then `verified`.
+//
+// PhoneFactorEnrollmentStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFactorEnrollmentStatus string
+
+// Known values of PhoneFactorEnrollmentStatus.
+const (
+	PhoneFactorEnrollmentStatusUnverified PhoneFactorEnrollmentStatus = "unverified"
+	PhoneFactorEnrollmentStatusVerified   PhoneFactorEnrollmentStatus = "verified"
+	PhoneFactorEnrollmentStatusDisabled   PhoneFactorEnrollmentStatus = "disabled"
+)
+
+// PhoneFactorEnrollmentTotp: A `totp` factor: what the authenticator app needs.
+type PhoneFactorEnrollmentTotp struct {
+	// The `otpauth://` URI to show as a QR code; the authenticator app scans it and
+	// starts producing codes.
+	URI string `json:"uri"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFactorEnrollmentTotp leniently.
+func (r *PhoneFactorEnrollmentTotp) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFactorsListParams holds the parameters of Client.Phone.Factors.List.
+type PhoneFactorsListParams struct {
+	// The user whose factors to list: required. Required.
+	UserID string `json:"-" query:"user_id"`
+
+	// Only factors of this type.
+	Type Opt[PhoneFactorsListParamsType] `json:"-" query:"type"`
+
+	// Only factors in this state.
+	Status Opt[PhoneFactorsListParamsStatus] `json:"-" query:"status"`
+
+	// Page size: 20 by default, 100 at most.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Zero-based index of the first row. Prefer following `next`.
+	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// `json` (default) for a page, or `csv` to export every row that matches the
+	// filters as CSV.
+	Format Opt[PhoneFactorsListParamsFormat] `json:"-" query:"format"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFactorsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFactorsListParamsType is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFactorsListParamsType string
+
+// Known values of PhoneFactorsListParamsType.
+const (
+	PhoneFactorsListParamsTypeTotp PhoneFactorsListParamsType = "totp"
+)
+
+// PhoneFactorsListParamsStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFactorsListParamsStatus string
+
+// Known values of PhoneFactorsListParamsStatus.
+const (
+	PhoneFactorsListParamsStatusUnverified PhoneFactorsListParamsStatus = "unverified"
+	PhoneFactorsListParamsStatusVerified   PhoneFactorsListParamsStatus = "verified"
+	PhoneFactorsListParamsStatusDisabled   PhoneFactorsListParamsStatus = "disabled"
+)
+
+// PhoneFactorsListParamsFormat is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFactorsListParamsFormat string
+
+// Known values of PhoneFactorsListParamsFormat.
+const (
+	PhoneFactorsListParamsFormatJSON PhoneFactorsListParamsFormat = "json"
+	PhoneFactorsListParamsFormatCSV  PhoneFactorsListParamsFormat = "csv"
+)
+
+// PhoneFactor is a response object.
+type PhoneFactor struct {
+	// The factor.
+	FactorID string `json:"factor_id"`
+
+	// The factor.
+	Type PhoneFactorType `json:"type"`
+
+	// `unverified` until the first successful check, `verified` after it,
+	// `disabled` while its checks are turned off.
+	Status PhoneFactorStatus `json:"status"`
+
+	// Your id for the user it belongs to.
+	UserID string `json:"user_id"`
+
+	// Shown in the authenticator app and in the factor list.
+	FriendlyName string `json:"friendly_name"`
+
+	// Your keys and values, as you sent them.
+	Metadata map[string]string `json:"metadata"`
+
+	// When it was enrolled.
+	CreatedAt time.Time `json:"created_at"`
+
+	// Its last successful check, `null` until there is one.
+	LastUsedAt time.Time `json:"last_used_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFactor leniently.
+func (r *PhoneFactor) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFactorType: The factor.
+//
+// PhoneFactorType is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type PhoneFactorType string
+
+// Known values of PhoneFactorType.
+const (
+	PhoneFactorTypeTotp PhoneFactorType = "totp"
+)
+
+// PhoneFactorStatus: `unverified` until the first successful check, `verified`
+// after it, `disabled` while its checks are turned off.
+//
+// PhoneFactorStatus is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type PhoneFactorStatus string
+
+// Known values of PhoneFactorStatus.
+const (
+	PhoneFactorStatusUnverified PhoneFactorStatus = "unverified"
+	PhoneFactorStatusVerified   PhoneFactorStatus = "verified"
+	PhoneFactorStatusDisabled   PhoneFactorStatus = "disabled"
+)
+
+// PhoneFactorUpdateRequest is a request object.
+type PhoneFactorUpdateRequest struct {
+	// A new name for the authenticator app.
+	FriendlyName Opt[string] `json:"friendly_name"`
+
+	// Replaces your keys and values with these, up to 10.
+	Metadata Opt[map[string]string] `json:"metadata"`
+
+	// `disabled` stops the factor's checks; `verified` turns a disabled factor back
+	// on.
+	Status Opt[PhoneFactorUpdateRequestStatus] `json:"status"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFactorUpdateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFactorUpdateRequestStatus: `disabled` stops the factor's checks;
+// `verified` turns a disabled factor back on.
+//
+// PhoneFactorUpdateRequestStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneFactorUpdateRequestStatus string
+
+// Known values of PhoneFactorUpdateRequestStatus.
+const (
+	PhoneFactorUpdateRequestStatusDisabled PhoneFactorUpdateRequestStatus = "disabled"
+	PhoneFactorUpdateRequestStatusVerified PhoneFactorUpdateRequestStatus = "verified"
+)
+
+// PhoneNetworkRegistrationRequest is a request object.
+type PhoneNetworkRegistrationRequest struct {
+	// The network feature to ask approval for. Required.
+	Feature PhoneNetworkRegistrationRequestFeature `json:"feature"`
+
+	// The ISO 3166-1 alpha-2 country it runs in. Required.
+	Country string `json:"country"`
+
+	// What you use the feature for. Required.
+	UseCase PhoneNetworkRegistrationRequestUseCase `json:"use_case"`
+
+	// Only these mobile networks; left out, every network in the country.
+	Networks Opt[[]string] `json:"networks"`
+
+	// Your legal company name, as the networks see it. Required.
+	CompanyName string `json:"company_name"`
+
+	// Where the flow runs, so the networks can review it. Required.
+	Website string `json:"website"`
+
+	// Why the flow needs the feature, shown to the networks.
+	Purpose Opt[string] `json:"purpose"`
+
+	// Expected requests a month.
+	MonthlyVolume Opt[int64] `json:"monthly_volume"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneNetworkRegistrationRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneNetworkRegistrationRequestFeature: The network feature to ask approval
+// for.
+//
+// PhoneNetworkRegistrationRequestFeature is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationRequestFeature string
+
+// Known values of PhoneNetworkRegistrationRequestFeature.
+const (
+	PhoneNetworkRegistrationRequestFeatureSilentVerification PhoneNetworkRegistrationRequestFeature = "silent_verification"
+	PhoneNetworkRegistrationRequestFeatureSimSwap            PhoneNetworkRegistrationRequestFeature = "sim_swap"
+	PhoneNetworkRegistrationRequestFeatureNumberVerification PhoneNetworkRegistrationRequestFeature = "number_verification"
+)
+
+// PhoneNetworkRegistrationRequestUseCase: What you use the feature for.
+//
+// PhoneNetworkRegistrationRequestUseCase is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationRequestUseCase string
+
+// Known values of PhoneNetworkRegistrationRequestUseCase.
+const (
+	PhoneNetworkRegistrationRequestUseCaseSignup          PhoneNetworkRegistrationRequestUseCase = "signup"
+	PhoneNetworkRegistrationRequestUseCaseLogin           PhoneNetworkRegistrationRequestUseCase = "login"
+	PhoneNetworkRegistrationRequestUseCasePayment         PhoneNetworkRegistrationRequestUseCase = "payment"
+	PhoneNetworkRegistrationRequestUseCaseAccountRecovery PhoneNetworkRegistrationRequestUseCase = "account_recovery"
+	PhoneNetworkRegistrationRequestUseCaseFraudCheck      PhoneNetworkRegistrationRequestUseCase = "fraud_check"
+)
+
+// PhoneNetworkRegistration is a response object.
+type PhoneNetworkRegistration struct {
+	// The registration: track it with it.
+	RegistrationID string `json:"registration_id"`
+
+	// The network feature.
+	Feature PhoneNetworkRegistrationFeature `json:"feature"`
+
+	// The ISO 3166-1 alpha-2 country.
+	Country string `json:"country"`
+
+	// What you use the feature for, as submitted.
+	UseCase string `json:"use_case"`
+
+	// `submitted` - sent to the networks; `in_review` - they are reviewing;
+	// `approved` - every network approved; `partly_approved` - some approved and
+	// some rejected; `rejected` - none approved.
+	Status PhoneNetworkRegistrationStatus `json:"status"`
+
+	// Each mobile network's decision, network by network.
+	Networks []PhoneNetworkDecision `json:"networks"`
+
+	// When the feature went live for you in the country, `null` until it has.
+	LiveAt time.Time `json:"live_at"`
+
+	// `on` while the networks review: the feature answers for your verified test
+	// numbers, marked `test: true`. `off` once the registration is approved or
+	// rejected.
+	TestAccess PhoneNetworkRegistrationTestAccess `json:"test_access"`
+
+	// Your test numbers for this registration, up to 5.
+	TestNumbers []PhoneNetworkRegistrationTestNumber `json:"test_numbers"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneNetworkRegistration leniently.
+func (r *PhoneNetworkRegistration) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneNetworkRegistrationFeature: The network feature.
+//
+// PhoneNetworkRegistrationFeature is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationFeature string
+
+// Known values of PhoneNetworkRegistrationFeature.
+const (
+	PhoneNetworkRegistrationFeatureSilentVerification PhoneNetworkRegistrationFeature = "silent_verification"
+	PhoneNetworkRegistrationFeatureSimSwap            PhoneNetworkRegistrationFeature = "sim_swap"
+	PhoneNetworkRegistrationFeatureNumberVerification PhoneNetworkRegistrationFeature = "number_verification"
+)
+
+// PhoneNetworkRegistrationStatus: `submitted` - sent to the networks;
+// `in_review` - they are reviewing; `approved` - every network approved;
+// `partly_approved` - some approved and some rejected; `rejected` - none
+// approved.
+//
+// PhoneNetworkRegistrationStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationStatus string
+
+// Known values of PhoneNetworkRegistrationStatus.
+const (
+	PhoneNetworkRegistrationStatusSubmitted      PhoneNetworkRegistrationStatus = "submitted"
+	PhoneNetworkRegistrationStatusInReview       PhoneNetworkRegistrationStatus = "in_review"
+	PhoneNetworkRegistrationStatusApproved       PhoneNetworkRegistrationStatus = "approved"
+	PhoneNetworkRegistrationStatusPartlyApproved PhoneNetworkRegistrationStatus = "partly_approved"
+	PhoneNetworkRegistrationStatusRejected       PhoneNetworkRegistrationStatus = "rejected"
+)
+
+// PhoneNetworkDecision: One mobile network's decision on a registration.
+type PhoneNetworkDecision struct {
+	// The mobile network.
+	Name string `json:"name"`
+
+	// Where this network stands: `submitted` - the request reached it; `in_review`
+	// - it is reviewing; `approved`; `rejected`.
+	Status PhoneNetworkDecisionStatus `json:"status"`
+
+	// When the network decided, `null` until it has.
+	DecidedAt time.Time `json:"decided_at"`
+
+	// Why a network rejected it, `null` when it approved or has not decided.
+	Reason string `json:"reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneNetworkDecision leniently.
+func (r *PhoneNetworkDecision) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneNetworkDecisionStatus: Where this network stands: `submitted` - the
+// request reached it; `in_review` - it is reviewing; `approved`; `rejected`.
+//
+// PhoneNetworkDecisionStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneNetworkDecisionStatus string
+
+// Known values of PhoneNetworkDecisionStatus.
+const (
+	PhoneNetworkDecisionStatusSubmitted PhoneNetworkDecisionStatus = "submitted"
+	PhoneNetworkDecisionStatusInReview  PhoneNetworkDecisionStatus = "in_review"
+	PhoneNetworkDecisionStatusApproved  PhoneNetworkDecisionStatus = "approved"
+	PhoneNetworkDecisionStatusRejected  PhoneNetworkDecisionStatus = "rejected"
+)
+
+// PhoneNetworkRegistrationTestAccess: `on` while the networks review: the
+// feature answers for your verified test numbers, marked `test: true`. `off`
+// once the registration is approved or rejected.
+//
+// PhoneNetworkRegistrationTestAccess is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationTestAccess string
+
+// Known values of PhoneNetworkRegistrationTestAccess.
+const (
+	PhoneNetworkRegistrationTestAccessOn  PhoneNetworkRegistrationTestAccess = "on"
+	PhoneNetworkRegistrationTestAccessOff PhoneNetworkRegistrationTestAccess = "off"
+)
+
+// PhoneNetworkRegistrationTestNumber is a response object.
+type PhoneNetworkRegistrationTestNumber struct {
+	// The test number.
+	PhoneNumber string `json:"phone_number"`
+
+	// `code_sent` - Didit sent it a code, which makes it a verified test number
+	// once checked; `verified` - it answers the feature under test access.
+	Status PhoneNetworkRegistrationTestNumberStatus `json:"status"`
+
+	// The verification carrying the code: check it with `POST /v3/phone/check/`.
+	VerificationID string `json:"verification_id"`
+
+	// `on` - the registration is under review, so the feature answers for its test
+	// numbers, with `test: true` in the answer.
+	TestAccess PhoneNetworkRegistrationTestNumberTestAccess `json:"test_access"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneNetworkRegistrationTestNumber leniently.
+func (r *PhoneNetworkRegistrationTestNumber) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneNetworkRegistrationTestNumberStatus: `code_sent` - Didit sent it a code,
+// which makes it a verified test number once checked; `verified` - it answers
+// the feature under test access.
+//
+// PhoneNetworkRegistrationTestNumberStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationTestNumberStatus string
+
+// Known values of PhoneNetworkRegistrationTestNumberStatus.
+const (
+	PhoneNetworkRegistrationTestNumberStatusCodeSent PhoneNetworkRegistrationTestNumberStatus = "code_sent"
+	PhoneNetworkRegistrationTestNumberStatusVerified PhoneNetworkRegistrationTestNumberStatus = "verified"
+)
+
+// PhoneNetworkRegistrationTestNumberTestAccess: `on` - the registration is
+// under review, so the feature answers for its test numbers, with `test: true`
+// in the answer.
+//
+// PhoneNetworkRegistrationTestNumberTestAccess is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationTestNumberTestAccess string
+
+// Known values of PhoneNetworkRegistrationTestNumberTestAccess.
+const (
+	PhoneNetworkRegistrationTestNumberTestAccessOn PhoneNetworkRegistrationTestNumberTestAccess = "on"
+)
+
+// PhoneNetworkRegistrationsListParams holds the parameters of
+// Client.Phone.Network.Registrations.List.
+type PhoneNetworkRegistrationsListParams struct {
+	// Only registrations of this network feature.
+	Feature Opt[PhoneNetworkRegistrationsListParamsFeature] `json:"-" query:"feature"`
+
+	// Only this ISO 3166-1 alpha-2 country.
+	Country Opt[string] `json:"-" query:"country"`
+
+	// Only rows in this state.
+	Status Opt[PhoneNetworkRegistrationsListParamsStatus] `json:"-" query:"status"`
+
+	// Page size: 20 by default, 100 at most.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Zero-based index of the first row. Prefer following `next`.
+	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// `json` (default) for a page, or `csv` to export every row that matches the
+	// filters as CSV.
+	Format Opt[PhoneNetworkRegistrationsListParamsFormat] `json:"-" query:"format"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneNetworkRegistrationsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneNetworkRegistrationsListParamsFeature is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationsListParamsFeature string
+
+// Known values of PhoneNetworkRegistrationsListParamsFeature.
+const (
+	PhoneNetworkRegistrationsListParamsFeatureSilentVerification PhoneNetworkRegistrationsListParamsFeature = "silent_verification"
+	PhoneNetworkRegistrationsListParamsFeatureSimSwap            PhoneNetworkRegistrationsListParamsFeature = "sim_swap"
+	PhoneNetworkRegistrationsListParamsFeatureNumberVerification PhoneNetworkRegistrationsListParamsFeature = "number_verification"
+)
+
+// PhoneNetworkRegistrationsListParamsStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationsListParamsStatus string
+
+// Known values of PhoneNetworkRegistrationsListParamsStatus.
+const (
+	PhoneNetworkRegistrationsListParamsStatusSubmitted      PhoneNetworkRegistrationsListParamsStatus = "submitted"
+	PhoneNetworkRegistrationsListParamsStatusInReview       PhoneNetworkRegistrationsListParamsStatus = "in_review"
+	PhoneNetworkRegistrationsListParamsStatusApproved       PhoneNetworkRegistrationsListParamsStatus = "approved"
+	PhoneNetworkRegistrationsListParamsStatusPartlyApproved PhoneNetworkRegistrationsListParamsStatus = "partly_approved"
+	PhoneNetworkRegistrationsListParamsStatusRejected       PhoneNetworkRegistrationsListParamsStatus = "rejected"
+)
+
+// PhoneNetworkRegistrationsListParamsFormat is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationsListParamsFormat string
+
+// Known values of PhoneNetworkRegistrationsListParamsFormat.
+const (
+	PhoneNetworkRegistrationsListParamsFormatJSON PhoneNetworkRegistrationsListParamsFormat = "json"
+	PhoneNetworkRegistrationsListParamsFormatCSV  PhoneNetworkRegistrationsListParamsFormat = "csv"
+)
+
+// PhoneNetworkRegistrationSummary is a response object.
+type PhoneNetworkRegistrationSummary struct {
+	// The registration.
+	RegistrationID string `json:"registration_id"`
+
+	// The network feature.
+	Feature PhoneNetworkRegistrationSummaryFeature `json:"feature"`
+
+	// The ISO 3166-1 alpha-2 country.
+	Country string `json:"country"`
+
+	// What you use the feature for.
+	UseCase string `json:"use_case"`
+
+	// Where the registration stands.
+	Status PhoneNetworkRegistrationSummaryStatus `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneNetworkRegistrationSummary leniently.
+func (r *PhoneNetworkRegistrationSummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneNetworkRegistrationSummaryFeature: The network feature.
+//
+// PhoneNetworkRegistrationSummaryFeature is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationSummaryFeature string
+
+// Known values of PhoneNetworkRegistrationSummaryFeature.
+const (
+	PhoneNetworkRegistrationSummaryFeatureSilentVerification PhoneNetworkRegistrationSummaryFeature = "silent_verification"
+	PhoneNetworkRegistrationSummaryFeatureSimSwap            PhoneNetworkRegistrationSummaryFeature = "sim_swap"
+	PhoneNetworkRegistrationSummaryFeatureNumberVerification PhoneNetworkRegistrationSummaryFeature = "number_verification"
+)
+
+// PhoneNetworkRegistrationSummaryStatus: Where the registration stands.
+//
+// PhoneNetworkRegistrationSummaryStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationSummaryStatus string
+
+// Known values of PhoneNetworkRegistrationSummaryStatus.
+const (
+	PhoneNetworkRegistrationSummaryStatusSubmitted      PhoneNetworkRegistrationSummaryStatus = "submitted"
+	PhoneNetworkRegistrationSummaryStatusInReview       PhoneNetworkRegistrationSummaryStatus = "in_review"
+	PhoneNetworkRegistrationSummaryStatusApproved       PhoneNetworkRegistrationSummaryStatus = "approved"
+	PhoneNetworkRegistrationSummaryStatusPartlyApproved PhoneNetworkRegistrationSummaryStatus = "partly_approved"
+	PhoneNetworkRegistrationSummaryStatusRejected       PhoneNetworkRegistrationSummaryStatus = "rejected"
+)
+
+// PhoneNetworkRegistrationTestNumberRequest is a request object.
+type PhoneNetworkRegistrationTestNumberRequest struct {
+	// A number you hold, in E.164. Didit sends it a code to confirm it. Required.
+	PhoneNumber string `json:"phone_number"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneNetworkRegistrationTestNumberRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSDKKeyRequest is a request object.
+type PhoneSDKKeyRequest struct {
+	// The platform the key is for: `ios`, `android` or `web`. Required.
+	Platform PhoneSDKKeyRequestPlatform `json:"platform"`
+
+	// The bundle ids, package names or `https` origins the key works for. Required.
+	AppIDs []string `json:"app_ids"`
+
+	// Shown in API keys.
+	Name Opt[string] `json:"name"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSDKKeyRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSDKKeyRequestPlatform: The platform the key is for: `ios`, `android` or
+// `web`.
+//
+// PhoneSDKKeyRequestPlatform is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneSDKKeyRequestPlatform string
+
+// Known values of PhoneSDKKeyRequestPlatform.
+const (
+	PhoneSDKKeyRequestPlatformIos     PhoneSDKKeyRequestPlatform = "ios"
+	PhoneSDKKeyRequestPlatformAndroid PhoneSDKKeyRequestPlatform = "android"
+	PhoneSDKKeyRequestPlatformWeb     PhoneSDKKeyRequestPlatform = "web"
+)
+
+// PhoneSDKKey: A publishable key of a client SDK. It is not a secret: it is
+// bound to the app ids it may run in and cannot make a server call.
+type PhoneSDKKey struct {
+	// The key.
+	KeyID string `json:"key_id"`
+
+	// The platform it is for.
+	Platform PhoneSDKKeyPlatform `json:"platform"`
+
+	// Safe to ship inside the app: it can only start the checks the client SDK
+	// runs, never a server call.
+	PublishableKey string `json:"publishable_key"`
+
+	// The bundle ids, package names or `https` origins it works for.
+	AppIDs []string `json:"app_ids"`
+
+	// `active` - it works; `expiring` - it was rotated and stops working at
+	// `previous_expires_at`; `revoked` - it stopped working.
+	Status PhoneSDKKeyStatus `json:"status"`
+
+	// When it was issued.
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSDKKey leniently.
+func (r *PhoneSDKKey) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSDKKeyPlatform: The platform it is for.
+//
+// PhoneSDKKeyPlatform is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneSDKKeyPlatform string
+
+// Known values of PhoneSDKKeyPlatform.
+const (
+	PhoneSDKKeyPlatformIos     PhoneSDKKeyPlatform = "ios"
+	PhoneSDKKeyPlatformAndroid PhoneSDKKeyPlatform = "android"
+	PhoneSDKKeyPlatformWeb     PhoneSDKKeyPlatform = "web"
+)
+
+// PhoneSDKKeyStatus: `active` - it works; `expiring` - it was rotated and stops
+// working at `previous_expires_at`; `revoked` - it stopped working.
+//
+// PhoneSDKKeyStatus is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type PhoneSDKKeyStatus string
+
+// Known values of PhoneSDKKeyStatus.
+const (
+	PhoneSDKKeyStatusActive   PhoneSDKKeyStatus = "active"
+	PhoneSDKKeyStatusExpiring PhoneSDKKeyStatus = "expiring"
+	PhoneSDKKeyStatusRevoked  PhoneSDKKeyStatus = "revoked"
+)
+
+// PhoneSDKKeysListParams holds the parameters of Client.Phone.SDKKeys.List.
+type PhoneSDKKeysListParams struct {
+	// Only keys for this platform.
+	Platform Opt[PhoneSDKKeysListParamsPlatform] `json:"-" query:"platform"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSDKKeysListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSDKKeysListParamsPlatform is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneSDKKeysListParamsPlatform string
+
+// Known values of PhoneSDKKeysListParamsPlatform.
+const (
+	PhoneSDKKeysListParamsPlatformIos     PhoneSDKKeysListParamsPlatform = "ios"
+	PhoneSDKKeysListParamsPlatformAndroid PhoneSDKKeysListParamsPlatform = "android"
+	PhoneSDKKeysListParamsPlatformWeb     PhoneSDKKeysListParamsPlatform = "web"
+)
+
+// PhoneSDKKeysPage: The publishable keys of your client SDKs.
+type PhoneSDKKeysPage struct {
+	// One entry for each key that matches the platform filter.
+	Results []PhoneSDKKeySummary `json:"results"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSDKKeysPage leniently.
+func (r *PhoneSDKKeysPage) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSDKKeySummary: A client SDK key as returned by the list operation.
+type PhoneSDKKeySummary struct {
+	// The key.
+	KeyID string `json:"key_id"`
+
+	// The platform it is for.
+	Platform PhoneSDKKeySummaryPlatform `json:"platform"`
+
+	// An active key works, an expiring key works until its rotation overlap ends,
+	// and a revoked key has stopped working.
+	Status PhoneSDKKeySummaryStatus `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSDKKeySummary leniently.
+func (r *PhoneSDKKeySummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSDKKeySummaryPlatform: The platform it is for.
+//
+// PhoneSDKKeySummaryPlatform is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneSDKKeySummaryPlatform string
+
+// Known values of PhoneSDKKeySummaryPlatform.
+const (
+	PhoneSDKKeySummaryPlatformIos     PhoneSDKKeySummaryPlatform = "ios"
+	PhoneSDKKeySummaryPlatformAndroid PhoneSDKKeySummaryPlatform = "android"
+	PhoneSDKKeySummaryPlatformWeb     PhoneSDKKeySummaryPlatform = "web"
+)
+
+// PhoneSDKKeySummaryStatus: An active key works, an expiring key works until
+// its rotation overlap ends, and a revoked key has stopped working.
+//
+// PhoneSDKKeySummaryStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneSDKKeySummaryStatus string
+
+// Known values of PhoneSDKKeySummaryStatus.
+const (
+	PhoneSDKKeySummaryStatusActive   PhoneSDKKeySummaryStatus = "active"
+	PhoneSDKKeySummaryStatusExpiring PhoneSDKKeySummaryStatus = "expiring"
+	PhoneSDKKeySummaryStatusRevoked  PhoneSDKKeySummaryStatus = "revoked"
+)
+
+// PhoneSDKKeyRotateRequest: How long the old value of a rotated key keeps
+// working.
+type PhoneSDKKeyRotateRequest struct {
+	// How long the value being replaced keeps working, from 0 to 168 hours, while
+	// the app update ships.
+	OverlapHours Opt[int64] `json:"overlap_hours"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSDKKeyRotateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSDKKeyRotated is a response object.
+type PhoneSDKKeyRotated struct {
+	// The key.
+	KeyID string `json:"key_id"`
+
+	// The platform it is for.
+	Platform PhoneSDKKeyRotatedPlatform `json:"platform"`
+
+	// The new value to ship in the app.
+	PublishableKey string `json:"publishable_key"`
+
+	// The bundle ids, package names or `https` origins it works for.
+	AppIDs []string `json:"app_ids"`
+
+	// `active` - the new value works; `expiring` - it was rotated again; `revoked`
+	// - it stopped working.
+	Status PhoneSDKKeyRotatedStatus `json:"status"`
+
+	// When the key was first issued.
+	CreatedAt time.Time `json:"created_at"`
+
+	// When the value this rotation replaced stops working.
+	PreviousExpiresAt time.Time `json:"previous_expires_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSDKKeyRotated leniently.
+func (r *PhoneSDKKeyRotated) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSDKKeyRotatedPlatform: The platform it is for.
+//
+// PhoneSDKKeyRotatedPlatform is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneSDKKeyRotatedPlatform string
+
+// Known values of PhoneSDKKeyRotatedPlatform.
+const (
+	PhoneSDKKeyRotatedPlatformIos     PhoneSDKKeyRotatedPlatform = "ios"
+	PhoneSDKKeyRotatedPlatformAndroid PhoneSDKKeyRotatedPlatform = "android"
+	PhoneSDKKeyRotatedPlatformWeb     PhoneSDKKeyRotatedPlatform = "web"
+)
+
+// PhoneSDKKeyRotatedStatus: `active` - the new value works; `expiring` - it was
+// rotated again; `revoked` - it stopped working.
+//
+// PhoneSDKKeyRotatedStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneSDKKeyRotatedStatus string
+
+// Known values of PhoneSDKKeyRotatedStatus.
+const (
+	PhoneSDKKeyRotatedStatusActive   PhoneSDKKeyRotatedStatus = "active"
+	PhoneSDKKeyRotatedStatusExpiring PhoneSDKKeyRotatedStatus = "expiring"
+	PhoneSDKKeyRotatedStatusRevoked  PhoneSDKKeyRotatedStatus = "revoked"
+)
+
+// PhoneSilentCoverageParams holds the parameters of
+// Client.Phone.Silent.Coverage.
+type PhoneSilentCoverageParams struct {
+	// Only this ISO 3166-1 alpha-2 country.
+	Country Opt[string] `json:"-" query:"country"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSilentCoverageParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSilentCoverage: Where silent verification runs: one entry per country,
+// and per country the mobile networks that can run the check.
+type PhoneSilentCoverage struct {
+	// One entry per country where silent verification runs.
+	Countries []PhoneSilentCoverageCountry `json:"countries"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSilentCoverage leniently.
+func (r *PhoneSilentCoverage) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSilentCoverageCountry is a response object.
+type PhoneSilentCoverageCountry struct {
+	// ISO 3166-1 alpha-2 country code.
+	Country string `json:"country"`
+
+	// `true` when the SIM check also runs over Wi-Fi, so a device without mobile
+	// data can still complete it.
+	Wifi bool `json:"wifi"`
+
+	// The mobile networks in this country that can run a silent check.
+	Networks []PhoneSilentCoverageNetwork `json:"networks"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSilentCoverageCountry leniently.
+func (r *PhoneSilentCoverageCountry) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSilentCoverageNetwork is a response object.
+type PhoneSilentCoverageNetwork struct {
+	// The mobile network, as the console names it in Coverage, for example `Mobile
+	// network A`.
+	Name string `json:"name"`
+
+	// `live` - the network answers silent checks for production traffic. `test` -
+	// it answers only while it approves production use, for the verified test
+	// numbers of a registration.
+	Approval PhoneSilentCoverageNetworkApproval `json:"approval"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSilentCoverageNetwork leniently.
+func (r *PhoneSilentCoverageNetwork) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSilentCoverageNetworkApproval: `live` - the network answers silent
+// checks for production traffic. `test` - it answers only while it approves
+// production use, for the verified test numbers of a registration.
+//
+// PhoneSilentCoverageNetworkApproval is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneSilentCoverageNetworkApproval string
+
+// Known values of PhoneSilentCoverageNetworkApproval.
+const (
+	PhoneSilentCoverageNetworkApprovalLive PhoneSilentCoverageNetworkApproval = "live"
+	PhoneSilentCoverageNetworkApprovalTest PhoneSilentCoverageNetworkApproval = "test"
+)
+
+// PhoneSilentEligibilityParams holds the parameters of
+// Client.Phone.Silent.Eligibility.
+type PhoneSilentEligibilityParams struct {
+	// Body is the JSON request body.
+	Body PhoneSilentEligibilityRequest `json:"-" body:"json"`
+
+	// The client SDK's publishable key for this application.
+	XPublishableKey Opt[string] `json:"-" header:"X-Publishable-Key"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSilentEligibilityParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSilentEligibilityRequest is a request object.
+type PhoneSilentEligibilityRequest struct {
+	// The number in international format (E.164), for example `+34600000012`.
+	// Required.
+	PhoneNumber string `json:"phone_number"`
+
+	// The phone's public IP, so the answer also confirms the device is on mobile
+	// data.
+	IPAddress Opt[string] `json:"ip_address"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSilentEligibilityRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSilentEligibility is a response object.
+type PhoneSilentEligibility struct {
+	// `true` when a silent check can run for this number now.
+	Eligible bool `json:"eligible"`
+
+	// When `eligible` is `false`, why: `unsupported_network` - the number's mobile
+	// network cannot run the check; `not_mobile_data` - the device is not on mobile
+	// data (send `ip_address` to have this checked); `country_not_covered` - silent
+	// verification does not run in the number's country.
+	Reason PhoneSilentEligibilityReason `json:"reason"`
+
+	// The mobile network, or `null` when Didit has no supported network for the
+	// number.
+	Network string `json:"network"`
+
+	// ISO 3166-1 alpha-2 country code of the number.
+	Country string `json:"country"`
+
+	// `true` when the SIM check can run over Wi-Fi instead, so the device can
+	// complete it without mobile data.
+	WifiPossible bool `json:"wifi_possible"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSilentEligibility leniently.
+func (r *PhoneSilentEligibility) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSilentEligibilityReason: When `eligible` is `false`, why:
+// `unsupported_network` - the number's mobile network cannot run the check;
+// `not_mobile_data` - the device is not on mobile data (send `ip_address` to
+// have this checked); `country_not_covered` - silent verification does not run
+// in the number's country.
+//
+// PhoneSilentEligibilityReason is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneSilentEligibilityReason string
+
+// Known values of PhoneSilentEligibilityReason.
+const (
+	PhoneSilentEligibilityReasonUnsupportedNetwork PhoneSilentEligibilityReason = "unsupported_network"
+	PhoneSilentEligibilityReasonNotMobileData      PhoneSilentEligibilityReason = "not_mobile_data"
+	PhoneSilentEligibilityReasonCountryNotCovered  PhoneSilentEligibilityReason = "country_not_covered"
+)
+
+// PhoneSilentRegistrationRequest is a request object.
+type PhoneSilentRegistrationRequest struct {
+	// The ISO 3166-1 alpha-2 country to ask approval for. Required.
+	Country string `json:"country"`
+
+	// Only these mobile networks; left out, every network in the country.
+	Networks Opt[[]string] `json:"networks"`
+
+	// What silent verification is used for. Required.
+	UseCase PhoneSilentRegistrationRequestUseCase `json:"use_case"`
+
+	// Your legal company name, as the networks see it. Required.
+	CompanyName string `json:"company_name"`
+
+	// Where the flow runs, so the networks can review it. Required.
+	Website string `json:"website"`
+
+	// Expected silent checks a month.
+	MonthlyVolume Opt[int64] `json:"monthly_volume"`
+
+	// Links to screens of the flow, as the networks ask for them.
+	FlowScreenshots Opt[[]string] `json:"flow_screenshots"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSilentRegistrationRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSilentRegistrationRequestUseCase: What silent verification is used for.
+//
+// PhoneSilentRegistrationRequestUseCase is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneSilentRegistrationRequestUseCase string
+
+// Known values of PhoneSilentRegistrationRequestUseCase.
+const (
+	PhoneSilentRegistrationRequestUseCaseSignup          PhoneSilentRegistrationRequestUseCase = "signup"
+	PhoneSilentRegistrationRequestUseCaseLogin           PhoneSilentRegistrationRequestUseCase = "login"
+	PhoneSilentRegistrationRequestUseCasePayment         PhoneSilentRegistrationRequestUseCase = "payment"
+	PhoneSilentRegistrationRequestUseCaseAccountRecovery PhoneSilentRegistrationRequestUseCase = "account_recovery"
+)
+
+// PhoneSilentRegistration is a response object.
+type PhoneSilentRegistration struct {
+	// The registration: track it with it.
+	RegistrationID string `json:"registration_id"`
+
+	// The country it asks approval for.
+	Country string `json:"country"`
+
+	// `submitted` - sent to the networks; `in_review` - they are reviewing;
+	// `approved` - every network approved; `partly_approved` - some approved and
+	// some rejected; `rejected` - none approved.
+	Status PhoneSilentRegistrationStatus `json:"status"`
+
+	// Each mobile network's decision, network by network.
+	Networks []PhoneNetworkDecision `json:"networks"`
+
+	// When silent verification went live for you in the country, `null` until it
+	// has.
+	LiveAt time.Time `json:"live_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSilentRegistration leniently.
+func (r *PhoneSilentRegistration) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSilentRegistrationStatus: `submitted` - sent to the networks;
+// `in_review` - they are reviewing; `approved` - every network approved;
+// `partly_approved` - some approved and some rejected; `rejected` - none
+// approved.
+//
+// PhoneSilentRegistrationStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneSilentRegistrationStatus string
+
+// Known values of PhoneSilentRegistrationStatus.
+const (
+	PhoneSilentRegistrationStatusSubmitted      PhoneSilentRegistrationStatus = "submitted"
+	PhoneSilentRegistrationStatusInReview       PhoneSilentRegistrationStatus = "in_review"
+	PhoneSilentRegistrationStatusApproved       PhoneSilentRegistrationStatus = "approved"
+	PhoneSilentRegistrationStatusPartlyApproved PhoneSilentRegistrationStatus = "partly_approved"
+	PhoneSilentRegistrationStatusRejected       PhoneSilentRegistrationStatus = "rejected"
 )

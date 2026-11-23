@@ -53,3 +53,273 @@ func TestPhoneSendCode(t *testing.T) {
 	req.expectJSON(t, `{"phone_number":"+14155552671","options":{"locale":"en-US","preferred_channel":"whatsapp"},"vendor_data":"user-1234"}`)
 	expectFields(t, res.JSON, []string{"request_id", "status", "vendor_data"})
 }
+
+func TestPhoneFactorsCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"factor_id":"fa_01JCH8K2","type":"totp","status":"unverified","totp":{"uri":"otpauth://totp/Demo%20App:u_481?secret=JBSWY3DP"}}`)
+	var params didit.PhoneFactorCreateRequest
+	mustUnmarshal(t, `{"type":"totp","user_id":"u_481","friendly_name":"Demo App","metadata":{"device":"iPhone 15"}}`, &params)
+	res, err := client.Phone.Factors.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/factors/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"type":"totp","user_id":"u_481","friendly_name":"Demo App","metadata":{"device":"iPhone 15"}}`)
+	expectFields(t, res.JSON, []string{"factor_id", "type", "status", "totp"})
+}
+
+func TestPhoneFactorsDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Phone.Factors.Delete(context.Background(), "factor-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/phone/factors/factor-id-1/")
+	req.expectAPIKey(t)
+}
+
+func TestPhoneFactorsList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"factor_id":"fa_01JCH8K2","type":"totp","status":"verified","user_id":"u_481","friendly_name":"Demo App","metadata":{"device":"iPhone 15"},"created_at":"2026-11-02T08:14:00Z","last_used_at":"2026-11-21T09:58:00Z"}]}`)
+	var params didit.PhoneFactorsListParams
+	params.UserID = "u_481"
+	params.Type = didit.Some(didit.PhoneFactorsListParamsTypeTotp)
+	params.Status = didit.Some(didit.PhoneFactorsListParamsStatusVerified)
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(0)
+	params.Format = didit.Some(didit.PhoneFactorsListParamsFormatJSON)
+	res, err := client.Phone.Factors.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/factors/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"format": "json", "limit": "20", "offset": "0", "status": "verified", "type": "totp", "user_id": "u_481"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"factor_id", "type", "status", "user_id", "friendly_name", "metadata", "created_at", "last_used_at"})
+}
+
+func TestPhoneFactorsRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"factor_id":"fa_01JCH8K2","type":"totp","status":"verified","user_id":"u_481","friendly_name":"Demo App","metadata":{"device":"iPhone 15"},"created_at":"2026-11-02T08:14:00Z","last_used_at":"2026-11-21T09:58:00Z"}`)
+	res, err := client.Phone.Factors.Retrieve(context.Background(), "factor-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/factors/factor-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"factor_id", "type", "status", "user_id", "friendly_name", "metadata", "created_at", "last_used_at"})
+}
+
+func TestPhoneFactorsUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"factor_id":"fa_01JCH8K2","type":"totp","status":"disabled","user_id":"u_481","friendly_name":"Work phone","metadata":{"device":"iPhone 16"},"created_at":"2026-11-02T08:14:00Z","last_used_at":"2026-11-21T09:58:00Z"}`)
+	var params didit.PhoneFactorUpdateRequest
+	mustUnmarshal(t, `{"friendly_name":"Work phone","metadata":{"device":"iPhone 16"},"status":"disabled"}`, &params)
+	res, err := client.Phone.Factors.Update(context.Background(), "factor-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/phone/factors/factor-id-1/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"friendly_name":"Work phone","metadata":{"device":"iPhone 16"},"status":"disabled"}`)
+	expectFields(t, res.JSON, []string{"factor_id", "type", "status", "user_id", "friendly_name", "metadata", "created_at", "last_used_at"})
+}
+
+func TestPhoneNetworkRegistrationsCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"registration_id":"nr_01JCP2F4Q8","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null,"test_access":"on","test_numbers":[{"phone_number":"+34600000012","status":"verified"}]}`)
+	var params didit.PhoneNetworkRegistrationRequest
+	mustUnmarshal(t, `{"feature":"sim_swap","country":"BR","use_case":"account_recovery","networks":["Mobile network A","Mobile network B"],"company_name":"Demo Application S.L.","website":"https://app.example.com","purpose":"Check for a recent SIM change before a password reset","monthly_volume":20000}`, &params)
+	res, err := client.Phone.Network.Registrations.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/network/registrations/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"feature":"sim_swap","country":"BR","use_case":"account_recovery","networks":["Mobile network A","Mobile network B"],"company_name":"Demo Application S.L.","website":"https://app.example.com","purpose":"Check for a recent SIM change before a password reset","monthly_volume":20000}`)
+	expectFields(t, res.JSON, []string{"registration_id", "feature", "country", "use_case", "status", "networks", "test_access", "test_numbers"})
+}
+
+func TestPhoneNetworkRegistrationsList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"registration_id":"nr_01JCP2F4Q8","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved"}]}`)
+	var params didit.PhoneNetworkRegistrationsListParams
+	params.Feature = didit.Some(didit.PhoneNetworkRegistrationsListParamsFeatureSimSwap)
+	params.Country = didit.String("ES")
+	params.Status = didit.Some(didit.PhoneNetworkRegistrationsListParamsStatusPartlyApproved)
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(0)
+	params.Format = didit.Some(didit.PhoneNetworkRegistrationsListParamsFormatJSON)
+	res, err := client.Phone.Network.Registrations.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/network/registrations/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"country": "ES", "feature": "sim_swap", "format": "json", "limit": "20", "offset": "0", "status": "partly_approved"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"registration_id", "feature", "country", "use_case", "status"})
+}
+
+func TestPhoneNetworkRegistrationsRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"registration_id":"nr_01JCP2F4Q8","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null,"test_access":"on","test_numbers":[{"phone_number":"+34600000012","status":"verified"}]}`)
+	res, err := client.Phone.Network.Registrations.Retrieve(context.Background(), "registration-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/network/registrations/registration-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"registration_id", "feature", "country", "use_case", "status", "networks", "test_access", "test_numbers"})
+}
+
+func TestPhoneNetworkRegistrationsTestNumbersCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"phone_number":"+34600000012","status":"code_sent","verification_id":"pv_01JCH6D4T7N2XK8F","test_access":"on"}`)
+	var params didit.PhoneNetworkRegistrationTestNumberRequest
+	mustUnmarshal(t, `{"phone_number":"+34600000012"}`, &params)
+	res, err := client.Phone.Network.Registrations.TestNumbers.Create(context.Background(), "registration-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/network/registrations/registration-id-1/test-numbers/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"phone_number":"+34600000012"}`)
+	expectFields(t, res.JSON, []string{"phone_number", "status", "verification_id", "test_access"})
+}
+
+func TestPhoneNetworkRegistrationsTestNumbersDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Phone.Network.Registrations.TestNumbers.Delete(context.Background(), "registration-id-1", "phone-number-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/phone/network/registrations/registration-id-1/test-numbers/phone-number-1/")
+	req.expectAPIKey(t)
+}
+
+func TestPhoneSDKKeysCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"key_id":"sk_01JCL2B6","platform":"ios","publishable_key":"sample-publishable-key","app_ids":["com.demoapp.ios"],"status":"active","created_at":"2026-11-21T09:00:00Z"}`)
+	var params didit.PhoneSDKKeyRequest
+	mustUnmarshal(t, `{"platform":"ios","app_ids":["com.demoapp.ios"],"name":"iOS app"}`, &params)
+	res, err := client.Phone.SDKKeys.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/sdk-keys/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"platform":"ios","app_ids":["com.demoapp.ios"],"name":"iOS app"}`)
+	expectFields(t, res.JSON, []string{"key_id", "platform", "publishable_key", "app_ids", "status", "created_at"})
+}
+
+func TestPhoneSDKKeysList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"results":[{"key_id":"sk_01JCL2B6","platform":"ios","status":"active"}]}`)
+	var params didit.PhoneSDKKeysListParams
+	params.Platform = didit.Some(didit.PhoneSDKKeysListParamsPlatformIos)
+	res, err := client.Phone.SDKKeys.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/sdk-keys/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"platform": "ios"})
+	expectFields(t, res.JSON, []string{"results"})
+}
+
+func TestPhoneSDKKeysRevoke(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Phone.SDKKeys.Revoke(context.Background(), "key-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/phone/sdk-keys/key-id-1/")
+	req.expectAPIKey(t)
+}
+
+func TestPhoneSDKKeysRotate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"key_id":"sk_01JCL2B6","platform":"ios","publishable_key":"sample-publishable-key","app_ids":["com.demoapp.ios"],"status":"active","created_at":"2026-11-21T09:00:00Z","previous_expires_at":"2026-11-24T09:00:00Z"}`)
+	var params didit.PhoneSDKKeyRotateRequest
+	mustUnmarshal(t, `{"overlap_hours":72}`, &params)
+	res, err := client.Phone.SDKKeys.Rotate(context.Background(), "key-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/sdk-keys/key-id-1/rotate/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"overlap_hours":72}`)
+	expectFields(t, res.JSON, []string{"key_id", "platform", "publishable_key", "app_ids", "status", "created_at", "previous_expires_at"})
+}
+
+func TestPhoneSilentCoverage(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"countries":[{"country":"ES","wifi":true,"networks":[{"name":"Mobile network A","approval":"live"}]}]}`)
+	var params didit.PhoneSilentCoverageParams
+	params.Country = didit.String("ES")
+	res, err := client.Phone.Silent.Coverage(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/silent/coverage/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"country": "ES"})
+	expectFields(t, res.JSON, []string{"countries"})
+}
+
+func TestPhoneSilentEligibility(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"eligible":true,"reason":null,"network":"Mobile network A","country":"ES","wifi_possible":true}`)
+	var params didit.PhoneSilentEligibilityParams
+	mustUnmarshal(t, `{"phone_number":"+34600000012","ip_address":"83.44.10.12"}`, &params.Body)
+	params.XPublishableKey = didit.String("value")
+	res, err := client.Phone.Silent.Eligibility(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/silent/eligibility/")
+	req.expectAPIKey(t)
+	req.expectHeader(t, "X-Publishable-Key", "value")
+	req.expectJSON(t, `{"phone_number":"+34600000012","ip_address":"83.44.10.12"}`)
+	expectFields(t, res.JSON, []string{"eligible", "network", "country", "wifi_possible"})
+}
+
+func TestPhoneSilentRegistrationsCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"registration_id":"sr_01JCP2F4Q8","country":"BR","status":"in_review","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null}`)
+	var params didit.PhoneSilentRegistrationRequest
+	mustUnmarshal(t, `{"country":"BR","use_case":"login","company_name":"Demo Application S.L.","website":"https://app.example.com","monthly_volume":40000}`, &params)
+	res, err := client.Phone.Silent.Registrations.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/silent/registrations/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"country":"BR","use_case":"login","company_name":"Demo Application S.L.","website":"https://app.example.com","monthly_volume":40000}`)
+	expectFields(t, res.JSON, []string{"registration_id", "country", "status", "networks"})
+}
+
+func TestPhoneSilentRegistrationsRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"registration_id":"sr_01JCP2F4Q8","country":"BR","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"rejected","decided_at":"2026-11-20T16:40:00Z","reason":"Use case not covered by the approval"}],"live_at":"2026-11-21T08:00:00Z"}`)
+	res, err := client.Phone.Silent.Registrations.Retrieve(context.Background(), "registration-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/silent/registrations/registration-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"registration_id", "country", "status", "networks", "live_at"})
+}
