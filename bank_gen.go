@@ -1935,8 +1935,9 @@ type BankConnectionConsent struct {
 	RetainUntil time.Time `json:"retain_until"`
 	EndedAt     time.Time `json:"ended_at"`
 
-	// Who ended access, set from evidence. `unknown` when neither the bank nor the
-	// sync says.
+	// Who ended access, set from evidence. `system` when Didit ended it by design:
+	// a one-time connection once its read is complete. `unknown` when neither the
+	// bank nor the sync says.
 	EndedBy BankConnectionConsentEndedBy `json:"ended_by"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -2002,8 +2003,9 @@ const (
 	BankConnectionConsentRenewalActionBankAuth  BankConnectionConsentRenewalAction = "bank_auth"
 )
 
-// BankConnectionConsentEndedBy: Who ended access, set from evidence. `unknown`
-// when neither the bank nor the sync says.
+// BankConnectionConsentEndedBy: Who ended access, set from evidence. `system`
+// when Didit ended it by design: a one-time connection once its read is
+// complete. `unknown` when neither the bank nor the sync says.
 //
 // BankConnectionConsentEndedBy is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -2014,6 +2016,7 @@ const (
 	BankConnectionConsentEndedByEndUser  BankConnectionConsentEndedBy = "end_user"
 	BankConnectionConsentEndedByBank     BankConnectionConsentEndedBy = "bank"
 	BankConnectionConsentEndedByCustomer BankConnectionConsentEndedBy = "customer"
+	BankConnectionConsentEndedBySystem   BankConnectionConsentEndedBy = "system"
 	BankConnectionConsentEndedByUnknown  BankConnectionConsentEndedBy = "unknown"
 )
 
