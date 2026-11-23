@@ -476,8 +476,11 @@ func (r *BankService) RefreshConnection(ctx context.Context, id string, params B
 // Creates a renew link for this connection, a shortcut for `create_link` with
 // `mode: renew`. The connection id and every account id stay the same.
 //
-// Opening the returned link on the hosted page is not available yet: the page
-// that lets the person renew is still to be built.
+// Send the returned `url` to the person: the hosted page shows what continues
+// to be shared and until when, the person signs in at their bank once and
+// returns to your `redirect_url`, and `bank.connection.renewed` confirms it.
+// Afterwards the connection's `consent` shows a new `version`, `renewed_count`,
+// `expires_at` and `renew_by`, with `renewal_action` `bank_auth`.
 //
 // Until the consent has 30 days left or fewer it answers `409
 // renewal_not_needed`; after `consent.renewable_until` it answers `409
