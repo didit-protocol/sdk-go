@@ -995,15 +995,18 @@ type BankLinkCreateRequest struct {
 	// `["accounts"]`.
 	Data Opt[[]BankLinkCreateRequestData] `json:"data"`
 
-	// Days of transaction history to request, 1 to 365, default 90. The bank may
-	// deliver less: each account reports what it delivered in `history_coverage`.
-	// Cannot be sent with `history_from`.
+	// The most days of transaction history to request, 1 to 365, default 90. It is
+	// a request "up to": when the bank or the connection can give less, the link
+	// still completes with the history it can give, and each account reports what
+	// was obtained in `history_coverage`. Cannot be sent with `history_from`.
 	HistoryDays Opt[int64] `json:"history_days"`
 
-	// Start date of the history to request, instead of `history_days`. Cannot be
-	// sent with `history_days`: both together answer `400
-	// history_window_ambiguous`. A date older than 365 days, or in the future,
-	// answers `400 window_not_available`.
+	// The earliest date of history to request, instead of `history_days`; it is a
+	// request "up to", like `history_days`: when the bank or the connection can
+	// give less, the link still completes with the history it can give and
+	// `history_coverage` reports it. Cannot be sent with `history_days`: both
+	// together answer `400 history_window_ambiguous`. A date older than 365 days,
+	// or in the future, answers `400 window_not_available`.
 	HistoryFrom Opt[string] `json:"history_from"`
 
 	// `allow_extra_auth` lets a bank that asks for one more confirmation release
@@ -1053,13 +1056,16 @@ type BankLinkCreateRequest struct {
 	// allow_one_time_fallback`.
 	AllowOneTimeFallback Opt[bool] `json:"allow_one_time_fallback"`
 
-	// When the bank or the person grants less than you asked for, complete the link
-	// and charge only the granted scopes. Otherwise the link ends `failed` with
-	// `reduced_grant` and nothing is charged.
+	// When the bank or the person grants less data than the link required (a data
+	// scope or an account), complete the link and charge only what was granted.
+	// Otherwise the link ends `failed` with `reduced_grant` and nothing is charged.
+	// A shorter history than asked for is never a reduced grant: the link completes
+	// and `history_coverage` reports what was obtained.
 	AcceptReducedGrant Opt[bool] `json:"accept_reduced_grant"`
 
-	// Sandbox applications only: picks the Didit Test Bank customer. Ignored in a
-	// live application.
+	// Sandbox applications only: picks the Didit Test Bank customer. A live
+	// application that sends it, with any key, answers `400 invalid_request` with
+	// `field: sandbox` and no link is created.
 	Sandbox Opt[BankLinkCreateRequestSandbox] `json:"sandbox"`
 }
 
@@ -1261,7 +1267,8 @@ const (
 )
 
 // BankLinkCreateRequestSandbox: Sandbox applications only: picks the Didit Test
-// Bank customer. Ignored in a live application.
+// Bank customer. A live application that sends it, with any key, answers `400
+// invalid_request` with `field: sandbox` and no link is created.
 type BankLinkCreateRequestSandbox struct {
 	// The Test Bank customer: `personal_basic` (one current account, 60 movements),
 	// `business_multi` (three accounts held by a company), `long_history` (one
@@ -2397,7 +2404,7 @@ type BankCoverageCountry struct {
 	// The longest consent any bank in the country allows, in days.
 	ConsentDaysMax int64 `json:"consent_days_max"`
 
-	// The deepest history any bank in the country delivers, in days.
+	// The most history a link can obtain at any bank in the country today, in days.
 	HistoryDaysMax int64 `json:"history_days_max"`
 
 	// Whether at least one bank supports business accounts.
@@ -2436,7 +2443,8 @@ type BankInstitution struct {
 	// The longest consent the bank allows, in days. `null` when not observed.
 	ConsentDaysMax int64 `json:"consent_days_max"`
 
-	// The deepest history the bank delivers, in days. `null` when not observed.
+	// The most history a link can obtain at this bank today, in days. `null` when
+	// not observed.
 	HistoryDaysMax int64 `json:"history_days_max"`
 
 	// Whether the bank reports pending transactions.
