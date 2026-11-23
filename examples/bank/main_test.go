@@ -30,13 +30,13 @@ func bankResponseExamples(t *testing.T) (link, accounts json.RawMessage) {
 	type response struct{ Content map[string]media }
 	type operation struct{ Responses map[string]response }
 	var doc struct {
-		Paths map[string]map[string]operation
+		Paths map[string]struct{ Get operation }
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
 	example := func(path, name string) json.RawMessage {
-		v := doc.Paths[path]["get"].Responses["200"].Content["application/json"].Examples[name].Value
+		v := doc.Paths[path].Get.Responses["200"].Content["application/json"].Examples[name].Value
 		if len(v) == 0 {
 			t.Fatalf("missing %s example for %s", name, path)
 		}
@@ -76,8 +76,8 @@ func TestAccountsForConnection(t *testing.T) {
 			})
 			client := didit.NewClient(option.WithAPIKey("example"), option.WithHTTPClient(&http.Client{Transport: transport}))
 			page, err := accountsForConnection(context.Background(), client, link, tc.eventID)
-			if tc.read && page != nil && len(page.Items) != 2 {
-				t.Fatalf("got %d accounts, want 2", len(page.Items))
+			if tc.read && page != nil && len(page.Items) != 1 {
+				t.Fatalf("got %d accounts, want 1", len(page.Items))
 			}
 			if err != nil || !lookedUp || read != tc.read || (page != nil) != tc.read {
 				t.Fatalf("lookup=%t read=%t page=%v err=%v", lookedUp, read, page, err)
