@@ -664,11 +664,10 @@ type BankDeletionReason string
 
 // Known deletion reasons.
 const (
-	BankDeletionReasonDeletedByCustomer     BankDeletionReason = "deleted_by_customer"
-	BankDeletionReasonConsentLapsed         BankDeletionReason = "consent_lapsed"
-	BankDeletionReasonRetentionElapsed      BankDeletionReason = "retention_elapsed"
-	BankDeletionReasonApplicationDeleted    BankDeletionReason = "application_deleted"
-	BankDeletionReasonRestoredAfterDeletion BankDeletionReason = "restored_after_deletion"
+	BankDeletionReasonDeletedByCustomer  BankDeletionReason = "deleted_by_customer"
+	BankDeletionReasonConsentLapsed      BankDeletionReason = "consent_lapsed"
+	BankDeletionReasonRetentionElapsed   BankDeletionReason = "retention_elapsed"
+	BankDeletionReasonApplicationDeleted BankDeletionReason = "application_deleted"
 )
 
 // BankConnectionDeletedEvent is a bank.connection.deleted webhook: the stored
