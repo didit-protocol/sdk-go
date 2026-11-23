@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"encoding/json"
+	"time"
 
 	didit "github.com/didit-protocol/sdk-go"
 )
@@ -14,6 +15,8 @@ import (
 //		// e.SessionID, e.Status, e.Decision, ...
 //	case *webhook.TransactionStatusUpdatedEvent:
 //		// e.TransactionID, e.Status, e.Score, ...
+//	case *webhook.BankConnectionCreatedEvent:
+//		// e.ConnectionID, e.InitialStatus, ...
 //	case *webhook.UnknownEvent:
 //		// a webhook type this version of the SDK does not know: e.Payload
 //	}
@@ -61,6 +64,23 @@ const (
 	TypeTravelRuleStatusUpdated   Type = "travel_rule.status.updated"
 	TypeWorkflowComplianceChanged Type = "workflow.compliance_changed"
 	TypeKYBRegistrySearchResolved Type = "kyb.registry_search.resolved"
+
+	TypeBankLinkCompleted             Type = "bank.link.completed"
+	TypeBankLinkCancelled             Type = "bank.link.cancelled"
+	TypeBankLinkExpired               Type = "bank.link.expired"
+	TypeBankLinkFailed                Type = "bank.link.failed"
+	TypeBankConnectionCreated         Type = "bank.connection.created"
+	TypeBankConnectionUpdated         Type = "bank.connection.updated"
+	TypeBankConnectionConsentExpiring Type = "bank.connection.consent_expiring"
+	TypeBankConnectionRenewalRequired Type = "bank.connection.renewal_required"
+	TypeBankConnectionRenewed         Type = "bank.connection.renewed"
+	TypeBankConnectionRevoked         Type = "bank.connection.revoked"
+	TypeBankConnectionDeleted         Type = "bank.connection.deleted"
+	TypeBankConnectionHistoryComplete Type = "bank.connection.history_complete"
+	TypeBankDataUpdated               Type = "bank.data.updated"
+	TypeBankSyncCompleted             Type = "bank.sync.completed"
+	TypeBankSyncFailed                Type = "bank.sync.failed"
+	TypeBankSyncRecovered             Type = "bank.sync.recovered"
 )
 
 // Environment is the environment of the application that sent the webhook.
@@ -395,6 +415,391 @@ type KYBRegistrySearchResolvedEvent struct {
 	// KYBRegistry is the registry result with the candidate companies, as
 	// JSON (nil when absent).
 	KYBRegistry json.RawMessage
+}
+
+// BankLinkStatus is the status of a Bank Link in a bank.link.* event.
+type BankLinkStatus string
+
+// Known Bank Link statuses.
+const (
+	BankLinkStatusCompleted BankLinkStatus = "completed"
+	BankLinkStatusCancelled BankLinkStatus = "cancelled"
+	BankLinkStatusExpired   BankLinkStatus = "expired"
+	BankLinkStatusFailed    BankLinkStatus = "failed"
+)
+
+// BankLinkErrorCode is why a Bank Link failed, empty when it did not.
+type BankLinkErrorCode string
+
+// Known Bank Link error codes.
+const (
+	BankLinkErrorCodeDuplicateConflict             BankLinkErrorCode = "duplicate_conflict"
+	BankLinkErrorCodeRenewalLoginMismatch          BankLinkErrorCode = "renewal_login_mismatch"
+	BankLinkErrorCodeReducedGrant                  BankLinkErrorCode = "reduced_grant"
+	BankLinkErrorCodeCorporateApprovalNotSupported BankLinkErrorCode = "corporate_approval_not_supported"
+	BankLinkErrorCodeOngoingAccessNotAvailable     BankLinkErrorCode = "ongoing_access_not_available"
+	BankLinkErrorCodeBankUnavailable               BankLinkErrorCode = "bank_unavailable"
+	BankLinkErrorCodeBankCancelled                 BankLinkErrorCode = "bank_cancelled"
+	BankLinkErrorCodeConsentDeclined               BankLinkErrorCode = "consent_declined"
+	BankLinkErrorCodeReadLimit                     BankLinkErrorCode = "read_limit"
+	BankLinkErrorCodeRenewalNotNeeded              BankLinkErrorCode = "renewal_not_needed"
+	BankLinkErrorCodeRenewalWindowExpired          BankLinkErrorCode = "renewal_window_expired"
+	BankLinkErrorCodeFirstSyncFailed               BankLinkErrorCode = "first_sync_failed"
+)
+
+// BankLinkFields are the fields of the bank.link.* events. Unlike the other
+// bank.* events, a link event carries them in a nested data object.
+type BankLinkFields struct {
+	// LinkID is the Bank Link the event is about.
+	LinkID string
+	// Status is the link status: completed, cancelled, expired or failed.
+	Status BankLinkStatus
+	// ConnectionID is the connection the link created or renewed, empty when
+	// the link did not complete.
+	ConnectionID string
+	// CheckID is the ownership check, empty when the link did not ask for one.
+	CheckID string
+	// ErrorCode is why the link failed, empty on every other link event.
+	ErrorCode BankLinkErrorCode
+}
+
+// BankLinkCompletedEvent is a bank.link.completed webhook.
+type BankLinkCompletedEvent struct {
+	EventEnvelope
+	BankLinkFields
+}
+
+// BankLinkCancelledEvent is a bank.link.cancelled webhook.
+type BankLinkCancelledEvent struct {
+	EventEnvelope
+	BankLinkFields
+}
+
+// BankLinkExpiredEvent is a bank.link.expired webhook.
+type BankLinkExpiredEvent struct {
+	EventEnvelope
+	BankLinkFields
+}
+
+// BankLinkFailedEvent is a bank.link.failed webhook.
+type BankLinkFailedEvent struct {
+	EventEnvelope
+	BankLinkFields
+}
+
+// BankConnectionStatus is the status of a Bank connection in a
+// bank.connection.* event.
+type BankConnectionStatus string
+
+// Known connection statuses.
+const (
+	BankConnectionStatusPending         BankConnectionStatus = "pending"
+	BankConnectionStatusActive          BankConnectionStatus = "active"
+	BankConnectionStatusRenewalRequired BankConnectionStatus = "renewal_required"
+	BankConnectionStatusPaused          BankConnectionStatus = "paused"
+	BankConnectionStatusRevoked         BankConnectionStatus = "revoked"
+	BankConnectionStatusDeleted         BankConnectionStatus = "deleted"
+	BankConnectionStatusFailed          BankConnectionStatus = "failed"
+)
+
+// BankConnectionStatusReason is why a connection is in its status, empty when
+// no reason applies.
+type BankConnectionStatusReason string
+
+// Known connection status reasons.
+const (
+	BankConnectionStatusReasonCollectionComplete  BankConnectionStatusReason = "collection_complete"
+	BankConnectionStatusReasonConsentExpired      BankConnectionStatusReason = "consent_expired"
+	BankConnectionStatusReasonConsentLapsed       BankConnectionStatusReason = "consent_lapsed"
+	BankConnectionStatusReasonBankRequiresSignIn  BankConnectionStatusReason = "bank_requires_sign_in"
+	BankConnectionStatusReasonRevokedByEndUser    BankConnectionStatusReason = "revoked_by_end_user"
+	BankConnectionStatusReasonRevokedByBank       BankConnectionStatusReason = "revoked_by_bank"
+	BankConnectionStatusReasonRevokedByCustomer   BankConnectionStatusReason = "revoked_by_customer"
+	BankConnectionStatusReasonInsufficientBalance BankConnectionStatusReason = "insufficient_balance"
+	BankConnectionStatusReasonPausedByCustomer    BankConnectionStatusReason = "paused_by_customer"
+	BankConnectionStatusReasonFirstSyncFailed     BankConnectionStatusReason = "first_sync_failed"
+)
+
+// BankConnectionCreatedEvent is a bank.connection.created webhook: the first
+// sync finished and the accounts are readable. Read the connection, then its
+// accounts.
+type BankConnectionCreatedEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// InitialStatus is how the first sync ended: succeeded or partial.
+	InitialStatus BankSyncOutcome
+}
+
+// BankRevocationStatus is the progress of a revocation in a
+// bank.connection.updated event.
+type BankRevocationStatus string
+
+// Known revocation statuses.
+const (
+	// BankRevocationStatusPending: a revocation was requested and the bank
+	// has not confirmed it yet; bank.connection.revoked follows.
+	BankRevocationStatusPending BankRevocationStatus = "pending"
+)
+
+// BankConnectionUpdatedEvent is a bank.connection.updated webhook: a
+// connection's status changed in a way no other event reports, for example a
+// revocation started.
+type BankConnectionUpdatedEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// Status is the connection status.
+	Status BankConnectionStatus
+	// RevocationStatus is pending until the bank confirms a revocation.
+	RevocationStatus BankRevocationStatus
+}
+
+// BankConnectionConsentExpiringEvent is a bank.connection.consent_expiring
+// webhook: the consent ends soon (sent 14, 7 and 1 day before). Renew with
+// RenewConnection.
+type BankConnectionConsentExpiringEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// DaysLeft is how many days the consent has left: 14, 7 or 1.
+	DaysLeft int64
+	// ConsentExpiresAt is when the consent ends.
+	ConsentExpiresAt time.Time
+	// RenewBy is the consent's end: renew before it for no gap. Zero when the
+	// payload has none.
+	RenewBy time.Time
+}
+
+// BankRenewalReason is why a connection needs renewal in a
+// bank.connection.renewal_required event.
+type BankRenewalReason string
+
+// Known renewal reasons.
+const (
+	BankRenewalReasonConsentExpired     BankRenewalReason = "consent_expired"
+	BankRenewalReasonBankRequiresSignIn BankRenewalReason = "bank_requires_sign_in"
+)
+
+// BankConnectionRenewalRequiredEvent is a bank.connection.renewal_required
+// webhook: the consent ended or the bank asks the person to sign in again.
+// Data stays readable as last synced.
+type BankConnectionRenewalRequiredEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// Status is renewal_required.
+	Status BankConnectionStatus
+	// Reason is why renewal is needed.
+	Reason BankRenewalReason
+	// RenewBy is the consent's end, zero when there is none.
+	RenewBy time.Time
+	// RenewableUntil is the last moment the same connection can be renewed;
+	// after it the person connects again. Zero when the payload has none.
+	RenewableUntil time.Time
+}
+
+// BankConnectionRenewedEvent is a bank.connection.renewed webhook: a renew
+// link completed. The connection and account ids are unchanged.
+type BankConnectionRenewedEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// Status is the connection status.
+	Status BankConnectionStatus
+	// ConsentVersion is the consent version the renewal created.
+	ConsentVersion int64
+	// LinkID is the renew link that completed, empty when there is none.
+	LinkID string
+	// ConsentExpiresAt is when the renewed consent ends, zero when it has no
+	// end.
+	ConsentExpiresAt time.Time
+}
+
+// BankConnectionEndedBy is who ended access in a bank.connection.revoked
+// event.
+type BankConnectionEndedBy string
+
+// Known ended-by values.
+const (
+	BankConnectionEndedByEndUser  BankConnectionEndedBy = "end_user"
+	BankConnectionEndedByBank     BankConnectionEndedBy = "bank"
+	BankConnectionEndedByCustomer BankConnectionEndedBy = "customer"
+	BankConnectionEndedByUnknown  BankConnectionEndedBy = "unknown"
+)
+
+// BankConnectionRevokedEvent is a bank.connection.revoked webhook: access
+// ended and the bank confirmed it. Stored data stays readable until
+// RetainUntil.
+type BankConnectionRevokedEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// Status is revoked.
+	Status BankConnectionStatus
+	// EndedBy is who ended access.
+	EndedBy BankConnectionEndedBy
+	// StatusReason is why the connection is revoked, empty when the payload
+	// has none.
+	StatusReason BankConnectionStatusReason
+	// EndedAt is when access ended, zero when the payload has none.
+	EndedAt time.Time
+	// RetainUntil is how long the stored data stays readable, set by the
+	// retention setting of the application. Zero when the payload has none.
+	RetainUntil time.Time
+}
+
+// BankErasureStatus is the progress of a deletion in a
+// bank.connection.deleted event.
+type BankErasureStatus string
+
+// Known erasure statuses.
+const (
+	BankErasureStatusErased BankErasureStatus = "erased"
+)
+
+// BankDeletionReason is why a connection was deleted in a
+// bank.connection.deleted event.
+type BankDeletionReason string
+
+// Known deletion reasons.
+const (
+	BankDeletionReasonDeletedByCustomer  BankDeletionReason = "deleted_by_customer"
+	BankDeletionReasonConsentLapsed      BankDeletionReason = "consent_lapsed"
+	BankDeletionReasonRetentionElapsed   BankDeletionReason = "retention_elapsed"
+	BankDeletionReasonApplicationDeleted BankDeletionReason = "application_deleted"
+)
+
+// BankConnectionDeletedEvent is a bank.connection.deleted webhook: the stored
+// accounts, balances and transactions of a connection were deleted.
+type BankConnectionDeletedEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// Status is deleted.
+	Status BankConnectionStatus
+	// ErasureStatus is erased: the deletion finished.
+	ErasureStatus BankErasureStatus
+	// Reason is why the connection was deleted, empty when the payload has
+	// none.
+	Reason BankDeletionReason
+	// ErasedAt is when the deletion finished.
+	ErasedAt time.Time
+}
+
+// BankHistoryStatus is how a history backfill ended in a
+// bank.connection.history_complete event.
+type BankHistoryStatus string
+
+// Known history statuses.
+const (
+	BankHistoryStatusComplete BankHistoryStatus = "complete"
+	// BankHistoryStatusPartial: the bank could not deliver every range asked
+	// for; each account's history coverage lists the missing ranges.
+	BankHistoryStatusPartial BankHistoryStatus = "partial"
+)
+
+// BankConnectionHistoryCompleteEvent is a bank.connection.history_complete
+// webhook: the history backfill of a connection ended.
+type BankConnectionHistoryCompleteEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// Status is complete or partial.
+	Status BankHistoryStatus
+}
+
+// BankSyncTrigger is what started a sync in a bank.data.updated or
+// bank.sync.completed event.
+type BankSyncTrigger string
+
+// Known sync triggers.
+const (
+	BankSyncTriggerInitial   BankSyncTrigger = "initial"
+	BankSyncTriggerScheduled BankSyncTrigger = "scheduled"
+	BankSyncTriggerRequested BankSyncTrigger = "requested"
+)
+
+// BankAccountChanges are the transaction counts of one account in a
+// bank.data.updated event.
+type BankAccountChanges struct {
+	// AccountID is the account whose transactions changed.
+	AccountID string
+	// Added is the number of transactions added.
+	Added int64
+	// Modified is the number of transactions modified.
+	Modified int64
+	// Removed is the number of transactions removed.
+	Removed int64
+}
+
+// BankDataUpdatedEvent is a bank.data.updated webhook: a sync stored changes,
+// or the first read of a connection published its accounts. Read them with
+// SyncTransactions; nothing else is pushed.
+type BankDataUpdatedEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// SyncID is the sync that stored the changes.
+	SyncID string
+	// Trigger is what started the sync.
+	Trigger BankSyncTrigger
+	// Accounts are the accounts whose transactions changed, with counts.
+	Accounts []BankAccountChanges
+	// BalancesChanged reports whether any balance changed.
+	BalancesChanged bool
+}
+
+// BankSyncOutcome is how a sync ended, in a bank.sync.completed event, or how
+// the first sync ended, in a bank.connection.created event (succeeded or
+// partial only).
+type BankSyncOutcome string
+
+// Known sync outcomes.
+const (
+	BankSyncOutcomeSucceeded BankSyncOutcome = "succeeded"
+	BankSyncOutcomePartial   BankSyncOutcome = "partial"
+	BankSyncOutcomeFailed    BankSyncOutcome = "failed"
+)
+
+// BankSyncCompletedEvent is a bank.sync.completed webhook: a sync finished.
+// It is off by default; bank.data.updated is the default signal.
+type BankSyncCompletedEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// SyncID is the sync that finished.
+	SyncID string
+	// Trigger is what started the sync.
+	Trigger BankSyncTrigger
+	// Outcome is how the sync ended.
+	Outcome BankSyncOutcome
+	// Changed reports whether the sync stored changes.
+	Changed bool
+}
+
+// BankSyncFailedEvent is a bank.sync.failed webhook: syncs have been failing
+// for 24 hours. The connection stays active while they are retried.
+type BankSyncFailedEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// SyncID is the latest failed sync.
+	SyncID string
+	// ErrorCode is the Didit error code of the failure.
+	ErrorCode string
+	// FailingSince is when the syncs started to fail.
+	FailingSince time.Time
+}
+
+// BankSyncRecoveredEvent is a bank.sync.recovered webhook: syncs work again
+// after bank.sync.failed.
+type BankSyncRecoveredEvent struct {
+	EventEnvelope
+	// ConnectionID is the connection the event is about.
+	ConnectionID string
+	// SyncID is the sync that succeeded.
+	SyncID string
 }
 
 // UnknownEvent is a webhook whose type this package has no typed event for.

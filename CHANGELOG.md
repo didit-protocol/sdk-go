@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.34.0](https://github.com/didit-protocol/sdk-go/compare/v1.33.0...v1.34.0) (2026-11-23)
+
+
+### Features
+
+* **bank:** Bank data operations and typed bank.* webhook events ([#107](https://github.com/didit-protocol/sdk-go/issues/107)) ([cba70a4](https://github.com/didit-protocol/sdk-go/commit/cba70a427ee7da486382f9ec6a85dae2659797e2))
+
+## [1.33.0](https://github.com/didit-protocol/sdk-go/compare/v1.32.0...v1.33.0) (2026-11-22)
+
+
+### Features
+
+* **spec:** sync API spec 2026-11-22 ([e28425b](https://github.com/didit-protocol/sdk-go/commit/e28425bb8d075ed16c3a6f2a994c8b9216af846b))
+
+## [1.32.0](https://github.com/didit-protocol/sdk-go/compare/v1.31.0...v1.32.0) (2026-11-22)
+
+
+### Features
+
+* **spec:** sync API spec 2026-11-22 ([5bd9259](https://github.com/didit-protocol/sdk-go/commit/5bd92591bcd547cdb614463bce98b96a6481cb97))
+
 ## [1.31.0](https://github.com/didit-protocol/sdk-go/compare/v1.30.0...v1.31.0) (2026-11-21)
 
 

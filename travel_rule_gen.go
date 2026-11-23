@@ -2531,10 +2531,17 @@ type TravelRuleSettingsDetail struct {
 
 	// Your VASP's regulatory regime code. Default `"EU"`. Didit maps it to the
 	// regime it stamps on your Travel Rule transactions as `travel_rule_regime`
-	// (for example `EU` or an EU member code becomes `eu`), which transaction rules
-	// can key on, and it decides which data fields the exchange must share. Other
-	// Didit customers see `vasp_jurisdiction` in the VASP directory; while
-	// `vasp_jurisdiction` is empty, the directory shows this value instead.
+	// (for example `EU` or an EU member code becomes `eu`, `CA` or `CAN` becomes
+	// `canada`, `US` or `USA` becomes `us`), which transaction rules can key on,
+	// and it decides which data fields the exchange must share. Canada (FINTRAC)
+	// requires the originator name and a structured address and the beneficiary
+	// name, a structured address and wallet address; the United States (FinCEN)
+	// requires the originator name and a structured address and the beneficiary
+	// name and wallet address. A structured address has town_name, country, and an
+	// address_line or a street_name with a building_number or building_name; a
+	// single-line address is refused. Other Didit customers see `vasp_jurisdiction`
+	// in the VASP directory; while `vasp_jurisdiction` is empty, the directory
+	// shows this value instead.
 	Jurisdiction string `json:"jurisdiction"`
 
 	// Your VASP profile's own jurisdiction, up to 3 characters (for example `GB` or
@@ -3828,8 +3835,8 @@ type TravelRuleSettingsUpdate struct {
 
 	// Merged per entity type: an entity type you leave out keeps its current
 	// choice. A choice that cannot meet the originator obligations of your
-	// `jurisdiction` regime (EU TFR or FATF Recommendation 16), an empty list
-	// included, is refused with `400`.
+	// `jurisdiction` regime (EU TFR, FINTRAC for `canada`, FinCEN for `us`, or FATF
+	// Recommendation 16), an empty list included, is refused with `400`.
 	DataSharingFields Opt[TravelRuleDataSharingFieldsParam] `json:"data_sharing_fields"`
 
 	// Merged per entity type, and per field inside it. A field that entity type

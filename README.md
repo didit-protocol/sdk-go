@@ -247,6 +247,7 @@ switch e := event.(type) {
 case *webhook.StatusUpdatedEvent:            // status.updated: e.SessionID, e.Status, e.Decision
 case *webhook.TransactionStatusUpdatedEvent: // transaction.status.updated: e.TransactionID, e.Status, e.Score
 case *webhook.TravelRuleStatusUpdatedEvent:  // travel_rule.status.updated
+case *webhook.BankConnectionCreatedEvent:    // bank.connection.created: e.ConnectionID, e.InitialStatus
 case *webhook.UnknownEvent:                  // a type this version does not know: e.Payload
 }
 ```
@@ -282,6 +283,28 @@ The list prices of every Bank Verification method, by country, come from a publi
 ```go
 prices, err := client.Pricing.BankVerification(ctx)
 ```
+
+## Bank data and Bank Link
+
+The `bank` resource covers Bank Link, connections, accounts, balances, transactions, sync runs, institutions and coverage. Bank data needs the `bank-data` permission on the API key (a key without it answers `403 bank_data_access_denied`).
+
+```go
+// In the handler for the signed-in person starting Bank Link:
+link, err := client.Bank.CreateLink(ctx, didit.BankLinkCreateRequest{
+    Duplicates: didit.Some(didit.BankLinkCreateRequestDuplicatesAllow),
+})
+if err != nil {
+    http.Error(w, "Could not create Bank Link", http.StatusBadGateway)
+    return
+}
+// Associate link.ID with this person before redirecting their browser.
+w.Header().Set("Cache-Control", "no-store")
+http.Redirect(w, r, link.URL, http.StatusSeeOther)
+```
+
+The example uses the one-time, accounts-only defaults. When a verified `bank.connection.created` arrives, fetch the saved link with `GetLink` and match its nonempty `ConnectionID` to the event before calling `ListAccounts`.
+
+Bank lists are cursor-paginated (`Cursor` and `NextCursor`), transaction reads use `PageToken` and `NextPageToken`, and amounts are decimal strings, never floats. Writes take `option.WithIdempotencyKey("...")`. The `bank.link.*`, `bank.connection.*`, `bank.data.updated` and `bank.sync.*` webhooks have typed events. See the [bank example](examples/bank) for the full wait-for-connection flow.
 
 ## Authentication
 
