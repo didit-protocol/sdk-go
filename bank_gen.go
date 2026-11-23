@@ -460,7 +460,9 @@ func (r *BankService) ListTransactions(ctx context.Context, accountID string, pa
 // it: grant it explicitly when you create the key, or the call answers `403
 // bank_data_access_denied`.
 //
-// Refreshing a deleted connection answers `409 connection_not_active`.
+// Refreshing a deleted connection answers `409 connection_not_active`. A
+// one-time connection is read once and its access then ends, so refreshing it
+// answers `409 one_time_connection`: create a new link to read the bank again.
 //
 //	POST /v3/bank/connections/{id}/refresh/
 func (r *BankService) RefreshConnection(ctx context.Context, id string, params BankRefreshConnectionParams, opts ...option.RequestOption) (*BankRefreshConnectionResponse, error) {
@@ -481,6 +483,9 @@ func (r *BankService) RefreshConnection(ctx context.Context, id string, params B
 // returns to your `redirect_url`, and `bank.connection.renewed` confirms it.
 // Afterwards the connection's `consent` shows a new `version`, `renewed_count`,
 // `expires_at` and `renew_by`, with `renewal_action` `bank_auth`.
+//
+// A one-time connection has no consent to renew: it answers `409
+// one_time_connection`, and a new link reads the bank again.
 //
 // Until the consent has 30 days left or fewer it answers `409
 // renewal_not_needed`; after `consent.renewable_until` it answers `409
@@ -506,7 +511,9 @@ func (r *BankService) RenewConnection(ctx context.Context, id string, params Ban
 // the bank's confirmation is pending: the consent reads `revocation_pending`,
 // then `revoked` once the bank confirms access is terminated, or
 // `revocation_failed` while the call is retried automatically.
-// `consent.ended_by` is `customer`.
+// `consent.ended_by` is `customer`. Until the bank confirms, `status` keeps its
+// value and `status_reason` is `null`; once `status` is `revoked`,
+// `status_reason` is `revoked_by_customer`.
 //
 // Revoking does not delete anything: stored accounts, balances and transactions
 // stay readable until `consent.retain_until`, the retention setting of your
@@ -960,16 +967,20 @@ type BankLinkCreateRequest struct {
 	// The connection to renew. Only with `mode: renew`.
 	ConnectionID Opt[string] `json:"connection_id"`
 
-	// `one_time` (default) reads the data once. `ongoing` keeps access open until
-	// the consent ends or someone stops it. With `institution_id` set, a bank that
-	// cannot keep access open answers `400 ongoing_access_not_available` before any
-	// screen. Without it, the bank picker lists only banks that can.
+	// `one_time` (default) reads the data once: when the read completes the
+	// connection ends itself and reads `status: revoked` with `status_reason:
+	// collection_complete`, and its data stays readable until
+	// `consent.retain_until`. `ongoing` keeps access open until the consent ends or
+	// someone stops it. With `institution_id` set, a bank that cannot keep access
+	// open answers `400 ongoing_access_not_available` before any screen. Without
+	// it, the bank picker lists only banks that can.
 	Access Opt[BankLinkCreateRequestAccess] `json:"access"`
 
 	// Optional. Without it the person picks among the countries your application
-	// enabled. It has to be a country Bank Link serves; any other, `ZZZ` included,
-	// answers `400 invalid_request` with `field: country`. An empty request body
-	// stays valid.
+	// enabled. It has to be a country Bank Link serves; a malformed value answers
+	// `400 invalid_request`, and a country the product does not serve, or where no
+	// bank is offered, answers `400 country_not_available`, both with `field:
+	// country`. An empty request body stays valid.
 	Country Opt[string] `json:"country"`
 
 	// Optional bank to preselect, from `list_institutions`. Skips the picker.
@@ -1070,11 +1081,13 @@ const (
 	BankLinkCreateRequestModeRenew   BankLinkCreateRequestMode = "renew"
 )
 
-// BankLinkCreateRequestAccess: `one_time` (default) reads the data once.
-// `ongoing` keeps access open until the consent ends or someone stops it. With
-// `institution_id` set, a bank that cannot keep access open answers `400
-// ongoing_access_not_available` before any screen. Without it, the bank picker
-// lists only banks that can.
+// BankLinkCreateRequestAccess: `one_time` (default) reads the data once: when
+// the read completes the connection ends itself and reads `status: revoked`
+// with `status_reason: collection_complete`, and its data stays readable until
+// `consent.retain_until`. `ongoing` keeps access open until the consent ends or
+// someone stops it. With `institution_id` set, a bank that cannot keep access
+// open answers `400 ongoing_access_not_available` before any screen. Without
+// it, the bank picker lists only banks that can.
 //
 // BankLinkCreateRequestAccess is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -1711,14 +1724,17 @@ type BankConnection struct {
 	// `pending`: first sync running. `active`: consent valid. `renewal_required`:
 	// the consent ended or the bank wants the person to sign in again, data
 	// readable as last synced and nothing charged. `paused`: balance too low for
-	// the month. `revoked`: access stopped by the person, the bank or you.
-	// `deleted`: only `id`, `status`, `status_reason`, `created_at` and `erasure`
-	// remain. `failed`: the first sync never succeeded.
+	// the month. `revoked`: access stopped by the person, the bank or you, or ended
+	// because the read of a one-time connection is complete. `deleted`: only `id`,
+	// `status`, `status_reason`, `created_at` and `erasure` remain. `failed`: the
+	// first sync never succeeded.
 	Status BankConnectionStatus `json:"status"`
 
-	// Why the connection is in this status. `paused_by_customer` is reserved. On a
-	// `deleted` connection: `deleted_by_customer`, `consent_lapsed`,
-	// `retention_elapsed` or `application_deleted`.
+	// Why the connection is in this status. `collection_complete`: a one-time
+	// connection whose read is complete, so its access has ended.
+	// `paused_by_customer` is reserved. On a `deleted` connection:
+	// `deleted_by_customer`, `consent_lapsed`, `retention_elapsed` or
+	// `application_deleted`.
 	StatusReason BankConnectionStatusReason `json:"status_reason"`
 	Institution  BankInstitutionSummary     `json:"institution"`
 	Segment      BankConnectionSegment      `json:"segment"`
@@ -1782,8 +1798,9 @@ const (
 // `renewal_required`: the consent ended or the bank wants the person to sign in
 // again, data readable as last synced and nothing charged. `paused`: balance
 // too low for the month. `revoked`: access stopped by the person, the bank or
-// you. `deleted`: only `id`, `status`, `status_reason`, `created_at` and
-// `erasure` remain. `failed`: the first sync never succeeded.
+// you, or ended because the read of a one-time connection is complete.
+// `deleted`: only `id`, `status`, `status_reason`, `created_at` and `erasure`
+// remain. `failed`: the first sync never succeeded.
 //
 // BankConnectionStatus is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -1801,8 +1818,9 @@ const (
 )
 
 // BankConnectionStatusReason: Why the connection is in this status.
-// `paused_by_customer` is reserved. On a `deleted` connection:
-// `deleted_by_customer`, `consent_lapsed`, `retention_elapsed` or
+// `collection_complete`: a one-time connection whose read is complete, so its
+// access has ended. `paused_by_customer` is reserved. On a `deleted`
+// connection: `deleted_by_customer`, `consent_lapsed`, `retention_elapsed` or
 // `application_deleted`.
 //
 // BankConnectionStatusReason is a string with known values below. The set is
