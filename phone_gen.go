@@ -139,8 +139,8 @@ func (r *PhoneService) AssessRisk(ctx context.Context, params PhoneRiskRequest, 
 // one `phone_social` unit per request on top of this endpoint's own price.
 //
 //	POST /v3/phone/check/
-func (r *PhoneService) CheckCode(ctx context.Context, params PhoneCheckCodeParams, opts ...option.RequestOption) (*PhoneCheckCodeResponse, error) {
-	res := new(PhoneCheckCodeResponse)
+func (r *PhoneService) CheckCode(ctx context.Context, params PhoneCheckCodeParams, opts ...option.RequestOption) (*PhoneVerificationCheckResponse, error) {
+	res := new(PhoneVerificationCheckResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/check/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
@@ -248,6 +248,9 @@ type PhoneFactorsService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
+//
 //	POST /v3/phone/factors/
 func (r *PhoneFactorsService) Create(ctx context.Context, params PhoneFactorCreateRequest, opts ...option.RequestOption) (*PhoneFactorEnrollment, error) {
 	res := new(PhoneFactorEnrollment)
@@ -271,6 +274,9 @@ func (r *PhoneFactorsService) Create(ctx context.Context, params PhoneFactorCrea
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 //
 //	DELETE /v3/phone/factors/{factor_id}/
 func (r *PhoneFactorsService) Delete(ctx context.Context, factorID string, opts ...option.RequestOption) error {
@@ -299,6 +305,9 @@ func (r *PhoneFactorsService) Delete(ctx context.Context, factorID string, opts 
 //
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
+//
 //	GET /v3/phone/factors/
 func (r *PhoneFactorsService) List(ctx context.Context, params PhoneFactorsListParams, opts ...option.RequestOption) (*Page[PhoneFactor], error) {
 	return getPage[PhoneFactor](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/factors/", params: params}, opts)
@@ -306,6 +315,9 @@ func (r *PhoneFactorsService) List(ctx context.Context, params PhoneFactorsListP
 
 // ListAutoPaging iterates over every item of every page of List, fetching pages
 // as needed.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 func (r *PhoneFactorsService) ListAutoPaging(ctx context.Context, params PhoneFactorsListParams, opts ...option.RequestOption) *PageIterator[PhoneFactor] {
 	return newPageIterator(ctx, func() (*Page[PhoneFactor], error) {
 		return r.List(ctx, params, opts...)
@@ -322,6 +334,9 @@ func (r *PhoneFactorsService) ListAutoPaging(ctx context.Context, params PhoneFa
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 //
 //	GET /v3/phone/factors/{factor_id}/
 func (r *PhoneFactorsService) Retrieve(ctx context.Context, factorID string, opts ...option.RequestOption) (*PhoneFactor, error) {
@@ -349,6 +364,9 @@ func (r *PhoneFactorsService) Retrieve(ctx context.Context, factorID string, opt
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 //
 //	PATCH /v3/phone/factors/{factor_id}/
 func (r *PhoneFactorsService) Update(ctx context.Context, factorID string, params PhoneFactorUpdateRequest, opts ...option.RequestOption) (*PhoneFactor, error) {
@@ -402,6 +420,9 @@ type PhoneNetworkRegistrationsService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
+//
 //	POST /v3/phone/network/registrations/
 func (r *PhoneNetworkRegistrationsService) Create(ctx context.Context, params PhoneNetworkRegistrationRequest, opts ...option.RequestOption) (*PhoneNetworkRegistration, error) {
 	res := new(PhoneNetworkRegistration)
@@ -428,6 +449,9 @@ func (r *PhoneNetworkRegistrationsService) Create(ctx context.Context, params Ph
 //
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
+//
 //	GET /v3/phone/network/registrations/
 func (r *PhoneNetworkRegistrationsService) List(ctx context.Context, params PhoneNetworkRegistrationsListParams, opts ...option.RequestOption) (*Page[PhoneNetworkRegistrationSummary], error) {
 	return getPage[PhoneNetworkRegistrationSummary](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/network/registrations/", params: params}, opts)
@@ -435,6 +459,9 @@ func (r *PhoneNetworkRegistrationsService) List(ctx context.Context, params Phon
 
 // ListAutoPaging iterates over every item of every page of List, fetching pages
 // as needed.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 func (r *PhoneNetworkRegistrationsService) ListAutoPaging(ctx context.Context, params PhoneNetworkRegistrationsListParams, opts ...option.RequestOption) *PageIterator[PhoneNetworkRegistrationSummary] {
 	return newPageIterator(ctx, func() (*Page[PhoneNetworkRegistrationSummary], error) {
 		return r.List(ctx, params, opts...)
@@ -453,6 +480,9 @@ func (r *PhoneNetworkRegistrationsService) ListAutoPaging(ctx context.Context, p
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 //
 //	GET /v3/phone/network/registrations/{registration_id}/
 func (r *PhoneNetworkRegistrationsService) Retrieve(ctx context.Context, registrationID string, opts ...option.RequestOption) (*PhoneNetworkRegistration, error) {
@@ -490,6 +520,9 @@ type PhoneNetworkRegistrationsTestNumbersService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
+//
 //	POST /v3/phone/network/registrations/{registration_id}/test-numbers/
 func (r *PhoneNetworkRegistrationsTestNumbersService) Create(ctx context.Context, registrationID string, params PhoneNetworkRegistrationTestNumberRequest, opts ...option.RequestOption) (*PhoneNetworkRegistrationTestNumber, error) {
 	res := new(PhoneNetworkRegistrationTestNumber)
@@ -512,6 +545,9 @@ func (r *PhoneNetworkRegistrationsTestNumbersService) Create(ctx context.Context
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 //
 //	DELETE /v3/phone/network/registrations/{registration_id}/test-numbers/{phone_number}/
 func (r *PhoneNetworkRegistrationsTestNumbersService) Delete(ctx context.Context, registrationID string, phoneNumber string, opts ...option.RequestOption) error {
@@ -544,6 +580,9 @@ type PhoneSDKKeysService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
+//
 //	POST /v3/phone/sdk-keys/
 func (r *PhoneSDKKeysService) Create(ctx context.Context, params PhoneSDKKeyRequest, opts ...option.RequestOption) (*PhoneSDKKey, error) {
 	res := new(PhoneSDKKey)
@@ -566,6 +605,9 @@ func (r *PhoneSDKKeysService) Create(ctx context.Context, params PhoneSDKKeyRequ
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 //
 //	GET /v3/phone/sdk-keys/
 func (r *PhoneSDKKeysService) List(ctx context.Context, params PhoneSDKKeysListParams, opts ...option.RequestOption) (*PhoneSDKKeysPage, error) {
@@ -590,6 +632,9 @@ func (r *PhoneSDKKeysService) List(ctx context.Context, params PhoneSDKKeysListP
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
+//
 //	DELETE /v3/phone/sdk-keys/{key_id}/
 func (r *PhoneSDKKeysService) Revoke(ctx context.Context, keyID string, opts ...option.RequestOption) error {
 	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/sdk-keys/{key_id}/", pathParams: []string{"key_id", keyID}}, nil, opts)
@@ -613,6 +658,9 @@ func (r *PhoneSDKKeysService) Revoke(ctx context.Context, keyID string, opts ...
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 //
 //	POST /v3/phone/sdk-keys/{key_id}/rotate/
 func (r *PhoneSDKKeysService) Rotate(ctx context.Context, keyID string, params PhoneSDKKeyRotateRequest, opts ...option.RequestOption) (*PhoneSDKKeyRotated, error) {
@@ -655,6 +703,9 @@ type PhoneSilentService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
+//
 //	GET /v3/phone/silent/coverage/
 func (r *PhoneSilentService) Coverage(ctx context.Context, params PhoneSilentCoverageParams, opts ...option.RequestOption) (*PhoneSilentCoverage, error) {
 	res := new(PhoneSilentCoverage)
@@ -689,6 +740,9 @@ func (r *PhoneSilentService) Coverage(ctx context.Context, params PhoneSilentCov
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 //
 //	POST /v3/phone/silent/eligibility/
 func (r *PhoneSilentService) Eligibility(ctx context.Context, params PhoneSilentEligibilityParams, opts ...option.RequestOption) (*PhoneSilentEligibility, error) {
@@ -728,6 +782,9 @@ type PhoneSilentRegistrationsService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
+//
 //	POST /v3/phone/silent/registrations/
 func (r *PhoneSilentRegistrationsService) Create(ctx context.Context, params PhoneSilentRegistrationRequest, opts ...option.RequestOption) (*PhoneSilentRegistration, error) {
 	res := new(PhoneSilentRegistration)
@@ -751,6 +808,9 @@ func (r *PhoneSilentRegistrationsService) Create(ctx context.Context, params Pho
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
+//
+// Deprecated: The operation was removed from the API on 2026-11-23. This method
+// is removed in version 1.38.0.
 //
 //	GET /v3/phone/silent/registrations/{registration_id}/
 func (r *PhoneSilentRegistrationsService) Retrieve(ctx context.Context, registrationID string, opts ...option.RequestOption) (*PhoneSilentRegistration, error) {
@@ -982,13 +1042,14 @@ func (r *PhoneMatchItem) UnmarshalJSON(data []byte) error {
 type PhoneCheckCodeParams struct {
 	// The same phone number used in the matching [`POST
 	// /v3/phone/send/`](/standalone-apis/phone-send) call, in E.164 format. This is
-	// what links the check to the send.
-	PhoneNumber Opt[string] `json:"phone_number"`
+	// what links the check to the send. Required.
+	PhoneNumber string `json:"phone_number"`
 
 	// The OTP the end user received. Must be 4-8 numeric digits - anything else
 	// returns `400` without consuming an attempt. A well-formed but wrong code
 	// returns `200` with `status: "Failed"` and consumes one of the 3 attempts.
-	Code Opt[string] `json:"code"`
+	// Required.
+	Code string `json:"code"`
 
 	// What to do when the same number was already used by a different user
 	// (different `vendor_data`) of your application. `DECLINE` flips the final
@@ -1045,13 +1106,6 @@ type PhoneCheckCodeParams struct {
 	// endpoint; REVIEW is available on the workflow configuration key of the same
 	// name.
 	PhoneNoSocialPresenceAction Opt[PhoneCheckCodeParamsPhoneNoSocialPresenceAction] `json:"phone_no_social_presence_action"`
-
-	// A TOTP factor being checked instead of a phone code, as returned when it was
-	// enrolled; send the 4-8 digit `code` its authenticator app shows. The answer
-	// is `{verification_id, status, attempts}` with `status` `verified` or
-	// `failed`; a factor that is `disabled` answers `400 factor_disabled`, an
-	// unknown one `404 not_found`.
-	FactorID Opt[string] `json:"factor_id"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -1180,8 +1234,8 @@ const (
 	PhoneCheckCodeParamsPhoneNoSocialPresenceActionDecline  PhoneCheckCodeParamsPhoneNoSocialPresenceAction = "DECLINE"
 )
 
-// PhoneCheckCodeResponse is a response object.
-type PhoneCheckCodeResponse struct {
+// PhoneVerificationCheckResponse is a response object.
+type PhoneVerificationCheckResponse struct {
 	// On `Approved`/`Declined`: the session id of the matched verification -
 	// identical to the `request_id` returned by `POST /v3/phone/send/`. On `Failed`
 	// and `Expired or Not Found`: a random one-off UUID that cannot be looked up
@@ -1192,7 +1246,7 @@ type PhoneCheckCodeResponse struct {
 	// declining risk matched or the attempt budget (3) was exhausted. `Failed` -
 	// wrong code, attempts remaining. `Expired or Not Found` - no pending
 	// verification for this number in the last 5 minutes.
-	Status PhoneCheckCodeResponseStatus `json:"status"`
+	Status PhoneVerificationCheckResponseStatus `json:"status"`
 
 	// Human-readable explanation of the outcome, including the number of attempts
 	// remaining after a wrong code.
@@ -1201,7 +1255,7 @@ type PhoneCheckCodeResponse struct {
 	// Full phone report. Present (non-null) only on finalized outcomes
 	// (`Approved`/`Declined`); `null` on `Failed` and absent on `Expired or Not
 	// Found`.
-	Phone PhoneCheckCodeResponsePhone `json:"phone"`
+	Phone PhoneVerificationCheckResponsePhone `json:"phone"`
 
 	// `vendor_data` of the matched verification's session. `null` on `Expired or
 	// Not Found`.
@@ -1214,41 +1268,40 @@ type PhoneCheckCodeResponse struct {
 	// Timestamp of this check response.
 	CreatedAt time.Time `json:"created_at"`
 
-	// The factor id.
-	VerificationID string `json:"verification_id"`
-	Attempts       int64  `json:"attempts"`
-
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneCheckCodeResponse leniently.
-func (r *PhoneCheckCodeResponse) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneVerificationCheckResponse leniently.
+func (r *PhoneVerificationCheckResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneCheckCodeResponseStatus is a string with known values below. The set is
-// open: other values may appear and never cause an error.
-type PhoneCheckCodeResponseStatus string
+// PhoneVerificationCheckResponseStatus: `Approved` - correct code, no declining
+// risk. `Declined` - terminal: a declining risk matched or the attempt budget
+// (3) was exhausted. `Failed` - wrong code, attempts remaining. `Expired or Not
+// Found` - no pending verification for this number in the last 5 minutes.
+//
+// PhoneVerificationCheckResponseStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneVerificationCheckResponseStatus string
 
-// Known values of PhoneCheckCodeResponseStatus.
+// Known values of PhoneVerificationCheckResponseStatus.
 const (
-	PhoneCheckCodeResponseStatusApproved          PhoneCheckCodeResponseStatus = "Approved"
-	PhoneCheckCodeResponseStatusDeclined          PhoneCheckCodeResponseStatus = "Declined"
-	PhoneCheckCodeResponseStatusFailed            PhoneCheckCodeResponseStatus = "Failed"
-	PhoneCheckCodeResponseStatusExpiredOrNotFound PhoneCheckCodeResponseStatus = "Expired or Not Found"
-	PhoneCheckCodeResponseStatusVerified          PhoneCheckCodeResponseStatus = "verified"
-	PhoneCheckCodeResponseStatusFailed2           PhoneCheckCodeResponseStatus = "failed"
+	PhoneVerificationCheckResponseStatusApproved          PhoneVerificationCheckResponseStatus = "Approved"
+	PhoneVerificationCheckResponseStatusDeclined          PhoneVerificationCheckResponseStatus = "Declined"
+	PhoneVerificationCheckResponseStatusFailed            PhoneVerificationCheckResponseStatus = "Failed"
+	PhoneVerificationCheckResponseStatusExpiredOrNotFound PhoneVerificationCheckResponseStatus = "Expired or Not Found"
 )
 
-// PhoneCheckCodeResponsePhone: Full phone report. Present (non-null) only on
-// finalized outcomes (`Approved`/`Declined`); `null` on `Failed` and absent on
-// `Expired or Not Found`.
-type PhoneCheckCodeResponsePhone struct {
+// PhoneVerificationCheckResponsePhone: Full phone report. Present (non-null)
+// only on finalized outcomes (`Approved`/`Declined`); `null` on `Failed` and
+// absent on `Expired or Not Found`.
+type PhoneVerificationCheckResponsePhone struct {
 	// Final status of the phone verification. Matches the top-level `status` for
 	// finalized checks.
-	Status PhoneCheckCodeResponsePhoneStatus `json:"status"`
+	Status PhoneVerificationCheckResponsePhoneStatus `json:"status"`
 
 	// Country calling code with leading `+` (e.g., `+1`).
 	PhoneNumberPrefix string `json:"phone_number_prefix"`
@@ -1267,7 +1320,7 @@ type PhoneCheckCodeResponsePhone struct {
 
 	// Current network serving the number, from the carrier lookup run at
 	// finalization.
-	Carrier PhoneCheckCodeResponsePhoneCarrier `json:"carrier"`
+	Carrier PhoneVerificationCheckResponsePhoneCarrier `json:"carrier"`
 
 	// `true` when the number belongs to a temporary/burner number service.
 	IsDisposable bool `json:"is_disposable"`
@@ -1288,7 +1341,7 @@ type PhoneCheckCodeResponsePhone struct {
 
 	// Risk warnings recorded during the verification (duplicate, disposable, VoIP,
 	// attempts exceeded, blocklist, etc.). Empty array when there are none.
-	Warnings []PhoneCheckCodeResponsePhoneWarnings `json:"warnings"`
+	Warnings []PhoneVerificationCheckResponsePhoneWarnings `json:"warnings"`
 
 	// Chronological audit trail of the verification. Event `type` is one of
 	// `PHONE_VERIFICATION_MESSAGE_SENT`, `PHONE_VERIFICATION_RETRY_MESSAGE_SENT`,
@@ -1296,15 +1349,15 @@ type PhoneCheckCodeResponsePhone struct {
 	// `PHONE_DELIVERY_UNDELIVERABLE`, `VALID_CODE_ENTERED`, `INVALID_CODE_ENTERED`,
 	// `PHONE_VERIFICATION_APPROVED`, `PHONE_VERIFICATION_DECLINED`,
 	// `PHONE_VERIFICATION_IN_REVIEW`, `PHONE_VERIFICATION_EXPIRED`.
-	Lifecycle []PhoneCheckCodeResponsePhoneLifecycle `json:"lifecycle"`
+	Lifecycle []PhoneVerificationCheckResponsePhoneLifecycle `json:"lifecycle"`
 
 	// Other sessions of your application (KYC, KYB, or API) where the same phone
 	// number was used by a different user (different `vendor_data`). Up to 5
 	// entries, a synthetic list-entry blocklist match first when present
 	// (session-derived matches keep query order). Empty array when there are no
 	// matches.
-	Matches     []PhoneCheckCodeResponsePhoneMatches `json:"matches"`
-	PhoneSocial PhoneSocialFootprint                 `json:"phone_social"`
+	Matches     []PhoneVerificationCheckResponsePhoneMatches `json:"matches"`
+	PhoneSocial PhoneSocialFootprint                         `json:"phone_social"`
 
 	// Phone intelligence signals. Present only when `enable_enrichment` was `true`
 	// on the check.
@@ -1315,30 +1368,30 @@ type PhoneCheckCodeResponsePhone struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneCheckCodeResponsePhone leniently.
-func (r *PhoneCheckCodeResponsePhone) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneVerificationCheckResponsePhone leniently.
+func (r *PhoneVerificationCheckResponsePhone) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneCheckCodeResponsePhoneStatus: Final status of the phone verification.
-// Matches the top-level `status` for finalized checks.
+// PhoneVerificationCheckResponsePhoneStatus: Final status of the phone
+// verification. Matches the top-level `status` for finalized checks.
 //
-// PhoneCheckCodeResponsePhoneStatus is a string with known values below. The
-// set is open: other values may appear and never cause an error.
-type PhoneCheckCodeResponsePhoneStatus string
+// PhoneVerificationCheckResponsePhoneStatus is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneVerificationCheckResponsePhoneStatus string
 
-// Known values of PhoneCheckCodeResponsePhoneStatus.
+// Known values of PhoneVerificationCheckResponsePhoneStatus.
 const (
-	PhoneCheckCodeResponsePhoneStatusApproved    PhoneCheckCodeResponsePhoneStatus = "Approved"
-	PhoneCheckCodeResponsePhoneStatusDeclined    PhoneCheckCodeResponsePhoneStatus = "Declined"
-	PhoneCheckCodeResponsePhoneStatusInReview    PhoneCheckCodeResponsePhoneStatus = "In Review"
-	PhoneCheckCodeResponsePhoneStatusNotFinished PhoneCheckCodeResponsePhoneStatus = "Not Finished"
-	PhoneCheckCodeResponsePhoneStatusExpired     PhoneCheckCodeResponsePhoneStatus = "Expired"
+	PhoneVerificationCheckResponsePhoneStatusApproved    PhoneVerificationCheckResponsePhoneStatus = "Approved"
+	PhoneVerificationCheckResponsePhoneStatusDeclined    PhoneVerificationCheckResponsePhoneStatus = "Declined"
+	PhoneVerificationCheckResponsePhoneStatusInReview    PhoneVerificationCheckResponsePhoneStatus = "In Review"
+	PhoneVerificationCheckResponsePhoneStatusNotFinished PhoneVerificationCheckResponsePhoneStatus = "Not Finished"
+	PhoneVerificationCheckResponsePhoneStatusExpired     PhoneVerificationCheckResponsePhoneStatus = "Expired"
 )
 
-// PhoneCheckCodeResponsePhoneCarrier: Current network serving the number, from
-// the carrier lookup run at finalization.
-type PhoneCheckCodeResponsePhoneCarrier struct {
+// PhoneVerificationCheckResponsePhoneCarrier: Current network serving the
+// number, from the carrier lookup run at finalization.
+type PhoneVerificationCheckResponsePhoneCarrier struct {
 	// Carrier name. Empty string when the lookup could not identify it.
 	Name string `json:"name"`
 
@@ -1353,13 +1406,13 @@ type PhoneCheckCodeResponsePhoneCarrier struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneCheckCodeResponsePhoneCarrier leniently.
-func (r *PhoneCheckCodeResponsePhoneCarrier) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneVerificationCheckResponsePhoneCarrier leniently.
+func (r *PhoneVerificationCheckResponsePhoneCarrier) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneCheckCodeResponsePhoneWarnings is a response object.
-type PhoneCheckCodeResponsePhoneWarnings struct {
+// PhoneVerificationCheckResponsePhoneWarnings is a response object.
+type PhoneVerificationCheckResponsePhoneWarnings struct {
 	// Feature that produced the warning. Always `PHONE` here.
 	Feature string `json:"feature"`
 
@@ -1372,7 +1425,7 @@ type PhoneCheckCodeResponsePhoneWarnings struct {
 
 	// Severity. `error` risks decline the verification, `warning` flags it for
 	// review, `information` is recorded without affecting the status.
-	LogType PhoneCheckCodeResponsePhoneWarningsLogType `json:"log_type"`
+	LogType PhoneVerificationCheckResponsePhoneWarningsLogType `json:"log_type"`
 
 	// Human-readable one-line summary of the risk.
 	ShortDescription string `json:"short_description"`
@@ -1385,28 +1438,29 @@ type PhoneCheckCodeResponsePhoneWarnings struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneCheckCodeResponsePhoneWarnings leniently.
-func (r *PhoneCheckCodeResponsePhoneWarnings) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneVerificationCheckResponsePhoneWarnings leniently.
+func (r *PhoneVerificationCheckResponsePhoneWarnings) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneCheckCodeResponsePhoneWarningsLogType: Severity. `error` risks decline
-// the verification, `warning` flags it for review, `information` is recorded
-// without affecting the status.
+// PhoneVerificationCheckResponsePhoneWarningsLogType: Severity. `error` risks
+// decline the verification, `warning` flags it for review, `information` is
+// recorded without affecting the status.
 //
-// PhoneCheckCodeResponsePhoneWarningsLogType is a string with known values
-// below. The set is open: other values may appear and never cause an error.
-type PhoneCheckCodeResponsePhoneWarningsLogType string
+// PhoneVerificationCheckResponsePhoneWarningsLogType is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type PhoneVerificationCheckResponsePhoneWarningsLogType string
 
-// Known values of PhoneCheckCodeResponsePhoneWarningsLogType.
+// Known values of PhoneVerificationCheckResponsePhoneWarningsLogType.
 const (
-	PhoneCheckCodeResponsePhoneWarningsLogTypeError       PhoneCheckCodeResponsePhoneWarningsLogType = "error"
-	PhoneCheckCodeResponsePhoneWarningsLogTypeWarning     PhoneCheckCodeResponsePhoneWarningsLogType = "warning"
-	PhoneCheckCodeResponsePhoneWarningsLogTypeInformation PhoneCheckCodeResponsePhoneWarningsLogType = "information"
+	PhoneVerificationCheckResponsePhoneWarningsLogTypeError       PhoneVerificationCheckResponsePhoneWarningsLogType = "error"
+	PhoneVerificationCheckResponsePhoneWarningsLogTypeWarning     PhoneVerificationCheckResponsePhoneWarningsLogType = "warning"
+	PhoneVerificationCheckResponsePhoneWarningsLogTypeInformation PhoneVerificationCheckResponsePhoneWarningsLogType = "information"
 )
 
-// PhoneCheckCodeResponsePhoneLifecycle is a response object.
-type PhoneCheckCodeResponsePhoneLifecycle struct {
+// PhoneVerificationCheckResponsePhoneLifecycle is a response object.
+type PhoneVerificationCheckResponsePhoneLifecycle struct {
 	// Event type.
 	Type string `json:"type"`
 
@@ -1436,13 +1490,13 @@ type PhoneCheckCodeResponsePhoneLifecycle struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneCheckCodeResponsePhoneLifecycle leniently.
-func (r *PhoneCheckCodeResponsePhoneLifecycle) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneVerificationCheckResponsePhoneLifecycle leniently.
+func (r *PhoneVerificationCheckResponsePhoneLifecycle) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneCheckCodeResponsePhoneMatches is a response object.
-type PhoneCheckCodeResponsePhoneMatches struct {
+// PhoneVerificationCheckResponsePhoneMatches is a response object.
+type PhoneVerificationCheckResponsePhoneMatches struct {
 	// Session id of the other verification that used this phone number.
 	SessionID string `json:"session_id"`
 
@@ -1478,8 +1532,8 @@ type PhoneCheckCodeResponsePhoneMatches struct {
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneCheckCodeResponsePhoneMatches leniently.
-func (r *PhoneCheckCodeResponsePhoneMatches) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneVerificationCheckResponsePhoneMatches leniently.
+func (r *PhoneVerificationCheckResponsePhoneMatches) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
