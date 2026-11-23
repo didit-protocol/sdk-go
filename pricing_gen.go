@@ -264,8 +264,9 @@ type BankSignInPricingOneTimeData struct {
 	// Price of one read of balances only. Decimal string with 4 decimals in USD.
 	BalancesUsd string `json:"balances_usd"`
 
-	// Price of one read of transactions, with or without balances. Decimal string
-	// with 4 decimals in USD.
+	// Price of one read of transactions. Where `bundle_included` is `true` it also
+	// covers balances; otherwise balances are a separate line (`balances_usd`).
+	// Decimal string with 4 decimals in USD.
 	TransactionsUsd string `json:"transactions_usd"`
 
 	// `true` when `transactions_usd` is the one-time bundle: one read that carries
