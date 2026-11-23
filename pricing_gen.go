@@ -5,6 +5,7 @@ package didit
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/didit-protocol/sdk-go/option"
 )
@@ -40,6 +41,41 @@ type PricingService struct {
 func (r *PricingService) BankVerification(ctx context.Context, opts ...option.RequestOption) (*BankVerificationPricing, error) {
 	res := new(BankVerificationPricing)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/bank-verification-pricing/", auth: authNone}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// BankVerificationCountryCoverage: List the banks of one country (public,
+// unauthenticated).
+//
+// Lists the banks Didit covers in one country: id, name, segments, access
+// modes, history days, pending transactions and whether the bank is
+// operational. Public: no auth header. One cached document per country.
+//
+//	GET /v3/organization/bank-verification-coverage/{country}/
+func (r *PricingService) BankVerificationCountryCoverage(ctx context.Context, country string, params PricingBankVerificationCountryCoverageParams, opts ...option.RequestOption) (*BankVerificationCountryCoverage, error) {
+	res := new(BankVerificationCountryCoverage)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/bank-verification-coverage/{country}/", pathParams: []string{"country", country}, auth: authNone, params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// BankVerificationCoverage: List the countries with bank coverage (public,
+// unauthenticated).
+//
+// Lists the countries where Didit covers banks, how many, and what is open
+// today for each product. Public: no auth header. Cached publicly and
+// revalidated with an `ETag`. What is open is read on every request from the
+// switches the API uses, so a product that is not open today reads `false` even
+// when its banks are listed. It carries no prices (see the bank verification
+// pricing feed) and never names a supplier.
+//
+//	GET /v3/organization/bank-verification-coverage/
+func (r *PricingService) BankVerificationCoverage(ctx context.Context, params PricingBankVerificationCoverageParams, opts ...option.RequestOption) (*BankVerificationCoverage, error) {
+	res := new(BankVerificationCoverage)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/bank-verification-coverage/", auth: authNone, params: params}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -304,6 +340,286 @@ type BankAccountCheckPricing struct {
 
 // UnmarshalJSON decodes BankAccountCheckPricing leniently.
 func (r *BankAccountCheckPricing) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PricingBankVerificationCountryCoverageParams holds the parameters of
+// Client.Pricing.BankVerificationCountryCoverage.
+type PricingBankVerificationCountryCoverageParams struct {
+	// The `ETag` of the country feed you already hold: the response is `304 Not
+	// Modified`, with no body, when nothing changed.
+	IfNoneMatch Opt[string] `json:"-" header:"If-None-Match"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PricingBankVerificationCountryCoverageParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// BankVerificationCountryCoverage is a response object.
+type BankVerificationCountryCoverage struct {
+	Country      string                       `json:"country"`
+	Name         string                       `json:"name"`
+	UpdatedAt    time.Time                    `json:"updated_at"`
+	Open         BankVerificationCoverageOpen `json:"open"`
+	DataRead     []string                     `json:"data_read"`
+	BalancesNote string                       `json:"balances_note"`
+
+	// Alphabetical, a fixed order that says nothing about size.
+	Banks []BankVerificationCoverageBank `json:"banks"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationCountryCoverage leniently.
+func (r *BankVerificationCountryCoverage) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationCoverageOpen is a response object.
+type BankVerificationCoverageOpen struct {
+	BankVerificationInWorkflows bool `json:"bank_verification_in_workflows"`
+	BankDataAPIOneTime          bool `json:"bank_data_api_one_time"`
+	BankDataAPIOngoing          bool `json:"bank_data_api_ongoing"`
+	AccountCheck                bool `json:"account_check"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationCoverageOpen leniently.
+func (r *BankVerificationCoverageOpen) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationCoverageBank: One bank. Only what the catalogue has: a field
+// nobody observed is left out. The id is a permanent public identifier.
+type BankVerificationCoverageBank struct {
+	// Permanent public identifier and URL slug, for example `es-santander`. Never
+	// changes once published.
+	ID   string `json:"id"`
+	Name string `json:"name"`
+
+	// ISO 3166-1 alpha-3.
+	Country  string                                 `json:"country"`
+	Segments []BankVerificationCoverageBankSegments `json:"segments"`
+
+	// Access modes a link can use at this bank today, as far as the bank and its
+	// readiness go: `one_time`, plus `ongoing` only once Didit has marked the
+	// bank's route ready for ongoing access. The same value the authenticated
+	// institutions endpoint publishes.
+	Access []BankVerificationCoverageBankAccess `json:"access"`
+
+	// Days of transaction history a read can obtain. The same number the
+	// authenticated institutions endpoint publishes, so a cap applied there applies
+	// here.
+	HistoryDaysMax      int64 `json:"history_days_max"`
+	PendingTransactions bool  `json:"pending_transactions"`
+
+	// Whether the bank can be reached today: `operational`, `degraded` or `down`.
+	Status BankVerificationCoverageBankStatus `json:"status"`
+
+	// Longest consent in days. Present only when `ongoing` is in `access`.
+	ConsentDaysMax int64 `json:"consent_days_max"`
+
+	// Present only when the balance types were observed.
+	BalanceTypes []string `json:"balance_types"`
+
+	// Present only for a logo Didit hosts.
+	LogoURL string `json:"logo_url"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationCoverageBank leniently.
+func (r *BankVerificationCoverageBank) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationCoverageBankSegments is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type BankVerificationCoverageBankSegments string
+
+// Known values of BankVerificationCoverageBankSegments.
+const (
+	BankVerificationCoverageBankSegmentsPersonal BankVerificationCoverageBankSegments = "personal"
+	BankVerificationCoverageBankSegmentsBusiness BankVerificationCoverageBankSegments = "business"
+)
+
+// BankVerificationCoverageBankAccess is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type BankVerificationCoverageBankAccess string
+
+// Known values of BankVerificationCoverageBankAccess.
+const (
+	BankVerificationCoverageBankAccessOneTime BankVerificationCoverageBankAccess = "one_time"
+	BankVerificationCoverageBankAccessOngoing BankVerificationCoverageBankAccess = "ongoing"
+)
+
+// BankVerificationCoverageBankStatus: Whether the bank can be reached today:
+// `operational`, `degraded` or `down`.
+//
+// BankVerificationCoverageBankStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type BankVerificationCoverageBankStatus string
+
+// Known values of BankVerificationCoverageBankStatus.
+const (
+	BankVerificationCoverageBankStatusOperational BankVerificationCoverageBankStatus = "operational"
+	BankVerificationCoverageBankStatusDegraded    BankVerificationCoverageBankStatus = "degraded"
+	BankVerificationCoverageBankStatusDown        BankVerificationCoverageBankStatus = "down"
+)
+
+// PricingBankVerificationCoverageParams holds the parameters of
+// Client.Pricing.BankVerificationCoverage.
+type PricingBankVerificationCoverageParams struct {
+	// The `ETag` of the coverage feed you already hold: the response is `304 Not
+	// Modified`, with no body, when nothing changed.
+	IfNoneMatch Opt[string] `json:"-" header:"If-None-Match"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PricingBankVerificationCoverageParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// BankVerificationCoverage: Where Didit covers bank data and what is open
+// today. No prices: see the bank verification pricing feed.
+type BankVerificationCoverage struct {
+	// When the catalogue was last refreshed.
+	UpdatedAt time.Time                            `json:"updated_at"`
+	Open      BankVerificationCoverageAvailability `json:"open"`
+
+	// What a read of any covered bank returns.
+	DataRead     []BankVerificationCoverageDataRead `json:"data_read"`
+	BalancesNote string                             `json:"balances_note"`
+
+	// Countries keyed by ISO 3166-1 alpha-3 code.
+	Countries map[string]BankVerificationCoverageCountries `json:"countries"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationCoverage leniently.
+func (r *BankVerificationCoverage) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationCoverageAvailability is a response object.
+type BankVerificationCoverageAvailability struct {
+	BankVerificationInWorkflows BankVerificationWorkflowsAvailability `json:"bank_verification_in_workflows"`
+	BankDataAPIOneTime          BankVerificationOneTimeAvailability   `json:"bank_data_api_one_time"`
+	BankDataAPIOngoing          BankVerificationOngoingAvailability   `json:"bank_data_api_ongoing"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationCoverageAvailability leniently.
+func (r *BankVerificationCoverageAvailability) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationWorkflowsAvailability: Bank Verification inside verification
+// workflows.
+type BankVerificationWorkflowsAvailability struct {
+	Live      bool     `json:"live"`
+	Countries []string `json:"countries"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationWorkflowsAvailability leniently.
+func (r *BankVerificationWorkflowsAvailability) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationOneTimeAvailability: The Bank data API with one-time access,
+// for live applications.
+type BankVerificationOneTimeAvailability struct {
+	LiveApplications bool     `json:"live_applications"`
+	Countries        []string `json:"countries"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationOneTimeAvailability leniently.
+func (r *BankVerificationOneTimeAvailability) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationOngoingAvailability: The Bank data API with ongoing access,
+// for live applications.
+type BankVerificationOngoingAvailability struct {
+	LiveApplications bool     `json:"live_applications"`
+	Countries        []string `json:"countries"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationOngoingAvailability leniently.
+func (r *BankVerificationOngoingAvailability) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationCoverageDataRead is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type BankVerificationCoverageDataRead string
+
+// Known values of BankVerificationCoverageDataRead.
+const (
+	BankVerificationCoverageDataReadAccounts     BankVerificationCoverageDataRead = "accounts"
+	BankVerificationCoverageDataReadBalances     BankVerificationCoverageDataRead = "balances"
+	BankVerificationCoverageDataReadTransactions BankVerificationCoverageDataRead = "transactions"
+)
+
+// BankVerificationCoverageCountries is a response object.
+type BankVerificationCoverageCountries struct {
+	Name           string                                          `json:"name"`
+	Banks          int64                                           `json:"banks"`
+	BanksBySegment BankVerificationCoverageCountriesBanksBySegment `json:"banks_by_segment"`
+	Open           BankVerificationCoverageOpen                    `json:"open"`
+
+	// Path of the banks of this country, under
+	// `/v3/organization/bank-verification-coverage/`.
+	BanksURL string `json:"banks_url"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationCoverageCountries leniently.
+func (r *BankVerificationCoverageCountries) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// BankVerificationCoverageCountriesBanksBySegment is a response object.
+type BankVerificationCoverageCountriesBanksBySegment struct {
+	Personal int64 `json:"personal"`
+	Business int64 `json:"business"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes BankVerificationCoverageCountriesBanksBySegment leniently.
+func (r *BankVerificationCoverageCountriesBanksBySegment) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 

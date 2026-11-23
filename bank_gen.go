@@ -544,6 +544,112 @@ func (r *BankService) RevokeConnection(ctx context.Context, id string, opts ...o
 	return res, nil
 }
 
+// SimulateConnection: Simulate a bank connection event (sandbox).
+//
+// Moves a sandbox connection through time without waiting: new transactions, a
+// pending row that posts, a consent that is about to end or has ended, a
+// revocation, a failing sync, a duplicate webhook or a used-up refresh
+// allowance. It uses the real sync engine and the real webhooks, so `bank.*`
+// deliveries, the change feed and `sync` behave as they do for a real bank.
+// Answers the connection as `get_connection` would.
+//
+// `action` is required and is one of:
+//
+//   - `new_transactions`: the bank adds `count` booked transactions (1 to 500,
+//     default 3). A sync follows.
+//   - `pending_posted`: one day passes at the bank: pending rows leave the
+//     change feed as `removed` and their booked rows arrive as `added`. It
+//     needs a test customer with pending transactions (`pending`); with
+//     `personal_basic` nothing changes. A sync follows.
+//   - `booking_correction`: the next sync returns booked rows again with a
+//     corrected booking, so they arrive as `modified`. A sync follows.
+//   - `midnight_booking`: a row is booked across midnight, to test day
+//     boundaries. A sync follows.
+//   - `consent_expiring`: the consent now ends in `days` days and the expiry
+//     notice is sent (`bank.connection.consent_expiring`). `days` accepts only
+//     the notification thresholds, 14, 7 or 1 (default 7); any other value
+//     answers `400 invalid_request` with `field` `days`.
+//   - `consent_expired`: the consent has ended now and the connection becomes
+//     `renewal_required`.
+//   - `revoked_by_user` and `revoked_by_bank`: the bank tells Didit the
+//     consent ended, as if the person or the bank had revoked it. The
+//     connection reads `revoked` with `status_reason` `revoked_by_end_user` or
+//     `revoked_by_bank`, and `consent.ended_by` is `end_user` or `bank`.
+//   - `sync_failed`: the bank fails every read until `sync_recovered`; the
+//     connection has been failing for 24 hours, so `bank.sync.failed` is sent.
+//     A sync follows.
+//   - `sync_recovered`: the bank answers again. A sync follows.
+//   - `webhook_twice`: the last `bank.*` webhook of this connection is
+//     delivered again with the same `event_id` and a fresh signature, to test
+//     your deduplication. It answers `400 invalid_request` if the connection
+//     has no delivery yet.
+//   - `budget_used`: today's refresh allowance is used up on the bank's own
+//     day, so the next `refresh_connection` answers `429
+//     refresh_limit_reached` with `Retry-After`, and
+//     `sync.live_syncs_left_today` and the `sync.budgets` `remaining` read 0.
+//   - `budget_reset`: today's refresh allowance is restored:
+//     `sync.live_syncs_left_today` and the `remaining` of `sync.budgets` read
+//     what they read on a new connection.
+//
+// `days` is only accepted with `consent_expiring` and `count` only with
+// `new_transactions`: sent with another action, each answers `400
+// invalid_request` with `field` naming it.
+//
+// Needs an API key with the Bank data permission (`bank-data`): write for this
+// operation, which changes something. A key with full access does not include
+// it: grant it explicitly when you create the key, or the call answers `403
+// bank_data_access_denied`. Sandbox only: a live application, or a link or
+// connection that belongs to the live environment, answers `404 not_found`,
+// exactly as an unknown route does.
+//
+//	POST /v3/bank/connections/{id}/simulate/
+func (r *BankService) SimulateConnection(ctx context.Context, id string, params BankConnectionSimulateRequest, opts ...option.RequestOption) (*BankConnection, error) {
+	res := new(BankConnection)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/bank/connections/{id}/simulate/", pathParams: []string{"id", id}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// SimulateLink: Simulate a bank link (sandbox).
+//
+// Finishes a link of your sandbox application in one call, as if the person had
+// gone through the Didit Test Bank: you choose the Test Bank customer
+// (`persona`) and how the link ends (`outcome`). The link goes through the same
+// completion code as a real bank sign-in, so the connection, its accounts, the
+// first sync and the `bank.*` webhooks happen exactly as they would for a real
+// person. Answers the link, so read `status` and `connection_id`.
+//
+// `outcome` is `completed` (the default: the person agrees and the connection
+// is created), `cancelled` (the person leaves, the link ends `cancelled`),
+// `failed` (the link ends `failed`; `error_code` picks the reason,
+// `bank_unavailable` by default), `duplicate_conflict` (the person already has
+// a connection with the same bank), `reduced_grant` (the person shares less
+// than you asked for) or `renewal_login_mismatch` (a renewal with another bank
+// login; on a connect link it ends as the failure it is). `error_code` is only
+// accepted with `outcome: failed`.
+//
+// A link that allows the one-time fallback and meets a bank that cannot keep
+// access open accepts the reduced access and finishes in the same call. A link
+// that is no longer open (completed, cancelled, expired or failed) is returned
+// unchanged, so the call is safe to repeat.
+//
+// Needs an API key with the Bank data permission (`bank-data`): write for this
+// operation, which changes something. A key with full access does not include
+// it: grant it explicitly when you create the key, or the call answers `403
+// bank_data_access_denied`. Sandbox only: a live application, or a link or
+// connection that belongs to the live environment, answers `404 not_found`,
+// exactly as an unknown route does.
+//
+//	POST /v3/bank/links/{id}/simulate/
+func (r *BankService) SimulateLink(ctx context.Context, id string, params BankLinkSimulateRequest, opts ...option.RequestOption) (*BankLink, error) {
+	res := new(BankLink)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/bank/links/{id}/simulate/", pathParams: []string{"id", id}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // SyncTransactions: Sync transactions (change feed).
 //
 // Returns what changed in a connection's transactions since a `cursor`:
@@ -847,8 +953,13 @@ const (
 // charged.
 type BankLinkError struct {
 	// Why the link failed. A failed link is not an HTTP error: the link reads with
-	// `status: failed` and this object. A renew link whose connection changed
-	// meanwhile reads `renewal_not_needed` or `renewal_window_expired`.
+	// `status: failed` and this object. `bank_cancelled` ends a link only on the
+	// fifth cancel at the bank: until then a person who backs out at the bank
+	// returns to the list of banks with a notice and the link stays `opened`. A
+	// bank that cannot be reached (`bank_unavailable`) also returns the person to
+	// the list of banks and leaves the link `opened`. A link ended by the simulate
+	// operation fails at once. A renew link whose connection changed meanwhile
+	// reads `renewal_not_needed` or `renewal_window_expired`.
 	Code BankLinkErrorCode `json:"code"`
 
 	// Plain-language explanation for a developer.
@@ -869,9 +980,13 @@ func (r *BankLinkError) UnmarshalJSON(data []byte) error {
 }
 
 // BankLinkErrorCode: Why the link failed. A failed link is not an HTTP error:
-// the link reads with `status: failed` and this object. A renew link whose
-// connection changed meanwhile reads `renewal_not_needed` or
-// `renewal_window_expired`.
+// the link reads with `status: failed` and this object. `bank_cancelled` ends a
+// link only on the fifth cancel at the bank: until then a person who backs out
+// at the bank returns to the list of banks with a notice and the link stays
+// `opened`. A bank that cannot be reached (`bank_unavailable`) also returns the
+// person to the list of banks and leaves the link `opened`. A link ended by the
+// simulate operation fails at once. A renew link whose connection changed
+// meanwhile reads `renewal_not_needed` or `renewal_window_expired`.
 //
 // BankLinkErrorCode is a string with known values below. The set is open: other
 // values may appear and never cause an error.
@@ -1041,7 +1156,11 @@ type BankLinkCreateRequest struct {
 	// is not released yet. HTTPS origins, up to 50.
 	AllowedOrigins Opt[[]string] `json:"allowed_origins"`
 
-	// Optional language code such as `es` or `pt-BR`. Otherwise the browser
+	// Optional. One of the [supported languages](/integration/supported-languages),
+	// the same codes the `language` of the session API takes, for example `es`,
+	// `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and
+	// case-sensitive (`ES` and `pt-PT` are refused). A code outside that list
+	// answers `400 invalid_request` with `field: language`. Otherwise the browser
 	// language.
 	Language Opt[string] `json:"language"`
 
@@ -3248,7 +3367,13 @@ type BankRenewLinkRequest struct {
 	// Accepted and not used today: reserved for Didit's embedded Bank Link, which
 	// is not released yet. HTTPS origins, up to 50.
 	AllowedOrigins Opt[[]string] `json:"allowed_origins"`
-	Language       Opt[string]   `json:"language"`
+
+	// Optional. One of the [supported languages](/integration/supported-languages),
+	// the same codes the `language` of the session API takes, for example `es`,
+	// `pt`, `pt-BR` or `zh-CN` (`pt-PT` is not one of them). The match is exact and
+	// case-sensitive (`ES` and `pt-PT` are refused). A code outside that list
+	// answers `400 invalid_request` with `field: language`.
+	Language Opt[string] `json:"language"`
 
 	// Lifetime in seconds, 300 to 86400.
 	ExpiresIn Opt[int64] `json:"expires_in"`
@@ -3258,6 +3383,129 @@ type BankRenewLinkRequest struct {
 func (r BankRenewLinkRequest) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
+
+// BankConnectionSimulateRequest: The event to move on a sandbox connection.
+type BankConnectionSimulateRequest struct {
+	// What happens. The operation description explains each value. Required.
+	Action BankConnectionSimulateRequestAction `json:"action"`
+
+	// Only for `consent_expiring`: days until the consent ends. Only the
+	// notification thresholds are accepted: 14, 7 or 1. Any other value, or `days`
+	// with another action, answers `400 invalid_request` with `field` `days`.
+	Days Opt[any] `json:"days"`
+
+	// Only for `new_transactions`: how many booked transactions the bank adds. With
+	// another action it answers `400 invalid_request` with `field` `count`.
+	Count Opt[int64] `json:"count"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r BankConnectionSimulateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// BankConnectionSimulateRequestAction: What happens. The operation description
+// explains each value.
+//
+// BankConnectionSimulateRequestAction is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type BankConnectionSimulateRequestAction string
+
+// Known values of BankConnectionSimulateRequestAction.
+const (
+	BankConnectionSimulateRequestActionNewTransactions   BankConnectionSimulateRequestAction = "new_transactions"
+	BankConnectionSimulateRequestActionPendingPosted     BankConnectionSimulateRequestAction = "pending_posted"
+	BankConnectionSimulateRequestActionBookingCorrection BankConnectionSimulateRequestAction = "booking_correction"
+	BankConnectionSimulateRequestActionConsentExpiring   BankConnectionSimulateRequestAction = "consent_expiring"
+	BankConnectionSimulateRequestActionConsentExpired    BankConnectionSimulateRequestAction = "consent_expired"
+	BankConnectionSimulateRequestActionRevokedByUser     BankConnectionSimulateRequestAction = "revoked_by_user"
+	BankConnectionSimulateRequestActionRevokedByBank     BankConnectionSimulateRequestAction = "revoked_by_bank"
+	BankConnectionSimulateRequestActionSyncFailed        BankConnectionSimulateRequestAction = "sync_failed"
+	BankConnectionSimulateRequestActionSyncRecovered     BankConnectionSimulateRequestAction = "sync_recovered"
+	BankConnectionSimulateRequestActionWebhookTwice      BankConnectionSimulateRequestAction = "webhook_twice"
+	BankConnectionSimulateRequestActionMidnightBooking   BankConnectionSimulateRequestAction = "midnight_booking"
+	BankConnectionSimulateRequestActionBudgetUsed        BankConnectionSimulateRequestAction = "budget_used"
+	BankConnectionSimulateRequestActionBudgetReset       BankConnectionSimulateRequestAction = "budget_reset"
+)
+
+// BankLinkSimulateRequest: How a sandbox link ends. Every field is optional: an
+// empty body completes the link for the `personal_basic` Test Bank customer.
+type BankLinkSimulateRequest struct {
+	// The Test Bank customer who signs in: `personal_basic` (one current account),
+	// `business_multi` (several business accounts), `long_history` (a long
+	// transaction history), `pending` (pending rows), `sparse_fields` (transactions
+	// with fields missing, one automatic sync a day) or `no_ongoing` (a bank that
+	// cannot keep access open).
+	Persona Opt[BankLinkSimulateRequestPersona] `json:"persona"`
+
+	// How the link ends.
+	Outcome Opt[BankLinkSimulateRequestOutcome] `json:"outcome"`
+
+	// The failure the link records. Only accepted with `outcome: failed`, where it
+	// defaults to `bank_unavailable`.
+	ErrorCode Opt[BankLinkSimulateRequestErrorCode] `json:"error_code"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r BankLinkSimulateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// BankLinkSimulateRequestPersona: The Test Bank customer who signs in:
+// `personal_basic` (one current account), `business_multi` (several business
+// accounts), `long_history` (a long transaction history), `pending` (pending
+// rows), `sparse_fields` (transactions with fields missing, one automatic sync
+// a day) or `no_ongoing` (a bank that cannot keep access open).
+//
+// BankLinkSimulateRequestPersona is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type BankLinkSimulateRequestPersona string
+
+// Known values of BankLinkSimulateRequestPersona.
+const (
+	BankLinkSimulateRequestPersonaPersonalBasic BankLinkSimulateRequestPersona = "personal_basic"
+	BankLinkSimulateRequestPersonaBusinessMulti BankLinkSimulateRequestPersona = "business_multi"
+	BankLinkSimulateRequestPersonaLongHistory   BankLinkSimulateRequestPersona = "long_history"
+	BankLinkSimulateRequestPersonaPending       BankLinkSimulateRequestPersona = "pending"
+	BankLinkSimulateRequestPersonaSparseFields  BankLinkSimulateRequestPersona = "sparse_fields"
+	BankLinkSimulateRequestPersonaNoOngoing     BankLinkSimulateRequestPersona = "no_ongoing"
+)
+
+// BankLinkSimulateRequestOutcome: How the link ends.
+//
+// BankLinkSimulateRequestOutcome is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type BankLinkSimulateRequestOutcome string
+
+// Known values of BankLinkSimulateRequestOutcome.
+const (
+	BankLinkSimulateRequestOutcomeCompleted            BankLinkSimulateRequestOutcome = "completed"
+	BankLinkSimulateRequestOutcomeCancelled            BankLinkSimulateRequestOutcome = "cancelled"
+	BankLinkSimulateRequestOutcomeFailed               BankLinkSimulateRequestOutcome = "failed"
+	BankLinkSimulateRequestOutcomeDuplicateConflict    BankLinkSimulateRequestOutcome = "duplicate_conflict"
+	BankLinkSimulateRequestOutcomeReducedGrant         BankLinkSimulateRequestOutcome = "reduced_grant"
+	BankLinkSimulateRequestOutcomeRenewalLoginMismatch BankLinkSimulateRequestOutcome = "renewal_login_mismatch"
+)
+
+// BankLinkSimulateRequestErrorCode: The failure the link records. Only accepted
+// with `outcome: failed`, where it defaults to `bank_unavailable`.
+//
+// BankLinkSimulateRequestErrorCode is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type BankLinkSimulateRequestErrorCode string
+
+// Known values of BankLinkSimulateRequestErrorCode.
+const (
+	BankLinkSimulateRequestErrorCodeDuplicateConflict             BankLinkSimulateRequestErrorCode = "duplicate_conflict"
+	BankLinkSimulateRequestErrorCodeRenewalLoginMismatch          BankLinkSimulateRequestErrorCode = "renewal_login_mismatch"
+	BankLinkSimulateRequestErrorCodeReducedGrant                  BankLinkSimulateRequestErrorCode = "reduced_grant"
+	BankLinkSimulateRequestErrorCodeCorporateApprovalNotSupported BankLinkSimulateRequestErrorCode = "corporate_approval_not_supported"
+	BankLinkSimulateRequestErrorCodeOngoingAccessNotAvailable     BankLinkSimulateRequestErrorCode = "ongoing_access_not_available"
+	BankLinkSimulateRequestErrorCodeBankUnavailable               BankLinkSimulateRequestErrorCode = "bank_unavailable"
+	BankLinkSimulateRequestErrorCodeBankCancelled                 BankLinkSimulateRequestErrorCode = "bank_cancelled"
+	BankLinkSimulateRequestErrorCodeConsentDeclined               BankLinkSimulateRequestErrorCode = "consent_declined"
+	BankLinkSimulateRequestErrorCodeReadLimit                     BankLinkSimulateRequestErrorCode = "read_limit"
+)
 
 // BankSyncTransactionsParams holds the parameters of
 // Client.Bank.SyncTransactions.

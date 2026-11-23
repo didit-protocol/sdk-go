@@ -83,7 +83,7 @@ func (r *AuthenticationSetupService) GetDomain(ctx context.Context, organization
 // GetEmail: Preview a sign-in email.
 //
 // Returns one email as it renders, with sample codes and links. An invitation
-// preview uses a sample organization for a grant or named key, or the
+// preview uses a sample organization for a grant or an API key, or the
 // `organization` and `role` you pass. `agentoff` is the email a person receives
 // when your team ends an agent's access with a notification; `agent` names the
 // agent. A console session can see a customer organization's name. The address
@@ -147,8 +147,8 @@ func (r *AuthenticationSetupService) GetOnboarding(ctx context.Context, organiza
 // GetProtection: Get bot protection.
 //
 // Returns whether protection is on, each policy's mode and the last 14 days of
-// detections. Console sessions, grants and named keys receive the same
-// aggregate counters.
+// detections. Console sessions, grants and API keys receive the same aggregate
+// counters.
 //
 //	GET /organizations/{organization_id}/applications/{application_id}/authentication/protection/
 func (r *AuthenticationSetupService) GetProtection(ctx context.Context, organizationID string, applicationID string, opts ...option.RequestOption) (*SetupProtection, error) {
@@ -323,9 +323,9 @@ func (r *AuthenticationSetupService) UpdateProtection(ctx context.Context, organ
 
 // UpdateSettings: Update the application settings.
 //
-// Changes the settings in the body. `agent_humans_only` needs a person: a named
-// API key answers 403 `owner_or_admin_required`, and turning it on needs an
-// owner or admin with an enrolled passkey.
+// Changes the settings in the body. `agent_humans_only` needs a person: an API
+// key answers 403 `owner_or_admin_required`, and turning it on needs an owner
+// or admin with an enrolled passkey.
 //
 //	PATCH /organizations/{organization_id}/applications/{application_id}/authentication/settings/
 func (r *AuthenticationSetupService) UpdateSettings(ctx context.Context, organizationID string, applicationID string, params SetupSettingsUpdate, opts ...option.RequestOption) (*SetupSettings, error) {
@@ -1738,7 +1738,7 @@ const (
 
 // SetupSettingsUpdate: Every field is optional. Changing the application’s
 // `agent_humans_only` setting requires an owner or admin. Enabling it also
-// requires an enrolled passkey. A named key receives 403
+// requires an enrolled passkey. An API key receives 403
 // `owner_or_admin_required`.
 type SetupSettingsUpdate struct {
 	SignInUI              Opt[SetupSettingsUpdateSignInUI]          `json:"sign_in_ui"`
