@@ -1521,7 +1521,8 @@ const (
 // BankAccount: One account inside a connection.
 type BankAccount struct {
 	// Account id. Belongs to the connection and never changes while it exists,
-	// renewals included.
+	// renewals included; a new connection of the same bank account has a new id
+	// (use `account_ref` to recognise the account).
 	ID           string `json:"id"`
 	ConnectionID string `json:"connection_id"`
 	Name         string `json:"name"`
@@ -1544,7 +1545,8 @@ type BankAccount struct {
 	// Identifies the same bank account across connections of one application and
 	// environment: a keyed hash of the bank's own identifiers. `null` when the bank
 	// gives no reliable identifier. Use it to recognise a bank account you already
-	// know.
+	// know. It is the same for one bank account in every connection of the
+	// application, while `id` and the transaction ids are new in each connection.
 	AccountRef string `json:"account_ref"`
 
 	// The previous `account_ref`, only for a verified alias such as a bank
@@ -3061,9 +3063,13 @@ func (r *BankTransactionPage) UnmarshalJSON(data []byte) error {
 // is `null`; the institution capabilities list which fields a bank is known to
 // send.
 type BankTransaction struct {
-	// Didit's id, opaque and stored at first sight. The same movement keeps its id
-	// across reads, syncs and renewals. `identity_quality` says how strong that
-	// guarantee is.
+	// Didit's id, opaque and stored at first sight, per connection. The same
+	// movement keeps its id across reads, syncs and renewals within one connection;
+	// a new connection of the same bank account has new transaction ids. To
+	// recognise a transaction across connections, use the account's `account_ref`
+	// with `bank_reference` (when `identity_quality` is `bank_reference`), or match
+	// on content as a probable match. `identity_quality` says how strong the
+	// guarantee is within the connection.
 	ID        string `json:"id"`
 	AccountID string `json:"account_id"`
 
@@ -3103,13 +3109,16 @@ type BankTransaction struct {
 	BankTransactionCode string                      `json:"bank_transaction_code"`
 
 	// The bank's immutable entry reference where it provides one. `null` otherwise,
-	// never invented.
+	// never invented. It is the same in every connection, so with the account's
+	// `account_ref` it is the reliable key across connections when
+	// `identity_quality` is `bank_reference`.
 	BankReference string `json:"bank_reference"`
 
-	// How `id` was matched. `bank_reference` and `route_id` are stable. `derived`
-	// is matched by content: it is stable while the bank keeps reporting the entry
-	// unchanged, and a correction by the bank can then appear as one `removed` and
-	// one `added`.
+	// How `id` was matched within the connection. `bank_reference` and `route_id`
+	// are stable. `derived` is matched by content: it is stable while the bank
+	// keeps reporting the entry unchanged, and a correction by the bank can then
+	// appear as one `removed` and one `added`. Across connections only a
+	// `bank_reference` is a reliable key.
 	IdentityQuality      BankTransactionIdentityQuality `json:"identity_quality"`
 	EndToEndID           string                         `json:"end_to_end_id"`
 	MandateID            string                         `json:"mandate_id"`
@@ -3195,10 +3204,11 @@ func (r *BankTransactionRemittance) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// BankTransactionIdentityQuality: How `id` was matched. `bank_reference` and
-// `route_id` are stable. `derived` is matched by content: it is stable while
-// the bank keeps reporting the entry unchanged, and a correction by the bank
-// can then appear as one `removed` and one `added`.
+// BankTransactionIdentityQuality: How `id` was matched within the connection.
+// `bank_reference` and `route_id` are stable. `derived` is matched by content:
+// it is stable while the bank keeps reporting the entry unchanged, and a
+// correction by the bank can then appear as one `removed` and one `added`.
+// Across connections only a `bank_reference` is a reliable key.
 //
 // BankTransactionIdentityQuality is a string with known values below. The set
 // is open: other values may appear and never cause an error.
