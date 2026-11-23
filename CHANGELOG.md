@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.37.0](https://github.com/didit-protocol/sdk-go/compare/v1.36.0...v1.37.0) (2026-11-23)
+
+
+### Features
+
+* **spec:** sync API spec 2026-11-23 ([e024902](https://github.com/didit-protocol/sdk-go/commit/e0249027372278db555ff802f767477f9a7c38cc))
+
+
+### API changes that can break typed code
+
+* **spec:** `POST /v3/phone/check/` request body `(anyOf 1)`: type changed from object to any ([e024902](https://github.com/didit-protocol/sdk-go/commit/e0249027372278db555ff802f767477f9a7c38cc))
+
 ## [1.36.0](https://github.com/didit-protocol/sdk-go/compare/v1.35.0...v1.36.0) (2026-11-23)
 
 
