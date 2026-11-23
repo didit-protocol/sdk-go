@@ -15,6 +15,12 @@ paths = [
 ]
 
 [[allowlists]]
+description = "Removed or renamed operations, copied verbatim from the upstream documents by `go run ./codegen sync` (their examples included)"
+paths = [
+  '''^openapi/deprecated-operations\.json$''',
+]
+
+[[allowlists]]
 description = "Gzipped copies of past upstream documents, the spec sync classification fixtures"
 paths = [
   '''^codegen/testdata/spec-sync/verification-[0-9a-f]{40}\.json\.gz$''',
