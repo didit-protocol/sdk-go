@@ -2,8 +2,13 @@ package webhook_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
+	"time"
 
 	didit "github.com/didit-protocol/sdk-go"
 	"github.com/didit-protocol/sdk-go/webhook"
@@ -414,11 +419,329 @@ func TestEventInterfaceOnEveryType(t *testing.T) {
 		&webhook.ActivityCreatedEvent{}, &webhook.TransactionCreatedEvent{},
 		&webhook.TransactionStatusUpdatedEvent{}, &webhook.TravelRuleStatusUpdatedEvent{},
 		&webhook.WorkflowComplianceChangedEvent{}, &webhook.KYBRegistrySearchResolvedEvent{},
+		&webhook.BankLinkCompletedEvent{}, &webhook.BankLinkCancelledEvent{},
+		&webhook.BankLinkExpiredEvent{}, &webhook.BankLinkFailedEvent{},
+		&webhook.BankConnectionCreatedEvent{}, &webhook.BankConnectionUpdatedEvent{},
+		&webhook.BankConnectionConsentExpiringEvent{}, &webhook.BankConnectionRenewalRequiredEvent{},
+		&webhook.BankConnectionRenewedEvent{}, &webhook.BankConnectionRevokedEvent{},
+		&webhook.BankConnectionDeletedEvent{}, &webhook.BankConnectionHistoryCompleteEvent{},
+		&webhook.BankDataUpdatedEvent{}, &webhook.BankSyncCompletedEvent{},
+		&webhook.BankSyncFailedEvent{}, &webhook.BankSyncRecoveredEvent{},
 		&webhook.UnknownEvent{},
 	}
 	for _, ev := range events {
 		if ev.Authenticated() || ev.Raw() != nil || ev.Type() != "" || ev.Envelope() == nil {
 			t.Fatalf("%T: unexpected zero value behaviour", ev)
 		}
+	}
+}
+
+const (
+	bankConnectionID = "cccccccc-0000-4000-8000-000000000001"
+	bankSyncID       = "eeeeeeee-0000-4000-8000-000000000001"
+	bankCheckID      = "dddddddd-0000-4000-8000-000000000001"
+)
+
+// Recorded bodies and signing headers from sdk-java PR #108 at 412c4a4,
+// openapi/webhook-vectors.json (the primary-secret case for each Bank event).
+func bankDeliveries(t *testing.T) map[webhook.Type]vector {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/bank-deliveries.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v map[webhook.Type]vector
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func bankEvent(t *testing.T, typ webhook.Type) webhook.Event {
+	t.Helper()
+	v, ok := bankDeliveries(t)[typ]
+	if !ok {
+		t.Fatalf("missing recorded delivery for %s", typ)
+	}
+	ev := mustVerify(t, []byte(v.Body), v.header(), v.Secret, clockAt(v.Now))
+	checkVectorEvent(t, v, ev, true)
+	if ev.Type() != typ {
+		t.Fatalf("got %s, want %s", ev.Type(), typ)
+	}
+	return ev
+}
+
+func mustTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	v, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestBankLinkEvents(t *testing.T) {
+	tests := []struct {
+		typ        webhook.Type
+		link       string
+		status     webhook.BankLinkStatus
+		errorCode  webhook.BankLinkErrorCode
+		connection string
+		check      string
+	}{
+		{webhook.TypeBankLinkCompleted, "bbbbbbbb-0000-4000-8000-000000000001", webhook.BankLinkStatusCompleted, "", bankConnectionID, bankCheckID},
+		{webhook.TypeBankLinkCancelled, "bbbbbbbb-0000-4000-8000-000000000002", webhook.BankLinkStatusCancelled, "", "", ""},
+		{webhook.TypeBankLinkExpired, "bbbbbbbb-0000-4000-8000-000000000003", webhook.BankLinkStatusExpired, "", "", ""},
+		{webhook.TypeBankLinkFailed, "bbbbbbbb-0000-4000-8000-000000000004", webhook.BankLinkStatusFailed, webhook.BankLinkErrorCodeDuplicateConflict, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.typ), func(t *testing.T) {
+			ev := bankEvent(t, tt.typ)
+			var f webhook.BankLinkFields
+			switch e := ev.(type) {
+			case *webhook.BankLinkCompletedEvent:
+				f = e.BankLinkFields
+			case *webhook.BankLinkCancelledEvent:
+				f = e.BankLinkFields
+			case *webhook.BankLinkExpiredEvent:
+				f = e.BankLinkFields
+			case *webhook.BankLinkFailedEvent:
+				f = e.BankLinkFields
+			default:
+				t.Fatalf("got %T", ev)
+			}
+			want := webhook.BankLinkFields{
+				LinkID: tt.link, Status: tt.status, ConnectionID: tt.connection, CheckID: tt.check, ErrorCode: tt.errorCode,
+			}
+			if f != want {
+				t.Fatalf("fields = %+v, want %+v", f, want)
+			}
+		})
+	}
+}
+
+func TestBankConnectionEvents(t *testing.T) {
+	t.Run("created", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankConnectionCreated).(*webhook.BankConnectionCreatedEvent)
+		if e.ConnectionID != bankConnectionID || e.InitialStatus != webhook.BankSyncOutcomeSucceeded {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("updated", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankConnectionUpdated).(*webhook.BankConnectionUpdatedEvent)
+		if e.ConnectionID != bankConnectionID || e.Status != webhook.BankConnectionStatusActive ||
+			e.RevocationStatus != webhook.BankRevocationStatusPending {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("consent_expiring", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankConnectionConsentExpiring).(*webhook.BankConnectionConsentExpiringEvent)
+		end := mustTime(t, "2026-11-29T09:00:00Z")
+		if e.ConnectionID != bankConnectionID || e.DaysLeft != 7 || !e.ConsentExpiresAt.Equal(end) || !e.RenewBy.Equal(end) {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("renewal_required", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankConnectionRenewalRequired).(*webhook.BankConnectionRenewalRequiredEvent)
+		if e.ConnectionID != bankConnectionID || e.Status != webhook.BankConnectionStatusRenewalRequired ||
+			e.Reason != webhook.BankRenewalReasonConsentExpired || !e.RenewBy.Equal(mustTime(t, "2026-11-29T09:00:00Z")) ||
+			!e.RenewableUntil.Equal(mustTime(t, "2026-12-29T09:00:00Z")) {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("renewed", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankConnectionRenewed).(*webhook.BankConnectionRenewedEvent)
+		if e.ConnectionID != bankConnectionID || e.Status != webhook.BankConnectionStatusActive || e.ConsentVersion != 2 ||
+			e.LinkID != "bbbbbbbb-0000-4000-8000-000000000005" || !e.ConsentExpiresAt.Equal(mustTime(t, "2027-11-29T09:00:00Z")) {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("revoked", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankConnectionRevoked).(*webhook.BankConnectionRevokedEvent)
+		if e.ConnectionID != bankConnectionID || e.Status != webhook.BankConnectionStatusRevoked ||
+			e.EndedBy != webhook.BankConnectionEndedByBank || e.StatusReason != webhook.BankConnectionStatusReasonRevokedByBank ||
+			!e.EndedAt.Equal(mustTime(t, "2026-11-22T09:00:00Z")) || !e.RetainUntil.Equal(mustTime(t, "2027-02-20T09:00:00Z")) {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("deleted", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankConnectionDeleted).(*webhook.BankConnectionDeletedEvent)
+		if e.ConnectionID != bankConnectionID || e.Status != webhook.BankConnectionStatusDeleted ||
+			e.ErasureStatus != webhook.BankErasureStatusErased || e.Reason != webhook.BankDeletionReasonDeletedByCustomer ||
+			!e.ErasedAt.Equal(mustTime(t, "2026-11-22T09:00:00Z")) {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("history_complete", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankConnectionHistoryComplete).(*webhook.BankConnectionHistoryCompleteEvent)
+		if e.ConnectionID != bankConnectionID || e.Status != webhook.BankHistoryStatusComplete {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+}
+
+func TestBankDataAndSyncEvents(t *testing.T) {
+	t.Run("data.updated", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankDataUpdated).(*webhook.BankDataUpdatedEvent)
+		want := []webhook.BankAccountChanges{
+			{AccountID: "ffffffff-0000-4000-8000-000000000001", Added: 3, Modified: 1},
+		}
+		if e.ConnectionID != bankConnectionID || e.SyncID != bankSyncID || e.Trigger != webhook.BankSyncTriggerScheduled ||
+			!reflect.DeepEqual(e.Accounts, want) || !e.BalancesChanged {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("sync.completed", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankSyncCompleted).(*webhook.BankSyncCompletedEvent)
+		if e.ConnectionID != bankConnectionID || e.SyncID != bankSyncID || e.Trigger != webhook.BankSyncTriggerScheduled ||
+			e.Outcome != webhook.BankSyncOutcomePartial || !e.Changed {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("sync.failed", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankSyncFailed).(*webhook.BankSyncFailedEvent)
+		if e.ConnectionID != bankConnectionID || e.SyncID != bankSyncID || e.ErrorCode != "bank_unavailable" ||
+			!e.FailingSince.Equal(mustTime(t, "2026-11-21T09:00:00Z")) {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("sync.recovered", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankSyncRecovered).(*webhook.BankSyncRecoveredEvent)
+		if e.ConnectionID != bankConnectionID || e.SyncID != "eeeeeeee-0000-4000-8000-000000000002" {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+}
+
+// TestBankEventsWithoutFields: a body with only the envelope (or a data that
+// is not an object) still gives the typed event, with zero fields.
+func TestBankEventsWithoutFields(t *testing.T) {
+	ev := verifyPayload(t, with(envelope(string(webhook.TypeBankLinkCompleted)), "data", "not an object"))
+	if e, ok := ev.(*webhook.BankLinkCompletedEvent); !ok || e.BankLinkFields != (webhook.BankLinkFields{}) {
+		t.Fatalf("got %#v", ev)
+	}
+	ev = verifyPayload(t, with(envelope(string(webhook.TypeBankDataUpdated)), "accounts", []any{"not an object"}))
+	if e, ok := ev.(*webhook.BankDataUpdatedEvent); !ok || e.ConnectionID != "" || e.Accounts != nil {
+		t.Fatalf("got %#v", ev)
+	}
+	ev = verifyPayload(t, with(envelope(string(webhook.TypeBankSyncFailed)), "failing_since", "yesterday"))
+	if e, ok := ev.(*webhook.BankSyncFailedEvent); !ok || !e.FailingSince.IsZero() {
+		t.Fatalf("got %#v", ev)
+	}
+}
+
+// TestBankPayloadsMatchContract checks the recorded deliveries against the event schemas
+// of openapi/verification.json: every bank.* webhook of the document has a
+// payload, and each payload has exactly the properties of its schema, at the
+// level the schema puts them.
+func TestBankPayloadsMatchContract(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "openapi", "verification.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Webhooks   map[string]map[string]json.RawMessage `json:"x-webhooks"`
+		Components struct {
+			Schemas map[string]json.RawMessage `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	type schema struct {
+		Ref        string                     `json:"$ref"`
+		AllOf      []schema                   `json:"allOf"`
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	resolve := func(s schema) schema {
+		for s.Ref != "" {
+			name := strings.TrimPrefix(s.Ref, "#/components/schemas/")
+			var next schema
+			if err := json.Unmarshal(doc.Components.Schemas[name], &next); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			s = next
+		}
+		return s
+	}
+	var props func(s schema) map[string]schema
+	props = func(s schema) map[string]schema {
+		s = resolve(s)
+		out := map[string]schema{}
+		for _, part := range s.AllOf {
+			for k, v := range props(part) {
+				out[k] = v
+			}
+		}
+		for k, v := range s.Properties {
+			var p schema
+			if err := json.Unmarshal(v, &p); err != nil {
+				t.Fatalf("%s: %v", k, err)
+			}
+			out[k] = p
+		}
+		return out
+	}
+	keys := func(m map[string]schema) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		sort.Strings(out)
+		return out
+	}
+	envelopeKeys := map[string]bool{}
+	for k := range envelope("") {
+		envelopeKeys[k] = true
+	}
+
+	deliveries := bankDeliveries(t)
+	seen := 0
+	for name, ops := range doc.Webhooks {
+		if !strings.HasPrefix(name, "bank.") {
+			continue
+		}
+		seen++
+		delivery, ok := deliveries[webhook.Type(name)]
+		if !ok {
+			t.Errorf("%s: no typed payload in this test", name)
+			continue
+		}
+		payload := decodeUseNumber(t, []byte(delivery.Body))
+		for k := range envelopeKeys {
+			delete(payload, k)
+		}
+		var op struct {
+			RequestBody struct {
+				Content map[string]struct {
+					Schema schema `json:"schema"`
+				} `json:"content"`
+			} `json:"requestBody"`
+		}
+		if err := json.Unmarshal(ops["post"], &op); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		all := props(op.RequestBody.Content["application/json"].Schema)
+		fields := map[string]schema{}
+		for k, v := range all {
+			if !envelopeKeys[k] {
+				fields[k] = v
+			}
+		}
+		if data, ok := fields["data"]; ok {
+			fields = props(data)
+			payload, _ = payload["data"].(map[string]any)
+		}
+		got := make([]string, 0, len(payload))
+		for k := range payload {
+			got = append(got, k)
+		}
+		sort.Strings(got)
+		if want := keys(fields); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: payload fields %v, contract %v", name, got, want)
+		}
+	}
+	if seen != len(deliveries) {
+		t.Errorf("contract has %d bank.* webhooks, the test %d", seen, len(deliveries))
 	}
 }

@@ -23,11 +23,13 @@ Every program that calls the API reads the key from `DIDIT_API_KEY` (the SDK's d
 | [transactions](transactions) | Transaction screening, an SDK token for mobile apps, and listing with auto-pagination | `go run ./transactions -amount 250 -currency EUR` |
 | [travel_rule](travel_rule) | Travel Rule settings, VASP directory search, wallet address book, and an inbound (after-deposit) transfer with `-txid` | `go run ./travel_rule -search coinbase` |
 | [wallet_screening](wallet_screening) | Wallet address screening and the PDF report (a binary response) | `go run ./wallet_screening -address 0x... -blockchain ETH -out report.pdf` |
+| [bank](bank) | Create a Bank Link, wait for `bank.connection.created`, then list the connection's accounts | `DIDIT_WEBHOOK_SECRET=... go run ./bank` |
 | [authentication](authentication) | Didit Authentication: a net/http middleware that verifies access tokens (401 on failure), and `GetSession` for instant revocation checks | `DIDIT_PUBLISHABLE_KEY=pk_test_... go run ./authentication` |
 
 Extra environment variables:
 
 - `quickstart`: `DIDIT_WORKFLOW_ID` (required), `DIDIT_WEBHOOK_SECRET` (default: a `whsec_test_` value).
+- `bank`: `DIDIT_WEBHOOK_SECRET` (required), `PORT` (default 8080). Register the public URL of `POST /webhooks/didit` as a webhook destination before opening the link.
 - `authentication`: `DIDIT_PUBLISHABLE_KEY` or `DIDIT_AUTH_ISSUER` (for example `https://acme.auth.didit.me`), optional `DIDIT_APPLICATION_ID` to require that audience, and `PORT` (default 8080). It does not use the API key.
 
 Run any program with `-h` for its flags.

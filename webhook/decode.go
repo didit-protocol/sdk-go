@@ -77,6 +77,110 @@ func newEvent(body map[string]any, raw []byte, authenticated bool, limit int) Ev
 			SearchResolved: boolField(body, "search_resolved"),
 			KYBRegistry:    rawField(body, "kyb_registry", limit),
 		}
+	case TypeBankLinkCompleted:
+		return &BankLinkCompletedEvent{EventEnvelope: env, BankLinkFields: bankLinkFields(body)}
+	case TypeBankLinkCancelled:
+		return &BankLinkCancelledEvent{EventEnvelope: env, BankLinkFields: bankLinkFields(body)}
+	case TypeBankLinkExpired:
+		return &BankLinkExpiredEvent{EventEnvelope: env, BankLinkFields: bankLinkFields(body)}
+	case TypeBankLinkFailed:
+		return &BankLinkFailedEvent{EventEnvelope: env, BankLinkFields: bankLinkFields(body)}
+	case TypeBankConnectionCreated:
+		return &BankConnectionCreatedEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(body, "connection_id"),
+			InitialStatus: BankSyncOutcome(stringField(body, "initial_status")),
+		}
+	case TypeBankConnectionUpdated:
+		return &BankConnectionUpdatedEvent{
+			EventEnvelope:    env,
+			ConnectionID:     stringField(body, "connection_id"),
+			Status:           BankConnectionStatus(stringField(body, "status")),
+			RevocationStatus: BankRevocationStatus(stringField(body, "revocation_status")),
+		}
+	case TypeBankConnectionConsentExpiring:
+		return &BankConnectionConsentExpiringEvent{
+			EventEnvelope:    env,
+			ConnectionID:     stringField(body, "connection_id"),
+			DaysLeft:         intField(body, "days_left"),
+			ConsentExpiresAt: timeField(body, "consent_expires_at"),
+			RenewBy:          timeField(body, "renew_by"),
+		}
+	case TypeBankConnectionRenewalRequired:
+		return &BankConnectionRenewalRequiredEvent{
+			EventEnvelope:  env,
+			ConnectionID:   stringField(body, "connection_id"),
+			Status:         BankConnectionStatus(stringField(body, "status")),
+			Reason:         BankRenewalReason(stringField(body, "reason")),
+			RenewBy:        timeField(body, "renew_by"),
+			RenewableUntil: timeField(body, "renewable_until"),
+		}
+	case TypeBankConnectionRenewed:
+		return &BankConnectionRenewedEvent{
+			EventEnvelope:    env,
+			ConnectionID:     stringField(body, "connection_id"),
+			Status:           BankConnectionStatus(stringField(body, "status")),
+			ConsentVersion:   intField(body, "consent_version"),
+			LinkID:           stringField(body, "link_id"),
+			ConsentExpiresAt: timeField(body, "consent_expires_at"),
+		}
+	case TypeBankConnectionRevoked:
+		return &BankConnectionRevokedEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(body, "connection_id"),
+			Status:        BankConnectionStatus(stringField(body, "status")),
+			EndedBy:       BankConnectionEndedBy(stringField(body, "ended_by")),
+			StatusReason:  BankConnectionStatusReason(stringField(body, "status_reason")),
+			EndedAt:       timeField(body, "ended_at"),
+			RetainUntil:   timeField(body, "retain_until"),
+		}
+	case TypeBankConnectionDeleted:
+		return &BankConnectionDeletedEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(body, "connection_id"),
+			Status:        BankConnectionStatus(stringField(body, "status")),
+			ErasureStatus: BankErasureStatus(stringField(body, "erasure_status")),
+			Reason:        BankDeletionReason(stringField(body, "reason")),
+			ErasedAt:      timeField(body, "erased_at"),
+		}
+	case TypeBankConnectionHistoryComplete:
+		return &BankConnectionHistoryCompleteEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(body, "connection_id"),
+			Status:        BankHistoryStatus(stringField(body, "status")),
+		}
+	case TypeBankDataUpdated:
+		return &BankDataUpdatedEvent{
+			EventEnvelope:   env,
+			ConnectionID:    stringField(body, "connection_id"),
+			SyncID:          stringField(body, "sync_id"),
+			Trigger:         BankSyncTrigger(stringField(body, "trigger")),
+			Accounts:        bankAccountChanges(body),
+			BalancesChanged: boolField(body, "balances_changed"),
+		}
+	case TypeBankSyncCompleted:
+		return &BankSyncCompletedEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(body, "connection_id"),
+			SyncID:        stringField(body, "sync_id"),
+			Trigger:       BankSyncTrigger(stringField(body, "trigger")),
+			Outcome:       BankSyncOutcome(stringField(body, "outcome")),
+			Changed:       boolField(body, "changed"),
+		}
+	case TypeBankSyncFailed:
+		return &BankSyncFailedEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(body, "connection_id"),
+			SyncID:        stringField(body, "sync_id"),
+			ErrorCode:     stringField(body, "error_code"),
+			FailingSince:  timeField(body, "failing_since"),
+		}
+	case TypeBankSyncRecovered:
+		return &BankSyncRecoveredEvent{
+			EventEnvelope: env,
+			ConnectionID:  stringField(body, "connection_id"),
+			SyncID:        stringField(body, "sync_id"),
+		}
 	default:
 		return &UnknownEvent{EventEnvelope: env, Payload: body}
 	}
@@ -111,6 +215,39 @@ func businessFields(body map[string]any) BusinessFields {
 		VendorData:       stringField(body, "vendor_data"),
 		Status:           EntityStatus(stringField(body, "status")),
 	}
+}
+
+// bankLinkFields reads the nested data object of a bank.link.* event. A
+// missing or non-object data leaves every field at its zero value.
+func bankLinkFields(body map[string]any) BankLinkFields {
+	data, _ := body["data"].(map[string]any)
+	return BankLinkFields{
+		LinkID:       stringField(data, "link_id"),
+		Status:       BankLinkStatus(stringField(data, "status")),
+		ConnectionID: stringField(data, "connection_id"),
+		CheckID:      stringField(data, "check_id"),
+		ErrorCode:    BankLinkErrorCode(stringField(data, "error_code")),
+	}
+}
+
+// bankAccountChanges reads the accounts array of bank.data.updated. Items
+// that are not objects are skipped; a missing or empty array gives nil.
+func bankAccountChanges(body map[string]any) []BankAccountChanges {
+	items, _ := body["accounts"].([]any)
+	var out []BankAccountChanges
+	for _, item := range items {
+		account, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, BankAccountChanges{
+			AccountID: stringField(account, "account_id"),
+			Added:     intField(account, "added"),
+			Modified:  intField(account, "modified"),
+			Removed:   intField(account, "removed"),
+		})
+	}
+	return out
 }
 
 func transactionFields(body map[string]any, limit int) TransactionFields {
@@ -216,6 +353,20 @@ func unixField(body map[string]any, key string) int64 {
 func boolField(body map[string]any, key string) bool {
 	b, _ := body[key].(bool)
 	return b
+}
+
+// timeField returns an RFC 3339 date-time field, or the zero time when it is
+// missing or not a date-time.
+func timeField(body map[string]any, key string) time.Time {
+	s, ok := body[key].(string)
+	if !ok {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // rawField returns a field as JSON in canonical form, or nil when the field
