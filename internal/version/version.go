@@ -2,4 +2,4 @@
 package version
 
 // Version is the SDK version sent in the User-Agent and X-Didit-Client headers.
-const Version = "1.41.0" // x-release-please-version
+const Version = "1.42.0" // x-release-please-version
