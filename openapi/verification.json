@@ -106406,7 +106406,7 @@
     "/v3/bank/connections/{id}/accounts/": {
       "get": {
         "summary": "List accounts of a connection",
-        "description": "Lists every account of the connection, oldest first, with full identifiers and holders. A read never bills.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A sandbox application reads its Test Bank data with the key alone. A request without an API key (client credentials) is refused on raw data with the same `403`.",
+        "description": "Lists every account of the connection, oldest first, with full identifiers and holders. A read never bills.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A request without an API key (client credentials) is refused on raw data with the same `403`.",
         "operationId": "listBankAccounts",
         "tags": [
           "Bank Data"
@@ -106672,7 +106672,7 @@
     "/v3/bank/accounts/{account_id}/": {
       "get": {
         "summary": "Get an account",
-        "description": "Returns one account with full identifiers, holders, sync state and `history_coverage`, which says what the bank delivered of the history you asked for. `sync.last_synced_at` is when the data was fetched from the bank, not when you read it.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A sandbox application reads its Test Bank data with the key alone. A request without an API key (client credentials) is refused on raw data with the same `403`.",
+        "description": "Returns one account with full identifiers, holders, sync state and `history_coverage`, which says what the bank delivered of the history you asked for. `sync.last_synced_at` is when the data was fetched from the bank, not when you read it.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A request without an API key (client credentials) is refused on raw data with the same `403`.",
         "operationId": "getBankAccount",
         "tags": [
           "Bank Data"
@@ -106878,7 +106878,7 @@
     "/v3/bank/accounts/{account_id}/balances/": {
       "get": {
         "summary": "Get account balances",
-        "description": "Returns the typed balances of an account with their reference dates. Balances are replaced at each sync.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A sandbox application reads its Test Bank data with the key alone. A request without an API key (client credentials) is refused on raw data with the same `403`.",
+        "description": "Returns the typed balances of an account with their reference dates. Balances are replaced at each sync.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A request without an API key (client credentials) is refused on raw data with the same `403`.",
         "operationId": "getBankAccountBalances",
         "tags": [
           "Bank Data"
@@ -107052,7 +107052,7 @@
     "/v3/bank/accounts/{account_id}/transactions/": {
       "get": {
         "summary": "List account transactions",
-        "description": "Date-range read of an account's transactions, sorted by `effective_date` descending, then `id` descending, in pages of up to 500. `date_from` and `date_to` are calendar dates, inclusive, in the bank's own time zone with nothing converted. They apply to `effective_date`: for a booked transaction its booking date, else its value date, else the date it was first seen; for a pending one its transaction date, else the date it was first seen. By default `date_from` is the start of the stored history and `date_to` has no upper bound, and booked and pending are both returned.\n\nThe first page pins which transactions are included and each is served in its current state: a transaction removed while you page drops out of later pages and is reported by the change feed (`sync_transactions`). `page_token` continues one read and lives one hour; an expired token answers `410 page_expired`, so restart the read from its original query. To keep a copy up to date, use the change feed instead of re-reading ranges.\n\nResponse headers: `X-Bank-Last-Synced-At` and `Cache-Control: no-store`.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A sandbox application reads its Test Bank data with the key alone. A request without an API key (client credentials) is refused on raw data with the same `403`.",
+        "description": "Date-range read of an account's transactions, sorted by `effective_date` descending, then `id` descending, in pages of up to 500. `date_from` and `date_to` are calendar dates, inclusive, in the bank's own time zone with nothing converted. They apply to `effective_date`: for a booked transaction its booking date, else its value date, else the date it was first seen; for a pending one its transaction date, else the date it was first seen. By default `date_from` is the start of the stored history and `date_to` has no upper bound, and booked and pending are both returned.\n\nThe first page pins which transactions are included and each is served in its current state: a transaction removed while you page drops out of later pages and is reported by the change feed (`sync_transactions`). `page_token` continues one read and lives one hour; an expired token answers `410 page_expired`, so restart the read from its original query. To keep a copy up to date, use the change feed instead of re-reading ranges.\n\nResponse headers: `X-Bank-Last-Synced-At` and `Cache-Control: no-store`.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A request without an API key (client credentials) is refused on raw data with the same `403`.",
         "operationId": "listBankTransactions",
         "tags": [
           "Bank Data"
@@ -107460,7 +107460,7 @@
     "/v3/bank/connections/{id}/transactions/sync/": {
       "get": {
         "summary": "Sync transactions (change feed)",
-        "description": "Returns what changed in a connection's transactions since a `cursor`: `added`, `modified` and `removed` (with a `reason`), across all its accounts. An empty cursor returns every current transaction as `added` and sets `reset: true`: replace your copy with it instead of adding to it.\n\nThe first read is a true snapshot. A first read (no cursor, or the read after `reset`) returns every transaction the connection had when the read started, each exactly once as `added`, in its current state, even if a sync runs while you page. Changes made while you were paging arrive in the next read from `next_cursor`: a transaction you already received comes again as `modified`, and a new one as `added`. Apply `modified` as an upsert by `id`, and ignore a `removed` id you do not have. All pages of one read reflect the same point in time. Keep paging with `page_token` while `has_more` is `true`, and store `next_cursor` only after a response with `has_more: false`. If paging fails midway, restart from the cursor you had stored.\n\nThe change log is replayable for 90 days. An older cursor answers `410 cursor_expired` with `bootstrap: true`: start again from an empty cursor. Stored history is never aged out while the connection exists. A booked pending transaction appears in `added` and the pending one in `removed` with `reason: pending_booked`. Webhook `bank.data.updated` tells you when to call.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A sandbox application reads its Test Bank data with the key alone. A request without an API key (client credentials) is refused on raw data with the same `403`.",
+        "description": "Returns what changed in a connection's transactions since a `cursor`: `added`, `modified` and `removed` (with a `reason`), across all its accounts. An empty cursor returns every current transaction as `added` and sets `reset: true`: replace your copy with it instead of adding to it.\n\nThe first read is a true snapshot. A first read (no cursor, or the read after `reset`) returns every transaction the connection had when the read started, each exactly once as `added`, in its current state, even if a sync runs while you page. Changes made while you were paging arrive in the next read from `next_cursor`: a transaction you already received comes again as `modified`, and a new one as `added`. Apply `modified` as an upsert by `id`, and ignore a `removed` id you do not have. All pages of one read reflect the same point in time. Keep paging with `page_token` while `has_more` is `true`, and store `next_cursor` only after a response with `has_more: false`. If paging fails midway, restart from the cursor you had stored.\n\nThe change log is replayable for 90 days. An older cursor answers `410 cursor_expired` with `bootstrap: true`: start again from an empty cursor. Stored history is never aged out while the connection exists. A booked pending transaction appears in `added` and the pending one in `removed` with `reason: pending_booked`. Webhook `bank.data.updated` tells you when to call.\n\nNeeds an API key with read access to Bank data: a full-access key has it, and a scoped key needs `bank-data` read in its scopes. Otherwise the call answers `403 bank_data_access_denied`. A request without an API key (client credentials) is refused on raw data with the same `403`.",
         "operationId": "syncBankTransactions",
         "tags": [
           "Bank Data"
@@ -150506,7 +150506,7 @@
               "contact_support",
               null
             ],
-            "description": "What to do next, so a client can act without guessing. `null` when there is no standard next step.",
+            "description": "What to do next, so a client can act without guessing. `null` when there is no standard next step. `enable_bank_data_access` means the key has no access to Bank data: use a key that has it (a full-access key, or a scoped key that names `bank-data`).",
             "nullable": true
           },
           "retry_after": {
@@ -156274,7 +156274,7 @@
         }
       },
       "BankDataAccessDenied": {
-        "description": "A scoped API key does not name Bank data (`bank-data`) in its scopes, or, for raw bank data in a live application, the application setting \"Bank data in the API\" is off. A request authenticated without an API key (client credentials, on raw data) is refused with this body too. A full-access key is not refused for its scopes. The refusal comes before any lookup, so it says nothing about whether an object exists.",
+        "description": "A scoped API key does not name Bank data (`bank-data`) in its scopes. A request authenticated without an API key (client credentials, on raw data) is refused with this body too. A full-access key is not refused for its scopes. The refusal comes before any lookup, so it says nothing about whether an object exists.",
         "content": {
           "application/json": {
             "schema": {
