@@ -166,6 +166,20 @@ func (r *PhoneService) AssessRiskBulk(ctx context.Context, params PhoneAssessRis
 // check could not be completed, and it is not billed in that case. Billing adds
 // one `phone_social` unit per request on top of this endpoint's own price.
 //
+// **TOTP factors and test numbers.** A request that names a `factor_id` checks
+// that TOTP factor instead of a phone code: the service does not read
+// `phone_number` then, but it stays a required field of the request, so typed
+// SDK calls keep their shape. The answer is the same object with only
+// `verification_id` (the factor), `status` (`verified` or `failed`) and
+// `attempts`; the phone fields (`request_id`, `message`, `phone`,
+// `vendor_data`, `metadata`, `created_at`) come back only from a phone code
+// check. A factor that passes its first check becomes `verified`. A code is
+// accepted once: a code already used for the factor fails. After 3 failed codes
+// in the verification window the answer is `429` with `code:
+// too_many_attempts`. A request that names the `verification_id` of a
+// registration test number checks the code Didit sent to it and answers like a
+// phone code check.
+//
 //	POST /v3/phone/check/
 func (r *PhoneService) CheckCode(ctx context.Context, params PhoneCheckCodeParams, opts ...option.RequestOption) (*PhoneVerificationCheckResponse, error) {
 	res := new(PhoneVerificationCheckResponse)
@@ -294,25 +308,21 @@ type PhoneFactorsService struct {
 // Create: Enroll a TOTP factor.
 //
 // Enroll a TOTP factor for one of your users, so they confirm a verification
-// with an authenticator app instead of a code. `type` is `totp` and `user_id`
-// is your id for the user.
+// with the code of an authenticator app instead of a phone code: `type` is
+// `totp` and `user_id` is your id for the user.
 //
-// The answer carries `totp.uri`, the `otpauth://` URI to show as a QR code; the
-// authenticator app scans it and starts producing codes.
+// The answer carries `totp.uri`, the `otpauth://` URI to show as a QR code. It
+// is the only time the secret is shown.
 //
-// **State.** A new factor is `unverified` until its first code passes `POST
-// /v3/phone/check/`, then `verified`.
+// **State.** A new factor is `unverified`. It becomes `verified` when its first
+// code passes `POST /v3/phone/check/` with the `factor_id`.
 //
-// **One of each type.** A user holds at most one factor: a second one answers
-// `409 factor_exists`.
+// **One of each type.** A user holds at most one factor of each type: a second
+// one answers `409 factor_exists`.
+//
+// **Permissions.** Only an Owner or Admin API key can enroll factors.
 //
 // **Authentication.** Send your application's API key in `x-api-key`.
-//
-// **Rate limit.** Requests count against the key's budget; over it the answer
-// is `429` with `Retry-After`.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 //
 //	POST /v3/phone/factors/
 func (r *PhoneFactorsService) Create(ctx context.Context, params PhoneFactorCreateRequest, opts ...option.RequestOption) (*PhoneFactorEnrollment, error) {
@@ -326,7 +336,7 @@ func (r *PhoneFactorsService) Create(ctx context.Context, params PhoneFactorCrea
 // Delete: Remove a factor.
 //
 // Delete an enrolled factor. The factor is deleted at once: its `factor_id`
-// stops working and the TOTP secret it held stop verifying, and the deletion
+// stops working, the TOTP secret it held stops verifying, and the deletion
 // cannot be undone. Verifications the factor already completed stay verified,
 // and the user's other factors are not affected.
 //
@@ -338,9 +348,6 @@ func (r *PhoneFactorsService) Create(ctx context.Context, params PhoneFactorCrea
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
-//
 //	DELETE /v3/phone/factors/{factor_id}/
 func (r *PhoneFactorsService) Delete(ctx context.Context, factorID string, opts ...option.RequestOption) error {
 	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/factors/{factor_id}/", pathParams: []string{"factor_id", factorID}}, nil, opts)
@@ -349,9 +356,9 @@ func (r *PhoneFactorsService) Delete(ctx context.Context, factorID string, opts 
 
 // List: List a user's enrolled factors.
 //
-// List the factors enrolled for one of your users, so your app can show them
-// and let the user pick the one to check with. `user_id` is required; `type`
-// and `status` narrow the list.
+// List the factors enrolled for one of your users, newest first, so your app
+// can show them and let the user pick the one to check with. `user_id` is
+// required; `type` and `status` narrow the list.
 //
 // The answer is a page: `count`, `next`, `previous` and `results`, each result
 // a factor as Retrieve returns it.
@@ -366,10 +373,9 @@ func (r *PhoneFactorsService) Delete(ctx context.Context, factorID string, opts 
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
-// It returns one page; ListAutoPaging iterates over every item of every page.
+// **Permissions.** Only an Owner or Admin API key can list factors.
 //
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
+// It returns one page; ListAutoPaging iterates over every item of every page.
 //
 //	GET /v3/phone/factors/
 func (r *PhoneFactorsService) List(ctx context.Context, params PhoneFactorsListParams, opts ...option.RequestOption) (*Page[PhoneFactor], error) {
@@ -378,9 +384,6 @@ func (r *PhoneFactorsService) List(ctx context.Context, params PhoneFactorsListP
 
 // ListAutoPaging iterates over every item of every page of List, fetching pages
 // as needed.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 func (r *PhoneFactorsService) ListAutoPaging(ctx context.Context, params PhoneFactorsListParams, opts ...option.RequestOption) *PageIterator[PhoneFactor] {
 	return newPageIterator(ctx, func() (*Page[PhoneFactor], error) {
 		return r.List(ctx, params, opts...)
@@ -398,9 +401,6 @@ func (r *PhoneFactorsService) ListAutoPaging(ctx context.Context, params PhoneFa
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
-//
 //	GET /v3/phone/factors/{factor_id}/
 func (r *PhoneFactorsService) Retrieve(ctx context.Context, factorID string, opts ...option.RequestOption) (*PhoneFactor, error) {
 	res := new(PhoneFactor)
@@ -413,8 +413,8 @@ func (r *PhoneFactorsService) Retrieve(ctx context.Context, factorID string, opt
 // Update: Change a factor's name, metadata or state.
 //
 // Change a factor without enrolling it again: rename it (`friendly_name`),
-// replace your `metadata`, or disable it or turn it back on (`status`). The
-// answer is the factor as it now stands.
+// replace your `metadata`, disable it or turn it back on (`status`). The answer
+// is the factor as it now stands.
 //
 // `disabled` stops the factor's checks and `verified` turns a disabled factor
 // back on. A factor that was never verified cannot be turned on: finish its
@@ -427,9 +427,6 @@ func (r *PhoneFactorsService) Retrieve(ctx context.Context, factorID string, opt
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 //
 //	PATCH /v3/phone/factors/{factor_id}/
 func (r *PhoneFactorsService) Update(ctx context.Context, factorID string, params PhoneFactorUpdateRequest, opts ...option.RequestOption) (*PhoneFactor, error) {
@@ -805,9 +802,6 @@ type PhoneNetworkRegistrationsService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
-//
 //	POST /v3/phone/network/registrations/
 func (r *PhoneNetworkRegistrationsService) Create(ctx context.Context, params PhoneNetworkRegistrationRequest, opts ...option.RequestOption) (*PhoneNetworkRegistration, error) {
 	res := new(PhoneNetworkRegistration)
@@ -834,9 +828,6 @@ func (r *PhoneNetworkRegistrationsService) Create(ctx context.Context, params Ph
 //
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
-//
 //	GET /v3/phone/network/registrations/
 func (r *PhoneNetworkRegistrationsService) List(ctx context.Context, params PhoneNetworkRegistrationsListParams, opts ...option.RequestOption) (*Page[PhoneNetworkRegistrationSummary], error) {
 	return getPage[PhoneNetworkRegistrationSummary](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/network/registrations/", params: params}, opts)
@@ -844,9 +835,6 @@ func (r *PhoneNetworkRegistrationsService) List(ctx context.Context, params Phon
 
 // ListAutoPaging iterates over every item of every page of List, fetching pages
 // as needed.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 func (r *PhoneNetworkRegistrationsService) ListAutoPaging(ctx context.Context, params PhoneNetworkRegistrationsListParams, opts ...option.RequestOption) *PageIterator[PhoneNetworkRegistrationSummary] {
 	return newPageIterator(ctx, func() (*Page[PhoneNetworkRegistrationSummary], error) {
 		return r.List(ctx, params, opts...)
@@ -865,9 +853,6 @@ func (r *PhoneNetworkRegistrationsService) ListAutoPaging(ctx context.Context, p
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 //
 //	GET /v3/phone/network/registrations/{registration_id}/
 func (r *PhoneNetworkRegistrationsService) Retrieve(ctx context.Context, registrationID string, opts ...option.RequestOption) (*PhoneNetworkRegistration, error) {
@@ -892,9 +877,9 @@ type PhoneNetworkRegistrationsTestNumbersService struct {
 // E.164 (`phone_number`).
 //
 // Didit sends it a code and answers with `verification_id` and `status:
-// code_sent`; check the code with `POST /v3/phone/check/` and the number. Once
-// the code is checked the number is `verified`, and the feature answers for it
-// under test access, marked `test: true`.
+// code_sent`; check the code with `POST /v3/phone/check/` and the
+// `verification_id`. Once the code is checked the number is `verified`, and the
+// feature answers for it under test access, marked `test: true`.
 //
 // **Limits.** A registration takes up to 5 test numbers (`409
 // too_many_test_numbers`), and test access ends when the networks decide (`409
@@ -904,9 +889,6 @@ type PhoneNetworkRegistrationsTestNumbersService struct {
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 //
 //	POST /v3/phone/network/registrations/{registration_id}/test-numbers/
 func (r *PhoneNetworkRegistrationsTestNumbersService) Create(ctx context.Context, registrationID string, params PhoneNetworkRegistrationTestNumberRequest, opts ...option.RequestOption) (*PhoneNetworkRegistrationTestNumber, error) {
@@ -930,9 +912,6 @@ func (r *PhoneNetworkRegistrationsTestNumbersService) Create(ctx context.Context
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 //
 //	DELETE /v3/phone/network/registrations/{registration_id}/test-numbers/{phone_number}/
 func (r *PhoneNetworkRegistrationsTestNumbersService) Delete(ctx context.Context, registrationID string, phoneNumber string, opts ...option.RequestOption) error {
@@ -1085,9 +1064,6 @@ type PhoneSDKKeysService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
-//
 //	POST /v3/phone/sdk-keys/
 func (r *PhoneSDKKeysService) Create(ctx context.Context, params PhoneSDKKeyRequest, opts ...option.RequestOption) (*PhoneSDKKey, error) {
 	res := new(PhoneSDKKey)
@@ -1110,9 +1086,6 @@ func (r *PhoneSDKKeysService) Create(ctx context.Context, params PhoneSDKKeyRequ
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 //
 //	GET /v3/phone/sdk-keys/
 func (r *PhoneSDKKeysService) List(ctx context.Context, params PhoneSDKKeysListParams, opts ...option.RequestOption) (*PhoneSDKKeysPage, error) {
@@ -1137,9 +1110,6 @@ func (r *PhoneSDKKeysService) List(ctx context.Context, params PhoneSDKKeysListP
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
-//
 //	DELETE /v3/phone/sdk-keys/{key_id}/
 func (r *PhoneSDKKeysService) Revoke(ctx context.Context, keyID string, opts ...option.RequestOption) error {
 	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/sdk-keys/{key_id}/", pathParams: []string{"key_id", keyID}}, nil, opts)
@@ -1154,8 +1124,9 @@ func (r *PhoneSDKKeysService) Revoke(ctx context.Context, keyID string, opts ...
 // new `publishable_key`, and `previous_expires_at` is when the value it
 // replaced stops working.
 //
-// Ship the new value, then let the overlap end. A revoked key cannot be
-// rotated: the call answers `409 revoked`.
+// Ship the new value, then let the overlap end. A revoked key cannot be rotated
+// (`409 revoked`) and neither can a key that was rotated already (`409
+// already_rotated`).
 //
 // **Permissions.** Only an Owner or Admin API key may rotate a publishable key.
 //
@@ -1163,9 +1134,6 @@ func (r *PhoneSDKKeysService) Revoke(ctx context.Context, keyID string, opts ...
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 //
 //	POST /v3/phone/sdk-keys/{key_id}/rotate/
 func (r *PhoneSDKKeysService) Rotate(ctx context.Context, keyID string, params PhoneSDKKeyRotateRequest, opts ...option.RequestOption) (*PhoneSDKKeyRotated, error) {
@@ -1208,9 +1176,6 @@ type PhoneSilentService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
-//
 //	GET /v3/phone/silent/coverage/
 func (r *PhoneSilentService) Coverage(ctx context.Context, params PhoneSilentCoverageParams, opts ...option.RequestOption) (*PhoneSilentCoverage, error) {
 	res := new(PhoneSilentCoverage)
@@ -1245,9 +1210,6 @@ func (r *PhoneSilentService) Coverage(ctx context.Context, params PhoneSilentCov
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 //
 //	POST /v3/phone/silent/eligibility/
 func (r *PhoneSilentService) Eligibility(ctx context.Context, params PhoneSilentEligibilityParams, opts ...option.RequestOption) (*PhoneSilentEligibility, error) {
@@ -1287,9 +1249,6 @@ type PhoneSilentRegistrationsService struct {
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
 //
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
-//
 //	POST /v3/phone/silent/registrations/
 func (r *PhoneSilentRegistrationsService) Create(ctx context.Context, params PhoneSilentRegistrationRequest, opts ...option.RequestOption) (*PhoneSilentRegistration, error) {
 	res := new(PhoneSilentRegistration)
@@ -1313,9 +1272,6 @@ func (r *PhoneSilentRegistrationsService) Create(ctx context.Context, params Pho
 //
 // **Rate limit.** Requests count against the key's budget; over it the answer
 // is `429` with `Retry-After`.
-//
-// Deprecated: The operation was removed from the API on 2026-11-23. This method
-// is removed in version 1.38.0.
 //
 //	GET /v3/phone/silent/registrations/{registration_id}/
 func (r *PhoneSilentRegistrationsService) Retrieve(ctx context.Context, registrationID string, opts ...option.RequestOption) (*PhoneSilentRegistration, error) {
@@ -1698,6 +1654,22 @@ type PhoneCheckCodeParams struct {
 	// endpoint; REVIEW is available on the workflow configuration key of the same
 	// name.
 	PhoneNoSocialPresenceAction Opt[PhoneCheckCodeParamsPhoneNoSocialPresenceAction] `json:"phone_no_social_presence_action"`
+
+	// Check a TOTP factor enrolled with `POST /v3/phone/factors/` instead of a
+	// phone code: send the 4-8 digit `code` its authenticator app shows. With
+	// `factor_id` the service does not read `phone_number` (typed SDKs still take
+	// it, because it stays a required field of this request, so pass the user's
+	// number or any valid E.164 number). The answer carries `verification_id`,
+	// `status` (`verified` or `failed`) and `attempts`. A `disabled` factor answers
+	// `409 factor_disabled`, an unknown one `404 not_found` and a request without
+	// `code` `400 code_required`.
+	FactorID Opt[string] `json:"factor_id"`
+
+	// Check the code Didit sent to a registration test number: send the
+	// `verification_id` that `POST
+	// /v3/phone/network/registrations/{registration_id}/test-numbers/` returned
+	// with the `code`. The number itself still goes in `phone_number`.
+	VerificationID Opt[string] `json:"verification_id"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -1837,7 +1809,9 @@ type PhoneVerificationCheckResponse struct {
 	// `Approved` - correct code, no declining risk. `Declined` - terminal: a
 	// declining risk matched or the attempt budget (3) was exhausted. `Failed` -
 	// wrong code, attempts remaining. `Expired or Not Found` - no pending
-	// verification for this number in the last 5 minutes.
+	// verification for this number in the last 5 minutes. For a TOTP factor check
+	// (a request that names `factor_id`) the status is `verified` (the code
+	// matched) or `failed`.
 	Status PhoneVerificationCheckResponseStatus `json:"status"`
 
 	// Human-readable explanation of the outcome, including the number of attempts
@@ -1860,6 +1834,15 @@ type PhoneVerificationCheckResponse struct {
 	// Timestamp of this check response.
 	CreatedAt time.Time `json:"created_at"`
 
+	// A TOTP factor check only: the id of the factor that was checked, `fa_`
+	// followed by 32 hexadecimal characters. Not present in the answer to a phone
+	// code check.
+	VerificationID string `json:"verification_id"`
+
+	// A TOTP factor check only: the failed codes in the current window including
+	// this one. Not present in the answer to a phone code check.
+	Attempts int64 `json:"attempts"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -1873,7 +1856,9 @@ func (r *PhoneVerificationCheckResponse) UnmarshalJSON(data []byte) error {
 // PhoneVerificationCheckResponseStatus: `Approved` - correct code, no declining
 // risk. `Declined` - terminal: a declining risk matched or the attempt budget
 // (3) was exhausted. `Failed` - wrong code, attempts remaining. `Expired or Not
-// Found` - no pending verification for this number in the last 5 minutes.
+// Found` - no pending verification for this number in the last 5 minutes. For a
+// TOTP factor check (a request that names `factor_id`) the status is `verified`
+// (the code matched) or `failed`.
 //
 // PhoneVerificationCheckResponseStatus is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -1885,6 +1870,8 @@ const (
 	PhoneVerificationCheckResponseStatusDeclined          PhoneVerificationCheckResponseStatus = "Declined"
 	PhoneVerificationCheckResponseStatusFailed            PhoneVerificationCheckResponseStatus = "Failed"
 	PhoneVerificationCheckResponseStatusExpiredOrNotFound PhoneVerificationCheckResponseStatus = "Expired or Not Found"
+	PhoneVerificationCheckResponseStatusVerified          PhoneVerificationCheckResponseStatus = "verified"
+	PhoneVerificationCheckResponseStatusFailed2           PhoneVerificationCheckResponseStatus = "failed"
 )
 
 // PhoneVerificationCheckResponsePhone: Full phone report. Present (non-null)
@@ -2318,7 +2305,8 @@ const (
 
 // PhoneFactorCreateRequest is a request object.
 type PhoneFactorCreateRequest struct {
-	// The factor to enroll: `totp`, for an authenticator app. Required.
+	// The factor to enroll: `totp`, an authenticator app. Any other value answers
+	// `400 invalid_type`. Required.
 	Type PhoneFactorCreateRequestType `json:"type"`
 
 	// Your id for the user the factor belongs to; a check names the factor and the
@@ -2328,7 +2316,8 @@ type PhoneFactorCreateRequest struct {
 	// Shown in the authenticator app and in the factor list.
 	FriendlyName Opt[string] `json:"friendly_name"`
 
-	// Up to 10 keys and values of your own, returned with the factor.
+	// Your own small object returned with the factor: up to 10 keys, each value at
+	// most 500 characters.
 	Metadata Opt[map[string]string] `json:"metadata"`
 }
 
@@ -2337,8 +2326,8 @@ func (r PhoneFactorCreateRequest) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
-// PhoneFactorCreateRequestType: The factor to enroll: `totp`, for an
-// authenticator app.
+// PhoneFactorCreateRequestType: The factor to enroll: `totp`, an authenticator
+// app. Any other value answers `400 invalid_type`.
 //
 // PhoneFactorCreateRequestType is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -2349,8 +2338,8 @@ const (
 	PhoneFactorCreateRequestTypeTotp PhoneFactorCreateRequestType = "totp"
 )
 
-// PhoneFactorEnrollment: The enrollment of a TOTP factor: `totp.uri` is what
-// the authenticator app needs.
+// PhoneFactorEnrollment: A new TOTP factor and the authenticator URI to show as
+// a QR code. The secret is shown only here.
 type PhoneFactorEnrollment struct {
 	// Check it with `POST /v3/phone/check/` by naming it as `factor_id` together
 	// with the `code` its app shows.
@@ -2359,7 +2348,7 @@ type PhoneFactorEnrollment struct {
 	// The factor type.
 	Type PhoneFactorEnrollmentType `json:"type"`
 
-	// `unverified` until the first successful check, then `verified`.
+	// A new factor is `unverified` until its first check passes
 	Status PhoneFactorEnrollmentStatus `json:"status"`
 
 	// A `totp` factor: what the authenticator app needs.
@@ -2386,8 +2375,8 @@ const (
 	PhoneFactorEnrollmentTypeTotp PhoneFactorEnrollmentType = "totp"
 )
 
-// PhoneFactorEnrollmentStatus: `unverified` until the first successful check,
-// then `verified`.
+// PhoneFactorEnrollmentStatus: A new factor is `unverified` until its first
+// check passes
 //
 // PhoneFactorEnrollmentStatus is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -2396,8 +2385,6 @@ type PhoneFactorEnrollmentStatus string
 // Known values of PhoneFactorEnrollmentStatus.
 const (
 	PhoneFactorEnrollmentStatusUnverified PhoneFactorEnrollmentStatus = "unverified"
-	PhoneFactorEnrollmentStatusVerified   PhoneFactorEnrollmentStatus = "verified"
-	PhoneFactorEnrollmentStatusDisabled   PhoneFactorEnrollmentStatus = "disabled"
 )
 
 // PhoneFactorEnrollmentTotp: A `totp` factor: what the authenticator app needs.
@@ -3788,7 +3775,7 @@ type PhoneNetworkRegistration struct {
 	TestAccess PhoneNetworkRegistrationTestAccess `json:"test_access"`
 
 	// Your test numbers for this registration, up to 5.
-	TestNumbers []PhoneNetworkRegistrationTestNumber `json:"test_numbers"`
+	TestNumbers []PhoneNetworkRegistrationTestNumberSummary `json:"test_numbers"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
@@ -3885,57 +3872,35 @@ const (
 	PhoneNetworkRegistrationTestAccessOff PhoneNetworkRegistrationTestAccess = "off"
 )
 
-// PhoneNetworkRegistrationTestNumber is a response object.
-type PhoneNetworkRegistrationTestNumber struct {
-	// The test number.
+// PhoneNetworkRegistrationTestNumberSummary is a response object.
+type PhoneNetworkRegistrationTestNumberSummary struct {
+	// The test number in E.164 format
 	PhoneNumber string `json:"phone_number"`
 
-	// `code_sent` - Didit sent it a code, which makes it a verified test number
-	// once checked; `verified` - it answers the feature under test access.
-	Status PhoneNetworkRegistrationTestNumberStatus `json:"status"`
-
-	// The verification carrying the code: check it with `POST /v3/phone/check/`.
-	VerificationID string `json:"verification_id"`
-
-	// `on` - the registration is under review, so the feature answers for its test
-	// numbers, with `test: true` in the answer.
-	TestAccess PhoneNetworkRegistrationTestNumberTestAccess `json:"test_access"`
+	// `code_sent` until the code Didit sent is checked, then `verified`
+	Status PhoneNetworkRegistrationTestNumberSummaryStatus `json:"status"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
 }
 
-// UnmarshalJSON decodes PhoneNetworkRegistrationTestNumber leniently.
-func (r *PhoneNetworkRegistrationTestNumber) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON decodes PhoneNetworkRegistrationTestNumberSummary leniently.
+func (r *PhoneNetworkRegistrationTestNumberSummary) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// PhoneNetworkRegistrationTestNumberStatus: `code_sent` - Didit sent it a code,
-// which makes it a verified test number once checked; `verified` - it answers
-// the feature under test access.
+// PhoneNetworkRegistrationTestNumberSummaryStatus: `code_sent` until the code
+// Didit sent is checked, then `verified`
 //
-// PhoneNetworkRegistrationTestNumberStatus is a string with known values below.
-// The set is open: other values may appear and never cause an error.
-type PhoneNetworkRegistrationTestNumberStatus string
-
-// Known values of PhoneNetworkRegistrationTestNumberStatus.
-const (
-	PhoneNetworkRegistrationTestNumberStatusCodeSent PhoneNetworkRegistrationTestNumberStatus = "code_sent"
-	PhoneNetworkRegistrationTestNumberStatusVerified PhoneNetworkRegistrationTestNumberStatus = "verified"
-)
-
-// PhoneNetworkRegistrationTestNumberTestAccess: `on` - the registration is
-// under review, so the feature answers for its test numbers, with `test: true`
-// in the answer.
-//
-// PhoneNetworkRegistrationTestNumberTestAccess is a string with known values
+// PhoneNetworkRegistrationTestNumberSummaryStatus is a string with known values
 // below. The set is open: other values may appear and never cause an error.
-type PhoneNetworkRegistrationTestNumberTestAccess string
+type PhoneNetworkRegistrationTestNumberSummaryStatus string
 
-// Known values of PhoneNetworkRegistrationTestNumberTestAccess.
+// Known values of PhoneNetworkRegistrationTestNumberSummaryStatus.
 const (
-	PhoneNetworkRegistrationTestNumberTestAccessOn PhoneNetworkRegistrationTestNumberTestAccess = "on"
+	PhoneNetworkRegistrationTestNumberSummaryStatusCodeSent PhoneNetworkRegistrationTestNumberSummaryStatus = "code_sent"
+	PhoneNetworkRegistrationTestNumberSummaryStatusVerified PhoneNetworkRegistrationTestNumberSummaryStatus = "verified"
 )
 
 // PhoneNetworkRegistrationsListParams holds the parameters of
@@ -4066,6 +4031,60 @@ func (r PhoneNetworkRegistrationTestNumberRequest) MarshalJSON() ([]byte, error)
 	return marshalParams(r)
 }
 
+// PhoneNetworkRegistrationTestNumber is a response object.
+type PhoneNetworkRegistrationTestNumber struct {
+	// The test number.
+	PhoneNumber string `json:"phone_number"`
+
+	// `code_sent` - Didit sent it a code, which makes it a verified test number
+	// once checked; `verified` - it answers the feature under test access.
+	Status PhoneNetworkRegistrationTestNumberStatus `json:"status"`
+
+	// The verification of the code Didit sent: `pv_` followed by 32 hexadecimal
+	// characters. Check the code with `POST /v3/phone/check/` and this
+	// `verification_id`.
+	VerificationID string `json:"verification_id"`
+
+	// `on` - the registration is under review, so the feature answers for its test
+	// numbers, with `test: true` in the answer.
+	TestAccess PhoneNetworkRegistrationTestNumberTestAccess `json:"test_access"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneNetworkRegistrationTestNumber leniently.
+func (r *PhoneNetworkRegistrationTestNumber) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneNetworkRegistrationTestNumberStatus: `code_sent` - Didit sent it a code,
+// which makes it a verified test number once checked; `verified` - it answers
+// the feature under test access.
+//
+// PhoneNetworkRegistrationTestNumberStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationTestNumberStatus string
+
+// Known values of PhoneNetworkRegistrationTestNumberStatus.
+const (
+	PhoneNetworkRegistrationTestNumberStatusCodeSent PhoneNetworkRegistrationTestNumberStatus = "code_sent"
+)
+
+// PhoneNetworkRegistrationTestNumberTestAccess: `on` - the registration is
+// under review, so the feature answers for its test numbers, with `test: true`
+// in the answer.
+//
+// PhoneNetworkRegistrationTestNumberTestAccess is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneNetworkRegistrationTestNumberTestAccess string
+
+// Known values of PhoneNetworkRegistrationTestNumberTestAccess.
+const (
+	PhoneNetworkRegistrationTestNumberTestAccessOn PhoneNetworkRegistrationTestNumberTestAccess = "on"
+)
+
 // PhoneRateLimitsCreateParams holds the parameters of
 // Client.Phone.RateLimits.Create.
 type PhoneRateLimitsCreateParams struct {
@@ -4189,7 +4208,8 @@ type PhoneSDKKeyRequest struct {
 	// The platform the key is for: `ios`, `android` or `web`. Required.
 	Platform PhoneSDKKeyRequestPlatform `json:"platform"`
 
-	// The bundle ids, package names or `https` origins the key works for. Required.
+	// The apps the key may run in: iOS bundle ids, Android package names or web
+	// origins (`https://` and the host), matching `platform` Required.
 	AppIDs []string `json:"app_ids"`
 
 	// Shown in API keys.
@@ -4218,7 +4238,7 @@ const (
 // PhoneSDKKey: A publishable key of a client SDK. It is not a secret: it is
 // bound to the app ids it may run in and cannot make a server call.
 type PhoneSDKKey struct {
-	// The key.
+	// The key: `sk_` followed by 32 hexadecimal characters
 	KeyID string `json:"key_id"`
 
 	// The platform it is for.
@@ -4430,9 +4450,7 @@ type PhoneSDKKeyRotatedStatus string
 
 // Known values of PhoneSDKKeyRotatedStatus.
 const (
-	PhoneSDKKeyRotatedStatusActive   PhoneSDKKeyRotatedStatus = "active"
-	PhoneSDKKeyRotatedStatusExpiring PhoneSDKKeyRotatedStatus = "expiring"
-	PhoneSDKKeyRotatedStatusRevoked  PhoneSDKKeyRotatedStatus = "revoked"
+	PhoneSDKKeyRotatedStatusActive PhoneSDKKeyRotatedStatus = "active"
 )
 
 // PhoneSilentCoverageParams holds the parameters of
@@ -4605,7 +4623,8 @@ type PhoneSilentRegistrationRequest struct {
 	// The ISO 3166-1 alpha-2 country to ask approval for. Required.
 	Country string `json:"country"`
 
-	// Only these mobile networks; left out, every network in the country.
+	// The mobile networks to ask, by the names `GET /v3/phone/silent/coverage/`
+	// lists; all the country's networks when you send none
 	Networks Opt[[]string] `json:"networks"`
 
 	// What silent verification is used for. Required.
@@ -4645,7 +4664,7 @@ const (
 
 // PhoneSilentRegistration is a response object.
 type PhoneSilentRegistration struct {
-	// The registration: track it with it.
+	// The registration: `sr_` followed by 32 hexadecimal characters
 	RegistrationID string `json:"registration_id"`
 
 	// The country it asks approval for.
