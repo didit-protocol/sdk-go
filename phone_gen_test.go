@@ -100,7 +100,7 @@ func TestPhoneSendCode(t *testing.T) {
 }
 
 func TestPhoneFactorsCreate(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"factor_id":"fa_01JCH8K2","type":"totp","status":"unverified","totp":{"uri":"otpauth://totp/Demo%20App:u_481?secret=JBSWY3DP"}}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"factor_id":"fa_3f6c1b528d4e4a7b9c105e2a7d9b1c01","type":"totp","status":"unverified","totp":{"uri":"otpauth://totp/Demo%20App:u_481?secret=JBSWY3DP"}}`)
 	var params didit.PhoneFactorCreateRequest
 	mustUnmarshal(t, `{"type":"totp","user_id":"u_481","friendly_name":"Demo App","metadata":{"device":"iPhone 15"}}`, &params)
 	res, err := client.Phone.Factors.Create(context.Background(), params)
@@ -125,7 +125,7 @@ func TestPhoneFactorsDelete(t *testing.T) {
 }
 
 func TestPhoneFactorsList(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"factor_id":"fa_01JCH8K2","type":"totp","status":"verified","user_id":"u_481","friendly_name":"Demo App","metadata":{"device":"iPhone 15"},"created_at":"2026-11-02T08:14:00Z","last_used_at":"2026-11-21T09:58:00Z"}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"factor_id":"fa_3f6c1b528d4e4a7b9c105e2a7d9b1c01","type":"totp","status":"verified","user_id":"u_481","friendly_name":"Demo App","metadata":{"device":"iPhone 15"},"created_at":"2026-11-02T08:14:00Z","last_used_at":"2026-11-21T09:58:00Z"}]}`)
 	var params didit.PhoneFactorsListParams
 	params.UserID = "u_481"
 	params.Type = didit.Some(didit.PhoneFactorsListParamsTypeTotp)
@@ -151,7 +151,7 @@ func TestPhoneFactorsList(t *testing.T) {
 }
 
 func TestPhoneFactorsRetrieve(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"factor_id":"fa_01JCH8K2","type":"totp","status":"verified","user_id":"u_481","friendly_name":"Demo App","metadata":{"device":"iPhone 15"},"created_at":"2026-11-02T08:14:00Z","last_used_at":"2026-11-21T09:58:00Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"factor_id":"fa_3f6c1b528d4e4a7b9c105e2a7d9b1c01","type":"totp","status":"verified","user_id":"u_481","friendly_name":"Demo App","metadata":{"device":"iPhone 15"},"created_at":"2026-11-02T08:14:00Z","last_used_at":"2026-11-21T09:58:00Z"}`)
 	res, err := client.Phone.Factors.Retrieve(context.Background(), "factor-id-1")
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestPhoneFactorsRetrieve(t *testing.T) {
 }
 
 func TestPhoneFactorsUpdate(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"factor_id":"fa_01JCH8K2","type":"totp","status":"disabled","user_id":"u_481","friendly_name":"Work phone","metadata":{"device":"iPhone 16"},"created_at":"2026-11-02T08:14:00Z","last_used_at":"2026-11-21T09:58:00Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"factor_id":"fa_3f6c1b528d4e4a7b9c105e2a7d9b1c01","type":"totp","status":"disabled","user_id":"u_481","friendly_name":"Work phone","metadata":{"device":"iPhone 16"},"created_at":"2026-11-02T08:14:00Z","last_used_at":"2026-11-21T09:58:00Z"}`)
 	var params didit.PhoneFactorUpdateRequest
 	mustUnmarshal(t, `{"friendly_name":"Work phone","metadata":{"device":"iPhone 16"},"status":"disabled"}`, &params)
 	res, err := client.Phone.Factors.Update(context.Background(), "factor-id-1", params)
@@ -388,7 +388,7 @@ func TestPhoneListsRemove(t *testing.T) {
 }
 
 func TestPhoneNetworkRegistrationsCreate(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"registration_id":"nr_01JCP2F4Q8","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null,"test_access":"on","test_numbers":[{"phone_number":"+34600000012","status":"verified"}]}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"registration_id":"nr_5b1e7a902c434d688f150a9c3e6d7b22","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null,"test_access":"on","test_numbers":[{"phone_number":"+34600000012","status":"verified"}]}`)
 	var params didit.PhoneNetworkRegistrationRequest
 	mustUnmarshal(t, `{"feature":"sim_swap","country":"BR","use_case":"account_recovery","networks":["Mobile network A","Mobile network B"],"company_name":"Demo Application S.L.","website":"https://app.example.com","purpose":"Check for a recent SIM change before a password reset","monthly_volume":20000}`, &params)
 	res, err := client.Phone.Network.Registrations.Create(context.Background(), params)
@@ -403,7 +403,7 @@ func TestPhoneNetworkRegistrationsCreate(t *testing.T) {
 }
 
 func TestPhoneNetworkRegistrationsList(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"registration_id":"nr_01JCP2F4Q8","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved"}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"registration_id":"nr_5b1e7a902c434d688f150a9c3e6d7b22","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved"}]}`)
 	var params didit.PhoneNetworkRegistrationsListParams
 	params.Feature = didit.Some(didit.PhoneNetworkRegistrationsListParamsFeatureSimSwap)
 	params.Country = didit.String("ES")
@@ -429,7 +429,7 @@ func TestPhoneNetworkRegistrationsList(t *testing.T) {
 }
 
 func TestPhoneNetworkRegistrationsRetrieve(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"registration_id":"nr_01JCP2F4Q8","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null,"test_access":"on","test_numbers":[{"phone_number":"+34600000012","status":"verified"}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"registration_id":"nr_5b1e7a902c434d688f150a9c3e6d7b22","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null,"test_access":"on","test_numbers":[{"phone_number":"+34600000012","status":"verified"}]}`)
 	res, err := client.Phone.Network.Registrations.Retrieve(context.Background(), "registration-id-1")
 	if err != nil {
 		t.Fatal(err)
@@ -441,7 +441,7 @@ func TestPhoneNetworkRegistrationsRetrieve(t *testing.T) {
 }
 
 func TestPhoneNetworkRegistrationsTestNumbersCreate(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"phone_number":"+34600000012","status":"code_sent","verification_id":"pv_01JCH6D4T7N2XK8F","test_access":"on"}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"phone_number":"+34600000012","status":"code_sent","verification_id":"pv_ae4f1a368c7a4d259a493f6b0c2d7e55","test_access":"on"}`)
 	var params didit.PhoneNetworkRegistrationTestNumberRequest
 	mustUnmarshal(t, `{"phone_number":"+34600000012"}`, &params)
 	res, err := client.Phone.Network.Registrations.TestNumbers.Create(context.Background(), "registration-id-1", params)
@@ -550,7 +550,7 @@ func TestPhoneRateLimitsBucketsDelete(t *testing.T) {
 }
 
 func TestPhoneSDKKeysCreate(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"key_id":"sk_01JCL2B6","platform":"ios","publishable_key":"sample-publishable-key","app_ids":["com.demoapp.ios"],"status":"active","created_at":"2026-11-21T09:00:00Z"}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"key_id":"sk_9d3e0f257b694c148f382e5a9b1c6d44","platform":"ios","publishable_key":"sample-publishable-key","app_ids":["com.demoapp.ios"],"status":"active","created_at":"2026-11-21T09:00:00Z"}`)
 	var params didit.PhoneSDKKeyRequest
 	mustUnmarshal(t, `{"platform":"ios","app_ids":["com.demoapp.ios"],"name":"iOS app"}`, &params)
 	res, err := client.Phone.SDKKeys.Create(context.Background(), params)
@@ -565,7 +565,7 @@ func TestPhoneSDKKeysCreate(t *testing.T) {
 }
 
 func TestPhoneSDKKeysList(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"results":[{"key_id":"sk_01JCL2B6","platform":"ios","status":"active"}]}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"results":[{"key_id":"sk_9d3e0f257b694c148f382e5a9b1c6d44","platform":"ios","status":"active"}]}`)
 	var params didit.PhoneSDKKeysListParams
 	params.Platform = didit.Some(didit.PhoneSDKKeysListParamsPlatformIos)
 	res, err := client.Phone.SDKKeys.List(context.Background(), params)
@@ -590,7 +590,7 @@ func TestPhoneSDKKeysRevoke(t *testing.T) {
 }
 
 func TestPhoneSDKKeysRotate(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"key_id":"sk_01JCL2B6","platform":"ios","publishable_key":"sample-publishable-key","app_ids":["com.demoapp.ios"],"status":"active","created_at":"2026-11-21T09:00:00Z","previous_expires_at":"2026-11-24T09:00:00Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"key_id":"sk_9d3e0f257b694c148f382e5a9b1c6d44","platform":"ios","publishable_key":"sample-publishable-key","app_ids":["com.demoapp.ios"],"status":"active","created_at":"2026-11-21T09:00:00Z","previous_expires_at":"2026-11-24T09:00:00Z"}`)
 	var params didit.PhoneSDKKeyRotateRequest
 	mustUnmarshal(t, `{"overlap_hours":72}`, &params)
 	res, err := client.Phone.SDKKeys.Rotate(context.Background(), "key-id-1", params)
@@ -637,7 +637,7 @@ func TestPhoneSilentEligibility(t *testing.T) {
 }
 
 func TestPhoneSilentRegistrationsCreate(t *testing.T) {
-	client, mock := newMockClient(t, 201, "application/json", `{"registration_id":"sr_01JCP2F4Q8","country":"BR","status":"in_review","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null}`)
+	client, mock := newMockClient(t, 201, "application/json", `{"registration_id":"sr_7c2d9e146a584b039e271d4f8a0b5c33","country":"BR","status":"in_review","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null}`)
 	var params didit.PhoneSilentRegistrationRequest
 	mustUnmarshal(t, `{"country":"BR","use_case":"login","company_name":"Demo Application S.L.","website":"https://app.example.com","monthly_volume":40000}`, &params)
 	res, err := client.Phone.Silent.Registrations.Create(context.Background(), params)
@@ -652,7 +652,7 @@ func TestPhoneSilentRegistrationsCreate(t *testing.T) {
 }
 
 func TestPhoneSilentRegistrationsRetrieve(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"registration_id":"sr_01JCP2F4Q8","country":"BR","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"rejected","decided_at":"2026-11-20T16:40:00Z","reason":"Use case not covered by the approval"}],"live_at":"2026-11-21T08:00:00Z"}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"registration_id":"sr_7c2d9e146a584b039e271d4f8a0b5c33","country":"BR","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"rejected","decided_at":"2026-11-20T16:40:00Z","reason":"Use case not covered by the approval"}],"live_at":"2026-11-21T08:00:00Z"}`)
 	res, err := client.Phone.Silent.Registrations.Retrieve(context.Background(), "registration-id-1")
 	if err != nil {
 		t.Fatal(err)
