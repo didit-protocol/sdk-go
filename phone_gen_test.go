@@ -85,7 +85,7 @@ func TestPhoneRetrieveRiskBulk(t *testing.T) {
 }
 
 func TestPhoneSendCode(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"e39cb057-92fc-4b59-b84e-02fec29a0f24","status":"Success","reason":null,"vendor_data":"user-1234","metadata":null}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"e39cb057-92fc-4b59-b84e-02fec29a0f24","status":"Success","channel":null,"reason":null,"vendor_data":"user-1234","metadata":null}`)
 	var params didit.PhoneSendCodeParams
 	mustUnmarshal(t, `{"phone_number":"+14155552671","options":{"locale":"en-US","preferred_channel":"whatsapp"},"vendor_data":"user-1234"}`, &params)
 	res, err := client.Phone.SendCode(context.Background(), params)
