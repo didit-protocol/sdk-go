@@ -14,10 +14,14 @@ import (
 type PhoneService struct {
 	client *Client
 
-	Factors *PhoneFactorsService
-	Network *PhoneNetworkService
-	SDKKeys *PhoneSDKKeysService
-	Silent  *PhoneSilentService
+	Factors           *PhoneFactorsService
+	Fraud             *PhoneFraudService
+	LineTypeOverrides *PhoneLineTypeOverridesService
+	Lists             *PhoneListsService
+	Network           *PhoneNetworkService
+	RateLimits        *PhoneRateLimitsService
+	SDKKeys           *PhoneSDKKeysService
+	Silent            *PhoneSilentService
 }
 
 // AssessRisk: Risk-score a phone number.
@@ -69,6 +73,30 @@ type PhoneService struct {
 func (r *PhoneService) AssessRisk(ctx context.Context, params PhoneRiskRequest, opts ...option.RequestOption) (*PhoneRiskResponse, error) {
 	res := new(PhoneRiskResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/risk/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// AssessRiskBulk: Start a bulk lookup.
+//
+// Look up a CSV of numbers as one job: one number per line, up to 100,000
+// numbers, with `fields` naming the signals to return for each number. The call
+// answers `202` with the job (`status` `queued`, `processed` 0, `results_url`
+// `null`). Read it with `GET /v3/phone/risk/bulk/{job_id}/`; when it is done,
+// download the CSV from `results_url`. `callback_url`, a public HTTPS URL,
+// receives `{job_id, status, total, results_url}` when the job finishes
+// (described by `PhoneRiskBulkCallback`).
+//
+// Billing follows Phone Risk API pricing for each number in the file; a number
+// that is not valid is not charged.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	POST /v3/phone/risk/bulk/
+func (r *PhoneService) AssessRiskBulk(ctx context.Context, params PhoneAssessRiskBulkParams, opts ...option.RequestOption) (*PhoneRiskBulkJob, error) {
+	res := new(PhoneRiskBulkJob)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/risk/bulk/", params: params, body: bodyMultipart}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -142,6 +170,41 @@ func (r *PhoneService) AssessRisk(ctx context.Context, params PhoneRiskRequest, 
 func (r *PhoneService) CheckCode(ctx context.Context, params PhoneCheckCodeParams, opts ...option.RequestOption) (*PhoneVerificationCheckResponse, error) {
 	res := new(PhoneVerificationCheckResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/check/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// DownloadRiskBulkResults: Download bulk lookup results.
+//
+// Download the CSV of a bulk risk job: the column `phone_number` plus one
+// column per requested signal, one row per number in the order of the uploaded
+// file. A failed job still has the rows it answered. While no result file
+// exists the answer is `409 results_not_ready`.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// The response is a file (text/csv). Read it from the returned response's body
+// and close it.
+//
+//	GET /v3/phone/risk/bulk/{job_id}/results/
+func (r *PhoneService) DownloadRiskBulkResults(ctx context.Context, jobID string, opts ...option.RequestOption) (*http.Response, error) {
+	return r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/risk/bulk/{job_id}/results/", pathParams: []string{"job_id", jobID}, binary: true, accept: "text/csv"}, nil, opts)
+}
+
+// RetrieveRiskBulk: Get a bulk lookup job.
+//
+// Read a bulk risk job of your application: its `status`, how many numbers it
+// has `processed` of its `total`, and the `results_url` of the CSV once a
+// result file exists. An unknown job, or one of another application, answers
+// `404`.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	GET /v3/phone/risk/bulk/{job_id}/
+func (r *PhoneService) RetrieveRiskBulk(ctx context.Context, jobID string, opts ...option.RequestOption) (*PhoneRiskBulkJob, error) {
+	res := new(PhoneRiskBulkJob)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/risk/bulk/{job_id}/", pathParams: []string{"job_id", jobID}}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -377,6 +440,328 @@ func (r *PhoneFactorsService) Update(ctx context.Context, factorID string, param
 	return res, nil
 }
 
+// PhoneFraudService holds the phone fraud operations. Use it through
+// Client.Phone.Fraud.
+type PhoneFraudService struct {
+	client *Client
+
+	Events   *PhoneFraudEventsService
+	Policies *PhoneFraudPoliciesService
+}
+
+// Evaluate: Score a number, an email address or both against your fraud rules.
+//
+// Score a request before a code is sent: the number, the email address or both
+// are evaluated against your fraud rules and the weighted policy of the flow in
+// `action` (`signup`, `login`, `payment` or a flow of your own). Send
+// `phone_number`, `email`, or both; a request with neither answers `400
+// target_required`.
+//
+// The answer carries the `decision` (`allow`, `review`, `challenge` or
+// `block`), a `score` from 0 to 100, the rules that decided, the flow policy's
+// score and the conditions that met it, and an email block when an address was
+// scored. `challenge_channels` lists where a challenged verification may
+// continue: SMS and voice are withheld.
+//
+// Send `ip_address` and `device_signals` when you have them; the
+// `existing_user` flag tells the scoring a returning user is asking.
+// `trusted_user` with a `fraud_override` signed for this one request takes it
+// past your fraud rules, and a block list still stops the number.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	POST /v3/phone/fraud/evaluate/
+func (r *PhoneFraudService) Evaluate(ctx context.Context, params PhoneFraudEvaluateParams, opts ...option.RequestOption) (*PhoneFraudEvaluateResponse, error) {
+	res := new(PhoneFraudEvaluateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/fraud/evaluate/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Update: Update fraud settings.
+//
+// Change the application's fraud protection: the level, the rules and where
+// each rule applies. `level` is `standard` or `strict`, or `custom` when your
+// own rules decide.
+//
+// A rule names a `key` - `velocity`, `pumping`, `risk_score`, `sim_swap`,
+// `device` or `country` - and its `action`: `allow`, `review`, `require_code`
+// or `block`, and `challenge`, which continues the verification only on the
+// channels in `challenge_channels`. A rule applies only to the `countries` and
+// `platforms` you name, and to verification codes: `scope` is `codes`, the only
+// value, and any other value answers `400`.
+//
+// `sim_swap_within` is the window, in hours, after a SIM change in which a code
+// is required instead of a silent check, or the number is blocked. `daily_cap`
+// stops new codes at this spend per day, in USD.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	PATCH /v3/phone/fraud/
+func (r *PhoneFraudService) Update(ctx context.Context, params PhoneFraudUpdateParams, opts ...option.RequestOption) (*PhoneFraudUpdateResponse, error) {
+	res := new(PhoneFraudUpdateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/phone/fraud/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneFraudEventsService holds the phone fraud events operations. Use it
+// through Client.Phone.Fraud.Events.
+type PhoneFraudEventsService struct {
+	client *Client
+}
+
+// CreateBatch: Send fraud events in a batch.
+//
+// Send up to 1,000 of your own events - a `signup`, a `login`, a `payment`, a
+// `password_reset`, an `account_change` or a type of your own - to the fraud
+// scoring, with the number, the email address, the IP address and the device
+// signals of each one.
+//
+// The answer is `207 Multi-Status`: `accepted` counts the events the scoring
+// uses from the next request, and `results` gives each event's place in
+// `events`, its id, whether it was accepted and, when it was rejected, why. An
+// event with no `type` or `occurred_at` is rejected on its own as
+// `invalid_event` in `results` while the valid events of the same batch are
+// accepted: the answer is still `207`. A request whose `events` is not a list
+// of objects with correctly typed fields is a malformed request.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	POST /v3/phone/fraud/events/batch/
+func (r *PhoneFraudEventsService) CreateBatch(ctx context.Context, params PhoneFraudEventsCreateBatchParams, opts ...option.RequestOption) (*PhoneFraudEventsCreateBatchResponse, error) {
+	res := new(PhoneFraudEventsCreateBatchResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/fraud/events/batch/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneFraudPoliciesService holds the phone fraud policies operations. Use it
+// through Client.Phone.Fraud.Policies.
+type PhoneFraudPoliciesService struct {
+	client *Client
+}
+
+// Create: Create a fraud policy.
+//
+// Create a weighted fraud policy for one flow. Each condition names a `signal`
+// (`risk_score`, `sim_swap`, `line_type`, `country`, `velocity`, `ip_risk`,
+// `device`, `email_risk` or `existing_user`), an `operator` (`eq`, `neq`, `gt`,
+// `lt`, `in` or `within_hours`), the `value` to compare with and the `weight`
+// its points add to the score (0 to 100). The weights of the conditions that
+// hold add up to a score, and `threshold` is the score at which `action`
+// applies (`allow`, `review`, `challenge` or `block`).
+//
+// A flow has one policy: a second one answers `409 flow_has_policy`, and the
+// existing policy is changed instead.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	POST /v3/phone/fraud/policies/
+func (r *PhoneFraudPoliciesService) Create(ctx context.Context, params PhoneFraudPolicyInput, opts ...option.RequestOption) (*PhoneFraudPolicy, error) {
+	res := new(PhoneFraudPolicy)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/fraud/policies/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Delete: Delete a fraud policy.
+//
+// Delete a fraud policy. The flow it scored falls back to the fraud level and
+// the rules in the fraud settings. Deletion is irreversible.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	DELETE /v3/phone/fraud/policies/{policy_id}/
+func (r *PhoneFraudPoliciesService) Delete(ctx context.Context, policyID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/fraud/policies/{policy_id}/", pathParams: []string{"policy_id", policyID}}, nil, opts)
+	return err
+}
+
+// List: List fraud policies.
+//
+// List the application's weighted fraud policies, one per flow, each with its
+// conditions, weights, threshold and action. Filter by `flow`. They are listed
+// oldest first.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/phone/fraud/policies/
+func (r *PhoneFraudPoliciesService) List(ctx context.Context, params PhoneFraudPoliciesListParams, opts ...option.RequestOption) (*Page[PhoneFraudPolicy], error) {
+	return getPage[PhoneFraudPolicy](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/fraud/policies/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *PhoneFraudPoliciesService) ListAutoPaging(ctx context.Context, params PhoneFraudPoliciesListParams, opts ...option.RequestOption) *PageIterator[PhoneFraudPolicy] {
+	return newPageIterator(ctx, func() (*Page[PhoneFraudPolicy], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Retrieve: Retrieve a fraud policy.
+//
+// Read one weighted fraud policy of your application: its flow, conditions,
+// weights, threshold and action.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	GET /v3/phone/fraud/policies/{policy_id}/
+func (r *PhoneFraudPoliciesService) Retrieve(ctx context.Context, policyID string, opts ...option.RequestOption) (*PhoneFraudPolicy, error) {
+	res := new(PhoneFraudPolicy)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/fraud/policies/{policy_id}/", pathParams: []string{"policy_id", policyID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Update: Update a fraud policy.
+//
+// Change a fraud policy: its conditions, their weights, its threshold or its
+// action. A field you leave out stays as it is.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	PATCH /v3/phone/fraud/policies/{policy_id}/
+func (r *PhoneFraudPoliciesService) Update(ctx context.Context, policyID string, params PhoneFraudPolicyInput, opts ...option.RequestOption) (*PhoneFraudPolicy, error) {
+	res := new(PhoneFraudPolicy)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/phone/fraud/policies/{policy_id}/", pathParams: []string{"policy_id", policyID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneLineTypeOverridesService holds the phone line_type_overrides operations.
+// Use it through Client.Phone.LineTypeOverrides.
+type PhoneLineTypeOverridesService struct {
+	client *Client
+}
+
+// Create: Correct the line type of a number.
+//
+// Correct the line type of a number for your future lookups: later lookups of
+// that number report the corrected type (`mobile`, `landline`, `fixed_voip`,
+// `non_fixed_voip`, `toll_free`, `premium` or `pager`) instead of the one the
+// network gives, A second correction for the same number replaces the first and
+// answers `201` too.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	POST /v3/phone/line-type-overrides/
+func (r *PhoneLineTypeOverridesService) Create(ctx context.Context, params PhoneLineTypeOverridesCreateParams, opts ...option.RequestOption) (*PhoneLineTypeOverridesCreateResponse, error) {
+	res := new(PhoneLineTypeOverridesCreateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/line-type-overrides/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Delete: Delete a line-type correction.
+//
+// Delete a line-type correction so lookups report the type the network gives
+// again. Deletion is irreversible.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	DELETE /v3/phone/line-type-overrides/{override_id}/
+func (r *PhoneLineTypeOverridesService) Delete(ctx context.Context, overrideID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/line-type-overrides/{override_id}/", pathParams: []string{"override_id", overrideID}}, nil, opts)
+	return err
+}
+
+// PhoneListsService holds the phone lists operations. Use it through
+// Client.Phone.Lists.
+type PhoneListsService struct {
+	client *Client
+}
+
+// Add: Add an entry to an allow or block list.
+//
+// Add an entry to one of the application's phone lists. `list_id` is `allow` or
+// `block`, and `value` is a number, a prefix, a country code or a network,
+// which `type` names (`number`, `prefix`, `country` or `network`).
+//
+// An `expires_at` makes a temporary entry that ends on its own; `note` records
+// why it was listed. `POST /v3/phone/lists/check/` answers with the entries
+// that match a number, and the fraud rules read both lists.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	POST /v3/phone/lists/{list_id}/entries/
+func (r *PhoneListsService) Add(ctx context.Context, listID string, params PhoneListsAddParams, opts ...option.RequestOption) (*PhoneListEntry, error) {
+	res := new(PhoneListEntry)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/lists/{list_id}/entries/", pathParams: []string{"list_id", listID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Check: Check a number against your allow and block lists.
+//
+// Answer whether a number is on the allow or the block list, and which entries
+// match it: a number, a prefix, the country or the number's network. A match on
+// the block list answers `blocked`.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	POST /v3/phone/lists/check/
+func (r *PhoneListsService) Check(ctx context.Context, params PhoneListsCheckParams, opts ...option.RequestOption) (*PhoneListsCheckResponse, error) {
+	res := new(PhoneListsCheckResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/lists/check/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// ListEntries: List the entries of an allow or block list.
+//
+// Read one of the application's lists: its entries, their type and the source
+// that added each one (`manual`, `api` or `alert`). Filter by `type` or by part
+// of a `value` or a `note`; `format=csv` exports every row of the filtered list
+// instead of a page. Only the application's own phone and country lists are
+// covered: `number`, `prefix` and `network` entries are in the phone list and
+// `country` entries in the country list.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// It returns one page; ListEntriesAutoPaging iterates over every item of every
+// page.
+//
+//	GET /v3/phone/lists/{list_id}/entries/
+func (r *PhoneListsService) ListEntries(ctx context.Context, listID string, params PhoneListsListEntriesParams, opts ...option.RequestOption) (*Page[PhoneListEntry], error) {
+	return getPage[PhoneListEntry](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/lists/{list_id}/entries/", pathParams: []string{"list_id", listID}, params: params}, opts)
+}
+
+// ListEntriesAutoPaging iterates over every item of every page of ListEntries,
+// fetching pages as needed.
+func (r *PhoneListsService) ListEntriesAutoPaging(ctx context.Context, listID string, params PhoneListsListEntriesParams, opts ...option.RequestOption) *PageIterator[PhoneListEntry] {
+	return newPageIterator(ctx, func() (*Page[PhoneListEntry], error) {
+		return r.ListEntries(ctx, listID, params, opts...)
+	})
+}
+
+// Remove: Delete an entry from an allow or block list.
+//
+// Delete an entry from an allow or block list, for example to unblock a
+// network. Deletion is irreversible: the number, prefix, country or network is
+// no longer listed from the next request. Only the application's own phone and
+// country lists are covered: `number`, `prefix` and `network` entries are in
+// the phone list and `country` entries in the country list.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	DELETE /v3/phone/lists/{list_id}/entries/{entry_id}/
+func (r *PhoneListsService) Remove(ctx context.Context, listID string, entryID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/lists/{list_id}/entries/{entry_id}/", pathParams: []string{"list_id", listID, "entry_id", entryID}}, nil, opts)
+	return err
+}
+
 // PhoneNetworkService holds the phone network operations. Use it through
 // Client.Phone.Network.
 type PhoneNetworkService struct {
@@ -552,6 +937,126 @@ func (r *PhoneNetworkRegistrationsTestNumbersService) Create(ctx context.Context
 //	DELETE /v3/phone/network/registrations/{registration_id}/test-numbers/{phone_number}/
 func (r *PhoneNetworkRegistrationsTestNumbersService) Delete(ctx context.Context, registrationID string, phoneNumber string, opts ...option.RequestOption) error {
 	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/network/registrations/{registration_id}/test-numbers/{phone_number}/", pathParams: []string{"registration_id", registrationID, "phone_number", phoneNumber}}, nil, opts)
+	return err
+}
+
+// PhoneRateLimitsService holds the phone rate_limits operations. Use it through
+// Client.Phone.RateLimits.
+type PhoneRateLimitsService struct {
+	client *Client
+
+	Buckets *PhoneRateLimitsBucketsService
+}
+
+// Create: Create a velocity limit.
+//
+// Create a velocity limit of your own. A limit is keyed by the name of the
+// value your sends are counted by, for example `user_id`, and each of its
+// `buckets` allows `max` starts in `interval` seconds, at most 30 days
+// (2,592,000 seconds). Send history is kept for that longest window, so every
+// bucket counts the starts of its whole interval.
+//
+// A request over a bucket answers `429` with `Retry-After`, and the key is
+// refused until the interval ends.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	POST /v3/phone/rate-limits/
+func (r *PhoneRateLimitsService) Create(ctx context.Context, params PhoneRateLimitsCreateParams, opts ...option.RequestOption) (*PhoneRateLimit, error) {
+	res := new(PhoneRateLimit)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/rate-limits/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Delete: Delete a velocity limit.
+//
+// Delete a velocity limit and every bucket in it. The key it was created for no
+// longer limits sends. Deletion is irreversible.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	DELETE /v3/phone/rate-limits/{rate_limit_id}/
+func (r *PhoneRateLimitsService) Delete(ctx context.Context, rateLimitID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/rate-limits/{rate_limit_id}/", pathParams: []string{"rate_limit_id", rateLimitID}}, nil, opts)
+	return err
+}
+
+// List: List velocity limits.
+//
+// List the application's velocity limits, oldest first, each with its key and
+// its buckets.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/phone/rate-limits/
+func (r *PhoneRateLimitsService) List(ctx context.Context, params PhoneRateLimitsListParams, opts ...option.RequestOption) (*Page[PhoneRateLimit], error) {
+	return getPage[PhoneRateLimit](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/rate-limits/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *PhoneRateLimitsService) ListAutoPaging(ctx context.Context, params PhoneRateLimitsListParams, opts ...option.RequestOption) *PageIterator[PhoneRateLimit] {
+	return newPageIterator(ctx, func() (*Page[PhoneRateLimit], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Retrieve: Retrieve a velocity limit.
+//
+// One velocity limit with its buckets, each bucket's `max`, `interval` and the
+// starts already counted in the current interval as `in_use`.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	GET /v3/phone/rate-limits/{rate_limit_id}/
+func (r *PhoneRateLimitsService) Retrieve(ctx context.Context, rateLimitID string, opts ...option.RequestOption) (*PhoneRateLimit, error) {
+	res := new(PhoneRateLimit)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/rate-limits/{rate_limit_id}/", pathParams: []string{"rate_limit_id", rateLimitID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Update: Update a velocity limit.
+//
+// Change a velocity limit's buckets: send a `bucket_id` to change that bucket,
+// or leave it out to add one. `max` and `interval` must be positive, and
+// `interval` at most 30 days (2,592,000 seconds), or the answer is `400`. A
+// `bucket_id` that is not a bucket of this limit answers `404` and nothing is
+// changed; a bucket can be removed with Delete a bucket of a velocity limit.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	PATCH /v3/phone/rate-limits/{rate_limit_id}/
+func (r *PhoneRateLimitsService) Update(ctx context.Context, rateLimitID string, params PhoneRateLimitsUpdateParams, opts ...option.RequestOption) (*PhoneRateLimit, error) {
+	res := new(PhoneRateLimit)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/phone/rate-limits/{rate_limit_id}/", pathParams: []string{"rate_limit_id", rateLimitID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneRateLimitsBucketsService holds the phone rate_limits buckets operations.
+// Use it through Client.Phone.RateLimits.Buckets.
+type PhoneRateLimitsBucketsService struct {
+	client *Client
+}
+
+// Delete: Delete a bucket of a velocity limit.
+//
+// Delete one bucket of a velocity limit. A limit keeps at least one bucket, so
+// the last one answers `409 last_bucket`: delete the limit instead. Deletion is
+// irreversible.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	DELETE /v3/phone/rate-limits/{rate_limit_id}/buckets/{bucket_id}/
+func (r *PhoneRateLimitsBucketsService) Delete(ctx context.Context, rateLimitID string, bucketID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/rate-limits/{rate_limit_id}/buckets/{bucket_id}/", pathParams: []string{"rate_limit_id", rateLimitID, "bucket_id", bucketID}}, nil, opts)
 	return err
 }
 
@@ -1037,6 +1542,93 @@ type PhoneMatchItem struct {
 func (r *PhoneMatchItem) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// PhoneAssessRiskBulkParams holds the parameters of
+// Client.Phone.AssessRiskBulk.
+type PhoneAssessRiskBulkParams struct {
+	// A CSV of numbers, one number per line, up to 100,000. Required.
+	File File `json:"-" form:"file"`
+
+	// The signals to return, one CSV column each, in this order; all of them when
+	// you send none. `format`, `line_type` and `network` are answered.
+	// `reachability`, `sim_swap`, `sms_pumping_risk`, `prefill`, `scam_signal` and
+	// `identity_match` are accepted and their columns come back empty: a file that
+	// asks for those alone looks up nothing and is not charged for lookups.
+	Fields Opt[[]PhoneAssessRiskBulkParamsFields] `json:"fields"`
+
+	// A public HTTPS URL Didit posts to when the job is done: `{job_id, status,
+	// total, results_url}`, with `results_url` the same relative path as on the
+	// job. Any other URL answers `400`.
+	CallbackURL Opt[string] `json:"callback_url"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneAssessRiskBulkParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneAssessRiskBulkParamsFields is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneAssessRiskBulkParamsFields string
+
+// Known values of PhoneAssessRiskBulkParamsFields.
+const (
+	PhoneAssessRiskBulkParamsFieldsFormat         PhoneAssessRiskBulkParamsFields = "format"
+	PhoneAssessRiskBulkParamsFieldsLineType       PhoneAssessRiskBulkParamsFields = "line_type"
+	PhoneAssessRiskBulkParamsFieldsNetwork        PhoneAssessRiskBulkParamsFields = "network"
+	PhoneAssessRiskBulkParamsFieldsReachability   PhoneAssessRiskBulkParamsFields = "reachability"
+	PhoneAssessRiskBulkParamsFieldsSimSwap        PhoneAssessRiskBulkParamsFields = "sim_swap"
+	PhoneAssessRiskBulkParamsFieldsSMSPumpingRisk PhoneAssessRiskBulkParamsFields = "sms_pumping_risk"
+	PhoneAssessRiskBulkParamsFieldsPrefill        PhoneAssessRiskBulkParamsFields = "prefill"
+	PhoneAssessRiskBulkParamsFieldsScamSignal     PhoneAssessRiskBulkParamsFields = "scam_signal"
+	PhoneAssessRiskBulkParamsFieldsIdentityMatch  PhoneAssessRiskBulkParamsFields = "identity_match"
+)
+
+// PhoneRiskBulkJob: A bulk risk job.
+type PhoneRiskBulkJob struct {
+	// The job.
+	JobID string `json:"job_id"`
+
+	// `queued`, `running`, `done`, or `failed`. A job fails when your organization
+	// balance cannot pay for the next paid lookup (the rows already answered stay
+	// downloadable) or after 3 failed retries.
+	Status PhoneRiskBulkJobStatus `json:"status"`
+
+	// Numbers in the file.
+	Total int64 `json:"total"`
+
+	// Numbers answered so far.
+	Processed int64 `json:"processed"`
+
+	// The relative path `/v3/phone/risk/bulk/{job_id}/results/` of the CSV, present
+	// once a result file exists (also for a failed job); otherwise `null`.
+	ResultsURL string `json:"results_url"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneRiskBulkJob leniently.
+func (r *PhoneRiskBulkJob) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneRiskBulkJobStatus: `queued`, `running`, `done`, or `failed`. A job fails
+// when your organization balance cannot pay for the next paid lookup (the rows
+// already answered stay downloadable) or after 3 failed retries.
+//
+// PhoneRiskBulkJobStatus is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneRiskBulkJobStatus string
+
+// Known values of PhoneRiskBulkJobStatus.
+const (
+	PhoneRiskBulkJobStatusQueued  PhoneRiskBulkJobStatus = "queued"
+	PhoneRiskBulkJobStatusRunning PhoneRiskBulkJobStatus = "running"
+	PhoneRiskBulkJobStatusDone    PhoneRiskBulkJobStatus = "done"
+	PhoneRiskBulkJobStatusFailed  PhoneRiskBulkJobStatus = "failed"
+)
 
 // PhoneCheckCodeParams holds the parameters of Client.Phone.CheckCode.
 type PhoneCheckCodeParams struct {
@@ -1974,6 +2566,1136 @@ const (
 	PhoneFactorUpdateRequestStatusVerified PhoneFactorUpdateRequestStatus = "verified"
 )
 
+// PhoneFraudEvaluateParams holds the parameters of Client.Phone.Fraud.Evaluate.
+type PhoneFraudEvaluateParams struct {
+	// The number; or leave it out and send email alone
+	PhoneNumber Opt[string] `json:"phone_number"`
+
+	// An email address to score before a code is sent, alone or with the number
+	Email Opt[string] `json:"email"`
+
+	// The flow being scored: `signup` (the default), `login`, `payment` or a flow
+	// of your own, at most 64 characters.
+	Action Opt[string] `json:"action"`
+
+	// Your user's IP address
+	IPAddress Opt[string] `json:"ip_address"`
+
+	// The signed token from the SDK
+	DeviceSignals Opt[string] `json:"device_signals"`
+
+	// true: the number belongs to a user who has signed in before; the fraud
+	// scoring weighs returning users and new sign-ups differently
+	ExistingUser Opt[bool] `json:"existing_user"`
+
+	// Evaluate as a trusted-user exception: with a fraud_override signed for this
+	// number, the decision is allow unless a block list matches
+	TrustedUser Opt[bool] `json:"trusted_user"`
+
+	// The signed token for this number, as on send
+	FraudOverride Opt[string] `json:"fraud_override"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFraudEvaluateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFraudEvaluateResponse is a response object.
+type PhoneFraudEvaluateResponse struct {
+	// allow, review, challenge or block
+	Decision PhoneFraudEvaluateResponseDecision `json:"decision"`
+
+	// Risk from 0 to 100
+	Score int64 `json:"score"`
+
+	// The rules that decided
+	MatchedRules []PhoneFraudEvaluateResponseMatchedRules `json:"matched_rules"`
+
+	// The weighted policy of the flow in `action`; `null` when the flow has none
+	Policy PhoneFraudEvaluateResponsePolicy `json:"policy"`
+
+	// When `decision` is `challenge`: the channels the verification may continue
+	// on, the `challenge_channels` of your fraud settings or `silent`, `whatsapp`
+	// and `passkey` when you set none. Empty for any other decision
+	ChallengeChannels []PhoneFraudEvaluateResponseChallengeChannels `json:"challenge_channels"`
+
+	// The email check; `null` when no `email` was sent
+	Email PhoneFraudEvaluateResponseEmail `json:"email"`
+
+	// As sent, and counted in the score
+	ExistingUser bool `json:"existing_user"`
+
+	// `trusted_user` when this request went past your fraud rules as a trusted
+	// user; `null` otherwise.
+	Exception PhoneFraudEvaluateResponseException `json:"exception"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudEvaluateResponse leniently.
+func (r *PhoneFraudEvaluateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudEvaluateResponseDecision: allow, review, challenge or block
+//
+// PhoneFraudEvaluateResponseDecision is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneFraudEvaluateResponseDecision string
+
+// Known values of PhoneFraudEvaluateResponseDecision.
+const (
+	PhoneFraudEvaluateResponseDecisionAllow     PhoneFraudEvaluateResponseDecision = "allow"
+	PhoneFraudEvaluateResponseDecisionReview    PhoneFraudEvaluateResponseDecision = "review"
+	PhoneFraudEvaluateResponseDecisionChallenge PhoneFraudEvaluateResponseDecision = "challenge"
+	PhoneFraudEvaluateResponseDecisionBlock     PhoneFraudEvaluateResponseDecision = "block"
+)
+
+// PhoneFraudEvaluateResponseMatchedRules is a response object.
+type PhoneFraudEvaluateResponseMatchedRules struct {
+	// The rule
+	Key PhoneFraudEvaluateResponseMatchedRulesKey `json:"key"`
+
+	// What the rule asked for
+	Action PhoneFraudEvaluateResponseMatchedRulesAction `json:"action"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudEvaluateResponseMatchedRules leniently.
+func (r *PhoneFraudEvaluateResponseMatchedRules) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudEvaluateResponseMatchedRulesKey: The rule
+//
+// PhoneFraudEvaluateResponseMatchedRulesKey is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneFraudEvaluateResponseMatchedRulesKey string
+
+// Known values of PhoneFraudEvaluateResponseMatchedRulesKey.
+const (
+	PhoneFraudEvaluateResponseMatchedRulesKeyVelocity  PhoneFraudEvaluateResponseMatchedRulesKey = "velocity"
+	PhoneFraudEvaluateResponseMatchedRulesKeyPumping   PhoneFraudEvaluateResponseMatchedRulesKey = "pumping"
+	PhoneFraudEvaluateResponseMatchedRulesKeyRiskScore PhoneFraudEvaluateResponseMatchedRulesKey = "risk_score"
+	PhoneFraudEvaluateResponseMatchedRulesKeySimSwap   PhoneFraudEvaluateResponseMatchedRulesKey = "sim_swap"
+	PhoneFraudEvaluateResponseMatchedRulesKeyDevice    PhoneFraudEvaluateResponseMatchedRulesKey = "device"
+	PhoneFraudEvaluateResponseMatchedRulesKeyCountry   PhoneFraudEvaluateResponseMatchedRulesKey = "country"
+)
+
+// PhoneFraudEvaluateResponseMatchedRulesAction: What the rule asked for
+//
+// PhoneFraudEvaluateResponseMatchedRulesAction is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneFraudEvaluateResponseMatchedRulesAction string
+
+// Known values of PhoneFraudEvaluateResponseMatchedRulesAction.
+const (
+	PhoneFraudEvaluateResponseMatchedRulesActionAllow       PhoneFraudEvaluateResponseMatchedRulesAction = "allow"
+	PhoneFraudEvaluateResponseMatchedRulesActionReview      PhoneFraudEvaluateResponseMatchedRulesAction = "review"
+	PhoneFraudEvaluateResponseMatchedRulesActionRequireCode PhoneFraudEvaluateResponseMatchedRulesAction = "require_code"
+	PhoneFraudEvaluateResponseMatchedRulesActionChallenge   PhoneFraudEvaluateResponseMatchedRulesAction = "challenge"
+	PhoneFraudEvaluateResponseMatchedRulesActionBlock       PhoneFraudEvaluateResponseMatchedRulesAction = "block"
+)
+
+// PhoneFraudEvaluateResponsePolicy: The weighted policy of the flow in
+// `action`; `null` when the flow has none
+type PhoneFraudEvaluateResponsePolicy struct {
+	// The flow policy that scored the request.
+	PolicyID string `json:"policy_id"`
+
+	// The weighted score, 0 to 100
+	Score int64 `json:"score"`
+
+	// The conditions that added points
+	ConditionsMet []string `json:"conditions_met"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudEvaluateResponsePolicy leniently.
+func (r *PhoneFraudEvaluateResponsePolicy) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudEvaluateResponseChallengeChannels is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneFraudEvaluateResponseChallengeChannels string
+
+// Known values of PhoneFraudEvaluateResponseChallengeChannels.
+const (
+	PhoneFraudEvaluateResponseChallengeChannelsSilent   PhoneFraudEvaluateResponseChallengeChannels = "silent"
+	PhoneFraudEvaluateResponseChallengeChannelsWhatsapp PhoneFraudEvaluateResponseChallengeChannels = "whatsapp"
+	PhoneFraudEvaluateResponseChallengeChannelsTelegram PhoneFraudEvaluateResponseChallengeChannels = "telegram"
+	PhoneFraudEvaluateResponseChallengeChannelsRcs      PhoneFraudEvaluateResponseChallengeChannels = "rcs"
+	PhoneFraudEvaluateResponseChallengeChannelsViber    PhoneFraudEvaluateResponseChallengeChannels = "viber"
+	PhoneFraudEvaluateResponseChallengeChannelsZalo     PhoneFraudEvaluateResponseChallengeChannels = "zalo"
+	PhoneFraudEvaluateResponseChallengeChannelsEmail    PhoneFraudEvaluateResponseChallengeChannels = "email"
+	PhoneFraudEvaluateResponseChallengeChannelsPush     PhoneFraudEvaluateResponseChallengeChannels = "push"
+	PhoneFraudEvaluateResponseChallengeChannelsTotp     PhoneFraudEvaluateResponseChallengeChannels = "totp"
+	PhoneFraudEvaluateResponseChallengeChannelsPasskey  PhoneFraudEvaluateResponseChallengeChannels = "passkey"
+)
+
+// PhoneFraudEvaluateResponseEmail: The email check; `null` when no `email` was
+// sent
+type PhoneFraudEvaluateResponseEmail struct {
+	// `high` for a disposable mailbox, otherwise `low`
+	Risk PhoneFraudEvaluateResponseEmailRisk `json:"risk"`
+
+	// The address is a disposable mailbox.
+	Disposable bool `json:"disposable"`
+
+	// Always `null` for now
+	DomainAgeDays int64 `json:"domain_age_days"`
+
+	// Why the address is risky: `disposable_domain`
+	Reasons []PhoneFraudEvaluateResponseEmailReasons `json:"reasons"`
+
+	// The address that was checked
+	Email string `json:"email"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudEvaluateResponseEmail leniently.
+func (r *PhoneFraudEvaluateResponseEmail) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudEvaluateResponseEmailRisk: `high` for a disposable mailbox,
+// otherwise `low`
+//
+// PhoneFraudEvaluateResponseEmailRisk is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneFraudEvaluateResponseEmailRisk string
+
+// Known values of PhoneFraudEvaluateResponseEmailRisk.
+const (
+	PhoneFraudEvaluateResponseEmailRiskLow  PhoneFraudEvaluateResponseEmailRisk = "low"
+	PhoneFraudEvaluateResponseEmailRiskHigh PhoneFraudEvaluateResponseEmailRisk = "high"
+)
+
+// PhoneFraudEvaluateResponseEmailReasons is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneFraudEvaluateResponseEmailReasons string
+
+// Known values of PhoneFraudEvaluateResponseEmailReasons.
+const (
+	PhoneFraudEvaluateResponseEmailReasonsDisposableDomain PhoneFraudEvaluateResponseEmailReasons = "disposable_domain"
+)
+
+// PhoneFraudEvaluateResponseException: `trusted_user` when this request went
+// past your fraud rules as a trusted user; `null` otherwise.
+//
+// PhoneFraudEvaluateResponseException is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneFraudEvaluateResponseException string
+
+// Known values of PhoneFraudEvaluateResponseException.
+const (
+	PhoneFraudEvaluateResponseExceptionTrustedUser PhoneFraudEvaluateResponseException = "trusted_user"
+)
+
+// PhoneFraudUpdateParams holds the parameters of Client.Phone.Fraud.Update.
+type PhoneFraudUpdateParams struct {
+	// standard, strict or custom
+	Level Opt[PhoneFraudUpdateParamsLevel]   `json:"level"`
+	Rules Opt[[]PhoneFraudUpdateParamsRules] `json:"rules"`
+
+	// Where a challenged verification may continue; SMS and voice are withheld
+	ChallengeChannels Opt[[]PhoneFraudUpdateParamsChallengeChannels] `json:"challenge_channels"`
+
+	// Hours: after a SIM change in this window, ask for a code instead of silent,
+	// or block
+	SimSwapWithin Opt[int64] `json:"sim_swap_within"`
+
+	// New codes stop at this spend per day, in USD, as a decimal string with at
+	// most two decimals; `null` removes the cap
+	DailyCap Opt[string] `json:"daily_cap"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFraudUpdateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFraudUpdateParamsLevel: standard, strict or custom
+//
+// PhoneFraudUpdateParamsLevel is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFraudUpdateParamsLevel string
+
+// Known values of PhoneFraudUpdateParamsLevel.
+const (
+	PhoneFraudUpdateParamsLevelStandard PhoneFraudUpdateParamsLevel = "standard"
+	PhoneFraudUpdateParamsLevelStrict   PhoneFraudUpdateParamsLevel = "strict"
+	PhoneFraudUpdateParamsLevelCustom   PhoneFraudUpdateParamsLevel = "custom"
+)
+
+// PhoneFraudUpdateParamsRules is a request object.
+type PhoneFraudUpdateParamsRules struct {
+	// velocity, pumping, risk_score, sim_swap, device or country Required.
+	Key PhoneFraudUpdateParamsRulesKey `json:"key"`
+
+	// allow, review, require_code, challenge or block: challenge continues the
+	// verification on challenge_channels only Required.
+	Action PhoneFraudUpdateParamsRulesAction `json:"action"`
+
+	// The rule applies only to these countries
+	Countries Opt[[]string] `json:"countries"`
+
+	// The rule applies only to web, ios or android
+	Platforms Opt[[]PhoneFraudUpdateParamsRulesPlatforms] `json:"platforms"`
+
+	// codes (the default and the only value): the rule applies to verification
+	// codes
+	Scope Opt[PhoneFraudUpdateParamsRulesScope] `json:"scope"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFraudUpdateParamsRules) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFraudUpdateParamsRulesKey: velocity, pumping, risk_score, sim_swap,
+// device or country
+//
+// PhoneFraudUpdateParamsRulesKey is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneFraudUpdateParamsRulesKey string
+
+// Known values of PhoneFraudUpdateParamsRulesKey.
+const (
+	PhoneFraudUpdateParamsRulesKeyVelocity  PhoneFraudUpdateParamsRulesKey = "velocity"
+	PhoneFraudUpdateParamsRulesKeyPumping   PhoneFraudUpdateParamsRulesKey = "pumping"
+	PhoneFraudUpdateParamsRulesKeyRiskScore PhoneFraudUpdateParamsRulesKey = "risk_score"
+	PhoneFraudUpdateParamsRulesKeySimSwap   PhoneFraudUpdateParamsRulesKey = "sim_swap"
+	PhoneFraudUpdateParamsRulesKeyDevice    PhoneFraudUpdateParamsRulesKey = "device"
+	PhoneFraudUpdateParamsRulesKeyCountry   PhoneFraudUpdateParamsRulesKey = "country"
+)
+
+// PhoneFraudUpdateParamsRulesAction: allow, review, require_code, challenge or
+// block: challenge continues the verification on challenge_channels only
+//
+// PhoneFraudUpdateParamsRulesAction is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneFraudUpdateParamsRulesAction string
+
+// Known values of PhoneFraudUpdateParamsRulesAction.
+const (
+	PhoneFraudUpdateParamsRulesActionAllow       PhoneFraudUpdateParamsRulesAction = "allow"
+	PhoneFraudUpdateParamsRulesActionReview      PhoneFraudUpdateParamsRulesAction = "review"
+	PhoneFraudUpdateParamsRulesActionRequireCode PhoneFraudUpdateParamsRulesAction = "require_code"
+	PhoneFraudUpdateParamsRulesActionChallenge   PhoneFraudUpdateParamsRulesAction = "challenge"
+	PhoneFraudUpdateParamsRulesActionBlock       PhoneFraudUpdateParamsRulesAction = "block"
+)
+
+// PhoneFraudUpdateParamsRulesPlatforms is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneFraudUpdateParamsRulesPlatforms string
+
+// Known values of PhoneFraudUpdateParamsRulesPlatforms.
+const (
+	PhoneFraudUpdateParamsRulesPlatformsWeb     PhoneFraudUpdateParamsRulesPlatforms = "web"
+	PhoneFraudUpdateParamsRulesPlatformsIos     PhoneFraudUpdateParamsRulesPlatforms = "ios"
+	PhoneFraudUpdateParamsRulesPlatformsAndroid PhoneFraudUpdateParamsRulesPlatforms = "android"
+)
+
+// PhoneFraudUpdateParamsRulesScope: codes (the default and the only value): the
+// rule applies to verification codes
+//
+// PhoneFraudUpdateParamsRulesScope is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneFraudUpdateParamsRulesScope string
+
+// Known values of PhoneFraudUpdateParamsRulesScope.
+const (
+	PhoneFraudUpdateParamsRulesScopeCodes PhoneFraudUpdateParamsRulesScope = "codes"
+)
+
+// PhoneFraudUpdateParamsChallengeChannels is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneFraudUpdateParamsChallengeChannels string
+
+// Known values of PhoneFraudUpdateParamsChallengeChannels.
+const (
+	PhoneFraudUpdateParamsChallengeChannelsSilent   PhoneFraudUpdateParamsChallengeChannels = "silent"
+	PhoneFraudUpdateParamsChallengeChannelsWhatsapp PhoneFraudUpdateParamsChallengeChannels = "whatsapp"
+	PhoneFraudUpdateParamsChallengeChannelsTelegram PhoneFraudUpdateParamsChallengeChannels = "telegram"
+	PhoneFraudUpdateParamsChallengeChannelsRcs      PhoneFraudUpdateParamsChallengeChannels = "rcs"
+	PhoneFraudUpdateParamsChallengeChannelsViber    PhoneFraudUpdateParamsChallengeChannels = "viber"
+	PhoneFraudUpdateParamsChallengeChannelsZalo     PhoneFraudUpdateParamsChallengeChannels = "zalo"
+	PhoneFraudUpdateParamsChallengeChannelsEmail    PhoneFraudUpdateParamsChallengeChannels = "email"
+	PhoneFraudUpdateParamsChallengeChannelsPush     PhoneFraudUpdateParamsChallengeChannels = "push"
+	PhoneFraudUpdateParamsChallengeChannelsTotp     PhoneFraudUpdateParamsChallengeChannels = "totp"
+	PhoneFraudUpdateParamsChallengeChannelsPasskey  PhoneFraudUpdateParamsChallengeChannels = "passkey"
+)
+
+// PhoneFraudUpdateResponse is a response object.
+type PhoneFraudUpdateResponse struct {
+	// The level now
+	Level PhoneFraudUpdateResponseLevel `json:"level"`
+
+	// The rules now, in order
+	Rules []PhoneFraudRule `json:"rules"`
+
+	// When it changed
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// The fraud-resistant channels now used
+	ChallengeChannels []PhoneFraudUpdateResponseChallengeChannels `json:"challenge_channels"`
+
+	// The window in hours after a SIM change, now
+	SimSwapWithin int64 `json:"sim_swap_within"`
+
+	// The daily spend at which new codes stop, in USD, as a decimal string; `null`
+	// when there is no cap
+	DailyCap string `json:"daily_cap"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudUpdateResponse leniently.
+func (r *PhoneFraudUpdateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudUpdateResponseLevel: The level now
+//
+// PhoneFraudUpdateResponseLevel is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFraudUpdateResponseLevel string
+
+// Known values of PhoneFraudUpdateResponseLevel.
+const (
+	PhoneFraudUpdateResponseLevelStandard PhoneFraudUpdateResponseLevel = "standard"
+	PhoneFraudUpdateResponseLevelStrict   PhoneFraudUpdateResponseLevel = "strict"
+	PhoneFraudUpdateResponseLevelCustom   PhoneFraudUpdateResponseLevel = "custom"
+)
+
+// PhoneFraudRule: One fraud rule: the signal it reads, the action it takes and
+// where it applies.
+type PhoneFraudRule struct {
+	// velocity, pumping, risk_score, sim_swap, device or country
+	Key PhoneFraudRuleKey `json:"key"`
+
+	// allow, review, require_code, challenge or block: challenge continues the
+	// verification on challenge_channels only
+	Action PhoneFraudRuleAction `json:"action"`
+
+	// The rule applies only to these countries
+	Countries []string `json:"countries"`
+
+	// The rule applies only to web, ios or android
+	Platforms []PhoneFraudRulePlatforms `json:"platforms"`
+
+	// codes (the only value): the rule applies to verification codes
+	Scope PhoneFraudRuleScope `json:"scope"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudRule leniently.
+func (r *PhoneFraudRule) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudRuleKey: velocity, pumping, risk_score, sim_swap, device or country
+//
+// PhoneFraudRuleKey is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type PhoneFraudRuleKey string
+
+// Known values of PhoneFraudRuleKey.
+const (
+	PhoneFraudRuleKeyVelocity  PhoneFraudRuleKey = "velocity"
+	PhoneFraudRuleKeyPumping   PhoneFraudRuleKey = "pumping"
+	PhoneFraudRuleKeyRiskScore PhoneFraudRuleKey = "risk_score"
+	PhoneFraudRuleKeySimSwap   PhoneFraudRuleKey = "sim_swap"
+	PhoneFraudRuleKeyDevice    PhoneFraudRuleKey = "device"
+	PhoneFraudRuleKeyCountry   PhoneFraudRuleKey = "country"
+)
+
+// PhoneFraudRuleAction: allow, review, require_code, challenge or block:
+// challenge continues the verification on challenge_channels only
+//
+// PhoneFraudRuleAction is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneFraudRuleAction string
+
+// Known values of PhoneFraudRuleAction.
+const (
+	PhoneFraudRuleActionAllow       PhoneFraudRuleAction = "allow"
+	PhoneFraudRuleActionReview      PhoneFraudRuleAction = "review"
+	PhoneFraudRuleActionRequireCode PhoneFraudRuleAction = "require_code"
+	PhoneFraudRuleActionChallenge   PhoneFraudRuleAction = "challenge"
+	PhoneFraudRuleActionBlock       PhoneFraudRuleAction = "block"
+)
+
+// PhoneFraudRulePlatforms is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneFraudRulePlatforms string
+
+// Known values of PhoneFraudRulePlatforms.
+const (
+	PhoneFraudRulePlatformsWeb     PhoneFraudRulePlatforms = "web"
+	PhoneFraudRulePlatformsIos     PhoneFraudRulePlatforms = "ios"
+	PhoneFraudRulePlatformsAndroid PhoneFraudRulePlatforms = "android"
+)
+
+// PhoneFraudRuleScope: codes (the only value): the rule applies to verification
+// codes
+//
+// PhoneFraudRuleScope is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneFraudRuleScope string
+
+// Known values of PhoneFraudRuleScope.
+const (
+	PhoneFraudRuleScopeCodes PhoneFraudRuleScope = "codes"
+)
+
+// PhoneFraudUpdateResponseChallengeChannels is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneFraudUpdateResponseChallengeChannels string
+
+// Known values of PhoneFraudUpdateResponseChallengeChannels.
+const (
+	PhoneFraudUpdateResponseChallengeChannelsSilent   PhoneFraudUpdateResponseChallengeChannels = "silent"
+	PhoneFraudUpdateResponseChallengeChannelsWhatsapp PhoneFraudUpdateResponseChallengeChannels = "whatsapp"
+	PhoneFraudUpdateResponseChallengeChannelsTelegram PhoneFraudUpdateResponseChallengeChannels = "telegram"
+	PhoneFraudUpdateResponseChallengeChannelsRcs      PhoneFraudUpdateResponseChallengeChannels = "rcs"
+	PhoneFraudUpdateResponseChallengeChannelsViber    PhoneFraudUpdateResponseChallengeChannels = "viber"
+	PhoneFraudUpdateResponseChallengeChannelsZalo     PhoneFraudUpdateResponseChallengeChannels = "zalo"
+	PhoneFraudUpdateResponseChallengeChannelsEmail    PhoneFraudUpdateResponseChallengeChannels = "email"
+	PhoneFraudUpdateResponseChallengeChannelsPush     PhoneFraudUpdateResponseChallengeChannels = "push"
+	PhoneFraudUpdateResponseChallengeChannelsTotp     PhoneFraudUpdateResponseChallengeChannels = "totp"
+	PhoneFraudUpdateResponseChallengeChannelsPasskey  PhoneFraudUpdateResponseChallengeChannels = "passkey"
+)
+
+// PhoneFraudEventsCreateBatchParams holds the parameters of
+// Client.Phone.Fraud.Events.CreateBatch.
+type PhoneFraudEventsCreateBatchParams struct {
+	// Up to 1,000 events, each with the number, the address and what happened.
+	// Required.
+	Events []PhoneFraudEventsCreateBatchParamsEvents `json:"events"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFraudEventsCreateBatchParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFraudEventsCreateBatchParamsEvents: One event, an object whose fields
+// have the JSON types below (a value of another JSON type, such as a number for
+// `phone_number`, is a malformed request that no gateway or client should
+// send). Beyond the types, each event is checked on its own: an event with no
+// `type` or `occurred_at`, or with a phone number that is not E.164, an email
+// that is not an address or a date-time that is not RFC 3339, is rejected as
+// `invalid_event` in the `207` results while the rest of the batch is accepted.
+type PhoneFraudEventsCreateBatchParamsEvents struct {
+	// `signup`, `login`, `payment`, `password_reset`, `account_change` or a type of
+	// your own.
+	Type Opt[string] `json:"type"`
+
+	// The number In E.164 format; an event with another value is rejected on its
+	// own as `invalid_event`.
+	PhoneNumber Opt[string] `json:"phone_number"`
+
+	// Or an email address
+	Email Opt[string] `json:"email"`
+
+	// Your user's IP address.
+	IPAddress Opt[string] `json:"ip_address"`
+
+	// The signed token from the SDK
+	DeviceSignals Opt[string] `json:"device_signals"`
+
+	// A returning user
+	ExistingUser Opt[bool] `json:"existing_user"`
+
+	// When it happened, ISO 8601 An RFC 3339 date-time; another value rejects the
+	// event on its own.
+	OccurredAt Opt[string] `json:"occurred_at"`
+
+	// Your id for it
+	Reference Opt[string] `json:"reference"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFraudEventsCreateBatchParamsEvents) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFraudEventsCreateBatchResponse is a response object.
+type PhoneFraudEventsCreateBatchResponse struct {
+	// Events the scoring uses from the next request
+	Accepted int64                   `json:"accepted"`
+	Results  []PhoneFraudEventResult `json:"results"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudEventsCreateBatchResponse leniently.
+func (r *PhoneFraudEventsCreateBatchResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudEventResult is a response object.
+type PhoneFraudEventResult struct {
+	// The event's place in events
+	Index int64 `json:"index"`
+
+	// The event; present only for an accepted event
+	EventID string `json:"event_id"`
+
+	// accepted or rejected
+	Status PhoneFraudEventResultStatus `json:"status"`
+
+	// Why it was rejected: `invalid_event`; `null` for an accepted event
+	Error PhoneFraudEventResultError `json:"error"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudEventResult leniently.
+func (r *PhoneFraudEventResult) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudEventResultStatus: accepted or rejected
+//
+// PhoneFraudEventResultStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFraudEventResultStatus string
+
+// Known values of PhoneFraudEventResultStatus.
+const (
+	PhoneFraudEventResultStatusAccepted PhoneFraudEventResultStatus = "accepted"
+	PhoneFraudEventResultStatusRejected PhoneFraudEventResultStatus = "rejected"
+)
+
+// PhoneFraudEventResultError: Why it was rejected: `invalid_event`; `null` for
+// an accepted event
+//
+// PhoneFraudEventResultError is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFraudEventResultError string
+
+// Known values of PhoneFraudEventResultError.
+const (
+	PhoneFraudEventResultErrorInvalidEvent PhoneFraudEventResultError = "invalid_event"
+)
+
+// PhoneFraudPolicyInput: The fields of a fraud policy you can write. A field
+// you leave out stays as it is on an update; on a create `name` and `flow` are
+// required, `threshold` defaults to 60 and `action` to `review`.
+type PhoneFraudPolicyInput struct {
+	// Its name
+	Name Opt[string] `json:"name"`
+
+	// The flow it scores: `signup`, `login`, `payment` or a flow of your own, as
+	// sent in `action` on evaluate and send.
+	Flow       Opt[string]                           `json:"flow"`
+	Conditions Opt[[]PhoneFraudPolicyConditionParam] `json:"conditions"`
+
+	// The score at which action applies
+	Threshold Opt[int64] `json:"threshold"`
+
+	// allow, review, challenge or block
+	Action Opt[PhoneFraudPolicyInputAction] `json:"action"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFraudPolicyInput) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFraudPolicyConditionParam is a request object.
+type PhoneFraudPolicyConditionParam struct {
+	// risk_score, sim_swap, line_type, country, velocity, ip_risk, device,
+	// email_risk or existing_user Required.
+	Signal PhoneFraudPolicyConditionSignal `json:"signal"`
+
+	// eq, neq, gt, lt, in or within_hours Required.
+	Operator PhoneFraudPolicyConditionOperator `json:"operator"`
+
+	// What the signal is compared with Required.
+	Value string `json:"value"`
+
+	// Points added to the score when the condition holds, 0 to 100 Required.
+	Weight int64 `json:"weight"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFraudPolicyConditionParam) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFraudPolicyConditionSignal: risk_score, sim_swap, line_type, country,
+// velocity, ip_risk, device, email_risk or existing_user
+//
+// PhoneFraudPolicyConditionSignal is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneFraudPolicyConditionSignal string
+
+// Known values of PhoneFraudPolicyConditionSignal.
+const (
+	PhoneFraudPolicyConditionSignalRiskScore    PhoneFraudPolicyConditionSignal = "risk_score"
+	PhoneFraudPolicyConditionSignalSimSwap      PhoneFraudPolicyConditionSignal = "sim_swap"
+	PhoneFraudPolicyConditionSignalLineType     PhoneFraudPolicyConditionSignal = "line_type"
+	PhoneFraudPolicyConditionSignalCountry      PhoneFraudPolicyConditionSignal = "country"
+	PhoneFraudPolicyConditionSignalVelocity     PhoneFraudPolicyConditionSignal = "velocity"
+	PhoneFraudPolicyConditionSignalIPRisk       PhoneFraudPolicyConditionSignal = "ip_risk"
+	PhoneFraudPolicyConditionSignalDevice       PhoneFraudPolicyConditionSignal = "device"
+	PhoneFraudPolicyConditionSignalEmailRisk    PhoneFraudPolicyConditionSignal = "email_risk"
+	PhoneFraudPolicyConditionSignalExistingUser PhoneFraudPolicyConditionSignal = "existing_user"
+)
+
+// PhoneFraudPolicyConditionOperator: eq, neq, gt, lt, in or within_hours
+//
+// PhoneFraudPolicyConditionOperator is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneFraudPolicyConditionOperator string
+
+// Known values of PhoneFraudPolicyConditionOperator.
+const (
+	PhoneFraudPolicyConditionOperatorEq          PhoneFraudPolicyConditionOperator = "eq"
+	PhoneFraudPolicyConditionOperatorNeq         PhoneFraudPolicyConditionOperator = "neq"
+	PhoneFraudPolicyConditionOperatorGt          PhoneFraudPolicyConditionOperator = "gt"
+	PhoneFraudPolicyConditionOperatorLt          PhoneFraudPolicyConditionOperator = "lt"
+	PhoneFraudPolicyConditionOperatorIn          PhoneFraudPolicyConditionOperator = "in"
+	PhoneFraudPolicyConditionOperatorWithinHours PhoneFraudPolicyConditionOperator = "within_hours"
+)
+
+// PhoneFraudPolicyInputAction: allow, review, challenge or block
+//
+// PhoneFraudPolicyInputAction is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFraudPolicyInputAction string
+
+// Known values of PhoneFraudPolicyInputAction.
+const (
+	PhoneFraudPolicyInputActionAllow     PhoneFraudPolicyInputAction = "allow"
+	PhoneFraudPolicyInputActionReview    PhoneFraudPolicyInputAction = "review"
+	PhoneFraudPolicyInputActionChallenge PhoneFraudPolicyInputAction = "challenge"
+	PhoneFraudPolicyInputActionBlock     PhoneFraudPolicyInputAction = "block"
+)
+
+// PhoneFraudPolicy is a response object.
+type PhoneFraudPolicy struct {
+	// The policy
+	PolicyID string `json:"policy_id"`
+
+	// Its name
+	Name string `json:"name"`
+
+	// The flow it scores, as sent in action on evaluate and send
+	Flow string `json:"flow"`
+
+	// The score at which action applies
+	Threshold int64 `json:"threshold"`
+
+	// allow, review, challenge or block
+	Action PhoneFraudPolicyAction `json:"action"`
+
+	// Last change
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// The conditions that add their weight to the score when they hold.
+	Conditions []PhoneFraudPolicyCondition `json:"conditions"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudPolicy leniently.
+func (r *PhoneFraudPolicy) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudPolicyAction: allow, review, challenge or block
+//
+// PhoneFraudPolicyAction is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneFraudPolicyAction string
+
+// Known values of PhoneFraudPolicyAction.
+const (
+	PhoneFraudPolicyActionAllow     PhoneFraudPolicyAction = "allow"
+	PhoneFraudPolicyActionReview    PhoneFraudPolicyAction = "review"
+	PhoneFraudPolicyActionChallenge PhoneFraudPolicyAction = "challenge"
+	PhoneFraudPolicyActionBlock     PhoneFraudPolicyAction = "block"
+)
+
+// PhoneFraudPolicyCondition is a response object.
+type PhoneFraudPolicyCondition struct {
+	// risk_score, sim_swap, line_type, country, velocity, ip_risk, device,
+	// email_risk or existing_user
+	Signal PhoneFraudPolicyConditionSignal `json:"signal"`
+
+	// eq, neq, gt, lt, in or within_hours
+	Operator PhoneFraudPolicyConditionOperator `json:"operator"`
+
+	// What the signal is compared with
+	Value string `json:"value"`
+
+	// Points added to the score when the condition holds, 0 to 100
+	Weight int64 `json:"weight"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFraudPolicyCondition leniently.
+func (r *PhoneFraudPolicyCondition) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFraudPoliciesListParams holds the parameters of
+// Client.Phone.Fraud.Policies.List.
+type PhoneFraudPoliciesListParams struct {
+	// One flow
+	Flow Opt[string] `json:"-" query:"flow"`
+
+	// 20 by default, 100 at most
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Where the page starts
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFraudPoliciesListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneLineTypeOverridesCreateParams holds the parameters of
+// Client.Phone.LineTypeOverrides.Create.
+type PhoneLineTypeOverridesCreateParams struct {
+	// The number Required.
+	PhoneNumber string `json:"phone_number"`
+
+	// mobile, landline, fixed_voip, non_fixed_voip, toll_free, premium or pager
+	// Required.
+	LineType PhoneLineTypeOverridesCreateParamsLineType `json:"line_type"`
+
+	// Why it is corrected
+	Note Opt[string] `json:"note"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneLineTypeOverridesCreateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneLineTypeOverridesCreateParamsLineType: mobile, landline, fixed_voip,
+// non_fixed_voip, toll_free, premium or pager
+//
+// PhoneLineTypeOverridesCreateParamsLineType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneLineTypeOverridesCreateParamsLineType string
+
+// Known values of PhoneLineTypeOverridesCreateParamsLineType.
+const (
+	PhoneLineTypeOverridesCreateParamsLineTypeMobile       PhoneLineTypeOverridesCreateParamsLineType = "mobile"
+	PhoneLineTypeOverridesCreateParamsLineTypeLandline     PhoneLineTypeOverridesCreateParamsLineType = "landline"
+	PhoneLineTypeOverridesCreateParamsLineTypeFixedVoip    PhoneLineTypeOverridesCreateParamsLineType = "fixed_voip"
+	PhoneLineTypeOverridesCreateParamsLineTypeNonFixedVoip PhoneLineTypeOverridesCreateParamsLineType = "non_fixed_voip"
+	PhoneLineTypeOverridesCreateParamsLineTypeTollFree     PhoneLineTypeOverridesCreateParamsLineType = "toll_free"
+	PhoneLineTypeOverridesCreateParamsLineTypePremium      PhoneLineTypeOverridesCreateParamsLineType = "premium"
+	PhoneLineTypeOverridesCreateParamsLineTypePager        PhoneLineTypeOverridesCreateParamsLineType = "pager"
+)
+
+// PhoneLineTypeOverridesCreateResponse is a response object.
+type PhoneLineTypeOverridesCreateResponse struct {
+	// The override
+	OverrideID string `json:"override_id"`
+
+	// The number in E.164 format
+	PhoneNumber string `json:"phone_number"`
+
+	// What lookups return from now on
+	LineType PhoneLineTypeOverridesCreateResponseLineType `json:"line_type"`
+
+	// When
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneLineTypeOverridesCreateResponse leniently.
+func (r *PhoneLineTypeOverridesCreateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneLineTypeOverridesCreateResponseLineType: What lookups return from now on
+//
+// PhoneLineTypeOverridesCreateResponseLineType is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneLineTypeOverridesCreateResponseLineType string
+
+// Known values of PhoneLineTypeOverridesCreateResponseLineType.
+const (
+	PhoneLineTypeOverridesCreateResponseLineTypeMobile       PhoneLineTypeOverridesCreateResponseLineType = "mobile"
+	PhoneLineTypeOverridesCreateResponseLineTypeLandline     PhoneLineTypeOverridesCreateResponseLineType = "landline"
+	PhoneLineTypeOverridesCreateResponseLineTypeFixedVoip    PhoneLineTypeOverridesCreateResponseLineType = "fixed_voip"
+	PhoneLineTypeOverridesCreateResponseLineTypeNonFixedVoip PhoneLineTypeOverridesCreateResponseLineType = "non_fixed_voip"
+	PhoneLineTypeOverridesCreateResponseLineTypeTollFree     PhoneLineTypeOverridesCreateResponseLineType = "toll_free"
+	PhoneLineTypeOverridesCreateResponseLineTypePremium      PhoneLineTypeOverridesCreateResponseLineType = "premium"
+	PhoneLineTypeOverridesCreateResponseLineTypePager        PhoneLineTypeOverridesCreateResponseLineType = "pager"
+)
+
+// PhoneListsAddParams holds the parameters of Client.Phone.Lists.Add.
+type PhoneListsAddParams struct {
+	// A number in E.164, a prefix, an ISO country code or a mobile network, as
+	// `type` says. Required.
+	Value string `json:"value"`
+
+	// number, prefix, country or network
+	Type Opt[PhoneListsAddParamsType] `json:"type"`
+
+	// A temporary entry ends on its own
+	ExpiresAt Opt[time.Time] `json:"expires_at"`
+
+	// Why it is listed
+	Note Opt[string] `json:"note"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneListsAddParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneListsAddParamsType: number, prefix, country or network
+//
+// PhoneListsAddParamsType is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneListsAddParamsType string
+
+// Known values of PhoneListsAddParamsType.
+const (
+	PhoneListsAddParamsTypeNumber  PhoneListsAddParamsType = "number"
+	PhoneListsAddParamsTypePrefix  PhoneListsAddParamsType = "prefix"
+	PhoneListsAddParamsTypeCountry PhoneListsAddParamsType = "country"
+	PhoneListsAddParamsTypeNetwork PhoneListsAddParamsType = "network"
+)
+
+// PhoneListEntry is a response object.
+type PhoneListEntry struct {
+	// The entry
+	EntryID string `json:"entry_id"`
+
+	// The list it is on
+	ListID PhoneListEntryListID `json:"list_id"`
+
+	// The number in E.164 format, the prefix, the ISO 3166-1 alpha-3 country code
+	// or the network
+	Value string `json:"value"`
+
+	// Its type
+	Type PhoneListEntryType `json:"type"`
+
+	// When a temporary entry ends; `null` for a permanent one
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Who added it: `manual` in the console, `api` through this API or `alert`
+	Source PhoneListEntrySource `json:"source"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneListEntry leniently.
+func (r *PhoneListEntry) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneListEntryListID: The list it is on
+//
+// PhoneListEntryListID is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneListEntryListID string
+
+// Known values of PhoneListEntryListID.
+const (
+	PhoneListEntryListIDAllow PhoneListEntryListID = "allow"
+	PhoneListEntryListIDBlock PhoneListEntryListID = "block"
+)
+
+// PhoneListEntryType: Its type
+//
+// PhoneListEntryType is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneListEntryType string
+
+// Known values of PhoneListEntryType.
+const (
+	PhoneListEntryTypeNumber  PhoneListEntryType = "number"
+	PhoneListEntryTypePrefix  PhoneListEntryType = "prefix"
+	PhoneListEntryTypeCountry PhoneListEntryType = "country"
+	PhoneListEntryTypeNetwork PhoneListEntryType = "network"
+)
+
+// PhoneListEntrySource: Who added it: `manual` in the console, `api` through
+// this API or `alert`
+//
+// PhoneListEntrySource is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneListEntrySource string
+
+// Known values of PhoneListEntrySource.
+const (
+	PhoneListEntrySourceManual PhoneListEntrySource = "manual"
+	PhoneListEntrySourceAPI    PhoneListEntrySource = "api"
+	PhoneListEntrySourceAlert  PhoneListEntrySource = "alert"
+)
+
+// PhoneListsCheckParams holds the parameters of Client.Phone.Lists.Check.
+type PhoneListsCheckParams struct {
+	// The number to check Required.
+	PhoneNumber string `json:"phone_number"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneListsCheckParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneListsCheckResponse is a response object.
+type PhoneListsCheckResponse struct {
+	// On the allow list
+	Allowed bool `json:"allowed"`
+
+	// On the block list, by number, prefix, country or network
+	Blocked bool             `json:"blocked"`
+	Matches []PhoneListMatch `json:"matches"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneListsCheckResponse leniently.
+func (r *PhoneListsCheckResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneListMatch is a response object.
+type PhoneListMatch struct {
+	// allow or block
+	ListID PhoneListMatchListID `json:"list_id"`
+
+	// The entry that matched
+	EntryID string `json:"entry_id"`
+
+	// number, prefix, country or network
+	Type PhoneListMatchType `json:"type"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneListMatch leniently.
+func (r *PhoneListMatch) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneListMatchListID: allow or block
+//
+// PhoneListMatchListID is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneListMatchListID string
+
+// Known values of PhoneListMatchListID.
+const (
+	PhoneListMatchListIDAllow PhoneListMatchListID = "allow"
+	PhoneListMatchListIDBlock PhoneListMatchListID = "block"
+)
+
+// PhoneListMatchType: number, prefix, country or network
+//
+// PhoneListMatchType is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneListMatchType string
+
+// Known values of PhoneListMatchType.
+const (
+	PhoneListMatchTypeNumber  PhoneListMatchType = "number"
+	PhoneListMatchTypePrefix  PhoneListMatchType = "prefix"
+	PhoneListMatchTypeCountry PhoneListMatchType = "country"
+	PhoneListMatchTypeNetwork PhoneListMatchType = "network"
+)
+
+// PhoneListsListEntriesParams holds the parameters of
+// Client.Phone.Lists.ListEntries.
+type PhoneListsListEntriesParams struct {
+	// number, prefix, country or network
+	Type Opt[PhoneListsListEntriesParamsType] `json:"-" query:"type"`
+
+	// Part of a value or a note
+	Search Opt[string] `json:"-" query:"search"`
+
+	// 20 by default, 100 at most
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Where the page starts
+	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// json, or csv to export every row of the filtered list
+	Format Opt[PhoneListsListEntriesParamsFormat] `json:"-" query:"format"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneListsListEntriesParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneListsListEntriesParamsType is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneListsListEntriesParamsType string
+
+// Known values of PhoneListsListEntriesParamsType.
+const (
+	PhoneListsListEntriesParamsTypeNumber  PhoneListsListEntriesParamsType = "number"
+	PhoneListsListEntriesParamsTypePrefix  PhoneListsListEntriesParamsType = "prefix"
+	PhoneListsListEntriesParamsTypeCountry PhoneListsListEntriesParamsType = "country"
+	PhoneListsListEntriesParamsTypeNetwork PhoneListsListEntriesParamsType = "network"
+)
+
+// PhoneListsListEntriesParamsFormat is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneListsListEntriesParamsFormat string
+
+// Known values of PhoneListsListEntriesParamsFormat.
+const (
+	PhoneListsListEntriesParamsFormatJSON PhoneListsListEntriesParamsFormat = "json"
+	PhoneListsListEntriesParamsFormatCSV  PhoneListsListEntriesParamsFormat = "csv"
+)
+
 // PhoneNetworkRegistrationRequest is a request object.
 type PhoneNetworkRegistrationRequest struct {
 	// The network feature to ask approval for. Required.
@@ -2341,6 +4063,124 @@ type PhoneNetworkRegistrationTestNumberRequest struct {
 
 // MarshalJSON encodes the fields that are set.
 func (r PhoneNetworkRegistrationTestNumberRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneRateLimitsCreateParams holds the parameters of
+// Client.Phone.RateLimits.Create.
+type PhoneRateLimitsCreateParams struct {
+	// The name of the value the limit counts, for example `user_id`. Required.
+	Key string `json:"key"`
+
+	// Required.
+	Buckets []PhoneRateLimitsCreateParamsBuckets `json:"buckets"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneRateLimitsCreateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneRateLimitsCreateParamsBuckets is a request object.
+type PhoneRateLimitsCreateParamsBuckets struct {
+	// Starts allowed in the interval Required.
+	Max int64 `json:"max"`
+
+	// The interval, in seconds, from 1 second to 30 days (2,592,000) Required.
+	Interval int64 `json:"interval"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneRateLimitsCreateParamsBuckets) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneRateLimit is a response object.
+type PhoneRateLimit struct {
+	// The limit
+	RateLimitID string `json:"rate_limit_id"`
+
+	// Its key
+	Key string `json:"key"`
+
+	// The buckets of the limit: each allows `max` starts in `interval` seconds.
+	Buckets []PhoneRateLimitBucket `json:"buckets"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneRateLimit leniently.
+func (r *PhoneRateLimit) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneRateLimitBucket is a response object.
+type PhoneRateLimitBucket struct {
+	// Each bucket
+	BucketID string `json:"bucket_id"`
+
+	// Starts allowed in the interval
+	Max int64 `json:"max"`
+
+	// The interval, in seconds, from 1 second to 30 days (2,592,000)
+	Interval int64 `json:"interval"`
+
+	// The starts already counted in the current interval
+	InUse int64 `json:"in_use"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneRateLimitBucket leniently.
+func (r *PhoneRateLimitBucket) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneRateLimitsListParams holds the parameters of
+// Client.Phone.RateLimits.List.
+type PhoneRateLimitsListParams struct {
+	// 20 by default, 100 at most
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Where the page starts
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneRateLimitsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneRateLimitsUpdateParams holds the parameters of
+// Client.Phone.RateLimits.Update.
+type PhoneRateLimitsUpdateParams struct {
+	// Required.
+	Buckets []PhoneRateLimitsUpdateParamsBuckets `json:"buckets"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneRateLimitsUpdateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneRateLimitsUpdateParamsBuckets is a request object.
+type PhoneRateLimitsUpdateParamsBuckets struct {
+	// A bucket to change; left out, a new bucket is added.
+	BucketID Opt[string] `json:"bucket_id"`
+
+	// Starts allowed in the interval
+	Max Opt[int64] `json:"max"`
+
+	// The interval, in seconds, from 1 second to 30 days (2,592,000)
+	Interval Opt[int64] `json:"interval"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneRateLimitsUpdateParamsBuckets) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 

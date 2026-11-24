@@ -4,6 +4,7 @@ package didit_test
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/didit-protocol/sdk-go"
@@ -24,6 +25,22 @@ func TestPhoneAssessRisk(t *testing.T) {
 	expectFields(t, res.JSON, []string{"request_id", "status", "vendor_data", "metadata", "created_at", "phone"})
 }
 
+func TestPhoneAssessRiskBulk(t *testing.T) {
+	client, mock := newMockClient(t, 202, "application/json", `{"job_id":"8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55","status":"queued","total":2400,"processed":0,"results_url":null}`)
+	var params didit.PhoneAssessRiskBulkParams
+	mustUnmarshal(t, `{"fields":["line_type","sim_swap"]}`, &params)
+	params.File = didit.FileFromBytes("file.png", []byte("file-content"))
+	res, err := client.Phone.AssessRiskBulk(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/risk/bulk/")
+	req.expectAPIKey(t)
+	req.expectMultipart(t, []string{"fields"}, []string{"file"})
+	expectFields(t, res.JSON, []string{"job_id", "status", "total", "processed"})
+}
+
 func TestPhoneCheckCode(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"e39cb057-92fc-4b59-b84e-02fec29a0f24","status":"Approved","message":"The verification code is correct.","phone":{"status":"Approved","phone_number_prefix":"+1","phone_number":"4155552671","full_number":"+14155552671","country_code":"US","country_name":"United States","carrier":{"name":"AT\u0026T","type":"mobile"},"is_disposable":false,"is_virtual":false,"verification_method":"whatsapp","verification_attempts":1,"verified_at":"2026-06-12T01:24:47.311323Z","warnings":[],"lifecycle":[{"type":"PHONE_VERIFICATION_MESSAGE_SENT","timestamp":"2026-06-12T01:23:39.580554+00:00","details":{"status":"Success","reason":null,"channel":"whatsapp","actual_channel":"whatsapp","attempt":0,"delivery_status":"delivered"},"fee":0.0509},{"type":"PHONE_DELIVERY_DELIVERED","timestamp":"2026-06-12T01:23:43.118220+00:00","details":{"channel":"whatsapp","status":"delivered","attempt":0},"fee":0},{"type":"VALID_CODE_ENTERED","timestamp":"2026-06-12T01:24:47.311201+00:00","details":{"code_tried":"123456","status":"Approved"},"fee":0},{"type":"PHONE_VERIFICATION_APPROVED","timestamp":"2026-06-12T01:24:47.384292+00:00","details":null,"fee":0}],"matches":[]},"vendor_data":"user-1234","metadata":null,"created_at":"2026-06-12T01:24:47.401719+00:00"}`)
 	var params didit.PhoneCheckCodeParams
@@ -37,6 +54,34 @@ func TestPhoneCheckCode(t *testing.T) {
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"phone_number":"+14155552671","code":"123456"}`)
 	expectFields(t, res.JSON, []string{"request_id", "status", "message", "phone", "vendor_data", "created_at"})
+}
+
+func TestPhoneDownloadRiskBulkResults(t *testing.T) {
+	client, mock := newMockClient(t, 200, "text/csv", `binary-content`)
+	res, err := client.Phone.DownloadRiskBulkResults(context.Background(), "job-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/risk/bulk/job-id-1/results/")
+	req.expectAPIKey(t)
+	defer func() { _ = res.Body.Close() }()
+	data, err := io.ReadAll(res.Body)
+	if err != nil || string(data) != "binary-content" {
+		t.Fatalf("file body = %q, %v", data, err)
+	}
+}
+
+func TestPhoneRetrieveRiskBulk(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"job_id":"8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55","status":"done","total":2400,"processed":2400,"results_url":"/v3/phone/risk/bulk/8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55/results/"}`)
+	res, err := client.Phone.RetrieveRiskBulk(context.Background(), "job-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/risk/bulk/job-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"job_id", "status", "total", "processed", "results_url"})
 }
 
 func TestPhoneSendCode(t *testing.T) {
@@ -132,6 +177,216 @@ func TestPhoneFactorsUpdate(t *testing.T) {
 	expectFields(t, res.JSON, []string{"factor_id", "type", "status", "user_id", "friendly_name", "metadata", "created_at", "last_used_at"})
 }
 
+func TestPhoneFraudEvaluate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"decision":"allow","score":12,"matched_rules":[],"policy":{"policy_id":"9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44","score":40,"conditions_met":["sim_swap"]},"challenge_channels":[],"email":null,"existing_user":false,"exception":null}`)
+	var params didit.PhoneFraudEvaluateParams
+	mustUnmarshal(t, `{"phone_number":"+34600000012","action":"signup","existing_user":false,"trusted_user":false}`, &params)
+	res, err := client.Phone.Fraud.Evaluate(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/fraud/evaluate/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"phone_number":"+34600000012","action":"signup","existing_user":false,"trusted_user":false}`)
+	expectFields(t, res.JSON, []string{"decision", "score", "matched_rules", "policy", "challenge_channels", "existing_user"})
+}
+
+func TestPhoneFraudUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"level":"custom","rules":[{"key":"sim_swap","action":"require_code","countries":["GB","ES"]}],"challenge_channels":["silent","whatsapp","passkey"],"updated_at":"2026-11-21T10:00:00Z","sim_swap_within":72,"daily_cap":null}`)
+	var params didit.PhoneFraudUpdateParams
+	mustUnmarshal(t, `{"level":"custom","rules":[{"key":"sim_swap","action":"require_code","countries":["GB","ES"]}],"challenge_channels":["silent","whatsapp","passkey"],"sim_swap_within":72}`, &params)
+	res, err := client.Phone.Fraud.Update(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/phone/fraud/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"level":"custom","rules":[{"key":"sim_swap","action":"require_code","countries":["GB","ES"]}],"challenge_channels":["silent","whatsapp","passkey"],"sim_swap_within":72}`)
+	expectFields(t, res.JSON, []string{"level", "rules", "updated_at", "challenge_channels", "sim_swap_within"})
+}
+
+func TestPhoneFraudEventsCreateBatch(t *testing.T) {
+	client, mock := newMockClient(t, 207, "application/json", `{"accepted":1,"results":[{"index":0,"event_id":"ae4f1a36-8c7a-4d25-9a49-3f6b0c2d7e55","status":"accepted","error":null}]}`)
+	var params didit.PhoneFraudEventsCreateBatchParams
+	mustUnmarshal(t, `{"events":[{"type":"login","phone_number":"+34600000012","occurred_at":"2026-11-21T09:58:00Z","reference":"login-99812"}]}`, &params)
+	res, err := client.Phone.Fraud.Events.CreateBatch(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/fraud/events/batch/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"events":[{"type":"login","phone_number":"+34600000012","occurred_at":"2026-11-21T09:58:00Z","reference":"login-99812"}]}`)
+	expectFields(t, res.JSON, []string{"accepted", "results"})
+}
+
+func TestPhoneFraudPoliciesCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"policy_id":"9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44","name":"Payment check","flow":"payment","conditions":[{"signal":"sim_swap","operator":"within_hours","value":"72","weight":40}],"threshold":60,"action":"challenge","updated_at":"2026-11-21T09:00:00Z"}`)
+	var params didit.PhoneFraudPolicyInput
+	mustUnmarshal(t, `{"name":"Payment check","flow":"payment","conditions":[{"signal":"sim_swap","operator":"within_hours","value":"72","weight":40}],"threshold":60,"action":"challenge"}`, &params)
+	res, err := client.Phone.Fraud.Policies.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/fraud/policies/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"name":"Payment check","flow":"payment","conditions":[{"signal":"sim_swap","operator":"within_hours","value":"72","weight":40}],"threshold":60,"action":"challenge"}`)
+	expectFields(t, res.JSON, []string{"policy_id", "name", "flow", "threshold", "action", "updated_at", "conditions"})
+}
+
+func TestPhoneFraudPoliciesDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Phone.Fraud.Policies.Delete(context.Background(), "policy-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/phone/fraud/policies/policy-id-1/")
+	req.expectAPIKey(t)
+}
+
+func TestPhoneFraudPoliciesList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"policy_id":"9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44","name":"Payment check","flow":"payment","conditions":[{"signal":"sim_swap","operator":"within_hours","value":"72","weight":40}],"threshold":60,"action":"challenge","updated_at":"2026-11-21T09:00:00Z"}]}`)
+	var params didit.PhoneFraudPoliciesListParams
+	params.Flow = didit.String("value")
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(0)
+	res, err := client.Phone.Fraud.Policies.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/fraud/policies/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"flow": "value", "limit": "20", "offset": "0"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"policy_id", "name", "flow", "threshold", "action", "updated_at", "conditions"})
+}
+
+func TestPhoneFraudPoliciesRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"policy_id":"9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44","name":"Payment check","flow":"payment","conditions":[{"signal":"sim_swap","operator":"within_hours","value":"72","weight":40},{"signal":"email_risk","operator":"eq","value":"high","weight":30}],"threshold":60,"action":"challenge","updated_at":"2026-11-21T09:00:00Z"}`)
+	res, err := client.Phone.Fraud.Policies.Retrieve(context.Background(), "policy-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/fraud/policies/policy-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"policy_id", "name", "flow", "threshold", "action", "updated_at", "conditions"})
+}
+
+func TestPhoneFraudPoliciesUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"policy_id":"9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44","name":"Payment check","flow":"payment","conditions":[{"signal":"sim_swap","operator":"within_hours","value":"72","weight":40},{"signal":"email_risk","operator":"eq","value":"high","weight":30}],"threshold":60,"action":"challenge","updated_at":"2026-11-21T09:00:00Z"}`)
+	var params didit.PhoneFraudPolicyInput
+	mustUnmarshal(t, `{"name":"Payment check","flow":"payment","conditions":[{"signal":"sim_swap","operator":"within_hours","value":"72","weight":40}],"threshold":60,"action":"challenge"}`, &params)
+	res, err := client.Phone.Fraud.Policies.Update(context.Background(), "policy-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/phone/fraud/policies/policy-id-1/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"name":"Payment check","flow":"payment","conditions":[{"signal":"sim_swap","operator":"within_hours","value":"72","weight":40}],"threshold":60,"action":"challenge"}`)
+	expectFields(t, res.JSON, []string{"policy_id", "name", "flow", "threshold", "action", "updated_at", "conditions"})
+}
+
+func TestPhoneLineTypeOverridesCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"override_id":"7c2d9e14-6a58-4b03-9e27-1d4f8a0b5c33","phone_number":"+34911234567","line_type":"landline","created_at":"2026-11-21T09:00:00Z"}`)
+	var params didit.PhoneLineTypeOverridesCreateParams
+	mustUnmarshal(t, `{"phone_number":"+34911234567","line_type":"landline"}`, &params)
+	res, err := client.Phone.LineTypeOverrides.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/line-type-overrides/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"phone_number":"+34911234567","line_type":"landline"}`)
+	expectFields(t, res.JSON, []string{"override_id", "phone_number", "line_type", "created_at"})
+}
+
+func TestPhoneLineTypeOverridesDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Phone.LineTypeOverrides.Delete(context.Background(), "override-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/phone/line-type-overrides/override-id-1/")
+	req.expectAPIKey(t)
+}
+
+func TestPhoneListsAdd(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"entry_id":"bf5a2b47-9d8b-4e36-8b5a-407c1d3e8f66","list_id":"block","value":"+88216","expires_at":null,"type":"prefix","source":"api"}`)
+	var params didit.PhoneListsAddParams
+	mustUnmarshal(t, `{"value":"+88216","type":"prefix","note":"Pumping from this prefix"}`, &params)
+	res, err := client.Phone.Lists.Add(context.Background(), "list-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/lists/list-id-1/entries/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"value":"+88216","type":"prefix","note":"Pumping from this prefix"}`)
+	expectFields(t, res.JSON, []string{"entry_id", "list_id", "value", "type", "source"})
+}
+
+func TestPhoneListsCheck(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"allowed":false,"blocked":true,"matches":[{"list_id":"block","entry_id":"c06b3c58-ae9c-4f47-9c6b-518d2e4f9a77","type":"prefix"}]}`)
+	var params didit.PhoneListsCheckParams
+	mustUnmarshal(t, `{"phone_number":"+447700900123"}`, &params)
+	res, err := client.Phone.Lists.Check(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/lists/check/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"phone_number":"+447700900123"}`)
+	expectFields(t, res.JSON, []string{"allowed", "blocked", "matches"})
+}
+
+func TestPhoneListsListEntries(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"entry_id":"c06b3c58-ae9c-4f47-9c6b-518d2e4f9a77","value":"+4475","type":"prefix","expires_at":null,"source":"alert"}]}`)
+	var params didit.PhoneListsListEntriesParams
+	params.Type = didit.Some(didit.PhoneListsListEntriesParamsTypeNumber)
+	params.Search = didit.String("value")
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(0)
+	params.Format = didit.Some(didit.PhoneListsListEntriesParamsFormatJSON)
+	res, err := client.Phone.Lists.ListEntries(context.Background(), "list-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/lists/list-id-1/entries/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"format": "json", "limit": "20", "offset": "0", "search": "value", "type": "number"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"entry_id", "value", "type", "source"})
+}
+
+func TestPhoneListsRemove(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Phone.Lists.Remove(context.Background(), "list-id-1", "entry-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/phone/lists/list-id-1/entries/entry-id-1/")
+	req.expectAPIKey(t)
+}
+
 func TestPhoneNetworkRegistrationsCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"registration_id":"nr_01JCP2F4Q8","feature":"sim_swap","country":"BR","use_case":"account_recovery","status":"partly_approved","networks":[{"name":"Mobile network A","status":"approved","decided_at":"2026-11-20T15:02:00Z","reason":null},{"name":"Mobile network B","status":"in_review","decided_at":null,"reason":null}],"live_at":null,"test_access":"on","test_numbers":[{"phone_number":"+34600000012","status":"verified"}]}`)
 	var params didit.PhoneNetworkRegistrationRequest
@@ -207,6 +462,90 @@ func TestPhoneNetworkRegistrationsTestNumbersDelete(t *testing.T) {
 	}
 	req := mock.single(t)
 	req.expect(t, "DELETE", "/v3/phone/network/registrations/registration-id-1/test-numbers/phone-number-1/")
+	req.expectAPIKey(t)
+}
+
+func TestPhoneRateLimitsCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"rate_limit_id":"3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01","key":"user_id","buckets":[{"bucket_id":"0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10","max":5,"interval":3600}]}`)
+	var params didit.PhoneRateLimitsCreateParams
+	mustUnmarshal(t, `{"key":"user_id","buckets":[{"max":5,"interval":3600}]}`, &params)
+	res, err := client.Phone.RateLimits.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/rate-limits/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"key":"user_id","buckets":[{"max":5,"interval":3600}]}`)
+	expectFields(t, res.JSON, []string{"rate_limit_id", "key", "buckets"})
+}
+
+func TestPhoneRateLimitsDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Phone.RateLimits.Delete(context.Background(), "rate-limit-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/phone/rate-limits/rate-limit-id-1/")
+	req.expectAPIKey(t)
+}
+
+func TestPhoneRateLimitsList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"rate_limit_id":"3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01","key":"user_id","buckets":[{"bucket_id":"0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10","max":5,"interval":3600,"in_use":2}]}]}`)
+	var params didit.PhoneRateLimitsListParams
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(0)
+	res, err := client.Phone.RateLimits.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/rate-limits/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"limit": "20", "offset": "0"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"rate_limit_id", "key", "buckets"})
+}
+
+func TestPhoneRateLimitsRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"rate_limit_id":"3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01","key":"user_id","buckets":[{"bucket_id":"0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10","max":5,"interval":3600,"in_use":2}]}`)
+	res, err := client.Phone.RateLimits.Retrieve(context.Background(), "rate-limit-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/rate-limits/rate-limit-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"rate_limit_id", "key", "buckets"})
+}
+
+func TestPhoneRateLimitsUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"rate_limit_id":"3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01","key":"user_id","buckets":[{"bucket_id":"0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10","max":10,"interval":86400,"in_use":2}]}`)
+	var params didit.PhoneRateLimitsUpdateParams
+	mustUnmarshal(t, `{"buckets":[{"bucket_id":"0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10","max":10,"interval":86400}]}`, &params)
+	res, err := client.Phone.RateLimits.Update(context.Background(), "rate-limit-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/phone/rate-limits/rate-limit-id-1/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"buckets":[{"bucket_id":"0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10","max":10,"interval":86400}]}`)
+	expectFields(t, res.JSON, []string{"rate_limit_id", "key", "buckets"})
+}
+
+func TestPhoneRateLimitsBucketsDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Phone.RateLimits.Buckets.Delete(context.Background(), "rate-limit-id-1", "bucket-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/phone/rate-limits/rate-limit-id-1/buckets/bucket-id-1/")
 	req.expectAPIKey(t)
 }
 

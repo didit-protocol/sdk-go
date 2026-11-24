@@ -17471,6 +17471,3181 @@
         ]
       }
     },
+    "/v3/phone/risk/bulk/": {
+      "post": {
+        "summary": "Start a bulk lookup",
+        "description": "Look up a CSV of numbers as one job: one number per line, up to 100,000 numbers, with `fields` naming the signals to return for each number. The call answers `202` with the job (`status` `queued`, `processed` 0, `results_url` `null`). Read it with `GET /v3/phone/risk/bulk/{job_id}/`; when it is done, download the CSV from `results_url`. `callback_url`, a public HTTPS URL, receives `{job_id, status, total, results_url}` when the job finishes (described by `PhoneRiskBulkCallback`).\n\nBilling follows Phone Risk API pricing for each number in the file; a number that is not valid is not charged.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "create_phone_risk_bulk",
+        "x-didit-sdk": {
+          "resource": "phone",
+          "method": "assess_risk_bulk",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "description": "A CSV of numbers, one number per line, up to 100,000.",
+                    "format": "binary"
+                  },
+                  "fields": {
+                    "type": "array",
+                    "description": "The signals to return, one CSV column each, in this order; all of them when you send none. `format`, `line_type` and `network` are answered. `reachability`, `sim_swap`, `sms_pumping_risk`, `prefill`, `scam_signal` and `identity_match` are accepted and their columns come back empty: a file that asks for those alone looks up nothing and is not charged for lookups.",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "format",
+                        "line_type",
+                        "network",
+                        "reachability",
+                        "sim_swap",
+                        "sms_pumping_risk",
+                        "prefill",
+                        "scam_signal",
+                        "identity_match"
+                      ]
+                    }
+                  },
+                  "callback_url": {
+                    "type": "string",
+                    "description": "A public HTTPS URL Didit posts to when the job is done: `{job_id, status, total, results_url}`, with `results_url` the same relative path as on the job. Any other URL answers `400`.",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              },
+              "encoding": {
+                "file": {
+                  "contentType": "text/csv"
+                }
+              },
+              "examples": {
+                "A CSV of numbers": {
+                  "summary": "Upload the file and choose the signals",
+                  "description": "A multipart upload: `file` is the CSV, `fields` selects the signals and `callback_url` is called when the job is done.",
+                  "value": {
+                    "file": "phone_number\n+34600000012\n+14155552671\n",
+                    "fields": [
+                      "line_type",
+                      "sim_swap"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The bulk lookup job.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneRiskBulkJob"
+                },
+                "examples": {
+                  "Queued": {
+                    "value": {
+                      "job_id": "8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55",
+                      "status": "queued",
+                      "total": 2400,
+                      "processed": 0,
+                      "results_url": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_file` - Not a CSV of numbers: the file is not UTF-8 text, is empty or has more than 100,000 numbers. A `callback_url` that is not a public HTTPS address, or a missing `file`, answers a field error that names the field."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/phone/risk/bulk/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -F 'file=@numbers.csv'"
+          }
+        ],
+        "callbacks": {
+          "bulkRiskFinished": {
+            "{$request.body#/callback_url}": {
+              "post": {
+                "summary": "The bulk job finished",
+                "description": "Didit posts the finished job to your `callback_url`: once, with no credential and no signature, a 10 second timeout, and no redirect followed. Treat it as a hint and read the job with `GET /v3/phone/risk/bulk/{job_id}/` and your API key before you rely on it.",
+                "requestBody": {
+                  "required": true,
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/PhoneRiskBulkCallback"
+                      }
+                    }
+                  }
+                },
+                "responses": {
+                  "2XX": {
+                    "description": "Any 2xx answer acknowledges the callback."
+                  }
+                },
+                "security": [
+                  {}
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      }
+    },
+    "/v3/phone/risk/bulk/{job_id}/": {
+      "get": {
+        "summary": "Get a bulk lookup job",
+        "description": "Read a bulk risk job of your application: its `status`, how many numbers it has `processed` of its `total`, and the `results_url` of the CSV once a result file exists. An unknown job, or one of another application, answers `404`.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "get_phone_risk_bulk",
+        "x-didit-sdk": {
+          "resource": "phone",
+          "method": "retrieve_risk_bulk",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The job, as returned when it was started.",
+            "example": "8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneRiskBulkJob"
+                },
+                "examples": {
+                  "Done": {
+                    "value": {
+                      "job_id": "8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55",
+                      "status": "done",
+                      "total": 2400,
+                      "processed": 2400,
+                      "results_url": "/v3/phone/risk/bulk/8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55/results/"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No job with this id in your application, or one of another application (never `403`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneRiskBulkError"
+                },
+                "examples": {
+                  "Unknown job": {
+                    "value": {
+                      "detail": "Not found.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry read access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "cURL",
+            "source": "curl 'https://verification.didit.me/v3/phone/risk/bulk/8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      }
+    },
+    "/v3/phone/risk/bulk/{job_id}/results/": {
+      "get": {
+        "summary": "Download bulk lookup results",
+        "description": "Download the CSV of a bulk risk job: the column `phone_number` plus one column per requested signal, one row per number in the order of the uploaded file. A failed job still has the rows it answered. While no result file exists the answer is `409 results_not_ready`.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "download_phone_risk_bulk_results",
+        "x-didit-sdk": {
+          "resource": "phone",
+          "method": "download_risk_bulk_results",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The job, as returned when it was started.",
+            "example": "8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The results as a CSV.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "`attachment; filename=\"phone-risk-{job_id}.csv\"`.",
+                "schema": {
+                  "type": "string"
+                },
+                "example": "attachment; filename=\"phone-risk-8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55.csv\""
+              }
+            },
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                },
+                "example": "phone_number,line_type,sim_swap\n+34600000012,mobile,\n+14155552671,mobile,\n"
+              }
+            }
+          },
+          "404": {
+            "description": "No job with this id in your application, or one of another application (never `403`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneRiskBulkError"
+                },
+                "examples": {
+                  "Unknown job": {
+                    "value": {
+                      "detail": "Not found.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No result file exists yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneRiskBulkError"
+                },
+                "examples": {
+                  "Not ready": {
+                    "value": {
+                      "detail": "The results are not ready.",
+                      "code": "results_not_ready"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry read access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "cURL",
+            "source": "curl 'https://verification.didit.me/v3/phone/risk/bulk/8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55/results/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -o phone-risk-8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55.csv"
+          }
+        ]
+      }
+    },
+    "/v3/phone/fraud/": {
+      "patch": {
+        "summary": "Update fraud settings",
+        "description": "Change the application's fraud protection: the level, the rules and where each rule applies. `level` is `standard` or `strict`, or `custom` when your own rules decide.\n\nA rule names a `key` - `velocity`, `pumping`, `risk_score`, `sim_swap`, `device` or `country` - and its `action`: `allow`, `review`, `require_code` or `block`, and `challenge`, which continues the verification only on the channels in `challenge_channels`. A rule applies only to the `countries` and `platforms` you name, and to verification codes: `scope` is `codes`, the only value, and any other value answers `400`.\n\n`sim_swap_within` is the window, in hours, after a SIM change in which a code is required instead of a silent check, or the number is blocked. `daily_cap` stops new codes at this spend per day, in USD.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "update_phone_fraud_settings",
+        "x-didit-sdk": {
+          "resource": "phone.fraud",
+          "method": "update",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "description": "standard, strict or custom",
+                    "example": "custom",
+                    "enum": [
+                      "standard",
+                      "strict",
+                      "custom"
+                    ]
+                  },
+                  "rules": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string",
+                          "description": "velocity, pumping, risk_score, sim_swap, device or country",
+                          "example": "sim_swap",
+                          "enum": [
+                            "velocity",
+                            "pumping",
+                            "risk_score",
+                            "sim_swap",
+                            "device",
+                            "country"
+                          ]
+                        },
+                        "action": {
+                          "type": "string",
+                          "description": "allow, review, require_code, challenge or block: challenge continues the verification on challenge_channels only",
+                          "example": "require_code",
+                          "enum": [
+                            "allow",
+                            "review",
+                            "require_code",
+                            "challenge",
+                            "block"
+                          ]
+                        },
+                        "countries": {
+                          "type": "array",
+                          "description": "The rule applies only to these countries",
+                          "example": [
+                            "GB",
+                            "ES"
+                          ],
+                          "items": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 2,
+                            "description": "An ISO 3166-1 alpha-2 country code"
+                          }
+                        },
+                        "platforms": {
+                          "type": "array",
+                          "description": "The rule applies only to web, ios or android",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "web",
+                              "ios",
+                              "android"
+                            ]
+                          }
+                        },
+                        "scope": {
+                          "type": "string",
+                          "description": "codes (the default and the only value): the rule applies to verification codes",
+                          "enum": [
+                            "codes"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "action"
+                      ]
+                    }
+                  },
+                  "challenge_channels": {
+                    "type": "array",
+                    "description": "Where a challenged verification may continue; SMS and voice are withheld",
+                    "example": [
+                      "silent",
+                      "whatsapp",
+                      "passkey"
+                    ],
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "silent",
+                        "whatsapp",
+                        "telegram",
+                        "rcs",
+                        "viber",
+                        "zalo",
+                        "email",
+                        "push",
+                        "totp",
+                        "passkey"
+                      ]
+                    }
+                  },
+                  "sim_swap_within": {
+                    "type": "integer",
+                    "description": "Hours: after a SIM change in this window, ask for a code instead of silent, or block",
+                    "example": 72,
+                    "minimum": 0,
+                    "maximum": 8760
+                  },
+                  "daily_cap": {
+                    "type": "string",
+                    "description": "New codes stop at this spend per day, in USD, as a decimal string with at most two decimals; `null` removes the cap",
+                    "nullable": true,
+                    "example": "50.00"
+                  }
+                },
+                "description": "Every field is optional: a field you leave out stays as it is."
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "level": "custom",
+                    "rules": [
+                      {
+                        "key": "sim_swap",
+                        "action": "require_code",
+                        "countries": [
+                          "GB",
+                          "ES"
+                        ]
+                      }
+                    ],
+                    "challenge_channels": [
+                      "silent",
+                      "whatsapp",
+                      "passkey"
+                    ],
+                    "sim_swap_within": 72
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The fraud settings as they now stand.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "level": {
+                      "type": "string",
+                      "description": "The level now",
+                      "example": "custom",
+                      "enum": [
+                        "standard",
+                        "strict",
+                        "custom"
+                      ]
+                    },
+                    "rules": {
+                      "type": "array",
+                      "description": "The rules now, in order",
+                      "items": {
+                        "$ref": "#/components/schemas/PhoneFraudRule"
+                      }
+                    },
+                    "updated_at": {
+                      "type": "string",
+                      "description": "When it changed",
+                      "example": "2026-11-21T10:00:00Z",
+                      "format": "date-time"
+                    },
+                    "challenge_channels": {
+                      "type": "array",
+                      "description": "The fraud-resistant channels now used",
+                      "example": [
+                        "silent",
+                        "whatsapp",
+                        "passkey"
+                      ],
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "silent",
+                          "whatsapp",
+                          "telegram",
+                          "rcs",
+                          "viber",
+                          "zalo",
+                          "email",
+                          "push",
+                          "totp",
+                          "passkey"
+                        ]
+                      }
+                    },
+                    "sim_swap_within": {
+                      "type": "integer",
+                      "description": "The window in hours after a SIM change, now",
+                      "example": 72,
+                      "minimum": 0,
+                      "maximum": 8760
+                    },
+                    "daily_cap": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "The daily spend at which new codes stop, in USD, as a decimal string; `null` when there is no cap",
+                      "example": "50.00"
+                    }
+                  },
+                  "required": [
+                    "level",
+                    "rules",
+                    "sim_swap_within",
+                    "daily_cap",
+                    "challenge_channels",
+                    "updated_at"
+                  ]
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "level": "custom",
+                      "rules": [
+                        {
+                          "key": "sim_swap",
+                          "action": "require_code",
+                          "countries": [
+                            "GB",
+                            "ES"
+                          ]
+                        }
+                      ],
+                      "challenge_channels": [
+                        "silent",
+                        "whatsapp",
+                        "passkey"
+                      ],
+                      "updated_at": "2026-11-21T10:00:00Z",
+                      "sim_swap_within": 72,
+                      "daily_cap": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field is not valid: the answer names the field (`level`, `rules`, `challenge_channels`, `sim_swap_within` or `daily_cap`) with the reason, for example a rule `key`, `action` or `scope` outside the values listed, or a `scope` other than `codes`."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X PATCH 'https://verification.didit.me/v3/phone/fraud/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"level\": \"custom\", \"rules\": [{\"key\": \"sim_swap\", \"action\": \"require_code\", \"countries\": [\"GB\", \"ES\"]}], \"challenge_channels\": [\"silent\", \"whatsapp\", \"passkey\"], \"sim_swap_within\": 72}'"
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      }
+    },
+    "/v3/phone/fraud/evaluate/": {
+      "post": {
+        "summary": "Score a number, an email address or both against your fraud rules",
+        "description": "Score a request before a code is sent: the number, the email address or both are evaluated against your fraud rules and the weighted policy of the flow in `action` (`signup`, `login`, `payment` or a flow of your own). Send `phone_number`, `email`, or both; a request with neither answers `400 target_required`.\n\nThe answer carries the `decision` (`allow`, `review`, `challenge` or `block`), a `score` from 0 to 100, the rules that decided, the flow policy's score and the conditions that met it, and an email block when an address was scored. `challenge_channels` lists where a challenged verification may continue: SMS and voice are withheld.\n\nSend `ip_address` and `device_signals` when you have them; the `existing_user` flag tells the scoring a returning user is asking. `trusted_user` with a `fraud_override` signed for this one request takes it past your fraud rules, and a block list still stops the number.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "evaluate_phone_fraud",
+        "x-didit-sdk": {
+          "resource": "phone.fraud",
+          "method": "evaluate",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone_number": {
+                    "type": "string",
+                    "description": "The number; or leave it out and send email alone",
+                    "example": "+34600000012",
+                    "pattern": "^\\+[1-9]\\d{6,14}$",
+                    "maxLength": 20
+                  },
+                  "email": {
+                    "type": "string",
+                    "description": "An email address to score before a code is sent, alone or with the number",
+                    "format": "email"
+                  },
+                  "action": {
+                    "type": "string",
+                    "description": "The flow being scored: `signup` (the default), `login`, `payment` or a flow of your own, at most 64 characters.",
+                    "example": "signup",
+                    "maxLength": 64,
+                    "default": "signup"
+                  },
+                  "ip_address": {
+                    "type": "string",
+                    "description": "Your user's IP address"
+                  },
+                  "device_signals": {
+                    "type": "string",
+                    "description": "The signed token from the SDK"
+                  },
+                  "existing_user": {
+                    "type": "boolean",
+                    "description": "true: the number belongs to a user who has signed in before; the fraud scoring weighs returning users and new sign-ups differently",
+                    "example": false
+                  },
+                  "trusted_user": {
+                    "type": "boolean",
+                    "description": "Evaluate as a trusted-user exception: with a fraud_override signed for this number, the decision is allow unless a block list matches",
+                    "example": false
+                  },
+                  "fraud_override": {
+                    "type": "string",
+                    "description": "The signed token for this number, as on send"
+                  }
+                },
+                "description": "Send `phone_number`, `email`, or both.",
+                "anyOf": [
+                  {
+                    "required": [
+                      "phone_number"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "email"
+                    ]
+                  }
+                ]
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "phone_number": "+34600000012",
+                    "action": "signup",
+                    "existing_user": false,
+                    "trusted_user": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The decision, the score and the rules and policy that produced it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "decision": {
+                      "type": "string",
+                      "description": "allow, review, challenge or block",
+                      "example": "allow",
+                      "enum": [
+                        "allow",
+                        "review",
+                        "challenge",
+                        "block"
+                      ]
+                    },
+                    "score": {
+                      "type": "integer",
+                      "description": "Risk from 0 to 100",
+                      "example": 12,
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "matched_rules": {
+                      "type": "array",
+                      "description": "The rules that decided",
+                      "example": [],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "enum": [
+                              "velocity",
+                              "pumping",
+                              "risk_score",
+                              "sim_swap",
+                              "device",
+                              "country"
+                            ],
+                            "description": "The rule"
+                          },
+                          "action": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "review",
+                              "require_code",
+                              "challenge",
+                              "block"
+                            ],
+                            "description": "What the rule asked for"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "action"
+                        ]
+                      }
+                    },
+                    "policy": {
+                      "type": "object",
+                      "properties": {
+                        "policy_id": {
+                          "type": "string",
+                          "description": "The flow policy that scored the request.",
+                          "example": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44",
+                          "format": "uuid"
+                        },
+                        "score": {
+                          "type": "integer",
+                          "description": "The weighted score, 0 to 100",
+                          "example": 40,
+                          "minimum": 0,
+                          "maximum": 100
+                        },
+                        "conditions_met": {
+                          "type": "array",
+                          "description": "The conditions that added points",
+                          "example": [
+                            "sim_swap"
+                          ],
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "nullable": true,
+                      "description": "The weighted policy of the flow in `action`; `null` when the flow has none",
+                      "required": [
+                        "policy_id",
+                        "score",
+                        "conditions_met"
+                      ]
+                    },
+                    "challenge_channels": {
+                      "type": "array",
+                      "description": "When `decision` is `challenge`: the channels the verification may continue on, the `challenge_channels` of your fraud settings or `silent`, `whatsapp` and `passkey` when you set none. Empty for any other decision",
+                      "example": [
+                        "silent",
+                        "whatsapp"
+                      ],
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "silent",
+                          "whatsapp",
+                          "telegram",
+                          "rcs",
+                          "viber",
+                          "zalo",
+                          "email",
+                          "push",
+                          "totp",
+                          "passkey"
+                        ]
+                      }
+                    },
+                    "email": {
+                      "type": "object",
+                      "properties": {
+                        "risk": {
+                          "type": "string",
+                          "description": "`high` for a disposable mailbox, otherwise `low`",
+                          "example": "low",
+                          "enum": [
+                            "low",
+                            "high"
+                          ]
+                        },
+                        "disposable": {
+                          "type": "boolean",
+                          "description": "The address is a disposable mailbox.",
+                          "example": false
+                        },
+                        "domain_age_days": {
+                          "type": "integer",
+                          "nullable": true,
+                          "minimum": 0,
+                          "description": "Always `null` for now"
+                        },
+                        "reasons": {
+                          "type": "array",
+                          "description": "Why the address is risky: `disposable_domain`",
+                          "example": [],
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "disposable_domain"
+                            ]
+                          }
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email",
+                          "description": "The address that was checked",
+                          "example": "ana@example.com"
+                        }
+                      },
+                      "nullable": true,
+                      "description": "The email check; `null` when no `email` was sent",
+                      "required": [
+                        "email",
+                        "risk",
+                        "disposable",
+                        "domain_age_days",
+                        "reasons"
+                      ]
+                    },
+                    "existing_user": {
+                      "type": "boolean",
+                      "description": "As sent, and counted in the score",
+                      "example": false
+                    },
+                    "exception": {
+                      "type": "string",
+                      "nullable": true,
+                      "enum": [
+                        "trusted_user",
+                        null
+                      ],
+                      "description": "`trusted_user` when this request went past your fraud rules as a trusted user; `null` otherwise."
+                    }
+                  },
+                  "required": [
+                    "decision",
+                    "score",
+                    "matched_rules",
+                    "policy",
+                    "email",
+                    "existing_user",
+                    "challenge_channels",
+                    "exception"
+                  ]
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "decision": "allow",
+                      "score": 12,
+                      "matched_rules": [],
+                      "policy": {
+                        "policy_id": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44",
+                        "score": 40,
+                        "conditions_met": [
+                          "sim_swap"
+                        ]
+                      },
+                      "challenge_channels": [],
+                      "email": null,
+                      "existing_user": false,
+                      "exception": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`target_required` - Neither `phone_number` nor `email` was sent. A `phone_number` that is not a valid number, or a value that is not valid for another field, answers a field error that names the field."
+          },
+          "403": {
+            "description": "`invalid_fraud_override` - `trusted_user` was sent without a `fraud_override` signed for this number and flow, or the token is expired or forged. Otherwise the `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "Unsigned override": {
+                    "value": {
+                      "detail": "trusted_user needs a fraud_override signed for this number and flow.",
+                      "code": "invalid_fraud_override"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/phone/fraud/evaluate/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"phone_number\": \"+34600000012\", \"action\": \"signup\", \"existing_user\": false, \"trusted_user\": false}'"
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      }
+    },
+    "/v3/phone/fraud/policies/": {
+      "get": {
+        "summary": "List fraud policies",
+        "description": "List the application's weighted fraud policies, one per flow, each with its conditions, weights, threshold and action. Filter by `flow`. They are listed oldest first.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "list_phone_fraud_policies",
+        "x-didit-sdk": {
+          "resource": "phone.fraud.policies",
+          "method": "list",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "flow",
+            "in": "query",
+            "required": false,
+            "description": "One flow",
+            "schema": {
+              "type": "string",
+              "description": "One flow"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "20 by default, 100 at most",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Where the page starts",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of fraud policies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "description": "The number of policies that match the filters",
+                      "example": 1,
+                      "minimum": 0
+                    },
+                    "next": {
+                      "type": "string",
+                      "description": "The next page, or null",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "previous": {
+                      "type": "string",
+                      "description": "The previous page, or null",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PhoneFraudPolicy"
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "count": 1,
+                      "next": null,
+                      "previous": null,
+                      "results": [
+                        {
+                          "policy_id": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44",
+                          "name": "Payment check",
+                          "flow": "payment",
+                          "conditions": [
+                            {
+                              "signal": "sim_swap",
+                              "operator": "within_hours",
+                              "value": "72",
+                              "weight": 40
+                            }
+                          ],
+                          "threshold": 60,
+                          "action": "challenge",
+                          "updated_at": "2026-11-21T09:00:00Z"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry read access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X GET 'https://verification.didit.me/v3/phone/fraud/policies/?flow=payment&limit=20' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create a fraud policy",
+        "description": "Create a weighted fraud policy for one flow. Each condition names a `signal` (`risk_score`, `sim_swap`, `line_type`, `country`, `velocity`, `ip_risk`, `device`, `email_risk` or `existing_user`), an `operator` (`eq`, `neq`, `gt`, `lt`, `in` or `within_hours`), the `value` to compare with and the `weight` its points add to the score (0 to 100). The weights of the conditions that hold add up to a score, and `threshold` is the score at which `action` applies (`allow`, `review`, `challenge` or `block`).\n\nA flow has one policy: a second one answers `409 flow_has_policy`, and the existing policy is changed instead.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "create_phone_fraud_policy",
+        "x-didit-sdk": {
+          "resource": "phone.fraud.policies",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PhoneFraudPolicyInput"
+                  }
+                ],
+                "required": [
+                  "name",
+                  "flow"
+                ],
+                "description": "Create a policy: `name` and `flow` are required; `threshold` defaults to 60 and `action` to `review`."
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "name": "Payment check",
+                    "flow": "payment",
+                    "conditions": [
+                      {
+                        "signal": "sim_swap",
+                        "operator": "within_hours",
+                        "value": "72",
+                        "weight": 40
+                      }
+                    ],
+                    "threshold": 60,
+                    "action": "challenge"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new fraud policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneFraudPolicy"
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "policy_id": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44",
+                      "name": "Payment check",
+                      "flow": "payment",
+                      "conditions": [
+                        {
+                          "signal": "sim_swap",
+                          "operator": "within_hours",
+                          "value": "72",
+                          "weight": 40
+                        }
+                      ],
+                      "threshold": 60,
+                      "action": "challenge",
+                      "updated_at": "2026-11-21T09:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_policy` - `name` or `flow` is missing. A condition whose `signal`, `operator`, `value` or `weight` is not valid, or another invalid field, answers a field error that names the field."
+          },
+          "409": {
+            "description": "`flow_has_policy` - This flow already has a policy: change it instead."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/phone/fraud/policies/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"name\": \"Payment check\", \"flow\": \"payment\", \"conditions\": [{\"signal\": \"sim_swap\", \"operator\": \"within_hours\", \"value\": \"72\", \"weight\": 40}], \"threshold\": 60, \"action\": \"challenge\"}'"
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      }
+    },
+    "/v3/phone/fraud/policies/{policy_id}/": {
+      "get": {
+        "summary": "Retrieve a fraud policy",
+        "description": "Read one weighted fraud policy of your application: its flow, conditions, weights, threshold and action.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "retrieve_phone_fraud_policy",
+        "x-didit-sdk": {
+          "resource": "phone.fraud.policies",
+          "method": "retrieve",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "description": "The policy",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The fraud policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneFraudPolicy"
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "policy_id": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44",
+                      "name": "Payment check",
+                      "flow": "payment",
+                      "conditions": [
+                        {
+                          "signal": "sim_swap",
+                          "operator": "within_hours",
+                          "value": "72",
+                          "weight": 40
+                        },
+                        {
+                          "signal": "email_risk",
+                          "operator": "eq",
+                          "value": "high",
+                          "weight": 30
+                        }
+                      ],
+                      "threshold": 60,
+                      "action": "challenge",
+                      "updated_at": "2026-11-21T09:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No policy with this id in your application."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry read access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X GET 'https://verification.didit.me/v3/phone/fraud/policies/9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Update a fraud policy",
+        "description": "Change a fraud policy: its conditions, their weights, its threshold or its action. A field you leave out stays as it is.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "update_phone_fraud_policy",
+        "x-didit-sdk": {
+          "resource": "phone.fraud.policies",
+          "method": "update",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "description": "The policy",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PhoneFraudPolicyInput"
+                  }
+                ],
+                "description": "Every field is optional: a field you leave out stays as it is."
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "name": "Payment check",
+                    "flow": "payment",
+                    "conditions": [
+                      {
+                        "signal": "sim_swap",
+                        "operator": "within_hours",
+                        "value": "72",
+                        "weight": 40
+                      }
+                    ],
+                    "threshold": 60,
+                    "action": "challenge"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The fraud policy as it now stands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneFraudPolicy"
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "policy_id": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44",
+                      "name": "Payment check",
+                      "flow": "payment",
+                      "conditions": [
+                        {
+                          "signal": "sim_swap",
+                          "operator": "within_hours",
+                          "value": "72",
+                          "weight": 40
+                        },
+                        {
+                          "signal": "email_risk",
+                          "operator": "eq",
+                          "value": "high",
+                          "weight": 30
+                        }
+                      ],
+                      "threshold": 60,
+                      "action": "challenge",
+                      "updated_at": "2026-11-21T09:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No policy with this id in your application."
+          },
+          "400": {
+            "description": "A field is not valid: the answer names the field, for example a condition whose `signal`, `operator`, `value` or `weight` is not valid."
+          },
+          "409": {
+            "description": "`flow_has_policy` - Another policy already scores the flow this request moves the policy to."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X PATCH 'https://verification.didit.me/v3/phone/fraud/policies/9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"name\": \"Payment check\", \"flow\": \"payment\", \"conditions\": [{\"signal\": \"sim_swap\", \"operator\": \"within_hours\", \"value\": \"72\", \"weight\": 40}], \"threshold\": 60, \"action\": \"challenge\"}'"
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete a fraud policy",
+        "description": "Delete a fraud policy. The flow it scored falls back to the fraud level and the rules in the fraud settings. Deletion is irreversible.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "delete_phone_fraud_policy",
+        "x-didit-sdk": {
+          "resource": "phone.fraud.policies",
+          "method": "delete",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "description": "The policy",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The operation succeeded; there is no response body."
+          },
+          "404": {
+            "description": "`not_found` - No policy with this id in your application."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X DELETE 'https://verification.didit.me/v3/phone/fraud/policies/9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      }
+    },
+    "/v3/phone/fraud/events/batch/": {
+      "post": {
+        "summary": "Send fraud events in a batch",
+        "description": "Send up to 1,000 of your own events - a `signup`, a `login`, a `payment`, a `password_reset`, an `account_change` or a type of your own - to the fraud scoring, with the number, the email address, the IP address and the device signals of each one.\n\nThe answer is `207 Multi-Status`: `accepted` counts the events the scoring uses from the next request, and `results` gives each event's place in `events`, its id, whether it was accepted and, when it was rejected, why. An event with no `type` or `occurred_at` is rejected on its own as `invalid_event` in `results` while the valid events of the same batch are accepted: the answer is still `207`. A request whose `events` is not a list of objects with correctly typed fields is a malformed request.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "create_phone_fraud_events_batch",
+        "x-didit-sdk": {
+          "resource": "phone.fraud.events",
+          "method": "create_batch",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "events": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "description": "`signup`, `login`, `payment`, `password_reset`, `account_change` or a type of your own.",
+                          "example": "login"
+                        },
+                        "phone_number": {
+                          "type": "string",
+                          "description": "The number In E.164 format; an event with another value is rejected on its own as `invalid_event`.",
+                          "example": "+34600000012"
+                        },
+                        "email": {
+                          "type": "string",
+                          "description": "Or an email address"
+                        },
+                        "ip_address": {
+                          "type": "string",
+                          "description": "Your user's IP address."
+                        },
+                        "device_signals": {
+                          "type": "string",
+                          "description": "The signed token from the SDK"
+                        },
+                        "existing_user": {
+                          "type": "boolean",
+                          "description": "A returning user"
+                        },
+                        "occurred_at": {
+                          "type": "string",
+                          "description": "When it happened, ISO 8601 An RFC 3339 date-time; another value rejects the event on its own.",
+                          "example": "2026-11-21T09:58:00Z"
+                        },
+                        "reference": {
+                          "type": "string",
+                          "description": "Your id for it",
+                          "example": "login-99812"
+                        }
+                      },
+                      "description": "One event, an object whose fields have the JSON types below (a value of another JSON type, such as a number for `phone_number`, is a malformed request that no gateway or client should send). Beyond the types, each event is checked on its own: an event with no `type` or `occurred_at`, or with a phone number that is not E.164, an email that is not an address or a date-time that is not RFC 3339, is rejected as `invalid_event` in the `207` results while the rest of the batch is accepted."
+                    },
+                    "maxItems": 1000,
+                    "description": "Up to 1,000 events, each with the number, the address and what happened."
+                  }
+                },
+                "required": [
+                  "events"
+                ]
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "events": [
+                      {
+                        "type": "login",
+                        "phone_number": "+34600000012",
+                        "occurred_at": "2026-11-21T09:58:00Z",
+                        "reference": "login-99812"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "207": {
+            "description": "How many events were accepted, and each event's result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "integer",
+                      "description": "Events the scoring uses from the next request",
+                      "example": 1
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PhoneFraudEventResult"
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "accepted": 1,
+                      "results": [
+                        {
+                          "index": 0,
+                          "event_id": "ae4f1a36-8c7a-4d25-9a49-3f6b0c2d7e55",
+                          "status": "accepted",
+                          "error": null
+                        }
+                      ]
+                    }
+                  },
+                  "Mixed batch": {
+                    "summary": "One valid event and one rejected",
+                    "value": {
+                      "accepted": 1,
+                      "results": [
+                        {
+                          "index": 0,
+                          "event_id": "ae4f1a36-8c7a-4d25-9a49-3f6b0c2d7e55",
+                          "status": "accepted",
+                          "error": null
+                        },
+                        {
+                          "index": 1,
+                          "status": "rejected",
+                          "error": "invalid_event"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`events` is missing, is empty, is not a list of objects, or has more than 1,000 events: nothing is accepted, and for more than 1,000 the error under `events` carries `code: too_many_events`. An event that is missing `type` or `occurred_at`, or has an invalid value, is not a `400`: it is rejected on its own in the `207` results."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/phone/fraud/events/batch/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"events\": [{\"type\": \"login\", \"phone_number\": \"+34600000012\", \"occurred_at\": \"2026-11-21T09:58:00Z\", \"reference\": \"login-99812\"}]}'"
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      }
+    },
+    "/v3/phone/lists/check/": {
+      "post": {
+        "summary": "Check a number against your allow and block lists",
+        "description": "Answer whether a number is on the allow or the block list, and which entries match it: a number, a prefix, the country or the number's network. A match on the block list answers `blocked`.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "check_phone_lists",
+        "x-didit-sdk": {
+          "resource": "phone.lists",
+          "method": "check",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone_number": {
+                    "type": "string",
+                    "description": "The number to check",
+                    "example": "+447700900123",
+                    "pattern": "^\\+[1-9]\\d{6,14}$"
+                  }
+                },
+                "required": [
+                  "phone_number"
+                ]
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "phone_number": "+447700900123"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Whether the number is allowed or blocked, and the entries that matched.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "allowed": {
+                      "type": "boolean",
+                      "description": "On the allow list",
+                      "example": false
+                    },
+                    "blocked": {
+                      "type": "boolean",
+                      "description": "On the block list, by number, prefix, country or network",
+                      "example": true
+                    },
+                    "matches": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PhoneListMatch"
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "allowed": false,
+                      "blocked": true,
+                      "matches": [
+                        {
+                          "list_id": "block",
+                          "entry_id": "c06b3c58-ae9c-4f47-9c6b-518d2e4f9a77",
+                          "type": "prefix"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`phone_number` is not a valid number: the answer is a field error that names `phone_number`."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry read access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/phone/lists/check/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"phone_number\": \"+447700900123\"}'"
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      }
+    },
+    "/v3/phone/lists/{list_id}/entries/": {
+      "post": {
+        "summary": "Add an entry to an allow or block list",
+        "description": "Add an entry to one of the application's phone lists. `list_id` is `allow` or `block`, and `value` is a number, a prefix, a country code or a network, which `type` names (`number`, `prefix`, `country` or `network`).\n\nAn `expires_at` makes a temporary entry that ends on its own; `note` records why it was listed. `POST /v3/phone/lists/check/` answers with the entries that match a number, and the fraud rules read both lists.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "create_phone_list_entry",
+        "x-didit-sdk": {
+          "resource": "phone.lists",
+          "method": "add",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "list_id",
+            "in": "path",
+            "required": true,
+            "description": "The list: `allow` or `block`. Any other value answers `404`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "block"
+              ]
+            },
+            "example": "block"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "description": "A number in E.164, a prefix, an ISO country code or a mobile network, as `type` says.",
+                    "example": "+88216"
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "number, prefix, country or network",
+                    "example": "prefix",
+                    "enum": [
+                      "number",
+                      "prefix",
+                      "country",
+                      "network"
+                    ]
+                  },
+                  "expires_at": {
+                    "type": "string",
+                    "description": "A temporary entry ends on its own",
+                    "format": "date-time"
+                  },
+                  "note": {
+                    "type": "string",
+                    "description": "Why it is listed",
+                    "example": "Pumping from this prefix",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "value"
+                ]
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "value": "+88216",
+                    "type": "prefix",
+                    "note": "Pumping from this prefix"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new entry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneListEntry"
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "entry_id": "bf5a2b47-9d8b-4e36-8b5a-407c1d3e8f66",
+                      "list_id": "block",
+                      "value": "+88216",
+                      "expires_at": null,
+                      "type": "prefix",
+                      "source": "api"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_value` - The value does not match its type: a number that is not valid, a prefix that does not start with `+` and digits, a country that is not a country code or a network name of more than 255 characters. Another invalid field answers a field error that names it."
+          },
+          "404": {
+            "description": "`not_found` - No list with this id in your application."
+          },
+          "409": {
+            "description": "`already_listed` - It is already on the list."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/phone/lists/block/entries/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"value\": \"+88216\", \"type\": \"prefix\", \"note\": \"Pumping from this prefix\"}'"
+          }
+        ]
+      },
+      "get": {
+        "summary": "List the entries of an allow or block list",
+        "description": "Read one of the application's lists: its entries, their type and the source that added each one (`manual`, `api` or `alert`). Filter by `type` or by part of a `value` or a `note`; `format=csv` exports every row of the filtered list instead of a page. Only the application's own phone and country lists are covered: `number`, `prefix` and `network` entries are in the phone list and `country` entries in the country list.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "list_phone_list_entries",
+        "x-didit-sdk": {
+          "resource": "phone.lists",
+          "method": "list_entries",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "list_id",
+            "in": "path",
+            "required": true,
+            "description": "The list: `allow` or `block`. Any other value answers `404`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "block"
+              ]
+            },
+            "example": "block"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "number, prefix, country or network",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "number",
+                "prefix",
+                "country",
+                "network"
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Part of a value or a note",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "20 by default, 100 at most",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Where the page starts",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "description": "json, or csv to export every row of the filtered list",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the list's entries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "description": "The number of list entries that match the filters",
+                      "example": 1,
+                      "minimum": 0
+                    },
+                    "next": {
+                      "type": "string",
+                      "description": "The next page, or null",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "previous": {
+                      "type": "string",
+                      "description": "The previous page, or null",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PhoneListEntry"
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "count": 1,
+                      "next": null,
+                      "previous": null,
+                      "results": [
+                        {
+                          "entry_id": "c06b3c58-ae9c-4f47-9c6b-518d2e4f9a77",
+                          "value": "+4475",
+                          "type": "prefix",
+                          "expires_at": null,
+                          "source": "alert"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "entry_id,value,type,expires_at,source\nc06b3c58-ae9c-4f47-9c6b-518d2e4f9a77,+4475,prefix,,alert\n"
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No list with this id in your application."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry read access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X GET 'https://verification.didit.me/v3/phone/lists/block/entries/?limit=20' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      }
+    },
+    "/v3/phone/lists/{list_id}/entries/{entry_id}/": {
+      "delete": {
+        "summary": "Delete an entry from an allow or block list",
+        "description": "Delete an entry from an allow or block list, for example to unblock a network. Deletion is irreversible: the number, prefix, country or network is no longer listed from the next request. Only the application's own phone and country lists are covered: `number`, `prefix` and `network` entries are in the phone list and `country` entries in the country list.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "delete_phone_list_entry",
+        "x-didit-sdk": {
+          "resource": "phone.lists",
+          "method": "remove",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "list_id",
+            "in": "path",
+            "required": true,
+            "description": "The list: `allow` or `block`. Any other value answers `404`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "block"
+              ]
+            },
+            "example": "block"
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "description": "The entry",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "bf5a2b47-9d8b-4e36-8b5a-407c1d3e8f66"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The operation succeeded; there is no response body."
+          },
+          "404": {
+            "description": "`not_found` - No entry with this id in your application."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X DELETE 'https://verification.didit.me/v3/phone/lists/block/entries/bf5a2b47-9d8b-4e36-8b5a-407c1d3e8f66/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      }
+    },
+    "/v3/phone/rate-limits/": {
+      "post": {
+        "summary": "Create a velocity limit",
+        "description": "Create a velocity limit of your own. A limit is keyed by the name of the value your sends are counted by, for example `user_id`, and each of its `buckets` allows `max` starts in `interval` seconds, at most 30 days (2,592,000 seconds). Send history is kept for that longest window, so every bucket counts the starts of its whole interval.\n\nA request over a bucket answers `429` with `Retry-After`, and the key is refused until the interval ends.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "create_phone_rate_limit",
+        "x-didit-sdk": {
+          "resource": "phone.rate_limits",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "description": "The name of the value the limit counts, for example `user_id`.",
+                    "example": "user_id",
+                    "maxLength": 128
+                  },
+                  "buckets": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "max": {
+                          "type": "integer",
+                          "description": "Starts allowed in the interval",
+                          "example": 5,
+                          "minimum": 1,
+                          "maximum": 2147483647
+                        },
+                        "interval": {
+                          "type": "integer",
+                          "description": "The interval, in seconds, from 1 second to 30 days (2,592,000)",
+                          "example": 3600,
+                          "minimum": 1,
+                          "maximum": 2592000
+                        }
+                      },
+                      "required": [
+                        "max",
+                        "interval"
+                      ]
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "key",
+                  "buckets"
+                ]
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "key": "user_id",
+                    "buckets": [
+                      {
+                        "max": 5,
+                        "interval": 3600
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new velocity limit and its buckets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneRateLimit"
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "rate_limit_id": "3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01",
+                      "key": "user_id",
+                      "buckets": [
+                        {
+                          "bucket_id": "0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10",
+                          "max": 5,
+                          "interval": 3600
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field is not valid: the answer names the field. For `buckets` the error carries `code: invalid_bucket` when no bucket is sent or `max` and `interval` are not positive, and a `max` outside 1 to 2147483647 or an `interval` outside 1 to 2,592,000 seconds (30 days) is a field error too."
+          },
+          "409": {
+            "description": "`key_exists` - A limit with this key exists."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/phone/rate-limits/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"key\": \"user_id\", \"buckets\": [{\"max\": 5, \"interval\": 3600}]}'"
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "get": {
+        "summary": "List velocity limits",
+        "description": "List the application's velocity limits, oldest first, each with its key and its buckets.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "list_phone_rate_limits",
+        "x-didit-sdk": {
+          "resource": "phone.rate_limits",
+          "method": "list",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "20 by default, 100 at most",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Where the page starts",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of velocity limits, each with its buckets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "description": "The number of velocity limits that match the filters",
+                      "example": 1,
+                      "minimum": 0
+                    },
+                    "next": {
+                      "type": "string",
+                      "description": "The next page, or null",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "previous": {
+                      "type": "string",
+                      "description": "The previous page, or null",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PhoneRateLimit"
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "count": 1,
+                      "next": null,
+                      "previous": null,
+                      "results": [
+                        {
+                          "rate_limit_id": "3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01",
+                          "key": "user_id",
+                          "buckets": [
+                            {
+                              "bucket_id": "0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10",
+                              "max": 5,
+                              "interval": 3600,
+                              "in_use": 2
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry read access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X GET 'https://verification.didit.me/v3/phone/rate-limits/?limit=20' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      }
+    },
+    "/v3/phone/rate-limits/{rate_limit_id}/": {
+      "get": {
+        "summary": "Retrieve a velocity limit",
+        "description": "One velocity limit with its buckets, each bucket's `max`, `interval` and the starts already counted in the current interval as `in_use`.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "retrieve_phone_rate_limit",
+        "x-didit-sdk": {
+          "resource": "phone.rate_limits",
+          "method": "retrieve",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rate_limit_id",
+            "in": "path",
+            "required": true,
+            "description": "The limit",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The velocity limit and its buckets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneRateLimit"
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "rate_limit_id": "3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01",
+                      "key": "user_id",
+                      "buckets": [
+                        {
+                          "bucket_id": "0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10",
+                          "max": 5,
+                          "interval": 3600,
+                          "in_use": 2
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No rate limit with this id in your application."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry read access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X GET 'https://verification.didit.me/v3/phone/rate-limits/3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Update a velocity limit",
+        "description": "Change a velocity limit's buckets: send a `bucket_id` to change that bucket, or leave it out to add one. `max` and `interval` must be positive, and `interval` at most 30 days (2,592,000 seconds), or the answer is `400`. A `bucket_id` that is not a bucket of this limit answers `404` and nothing is changed; a bucket can be removed with Delete a bucket of a velocity limit.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "update_phone_rate_limit",
+        "x-didit-sdk": {
+          "resource": "phone.rate_limits",
+          "method": "update",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rate_limit_id",
+            "in": "path",
+            "required": true,
+            "description": "The limit",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "buckets": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "bucket_id": {
+                          "type": "string",
+                          "description": "A bucket to change; left out, a new bucket is added.",
+                          "example": "0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10",
+                          "format": "uuid"
+                        },
+                        "max": {
+                          "type": "integer",
+                          "description": "Starts allowed in the interval",
+                          "example": 10,
+                          "minimum": 1,
+                          "maximum": 2147483647
+                        },
+                        "interval": {
+                          "type": "integer",
+                          "description": "The interval, in seconds, from 1 second to 30 days (2,592,000)",
+                          "example": 86400,
+                          "minimum": 1,
+                          "maximum": 2592000
+                        }
+                      }
+                    },
+                    "minItems": 1
+                  }
+                },
+                "description": "`buckets` holds the bucket to add or change.",
+                "required": [
+                  "buckets"
+                ]
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "buckets": [
+                      {
+                        "bucket_id": "0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10",
+                        "max": 10,
+                        "interval": 86400
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The velocity limit and its buckets as they now stand.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneRateLimit"
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "rate_limit_id": "3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01",
+                      "key": "user_id",
+                      "buckets": [
+                        {
+                          "bucket_id": "0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10",
+                          "max": 10,
+                          "interval": 86400,
+                          "in_use": 2
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` - No rate limit with this id in your application."
+          },
+          "400": {
+            "description": "A field is not valid: the answer names the field. For `buckets` the error carries `code: invalid_bucket` when no bucket is sent or `max` and `interval` are not positive, and a `max` outside 1 to 2147483647 or an `interval` outside 1 to 2,592,000 seconds (30 days) is a field error too."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X PATCH 'https://verification.didit.me/v3/phone/rate-limits/3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"buckets\": [{\"bucket_id\": \"0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10\", \"max\": 10, \"interval\": 86400}]}'"
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete a velocity limit",
+        "description": "Delete a velocity limit and every bucket in it. The key it was created for no longer limits sends. Deletion is irreversible.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "delete_phone_rate_limit",
+        "x-didit-sdk": {
+          "resource": "phone.rate_limits",
+          "method": "delete",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rate_limit_id",
+            "in": "path",
+            "required": true,
+            "description": "The limit",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The operation succeeded; there is no response body."
+          },
+          "404": {
+            "description": "`not_found` - No rate limit with this id in your application."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X DELETE 'https://verification.didit.me/v3/phone/rate-limits/3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      }
+    },
+    "/v3/phone/rate-limits/{rate_limit_id}/buckets/{bucket_id}/": {
+      "delete": {
+        "summary": "Delete a bucket of a velocity limit",
+        "description": "Delete one bucket of a velocity limit. A limit keeps at least one bucket, so the last one answers `409 last_bucket`: delete the limit instead. Deletion is irreversible.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "delete_phone_rate_limit_bucket",
+        "x-didit-sdk": {
+          "resource": "phone.rate_limits.buckets",
+          "method": "delete",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rate_limit_id",
+            "in": "path",
+            "required": true,
+            "description": "The limit",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01"
+          },
+          {
+            "name": "bucket_id",
+            "in": "path",
+            "required": true,
+            "description": "The bucket",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The operation succeeded; there is no response body."
+          },
+          "404": {
+            "description": "`not_found` - No bucket with this id in your application."
+          },
+          "409": {
+            "description": "`last_bucket` - A limit keeps at least one bucket: delete the limit instead."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X DELETE 'https://verification.didit.me/v3/phone/rate-limits/3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01/buckets/0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      }
+    },
+    "/v3/phone/line-type-overrides/": {
+      "post": {
+        "summary": "Correct the line type of a number",
+        "description": "Correct the line type of a number for your future lookups: later lookups of that number report the corrected type (`mobile`, `landline`, `fixed_voip`, `non_fixed_voip`, `toll_free`, `premium` or `pager`) instead of the one the network gives, A second correction for the same number replaces the first and answers `201` too.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "create_phone_line_type_override",
+        "x-didit-sdk": {
+          "resource": "phone.line_type_overrides",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone_number": {
+                    "type": "string",
+                    "description": "The number",
+                    "example": "+34911234567",
+                    "pattern": "^\\+[1-9]\\d{6,14}$"
+                  },
+                  "line_type": {
+                    "type": "string",
+                    "description": "mobile, landline, fixed_voip, non_fixed_voip, toll_free, premium or pager",
+                    "example": "landline",
+                    "enum": [
+                      "mobile",
+                      "landline",
+                      "fixed_voip",
+                      "non_fixed_voip",
+                      "toll_free",
+                      "premium",
+                      "pager"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "description": "Why it is corrected",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "phone_number",
+                  "line_type"
+                ]
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "phone_number": "+34911234567",
+                    "line_type": "landline"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The line-type correction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "override_id": {
+                      "type": "string",
+                      "description": "The override",
+                      "example": "7c2d9e14-6a58-4b03-9e27-1d4f8a0b5c33",
+                      "format": "uuid"
+                    },
+                    "phone_number": {
+                      "type": "string",
+                      "description": "The number in E.164 format",
+                      "example": "+34911234567",
+                      "pattern": "^\\+[1-9]\\d{6,14}$"
+                    },
+                    "line_type": {
+                      "type": "string",
+                      "description": "What lookups return from now on",
+                      "example": "landline",
+                      "enum": [
+                        "mobile",
+                        "landline",
+                        "fixed_voip",
+                        "non_fixed_voip",
+                        "toll_free",
+                        "premium",
+                        "pager"
+                      ]
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "description": "When",
+                      "example": "2026-11-21T09:00:00Z",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "override_id",
+                    "phone_number",
+                    "line_type",
+                    "created_at"
+                  ]
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "override_id": "7c2d9e14-6a58-4b03-9e27-1d4f8a0b5c33",
+                      "phone_number": "+34911234567",
+                      "line_type": "landline",
+                      "created_at": "2026-11-21T09:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field is not valid: the answer names the field, for example a `line_type` outside the values listed or a `phone_number` that is not a valid number."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/phone/line-type-overrides/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"phone_number\": \"+34911234567\", \"line_type\": \"landline\"}'"
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      }
+    },
+    "/v3/phone/line-type-overrides/{override_id}/": {
+      "delete": {
+        "summary": "Delete a line-type correction",
+        "description": "Delete a line-type correction so lookups report the type the network gives again. Deletion is irreversible.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "delete_phone_line_type_override",
+        "x-didit-sdk": {
+          "resource": "phone.line_type_overrides",
+          "method": "delete",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Standalone APIs"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "override_id",
+            "in": "path",
+            "required": true,
+            "description": "The override",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "7c2d9e14-6a58-4b03-9e27-1d4f8a0b5c33"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The operation succeeded; there is no response body."
+          },
+          "404": {
+            "description": "`not_found` - No override with this id in your application."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `sessions`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X DELETE 'https://verification.didit.me/v3/phone/line-type-overrides/7c2d9e14-6a58-4b03-9e27-1d4f8a0b5c33/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      }
+    },
+    "/v3/messages/rules/": {
+      "post": {
+        "summary": "Create a messaging rule",
+        "description": "Add a messaging rule that allows or blocks by country, prefix or number. Send exactly one of `match.country` (an ISO country code), `match.prefix` or `match.number`; `direction` is `outbound` (the default) or `inbound`, and `channels` limits the rule to the channels it names.\n\n**Authentication.** Send your application's API key in `x-api-key`.",
+        "operationId": "create_message_rule",
+        "x-didit-sdk": {
+          "resource": "messages.rules",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "description": "allow or block",
+                    "example": "block",
+                    "enum": [
+                      "allow",
+                      "block"
+                    ]
+                  },
+                  "direction": {
+                    "type": "string",
+                    "description": "outbound (default) or inbound",
+                    "example": "outbound",
+                    "enum": [
+                      "outbound",
+                      "inbound"
+                    ],
+                    "default": "outbound"
+                  },
+                  "match": {
+                    "type": "object",
+                    "properties": {
+                      "country": {
+                        "type": "string",
+                        "description": "An ISO 3166-1 alpha-2 country code, in any case",
+                        "pattern": "^[A-Za-z]{2}$"
+                      },
+                      "prefix": {
+                        "type": "string",
+                        "description": "A number prefix",
+                        "example": "+88216",
+                        "maxLength": 16
+                      },
+                      "number": {
+                        "type": "string",
+                        "description": "One number"
+                      }
+                    },
+                    "description": "Exactly one of `country`, `prefix` or `number`.",
+                    "oneOf": [
+                      {
+                        "required": [
+                          "country"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "prefix"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "number"
+                        ]
+                      }
+                    ]
+                  },
+                  "channels": {
+                    "type": "array",
+                    "description": "The channels it covers, for example `sms`, `whatsapp` or `voice`; all channels when you send none",
+                    "example": [
+                      "sms"
+                    ],
+                    "items": {
+                      "type": "string",
+                      "maxLength": 16
+                    },
+                    "default": []
+                  }
+                },
+                "required": [
+                  "action",
+                  "match"
+                ],
+                "description": "Send exactly one of `match.country`, `match.prefix` or `match.number`."
+              },
+              "examples": {
+                "Example": {
+                  "value": {
+                    "action": "block",
+                    "direction": "outbound",
+                    "match": {
+                      "prefix": "+88216"
+                    },
+                    "channels": [
+                      "sms"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new messaging rule.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rule_id": {
+                      "type": "string",
+                      "description": "The rule",
+                      "example": "5b1e7a90-2c43-4d68-8f15-0a9c3e6d7b22",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "rule_id"
+                  ]
+                },
+                "examples": {
+                  "Example": {
+                    "value": {
+                      "rule_id": "5b1e7a90-2c43-4d68-8f15-0a9c3e6d7b22"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field is not valid: the answer names the field. `match` carries `code: invalid_match` when it does not hold exactly one of `country`, `prefix` or `number`, or the country is not two letters."
+          },
+          "403": {
+            "description": "The `x-api-key` header is missing, or the key is scoped and does not carry write access to `messages`: the answer is `{\"detail\": ...}`."
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/messages/rules/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"action\": \"block\", \"direction\": \"outbound\", \"match\": {\"prefix\": \"+88216\"}, \"channels\": [\"sms\"]}'"
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      }
+    },
     "/v3/bank/account-check/": {
       "post": {
         "summary": "Check a bank account",
@@ -152199,6 +155374,538 @@
           },
           "bank_data_api_ongoing": {
             "$ref": "#/components/schemas/BankVerificationOngoingAvailability"
+          }
+        }
+      },
+      "PhoneFraudRule": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "velocity, pumping, risk_score, sim_swap, device or country",
+            "example": "sim_swap",
+            "enum": [
+              "velocity",
+              "pumping",
+              "risk_score",
+              "sim_swap",
+              "device",
+              "country"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "description": "allow, review, require_code, challenge or block: challenge continues the verification on challenge_channels only",
+            "example": "require_code",
+            "enum": [
+              "allow",
+              "review",
+              "require_code",
+              "challenge",
+              "block"
+            ]
+          },
+          "countries": {
+            "type": "array",
+            "description": "The rule applies only to these countries",
+            "example": [
+              "GB",
+              "ES"
+            ],
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            }
+          },
+          "platforms": {
+            "type": "array",
+            "description": "The rule applies only to web, ios or android",
+            "items": {
+              "type": "string",
+              "enum": [
+                "web",
+                "ios",
+                "android"
+              ]
+            }
+          },
+          "scope": {
+            "type": "string",
+            "description": "codes (the only value): the rule applies to verification codes",
+            "enum": [
+              "codes"
+            ]
+          }
+        },
+        "description": "One fraud rule: the signal it reads, the action it takes and where it applies."
+      },
+      "PhoneRateLimitBucket": {
+        "type": "object",
+        "properties": {
+          "bucket_id": {
+            "type": "string",
+            "description": "Each bucket",
+            "example": "0b6f6a4e-3f1a-4c6e-9a53-6b1d2f9c7a10",
+            "format": "uuid"
+          },
+          "max": {
+            "type": "integer",
+            "description": "Starts allowed in the interval",
+            "example": 5,
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "interval": {
+            "type": "integer",
+            "description": "The interval, in seconds, from 1 second to 30 days (2,592,000)",
+            "example": 3600,
+            "minimum": 1,
+            "maximum": 2592000
+          },
+          "in_use": {
+            "type": "integer",
+            "description": "The starts already counted in the current interval",
+            "example": 2,
+            "minimum": 0
+          }
+        },
+        "required": [
+          "bucket_id",
+          "max",
+          "interval",
+          "in_use"
+        ]
+      },
+      "PhoneRateLimit": {
+        "type": "object",
+        "properties": {
+          "rate_limit_id": {
+            "type": "string",
+            "description": "The limit",
+            "example": "3f6c1b52-8d4e-4a7b-9c10-5e2a7d9b1c01",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string",
+            "description": "Its key",
+            "example": "user_id",
+            "maxLength": 128
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneRateLimitBucket"
+            },
+            "description": "The buckets of the limit: each allows `max` starts in `interval` seconds."
+          }
+        },
+        "required": [
+          "rate_limit_id",
+          "key",
+          "buckets"
+        ]
+      },
+      "PhoneListEntry": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The entry",
+            "example": "c06b3c58-ae9c-4f47-9c6b-518d2e4f9a77"
+          },
+          "list_id": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "block"
+            ],
+            "description": "The list it is on",
+            "example": "block"
+          },
+          "value": {
+            "type": "string",
+            "description": "The number in E.164 format, the prefix, the ISO 3166-1 alpha-3 country code or the network",
+            "example": "+4475"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "number",
+              "prefix",
+              "country",
+              "network"
+            ],
+            "description": "Its type",
+            "example": "prefix"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When a temporary entry ends; `null` for a permanent one"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "api",
+              "alert"
+            ],
+            "description": "Who added it: `manual` in the console, `api` through this API or `alert`",
+            "example": "api"
+          }
+        },
+        "required": [
+          "entry_id",
+          "list_id",
+          "value",
+          "type",
+          "expires_at",
+          "source"
+        ]
+      },
+      "PhoneListMatch": {
+        "type": "object",
+        "properties": {
+          "list_id": {
+            "type": "string",
+            "description": "allow or block",
+            "example": "block",
+            "enum": [
+              "allow",
+              "block"
+            ]
+          },
+          "entry_id": {
+            "type": "string",
+            "description": "The entry that matched",
+            "example": "c06b3c58-ae9c-4f47-9c6b-518d2e4f9a77",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string",
+            "description": "number, prefix, country or network",
+            "example": "prefix",
+            "enum": [
+              "number",
+              "prefix",
+              "country",
+              "network"
+            ]
+          }
+        },
+        "required": [
+          "list_id",
+          "entry_id",
+          "type"
+        ]
+      },
+      "PhoneFraudPolicyCondition": {
+        "type": "object",
+        "properties": {
+          "signal": {
+            "type": "string",
+            "description": "risk_score, sim_swap, line_type, country, velocity, ip_risk, device, email_risk or existing_user",
+            "example": "sim_swap",
+            "enum": [
+              "risk_score",
+              "sim_swap",
+              "line_type",
+              "country",
+              "velocity",
+              "ip_risk",
+              "device",
+              "email_risk",
+              "existing_user"
+            ]
+          },
+          "operator": {
+            "type": "string",
+            "description": "eq, neq, gt, lt, in or within_hours",
+            "example": "within_hours",
+            "enum": [
+              "eq",
+              "neq",
+              "gt",
+              "lt",
+              "in",
+              "within_hours"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "description": "What the signal is compared with",
+            "example": "72",
+            "maxLength": 128
+          },
+          "weight": {
+            "type": "integer",
+            "description": "Points added to the score when the condition holds, 0 to 100",
+            "example": 40,
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "signal",
+          "operator",
+          "value",
+          "weight"
+        ]
+      },
+      "PhoneFraudPolicy": {
+        "type": "object",
+        "properties": {
+          "policy_id": {
+            "type": "string",
+            "description": "The policy",
+            "example": "9d3e0f25-7b69-4c14-8f38-2e5a9b1c6d44",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "Its name",
+            "example": "Payment check",
+            "maxLength": 128
+          },
+          "flow": {
+            "type": "string",
+            "description": "The flow it scores, as sent in action on evaluate and send",
+            "example": "payment",
+            "maxLength": 64
+          },
+          "threshold": {
+            "type": "integer",
+            "description": "The score at which action applies",
+            "example": 60,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "action": {
+            "type": "string",
+            "description": "allow, review, challenge or block",
+            "example": "challenge",
+            "enum": [
+              "allow",
+              "review",
+              "challenge",
+              "block"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Last change",
+            "example": "2026-11-21T09:00:00Z",
+            "format": "date-time"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneFraudPolicyCondition"
+            },
+            "description": "The conditions that add their weight to the score when they hold."
+          }
+        },
+        "required": [
+          "policy_id",
+          "name",
+          "flow",
+          "conditions",
+          "threshold",
+          "action",
+          "updated_at"
+        ]
+      },
+      "PhoneFraudEventResult": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "The event's place in events",
+            "example": 0,
+            "minimum": 0
+          },
+          "event_id": {
+            "type": "string",
+            "description": "The event; present only for an accepted event",
+            "example": "ae4f1a36-8c7a-4d25-9a49-3f6b0c2d7e55",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "description": "accepted or rejected",
+            "example": "accepted",
+            "enum": [
+              "accepted",
+              "rejected"
+            ]
+          },
+          "error": {
+            "type": "string",
+            "description": "Why it was rejected: `invalid_event`; `null` for an accepted event",
+            "nullable": true,
+            "enum": [
+              "invalid_event",
+              null
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "status"
+        ]
+      },
+      "PhoneRiskBulkJob": {
+        "type": "object",
+        "description": "A bulk risk job.",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The job.",
+            "example": "8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed"
+            ],
+            "description": "`queued`, `running`, `done`, or `failed`. A job fails when your organization balance cannot pay for the next paid lookup (the rows already answered stay downloadable) or after 3 failed retries.",
+            "example": "queued"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Numbers in the file.",
+            "example": 2400
+          },
+          "processed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Numbers answered so far.",
+            "example": 0
+          },
+          "results_url": {
+            "type": "string",
+            "nullable": true,
+            "description": "The relative path `/v3/phone/risk/bulk/{job_id}/results/` of the CSV, present once a result file exists (also for a failed job); otherwise `null`.",
+            "example": "/v3/phone/risk/bulk/8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55/results/"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "total",
+          "processed",
+          "results_url"
+        ]
+      },
+      "PhoneRiskBulkCallback": {
+        "type": "object",
+        "description": "The body Didit posts to your `callback_url` when the job finishes.",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The job.",
+            "example": "8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "failed"
+            ],
+            "description": "`done`, or `failed` when your organization balance could not pay for the next paid lookup or after 3 failed retries.",
+            "example": "done"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Numbers in the file.",
+            "example": 2400
+          },
+          "results_url": {
+            "type": "string",
+            "nullable": true,
+            "description": "The relative path `/v3/phone/risk/bulk/{job_id}/results/` of the CSV, present once a result file exists (also for a failed job); otherwise `null`.",
+            "example": "/v3/phone/risk/bulk/8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55/results/"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "total",
+          "results_url"
+        ],
+        "example": {
+          "job_id": "8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55",
+          "status": "done",
+          "total": 2400,
+          "results_url": "/v3/phone/risk/bulk/8c1f2d3e-5a47-4b90-8e21-7d3a9b6c4f55/results/"
+        }
+      },
+      "PhoneRiskBulkError": {
+        "type": "object",
+        "description": "An error answer: `code` names the reason and `detail` says it in words.",
+        "properties": {
+          "detail": {
+            "type": "string",
+            "example": "The results are not ready."
+          },
+          "code": {
+            "type": "string",
+            "example": "results_not_ready"
+          }
+        },
+        "required": [
+          "detail",
+          "code"
+        ]
+      },
+      "PhoneFraudPolicyInput": {
+        "type": "object",
+        "description": "The fields of a fraud policy you can write. A field you leave out stays as it is on an update; on a create `name` and `flow` are required, `threshold` defaults to 60 and `action` to `review`.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Its name",
+            "example": "Payment check",
+            "maxLength": 128
+          },
+          "flow": {
+            "type": "string",
+            "description": "The flow it scores: `signup`, `login`, `payment` or a flow of your own, as sent in `action` on evaluate and send.",
+            "example": "payment",
+            "maxLength": 64
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneFraudPolicyCondition"
+            }
+          },
+          "threshold": {
+            "type": "integer",
+            "description": "The score at which action applies",
+            "example": 60,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "action": {
+            "type": "string",
+            "description": "allow, review, challenge or block",
+            "example": "challenge",
+            "enum": [
+              "allow",
+              "review",
+              "challenge",
+              "block"
+            ]
           }
         }
       }
