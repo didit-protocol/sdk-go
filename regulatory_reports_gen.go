@@ -85,7 +85,10 @@ func (r *RegulatoryReportsService) DeleteWithParams(ctx context.Context, reportU
 //
 // Re-validate, then render the goAML XML and PDF and upload both to S3. On
 // SAR/STR/TFR reports, this also moves the case's transaction alerts from
-// Pending SAR to SAR filed. FFR and PNMR reports do not move alerts.
+// Pending SAR to SAR filed. FFR and PNMR reports do not move alerts. A report
+// filed on a case answers 403 `plan_upgrade_required` when the plan or the
+// release does not include Cases, like the case's own routes; a standalone
+// report is not refused.
 //
 // The organization and application ids come from the client options.
 //
@@ -122,7 +125,9 @@ func (r *RegulatoryReportsService) ListAutoPaging(ctx context.Context, params Re
 
 // Retrieve: Get report.
 //
-// Retrieve a regulatory report.
+// Retrieve a regulatory report. A report filed on a case answers 403
+// `plan_upgrade_required` when the plan or the release does not include Cases,
+// like the case's own routes; a standalone report is not refused.
 //
 // The organization and application ids come from the client options.
 //
@@ -137,7 +142,10 @@ func (r *RegulatoryReportsService) Retrieve(ctx context.Context, reportUUID stri
 
 // RetrieveDownloadURL: Get report download URL.
 //
-// Mint a presigned URL for a finalized report's goAML XML or PDF.
+// Mint a presigned URL for a finalized report's goAML XML or PDF. A report
+// filed on a case answers 403 `plan_upgrade_required` when the plan or the
+// release does not include Cases, like the case's own routes; a standalone
+// report is not refused.
 //
 // The organization and application ids come from the client options.
 //
@@ -153,7 +161,9 @@ func (r *RegulatoryReportsService) RetrieveDownloadURL(ctx context.Context, repo
 // Update: Update report.
 //
 // Edit a draft or validated report's fields. Finalized reports cannot be edited
-// (409).
+// (409). A report filed on a case answers 403 `plan_upgrade_required` when the
+// plan or the release does not include Cases, like the case's own routes; a
+// standalone report is not refused.
 //
 // The organization and application ids come from the client options.
 //
@@ -178,7 +188,10 @@ func (r *RegulatoryReportsService) Update(ctx context.Context, reportUUID string
 // case to have a subject, otherwise validation_errors contains an error with
 // field `subject`. Also stores the result on the report: validation_errors and
 // validated_at are updated, and a non-finalized report's status moves to
-// VALIDATED (no errors) or back to DRAFT (errors).
+// VALIDATED (no errors) or back to DRAFT (errors). A report filed on a case
+// answers 403 `plan_upgrade_required` when the plan or the release does not
+// include Cases, like the case's own routes; a standalone report is not
+// refused.
 //
 // The organization and application ids come from the client options.
 //
