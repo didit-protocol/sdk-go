@@ -166,9 +166,8 @@ func (r *BankService) DeleteConnection(ctx context.Context, id string, opts ...o
 //
 // Needs an API key with read access to Bank data: a full-access key has it, and
 // a scoped key needs `bank-data` read in its scopes. Otherwise the call answers
-// `403 bank_data_access_denied`. A sandbox application reads its Test Bank data
-// with the key alone. A request without an API key (client credentials) is
-// refused on raw data with the same `403`.
+// `403 bank_data_access_denied`. A request without an API key (client
+// credentials) is refused on raw data with the same `403`.
 //
 //	GET /v3/bank/accounts/{account_id}/
 func (r *BankService) GetAccount(ctx context.Context, accountID string, opts ...option.RequestOption) (*BankAccount, error) {
@@ -186,9 +185,8 @@ func (r *BankService) GetAccount(ctx context.Context, accountID string, opts ...
 //
 // Needs an API key with read access to Bank data: a full-access key has it, and
 // a scoped key needs `bank-data` read in its scopes. Otherwise the call answers
-// `403 bank_data_access_denied`. A sandbox application reads its Test Bank data
-// with the key alone. A request without an API key (client credentials) is
-// refused on raw data with the same `403`.
+// `403 bank_data_access_denied`. A request without an API key (client
+// credentials) is refused on raw data with the same `403`.
 //
 //	GET /v3/bank/accounts/{account_id}/balances/
 func (r *BankService) GetBalances(ctx context.Context, accountID string, opts ...option.RequestOption) (*BankBalances, error) {
@@ -308,9 +306,8 @@ func (r *BankService) GetSyncRun(ctx context.Context, id string, syncID string, 
 //
 // Needs an API key with read access to Bank data: a full-access key has it, and
 // a scoped key needs `bank-data` read in its scopes. Otherwise the call answers
-// `403 bank_data_access_denied`. A sandbox application reads its Test Bank data
-// with the key alone. A request without an API key (client credentials) is
-// refused on raw data with the same `403`.
+// `403 bank_data_access_denied`. A request without an API key (client
+// credentials) is refused on raw data with the same `403`.
 //
 //	GET /v3/bank/connections/{id}/accounts/
 func (r *BankService) ListAccounts(ctx context.Context, id string, params BankListAccountsParams, opts ...option.RequestOption) (*BankAccountList, error) {
@@ -417,9 +414,8 @@ func (r *BankService) ListSyncRuns(ctx context.Context, id string, params BankLi
 //
 // Needs an API key with read access to Bank data: a full-access key has it, and
 // a scoped key needs `bank-data` read in its scopes. Otherwise the call answers
-// `403 bank_data_access_denied`. A sandbox application reads its Test Bank data
-// with the key alone. A request without an API key (client credentials) is
-// refused on raw data with the same `403`.
+// `403 bank_data_access_denied`. A request without an API key (client
+// credentials) is refused on raw data with the same `403`.
 //
 //	GET /v3/bank/accounts/{account_id}/transactions/
 func (r *BankService) ListTransactions(ctx context.Context, accountID string, params BankListTransactionsParams, opts ...option.RequestOption) (*BankTransactionPage, error) {
@@ -672,9 +668,8 @@ func (r *BankService) SimulateLink(ctx context.Context, id string, params BankLi
 //
 // Needs an API key with read access to Bank data: a full-access key has it, and
 // a scoped key needs `bank-data` read in its scopes. Otherwise the call answers
-// `403 bank_data_access_denied`. A sandbox application reads its Test Bank data
-// with the key alone. A request without an API key (client credentials) is
-// refused on raw data with the same `403`.
+// `403 bank_data_access_denied`. A request without an API key (client
+// credentials) is refused on raw data with the same `403`.
 //
 //	GET /v3/bank/connections/{id}/transactions/sync/
 func (r *BankService) SyncTransactions(ctx context.Context, id string, params BankSyncTransactionsParams, opts ...option.RequestOption) (*BankTransactionChanges, error) {
