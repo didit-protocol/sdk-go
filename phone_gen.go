@@ -193,7 +193,7 @@ func (r *PhoneService) CheckCode(ctx context.Context, params PhoneCheckCodeParam
 // verification finalization or expiration, even if delivery was never confirmed
 // or the delivery provider reported the message undeliverable. Checks are
 // always free. As an anti-abuse measure, phone verification is disabled until
-// your organization's first top-up (`403`).
+// your organization has a paid plan or makes its first top-up (`403`).
 //
 // **Session persistence.** Every new verification is persisted as an API-type
 // session: `request_id` is a real session id you can pass to `GET
