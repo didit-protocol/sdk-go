@@ -248,6 +248,22 @@ func (r *PhoneService) RetrieveRiskBulk(ctx context.Context, jobID string, opts 
 // send still reports `Success`, and the channel actually used is reported by
 // the check response (`phone.verification_method` and the `lifecycle` events).
 //
+// **Fixed lines.** A fixed line takes no SMS. When `options.preferred_channel`
+// is `sms` and the number is a fixed line (not a mobile, VoIP, toll-free or
+// premium-rate number) in a destination where Didit delivers codes by voice, a
+// new send places a call that reads the code aloud instead of sending an SMS,
+// and the send is priced and checked against your balance as a voice code (one
+// minute of call at the carrier's voice rate for the country plus the Didit
+// fee; see [Phone Verification
+// Pricing](/getting-started/phone-verification-pricing)). The call goes through
+// the same abuse protections as other voice codes, so Didit may not place it:
+// for a number an earlier call found unallocated, or for a destination where
+// your recent landline calls rarely reach a line. The code then goes out the
+// way it would have without the conversion. Nothing is converted for a send
+// that repeats or reuses the pending code, when your routing settings do not
+// allow voice, or in a sandbox application. The response `channel` is `voice`
+// when the call is placed.
+//
 // **Branding.** SMS codes carry your application's SMS sender name, set in the
 // Business Console, at no extra cost. Pass `options.sms_sender_name` to sign
 // one code with another name, or `options.use_white_label_customization: true`
@@ -2159,7 +2175,11 @@ type PhoneSendCodeParamsOptions struct {
 
 	// Preferred delivery channel. If the channel is unavailable for the destination
 	// country or number, the message automatically falls back to SMS - the send
-	// still reports `Success`.
+	// still reports `Success`. A new `sms` send to a fixed line is read out in a
+	// call instead only under the conditions in **Fixed lines** in the operation
+	// description: it never applies to a send that repeats or reuses the pending
+	// code, to a destination without voice delivery, when your routing settings do
+	// not allow voice, or in a sandbox application.
 	PreferredChannel Opt[PhoneSendCodeParamsOptionsPreferredChannel] `json:"preferred_channel"`
 
 	// When `true`, the send is white-labelled: if your application has no SMS
@@ -2189,7 +2209,12 @@ func (r PhoneSendCodeParamsOptions) MarshalJSON() ([]byte, error) {
 
 // PhoneSendCodeParamsOptionsPreferredChannel: Preferred delivery channel. If
 // the channel is unavailable for the destination country or number, the message
-// automatically falls back to SMS - the send still reports `Success`.
+// automatically falls back to SMS - the send still reports `Success`. A new
+// `sms` send to a fixed line is read out in a call instead only under the
+// conditions in **Fixed lines** in the operation description: it never applies
+// to a send that repeats or reuses the pending code, to a destination without
+// voice delivery, when your routing settings do not allow voice, or in a
+// sandbox application.
 //
 // PhoneSendCodeParamsOptionsPreferredChannel is a string with known values
 // below. The set is open: other values may appear and never cause an error.
@@ -2266,6 +2291,13 @@ type PhoneVerificationSendResponse struct {
 	// layer refused to send; the verification is immediately finalized as
 	// `Declined` and nothing is billed.
 	Status PhoneVerificationSendResponseStatus `json:"status"`
+
+	// The channel the code went out on, `voice` when a call reads it, or `null`
+	// when the delivery channel is not confirmed, for example when the carrier
+	// delivers the message without saying which channel carried it. A `Blocked`
+	// send returns the channel you asked for. A send that reuses the pending code
+	// returns the channel that code went out on.
+	Channel string `json:"channel"`
 
 	// Why a send was `Blocked` (e.g., `repeated_attempts`, `suspicious`, `spam`).
 	// `null` on `Success` and `Retry`.
