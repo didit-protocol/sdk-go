@@ -99,7 +99,11 @@ func (c *Client) init() {
 	c.Lists = &ListsService{client: c}
 	c.Lists.Entries = &ListsEntriesService{client: c}
 	c.Messages = &MessagesService{client: c}
+	c.Messages.Consent = &MessagesConsentService{client: c}
+	c.Messages.Conversations = &MessagesConversationsService{client: c}
+	c.Messages.Conversations.Webhooks = &MessagesConversationsWebhooksService{client: c}
 	c.Messages.Rules = &MessagesRulesService{client: c}
+	c.Messages.Templates = &MessagesTemplatesService{client: c}
 	c.MonitoringEvents = &MonitoringEventsService{client: c}
 	c.Networks = &NetworksService{client: c}
 	c.Networks.Notes = &NetworksNotesService{client: c}

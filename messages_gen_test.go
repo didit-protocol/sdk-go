@@ -129,6 +129,97 @@ func TestMessagesUpdateSettings(t *testing.T) {
 	expectFields(t, res.JSON, []string{"retention_days"})
 }
 
+func TestMessagesConsentRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"channels":[{"channel":"sms","status":"opted_in","source":"api","updated_at":"2026-11-12T08:30:00Z"}],"reassigned":false}`)
+	res, err := client.Messages.Consent.Retrieve(context.Background(), "to-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/messages/contacts/to-1/consent/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"channels", "reassigned"})
+}
+
+func TestMessagesConsentUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"channels":[{"channel":"whatsapp","status":"opted_out","source":"api","updated_at":"2026-11-22T09:41:00Z"}]}`)
+	var params didit.MessageConsentUpdate
+	mustUnmarshal(t, `{"channel":"whatsapp","status":"opted_out","source":"api"}`, &params)
+	res, err := client.Messages.Consent.Update(context.Background(), "to-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/messages/contacts/to-1/consent/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"channel":"whatsapp","status":"opted_out","source":"api"}`)
+	expectFields(t, res.JSON, []string{"channels"})
+}
+
+func TestMessagesConversationsList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"conversation_id":"6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90","assignee":"mem_ana","unread_count":2}]}`)
+	var params didit.MessagesConversationsListParams
+	params.Status = didit.Some(didit.MessagesConversationsListParamsStatusOpen)
+	params.Assignee = didit.String("value")
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(0)
+	res, err := client.Messages.Conversations.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/messages/conversations/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"assignee": "value", "limit": "20", "offset": "0", "status": "open"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"conversation_id", "assignee", "unread_count"})
+}
+
+func TestMessagesConversationsUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"conversation_id":"6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90","assignee":"mem_ana","unread_count":0}`)
+	var params didit.MessageConversationUpdate
+	mustUnmarshal(t, `{"assignee":"mem_ana"}`, &params)
+	res, err := client.Messages.Conversations.Update(context.Background(), "conversation-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/messages/conversations/conversation-id-1/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"assignee":"mem_ana"}`)
+	expectFields(t, res.JSON, []string{"conversation_id", "assignee", "unread_count"})
+}
+
+func TestMessagesConversationsWebhooksCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"webhook_id":"b3e1d7a2-5c4f-4e8b-9d16-0a7c3f2e8b51","secret":"sample-secret","events":["message.received"]}`)
+	var params didit.MessageConversationWebhookCreate
+	mustUnmarshal(t, `{"url":"https://YOUR_PUBLIC_HOST/didit/conversations/6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90","events":["message.received"]}`, &params)
+	res, err := client.Messages.Conversations.Webhooks.Create(context.Background(), "conversation-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/messages/conversations/conversation-id-1/webhooks/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"url":"https://YOUR_PUBLIC_HOST/didit/conversations/6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90","events":["message.received"]}`)
+	expectFields(t, res.JSON, []string{"webhook_id", "secret", "events"})
+}
+
+func TestMessagesConversationsWebhooksDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Messages.Conversations.Webhooks.Delete(context.Background(), "conversation-id-1", "webhook-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/messages/conversations/conversation-id-1/webhooks/webhook-id-1/")
+	req.expectAPIKey(t)
+}
+
 func TestMessagesRulesCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"rule_id":"5b1e7a90-2c43-4d68-8f15-0a9c3e6d7b22"}`)
 	var params didit.MessagesRulesCreateParams
@@ -142,4 +233,66 @@ func TestMessagesRulesCreate(t *testing.T) {
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"action":"block","direction":"outbound","match":{"prefix":"+88216"},"channels":["sms"]}`)
 	expectFields(t, res.JSON, []string{"rule_id"})
+}
+
+func TestMessagesTemplatesDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Messages.Templates.Delete(context.Background(), "template-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/messages/templates/template-id-1/")
+	req.expectAPIKey(t)
+}
+
+func TestMessagesTemplatesList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":"https://example.com/path","previous":"https://example.com/path","results":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","name":"string","description":"string","channels":["sms"],"languages":["string"],"variables":["string"],"variable_examples":{"customer":"Ana","order_number":"1042"},"whatsapp":{"status":"draft","reason":"string"},"version":1,"contents":[{"channel":"sms","language":"string","subject":"string","body":"string","whatsapp":{"status":"draft","reason":"string"},"updated_at":"2025-01-02T03:04:05Z"}],"created_at":"2025-01-02T03:04:05Z","updated_at":"2025-01-02T03:04:05Z"}]}`)
+	var params didit.MessagesTemplatesListParams
+	params.Status = didit.Some(didit.MessagesTemplatesListParamsStatusApproved)
+	params.Channel = didit.Some(didit.MessagesTemplatesListParamsChannelSMS)
+	params.Locale = didit.String("value")
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(0)
+	res, err := client.Messages.Templates.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/messages/templates/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"channel": "sms", "limit": "20", "locale": "value", "offset": "0", "status": "approved"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"id", "name", "description", "channels", "languages", "variables", "variable_examples", "whatsapp", "version", "contents", "created_at", "updated_at"})
+}
+
+func TestMessagesTemplatesRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"id":"3b7f2c1e-9d4a-4e6b-8a15-6c0d2f9e7a42","name":"Order shipped","description":"Sent when an order leaves the warehouse.","channels":["email","sms","whatsapp"],"languages":["en"],"variables":["order_number","customer"],"variable_examples":{"customer":"Ana","order_number":"1042"},"whatsapp":{"status":"pending","reason":""},"version":1,"contents":[{"channel":"email","language":"en","subject":"Order {{order_number}} ships today","body":"Hi {{customer}},\n\nyour order {{order_number}} ships today.","whatsapp":null,"updated_at":"2026-11-21T10:00:00Z"},{"channel":"sms","language":"en","subject":null,"body":"Hi {{customer}}, order {{order_number}} ships today.","whatsapp":null,"updated_at":"2026-11-21T10:00:00Z"},{"channel":"whatsapp","language":"en","subject":null,"body":"Hi {{customer}}, order {{order_number}} ships today.","whatsapp":{"status":"pending","reason":""},"updated_at":"2026-11-21T10:00:00Z"}],"created_at":"2026-11-21T10:00:00Z","updated_at":"2026-11-21T10:00:00Z"}`)
+	res, err := client.Messages.Templates.Retrieve(context.Background(), "template-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/messages/templates/template-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"id", "name", "description", "channels", "languages", "variables", "variable_examples", "whatsapp", "version", "contents", "created_at", "updated_at"})
+}
+
+func TestMessagesTemplatesUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"id":"3b7f2c1e-9d4a-4e6b-8a15-6c0d2f9e7a42","name":"Order on its way","description":"Sent when an order leaves the warehouse.","channels":["email","sms","whatsapp"],"languages":["en"],"variables":["order_number","customer"],"variable_examples":{"customer":"Ana","order_number":"1042"},"whatsapp":{"status":"pending","reason":""},"version":2,"contents":[{"channel":"email","language":"en","subject":"Order {{order_number}} ships today","body":"Hi {{customer}},\n\nyour order {{order_number}} ships today.","whatsapp":null,"updated_at":"2026-11-21T10:00:00Z"},{"channel":"sms","language":"en","subject":null,"body":"Hi {{customer}}, order {{order_number}} ships today.","whatsapp":null,"updated_at":"2026-11-21T10:00:00Z"},{"channel":"whatsapp","language":"en","subject":null,"body":"Hi {{customer}}, order {{order_number}} ships today.","whatsapp":{"status":"pending","reason":""},"updated_at":"2026-11-21T10:00:00Z"}],"created_at":"2026-11-21T10:00:00Z","updated_at":"2026-11-21T10:00:00Z"}`)
+	var params didit.UpdateMessageTemplateRequest
+	mustUnmarshal(t, `{"name":"Order on its way"}`, &params)
+	res, err := client.Messages.Templates.Update(context.Background(), "template-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/messages/templates/template-id-1/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"name":"Order on its way"}`)
+	expectFields(t, res.JSON, []string{"id", "name", "description", "channels", "languages", "variables", "variable_examples", "whatsapp", "version", "contents", "created_at", "updated_at"})
 }

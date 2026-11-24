@@ -110686,7 +110686,7 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
-        "description": "Send a transactional SMS, WhatsApp or email message to a phone number or an email address, now or scheduled, from one of your templates or as free text. Free text goes out on SMS and email; WhatsApp delivers only an approved template, except inside a 24-hour reply window (the person wrote to you first), so a message that lists WhatsApp uses `template_id` for it to go out there.\n\n**Fallback.** List several `channels`: each is tried in order, and the next one is used when a channel cannot take the message (switched off, the recipient opted out, no approved WhatsApp template, balance) or when the message fails on it later (rejected, undeliverable, expired). Every attempt is in `attempts`; a skipped channel is a `failed` attempt with its `error` and no price.\n\n**Statuses** reach your webhook destinations subscribed to `message.status.updated`.\n\n**Billing.** SMS: the carrier's price plus Didit's fee, per segment. WhatsApp from Didit's number: WhatsApp's rate for the market plus Didit's fee; from your own connected WhatsApp Business account, WhatsApp bills its rate to your account directly and Didit charges only its fee. Email: a flat price. Your plan's discount applies to the fee, never to the carrier's or WhatsApp's part. A failed SMS or WhatsApp attempt, a skipped one and a cancelled one are free; an email is charged once the receiving mail system accepts it, so an email that bounces later is charged. SMS and WhatsApp open with a paid plan or after your first top-up (`403 plan_locked`); a sandbox application simulates every message and charges nothing. See the [prices per country](/getting-started/pricing).\n\n**Retention.** Didit erases a message's text and recipient `retention_days` after its last event (created, sent, delivered, read, failed or cancelled; 30 days unless you set another value with `PATCH /v3/messages/settings/`); the message itself, its status, channel, country, segments, price and timestamps stay, so lists and invoices still add up. A message still waiting to go out (`scheduled`, `queued`, `sending`) keeps them until it goes out; one cancelled before it went out counts from its cancellation. A request no channel can take is refused and nothing of it is stored. To erase a message sooner, delete it with `DELETE /v3/messages/{message_id}/` once it went out or ended: cancel a `scheduled` message first; a `queued` or `sending` one settles within seconds.\n\nA scoped API key needs write access to messages.",
+        "description": "Send a transactional SMS, WhatsApp or email message to a phone number or an email address, now or scheduled, from one of your templates or as free text. Free text goes out on SMS and email; WhatsApp delivers only an approved template, except inside a 24-hour reply window (the person wrote to you first), so a message that lists WhatsApp uses `template_id` for it to go out there.\n\n**Fallback.** List several `channels`: each is tried in order, and the next one is used when a channel cannot take the message (switched off, the recipient opted out, no approved WhatsApp template, balance) or when the message fails on it later (rejected, undeliverable, expired). Every attempt is in `attempts`; a skipped channel is a `failed` attempt with its `error` and no price.\n\n**Statuses** reach your webhook destinations subscribed to `message.status.updated`; a reply from the person reaches `message.received` (WhatsApp and Telegram) and a change of their consent `contact.consent.updated`.\n\n**Billing.** SMS: the carrier's price plus Didit's fee, per segment. WhatsApp from Didit's number: WhatsApp's rate for the market plus Didit's fee; from your own connected WhatsApp Business account, WhatsApp bills its rate to your account directly and Didit charges only its fee. Email: a flat price. Your plan's discount applies to the fee, never to the carrier's or WhatsApp's part. A failed SMS or WhatsApp attempt, a skipped one and a cancelled one are free; an email is charged once the receiving mail system accepts it, so an email that bounces later is charged. SMS and WhatsApp open with a paid plan or after your first top-up (`403 plan_locked`); a sandbox application simulates every message and charges nothing. See the [prices per country](/getting-started/pricing).\n\n**Retention.** Didit erases a message's text and recipient `retention_days` after its last event (created, sent, delivered, read, failed or cancelled; 30 days unless you set another value with `PATCH /v3/messages/settings/`); the message itself, its status, channel, country, segments, price and timestamps stay, so lists and invoices still add up. A message still waiting to go out (`scheduled`, `queued`, `sending`) keeps them until it goes out; one cancelled before it went out counts from its cancellation. A request no channel can take is refused and nothing of it is stored. To erase a message sooner, delete it with `DELETE /v3/messages/{message_id}/` once it went out or ended: cancel a `scheduled` message first; a `queued` or `sending` one settles within seconds.\n\nA scoped API key needs write access to messages.",
         "requestBody": {
           "required": true,
           "content": {
@@ -112138,6 +112138,1025 @@
           }
         }
       }
+    },
+    "/v3/messages/templates/": {
+      "get": {
+        "summary": "List message templates",
+        "operationId": "listMessageTemplates",
+        "x-didit-sdk": {
+          "resource": "messages.templates",
+          "method": "list",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "The templates you created through the API, newest first, each with its texts and the state of WhatsApp's review of its WhatsApp texts.\n\n`status` keeps the templates in one review state, `channel` those with a text on that channel, and `locale` those with a text in that language; `channel` and `locale` match the same text.\n\nA scoped API key needs read access to messages.",
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X GET 'https://verification.didit.me/v3/messages/templates/?status=in_review&channel=whatsapp&locale=es' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "approved",
+                "in_review",
+                "rejected",
+                "paused",
+                "draft",
+                "no_review"
+              ]
+            },
+            "description": "The state of WhatsApp's review of the whole template, not of one of its texts: the most serious state any of its WhatsApp texts carries, in this order: rejected, disabled, paused, pending (`in_review` here), draft. A template with a WhatsApp text that none of them applies to is `approved`. `no_review` selects the templates with no WhatsApp text, so nothing is reviewed. A template whose state is `disabled` has no filter value of its own, and `status=disabled` answers `400`."
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "sms",
+                "whatsapp",
+                "telegram",
+                "email"
+              ]
+            },
+            "description": "Only the templates with a text on this channel. With `locale`, both must match the same text: `channel=sms&locale=es` does not select a template whose SMS text is English and whose Spanish text is on WhatsApp. A template holds SMS, WhatsApp and email texts, so `telegram` matches no template."
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "description": "Only the templates with a text in this BCP-47 language tag, for example `es` or `pt-BR`. With `channel`, both must match the same text."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of templates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageTemplateList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A filter value the list does not accept: a `status` outside its six values (`disabled` included), a `channel` outside `sms`, `whatsapp`, `telegram` and `email`, or a `locale` longer than 16 characters. The body names the parameter, for example `{\"status\": [\"\\\"disabled\\\" is not a valid choice.\"]}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageTemplateFilterError"
+                },
+                "examples": {
+                  "Unsupported status": {
+                    "value": {
+                      "status": [
+                        "\"disabled\" is not a valid choice."
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A scoped API key without read access to messages (`This API key has no read access to messages.`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        }
+      }
+    },
+    "/v3/messages/conversations/": {
+      "get": {
+        "summary": "List conversations",
+        "operationId": "listMessageConversations",
+        "x-didit-sdk": {
+          "resource": "messages.conversations",
+          "method": "list",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Your application's conversations: the member who owns each thread and how many replies arrived since the conversation was last read. A conversation groups every message exchanged with one person, on every channel.\n\n`status` filters on `open`, `needs_reply` (the person wrote last and nobody answered) or `closed`; `assignee` takes a member id, exactly as a conversation's `assignee` shows it, and lists only that member's conversations.\n\nA scoped API key needs read access to messages and to sessions, and its workflow and approved-only session limits apply: a conversation outside them is left out of the list.",
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X GET 'https://verification.didit.me/v3/messages/conversations/?status=needs_reply' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "needs_reply",
+                "closed"
+              ]
+            },
+            "description": "`needs_reply`: the person wrote last and nobody answered yet. `closed`: a team member closed the thread."
+          },
+          {
+            "name": "assignee",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": "A member's id, exactly as `assignee` shows it on a conversation: only the conversations assigned to that member are listed. The value is compared as it is; this operation takes your application's credential, which has no member behind it."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of conversations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageConversationList"
+                },
+                "example": {
+                  "count": 1,
+                  "next": null,
+                  "previous": null,
+                  "results": [
+                    {
+                      "conversation_id": "6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90",
+                      "assignee": "mem_ana",
+                      "unread_count": 2
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`status` is not `open`, `needs_reply` or `closed`, or `assignee` is longer than 64 characters. The body names the parameter, for example `{\"status\": [\"\\\"done\\\" is not a valid choice.\"]}`."
+          },
+          "403": {
+            "description": "A scoped API key without read access to messages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        }
+      }
+    },
+    "/v3/messages/conversations/{conversation_id}/": {
+      "patch": {
+        "summary": "Update a conversation",
+        "operationId": "updateMessageConversation",
+        "x-didit-sdk": {
+          "resource": "messages.conversations",
+          "method": "update",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Assign the conversation to a member or unassign it, open or close it, and mark it read up to a message. A field left out keeps its value; closing only takes the thread out of the open list, and opening it puts it back.\n\nA scoped API key needs write access to messages. It also needs read access to sessions, and its workflow and approved-only session limits apply: a conversation outside them, or one whose session was deleted, answers 404 as another application's would.",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90"
+            },
+            "description": "The conversation."
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageConversationUpdate"
+              },
+              "example": {
+                "assignee": "mem_ana"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X PATCH 'https://verification.didit.me/v3/messages/conversations/6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n      \"assignee\": \"mem_ana\"\n    }'"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The conversation, updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageConversation"
+                },
+                "example": {
+                  "conversation_id": "6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90",
+                  "assignee": "mem_ana",
+                  "unread_count": 0
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`status` is not `open` or `closed`, `assignee` is longer than 64 characters, or `read_up_to` is not the id of a message of this conversation. The body names the field."
+          },
+          "404": {
+            "description": "No conversation with this id in your application, outside your key's session access, or whose session was deleted."
+          },
+          "403": {
+            "description": "A scoped API key without write access to messages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        }
+      }
+    },
+    "/v3/messages/conversations/{conversation_id}/webhooks/": {
+      "post": {
+        "summary": "Subscribe a URL to one conversation's events",
+        "operationId": "createMessageConversationWebhook",
+        "x-didit-sdk": {
+          "resource": "messages.conversations.webhooks",
+          "method": "create",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Subscribe an HTTPS endpoint to one conversation's events: `message.received`, `message.status.updated` and `contact.consent.updated`, all three when `events` is left out. Every delivery is signed with `X-Signature-V2` using the returned `secret`, which this answer shows only once; other conversations keep their own subscriptions and endpoints.\n\nA scoped API key needs write access to messages. It also needs read access to sessions, and its workflow and approved-only session limits apply: a conversation outside them, or one whose session was deleted, answers 404 as another application's would.",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90"
+            },
+            "description": "The conversation whose events the subscription carries."
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageConversationWebhookCreate"
+              },
+              "example": {
+                "url": "https://YOUR_PUBLIC_HOST/didit/conversations/6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90",
+                "events": [
+                  "message.received"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X POST 'https://verification.didit.me/v3/messages/conversations/6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90/webhooks/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n      \"url\": \"https://YOUR_PUBLIC_HOST/didit/conversations/6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90\",\n      \"events\": [\n        \"message.received\"\n      ]\n    }'"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The subscription, with its signing secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageConversationWebhook"
+                },
+                "example": {
+                  "webhook_id": "b3e1d7a2-5c4f-4e8b-9d16-0a7c3f2e8b51",
+                  "secret": "whsec_live_4d81",
+                  "events": [
+                    "message.received"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_url`: `url` is not an HTTPS URL, or it points to a loopback, private or internal address, which no delivery is sent to, in sandbox too. An `events` value other than the three answers 400 too, and the body names the field."
+          },
+          "404": {
+            "description": "No conversation with this id in your application, outside your key's session access, or whose session was deleted."
+          },
+          "403": {
+            "description": "A scoped API key without write access to messages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        }
+      }
+    },
+    "/v3/messages/conversations/{conversation_id}/webhooks/{webhook_id}/": {
+      "delete": {
+        "summary": "Stop one conversation's events",
+        "operationId": "deleteMessageConversationWebhook",
+        "x-didit-sdk": {
+          "resource": "messages.conversations.webhooks",
+          "method": "delete",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Remove one of a conversation's webhook subscriptions: deliveries to its URL stop. Other subscriptions, and the conversation itself, are not touched.\n\nA scoped API key needs write access to messages. It also needs read access to sessions, and its workflow and approved-only session limits apply: a conversation outside them, or one whose session was deleted, answers 404 as another application's would.",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90"
+            },
+            "description": "The conversation."
+          },
+          {
+            "name": "webhook_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "b3e1d7a2-5c4f-4e8b-9d16-0a7c3f2e8b51"
+            },
+            "description": "The subscription to remove."
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X DELETE 'https://verification.didit.me/v3/messages/conversations/6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90/webhooks/b3e1d7a2-5c4f-4e8b-9d16-0a7c3f2e8b51/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The subscription is removed; there is no body."
+          },
+          "404": {
+            "description": "No webhook subscription with this id for this conversation, or the conversation is outside your key's session access."
+          },
+          "403": {
+            "description": "A scoped API key without write access to messages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        }
+      }
+    },
+    "/v3/messages/contacts/{to}/consent/": {
+      "get": {
+        "summary": "Retrieve a recipient's consent",
+        "operationId": "retrieveMessageConsent",
+        "x-didit-sdk": {
+          "resource": "messages.consent",
+          "method": "retrieve",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "The recipient's consent for every channel your application has a record on, with where each record came from and when it changed. A channel with no record is not listed, and a `to` that is none of the three recipient types below answers `{\"channels\": [], \"reassigned\": false}`.\n\n`reassigned` is always `false`: this release does not detect that a number changed owner, and no send is skipped for it.\n\n`to` is one of three recipient types, and each has its own channels: an E.164 number (`+` and up to 15 ASCII digits `[0-9]`) is on `sms`, `whatsapp`, `telegram`, `rcs`, `viber` and `voice`; an email address is on `email` only; a WhatsApp business-scoped user id (a country code, a dot and an id, such as `US.13491208655302741918`) is on `whatsapp` only. Percent-encode it in the path: a number's `+` becomes `%2B`.\n\nA scoped API key needs read access to messages.",
+        "parameters": [
+          {
+            "name": "to",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "+34600000012"
+            },
+            "description": "The recipient: an E.164 number (`+` and up to 15 ASCII digits), an email address, or a WhatsApp business-scoped user id."
+          }
+        ],
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X GET 'https://verification.didit.me/v3/messages/contacts/%2B34600000012/consent/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recipient's consent per channel.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageConsent"
+                },
+                "example": {
+                  "channels": [
+                    {
+                      "channel": "sms",
+                      "status": "opted_in",
+                      "source": "api",
+                      "updated_at": "2026-11-12T08:30:00Z"
+                    }
+                  ],
+                  "reassigned": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A scoped API key without read access to messages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update a recipient's consent",
+        "operationId": "updateMessageConsent",
+        "x-didit-sdk": {
+          "resource": "messages.consent",
+          "method": "update",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Record an opt-in or an opt-out for one channel. The record applies from now on: a send to an opted-out recipient on that channel is refused with `opted_out` and not charged. Each send reads the record of its own channel only, and a record for a channel Didit does not send on yet is kept for when it does. `source` records where the choice came from, `api` when left out.\n\n`to` is one of three recipient types, and each has its own channels: an E.164 number (`+` and up to 15 ASCII digits `[0-9]`) is on `sms`, `whatsapp`, `telegram`, `rcs`, `viber` and `voice`; an email address is on `email` only; a WhatsApp business-scoped user id (a country code, a dot and an id, such as `US.13491208655302741918`) is on `whatsapp` only. Percent-encode it in the path: a number's `+` becomes `%2B`. `channel` has to fit the recipient.\n\nA scoped API key needs write access to messages.",
+        "parameters": [
+          {
+            "name": "to",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "+34600000012"
+            },
+            "description": "The recipient: an E.164 number (`+` and up to 15 ASCII digits), an email address, or a WhatsApp business-scoped user id."
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageConsentUpdate"
+              },
+              "example": {
+                "channel": "whatsapp",
+                "status": "opted_out",
+                "source": "api"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X PATCH 'https://verification.didit.me/v3/messages/contacts/%2B34600000012/consent/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n      \"channel\": \"whatsapp\",\n      \"status\": \"opted_out\",\n      \"source\": \"api\"\n    }'"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recipient's consent per channel, with this choice recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageConsentChannels"
+                },
+                "example": {
+                  "channels": [
+                    {
+                      "channel": "whatsapp",
+                      "status": "opted_out",
+                      "source": "api",
+                      "updated_at": "2026-11-22T09:41:00Z"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_status`: `status` is not `opted_in` or `opted_out`. `invalid_channel`: `to` is not an E.164 number of ASCII digits, a valid email address (`person@` is not) or a WhatsApp business-scoped user id, or `channel` does not fit it. `consent_unavailable`: the record could not be written; retry later."
+          },
+          "403": {
+            "description": "A scoped API key without write access to messages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        }
+      }
+    },
+    "/v3/messages/templates/{template_id}/": {
+      "get": {
+        "summary": "Retrieve a message template",
+        "operationId": "getMessageTemplate",
+        "x-didit-sdk": {
+          "resource": "messages.templates",
+          "method": "retrieve",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The template's id."
+          }
+        ],
+        "description": "One template with its texts and the state of WhatsApp's review of each WhatsApp text.\n\nA scoped API key needs read access to messages.",
+        "responses": {
+          "200": {
+            "description": "The template.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageTemplate"
+                },
+                "example": {
+                  "id": "3b7f2c1e-9d4a-4e6b-8a15-6c0d2f9e7a42",
+                  "name": "Order shipped",
+                  "description": "Sent when an order leaves the warehouse.",
+                  "channels": [
+                    "email",
+                    "sms",
+                    "whatsapp"
+                  ],
+                  "languages": [
+                    "en"
+                  ],
+                  "variables": [
+                    "order_number",
+                    "customer"
+                  ],
+                  "variable_examples": {
+                    "customer": "Ana",
+                    "order_number": "1042"
+                  },
+                  "whatsapp": {
+                    "status": "pending",
+                    "reason": ""
+                  },
+                  "version": 1,
+                  "contents": [
+                    {
+                      "channel": "email",
+                      "language": "en",
+                      "subject": "Order {{order_number}} ships today",
+                      "body": "Hi {{customer}},\n\nyour order {{order_number}} ships today.",
+                      "whatsapp": null,
+                      "updated_at": "2026-11-21T10:00:00Z"
+                    },
+                    {
+                      "channel": "sms",
+                      "language": "en",
+                      "subject": null,
+                      "body": "Hi {{customer}}, order {{order_number}} ships today.",
+                      "whatsapp": null,
+                      "updated_at": "2026-11-21T10:00:00Z"
+                    },
+                    {
+                      "channel": "whatsapp",
+                      "language": "en",
+                      "subject": null,
+                      "body": "Hi {{customer}}, order {{order_number}} ships today.",
+                      "whatsapp": {
+                        "status": "pending",
+                        "reason": ""
+                      },
+                      "updated_at": "2026-11-21T10:00:00Z"
+                    }
+                  ],
+                  "created_at": "2026-11-21T10:00:00Z",
+                  "updated_at": "2026-11-21T10:00:00Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such template in this application. A template of the console's case messages is not one of these."
+          },
+          "403": {
+            "description": "A scoped API key without read access to messages (`This API key has no read access to messages.`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedRead"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X GET 'https://verification.didit.me/v3/messages/templates/3d1f8e2a-6b4c-4e9a-9f1d-7a2b5c8e4f60/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Update a message template",
+        "operationId": "updateMessageTemplate",
+        "x-didit-sdk": {
+          "resource": "messages.templates",
+          "method": "update",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The template's id."
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "description": "Change the name, the description, the examples or the texts. The texts you send replace all of the template's texts. A change makes a new version and WhatsApp reviews the new WhatsApp texts again: until they are approved a message cannot go out on WhatsApp from this template. Messages already accepted keep the text they were accepted with, a scheduled WhatsApp message included.\n\nA scoped API key needs write access to messages.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMessageTemplateRequest"
+              },
+              "example": {
+                "name": "Order on its way"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated template.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageTemplate"
+                },
+                "example": {
+                  "id": "3b7f2c1e-9d4a-4e6b-8a15-6c0d2f9e7a42",
+                  "name": "Order on its way",
+                  "description": "Sent when an order leaves the warehouse.",
+                  "channels": [
+                    "email",
+                    "sms",
+                    "whatsapp"
+                  ],
+                  "languages": [
+                    "en"
+                  ],
+                  "variables": [
+                    "order_number",
+                    "customer"
+                  ],
+                  "variable_examples": {
+                    "customer": "Ana",
+                    "order_number": "1042"
+                  },
+                  "whatsapp": {
+                    "status": "pending",
+                    "reason": ""
+                  },
+                  "version": 2,
+                  "contents": [
+                    {
+                      "channel": "email",
+                      "language": "en",
+                      "subject": "Order {{order_number}} ships today",
+                      "body": "Hi {{customer}},\n\nyour order {{order_number}} ships today.",
+                      "whatsapp": null,
+                      "updated_at": "2026-11-21T10:00:00Z"
+                    },
+                    {
+                      "channel": "sms",
+                      "language": "en",
+                      "subject": null,
+                      "body": "Hi {{customer}}, order {{order_number}} ships today.",
+                      "whatsapp": null,
+                      "updated_at": "2026-11-21T10:00:00Z"
+                    },
+                    {
+                      "channel": "whatsapp",
+                      "language": "en",
+                      "subject": null,
+                      "body": "Hi {{customer}}, order {{order_number}} ships today.",
+                      "whatsapp": {
+                        "status": "pending",
+                        "reason": ""
+                      },
+                      "updated_at": "2026-11-21T10:00:00Z"
+                    }
+                  ],
+                  "created_at": "2026-11-21T10:00:00Z",
+                  "updated_at": "2026-11-21T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The response names the invalid field. Check for an empty `contents` list, a text over its channel limit, an invalid variable name, a missing WhatsApp example (except `app_name`), or a submitted example for a variable no text uses. If you replace `contents` and omit `variable_examples`, Didit automatically removes stored examples for variables the replacement texts no longer use."
+          },
+          "404": {
+            "description": "No such template in this application. A template of the console's case messages is not one of these."
+          },
+          "403": {
+            "description": "A scoped API key without write access to messages (`This API key has no write access to messages.`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X PATCH 'https://verification.didit.me/v3/messages/templates/3d1f8e2a-6b4c-4e9a-9f1d-7a2b5c8e4f60/' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n      \"name\": \"Order on its way\"\n    }'"
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete a message template",
+        "operationId": "deleteMessageTemplate",
+        "x-didit-sdk": {
+          "resource": "messages.templates",
+          "method": "delete",
+          "auth": "api_key",
+          "server": true
+        },
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The template's id."
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "description": "Delete the template. Messages already sent keep their history, with no template. A template that a scheduled or queued message, or a message with a channel left to fall back to, was made from cannot be deleted until they are done: cancel the scheduled messages first (`409 template_in_use`).\n\nA scoped API key needs write access to messages.",
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "description": "No such template in this application. A template of the console's case messages is not one of these."
+          },
+          "409": {
+            "description": "`template_in_use`: a message made from the template has not finished.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageRefusal"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A scoped API key without write access to messages (`This API key has no write access to messages.`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccessDenied"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedWrite"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "curl",
+            "label": "curl",
+            "source": "curl -X DELETE 'https://verification.didit.me/v3/messages/templates/3d1f8e2a-6b4c-4e9a-9f1d-7a2b5c8e4f60/' \\\n  -H 'x-api-key: YOUR_API_KEY'"
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -112799,7 +113818,9 @@
           "bank.sync.completed",
           "bank.sync.failed",
           "bank.sync.recovered",
-          "message.status.updated"
+          "message.status.updated",
+          "message.received",
+          "contact.consent.updated"
         ]
       },
       "WebhookSubscribedEvents": {
@@ -138015,6 +139036,12 @@
           },
           {
             "$ref": "#/components/schemas/MessageStatusUpdatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/MessageReceivedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ContactConsentUpdatedEvent"
           }
         ],
         "discriminator": {
@@ -138047,7 +139074,9 @@
             "bank.sync.completed": "#/components/schemas/BankSyncCompletedEvent",
             "bank.sync.failed": "#/components/schemas/BankSyncFailedEvent",
             "bank.sync.recovered": "#/components/schemas/BankSyncRecoveredEvent",
-            "message.status.updated": "#/components/schemas/MessageStatusUpdatedEvent"
+            "message.status.updated": "#/components/schemas/MessageStatusUpdatedEvent",
+            "message.received": "#/components/schemas/MessageReceivedEvent",
+            "contact.consent.updated": "#/components/schemas/ContactConsentUpdatedEvent"
           }
         }
       },
@@ -159163,6 +160192,676 @@
           "detail",
           "code"
         ]
+      },
+      "MessageConsent": {
+        "type": "object",
+        "required": [
+          "channels",
+          "reassigned"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageConsentChannel"
+            },
+            "description": "The recipient's consent per channel, for the channels you have a record on."
+          },
+          "reassigned": {
+            "type": "boolean",
+            "description": "Always `false`: this release does not detect that a number changed owner, and no send is skipped for it."
+          }
+        }
+      },
+      "MessageConsentChannel": {
+        "type": "object",
+        "description": "One channel's consent record for the recipient.",
+        "required": [
+          "channel",
+          "status",
+          "source",
+          "updated_at"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "whatsapp",
+              "telegram",
+              "rcs",
+              "viber",
+              "voice",
+              "email"
+            ],
+            "description": "The channel this consent applies to."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "opted_in",
+              "opted_out"
+            ],
+            "description": "`opted_out` refuses every send on this channel with `opted_out`, uncharged."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "stop_reply",
+              "start_reply",
+              "bot_left",
+              "api",
+              "console",
+              "reassigned"
+            ],
+            "description": "Where the choice came from. `stop_reply` and `start_reply`: the recipient's own STOP or START reply; an email bounce or spam complaint reads `stop_reply`, and a completed Telegram opt-in link `start_reply`. `bot_left`: the recipient blocked or left the sender on the channel. `console`: a team member in the console. `api`: your API call without a `source`. A `source` your API call sets, `reassigned` included, is returned as you sent it; Didit never records `reassigned` itself."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MessageConsentChannels": {
+        "type": "object",
+        "required": [
+          "channels"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageConsentChannel"
+            },
+            "description": "The recipient's consent per channel, as the retrieve call returns it."
+          }
+        }
+      },
+      "MessageConsentUpdate": {
+        "type": "object",
+        "required": [
+          "channel",
+          "status"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "whatsapp",
+              "telegram",
+              "rcs",
+              "viber",
+              "voice",
+              "email"
+            ],
+            "description": "The channel the choice applies to."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "opted_in",
+              "opted_out"
+            ],
+            "description": "`opted_out` refuses sends on this channel; `opted_in` allows them again."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "stop_reply",
+              "start_reply",
+              "bot_left",
+              "api",
+              "console",
+              "reassigned"
+            ],
+            "description": "Where the choice came from, returned as you send it; `api` when left out. `reassigned` is only a label you can record: Didit does not detect a change of owner.",
+            "default": "api"
+          }
+        }
+      },
+      "MessageConversation": {
+        "type": "object",
+        "description": "One conversation: every message exchanged with one person, on every channel.",
+        "required": [
+          "conversation_id",
+          "assignee",
+          "unread_count"
+        ],
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The conversation.",
+            "example": "6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90"
+          },
+          "assignee": {
+            "type": "string",
+            "nullable": true,
+            "description": "The member who owns the conversation, or `null` when nobody does."
+          },
+          "unread_count": {
+            "type": "integer",
+            "description": "Inbound messages that arrived after the conversation was last read (with `read_up_to`). It belongs to the conversation, not to a member."
+          }
+        }
+      },
+      "MessageConversationList": {
+        "type": "object",
+        "required": [
+          "count",
+          "next",
+          "previous",
+          "results"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "next": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "previous": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageConversation"
+            }
+          }
+        }
+      },
+      "MessageConversationUpdate": {
+        "type": "object",
+        "description": "The fields to change; one left out keeps its value.",
+        "properties": {
+          "assignee": {
+            "type": "string",
+            "nullable": true,
+            "description": "The member who owns the conversation, or `null` to unassign it.",
+            "maxLength": 64
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ],
+            "description": "`closed` takes the thread out of the open list and keeps its messages readable; `open` puts it back."
+          },
+          "read_up_to": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of a message in the conversation: the conversation is read up to it, and only later inbound messages count in `unread_count`."
+          }
+        }
+      },
+      "MessageConversationWebhook": {
+        "type": "object",
+        "required": [
+          "webhook_id",
+          "secret",
+          "events"
+        ],
+        "properties": {
+          "webhook_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The subscription; remove it with the delete call.",
+            "example": "b3e1d7a2-5c4f-4e8b-9d16-0a7c3f2e8b51"
+          },
+          "secret": {
+            "type": "string",
+            "description": "The signing secret for this subscription's deliveries, shown only in this answer."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "message.received",
+                "message.status.updated",
+                "contact.consent.updated"
+              ]
+            },
+            "description": "The events this subscription delivers."
+          }
+        }
+      },
+      "MessageConversationWebhookCreate": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "A public HTTPS URL of your own that receives this conversation's events. Replace the placeholder in the examples with it: a URL that is not HTTPS, or that points to a loopback, private or internal address, answers `400 invalid_url`.",
+            "maxLength": 2000,
+            "example": "https://YOUR_PUBLIC_HOST/didit/conversations/6f0c2a8e-3b1d-4c5e-9a7f-2d8b1e4c6a90"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "message.received",
+                "message.status.updated",
+                "contact.consent.updated"
+              ]
+            },
+            "description": "The events to deliver; left out, all three.",
+            "minItems": 1
+          }
+        }
+      },
+      "MessageTemplate": {
+        "type": "object",
+        "description": "A message you write once and send in several channels and languages, with variables you name.",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "channels",
+          "languages",
+          "variables",
+          "variable_examples",
+          "whatsapp",
+          "version",
+          "contents",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "sms",
+                "whatsapp",
+                "email"
+              ]
+            },
+            "description": "The channels the template has a text for: SMS, WhatsApp or email."
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The languages the template has texts in."
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every variable any text uses."
+          },
+          "variable_examples": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "maxProperties": 500,
+            "description": "Examples are optional for variables used only in SMS or email. WhatsApp requires an example for each variable in a WhatsApp text except `app_name`. Each example must name a variable used by at least one text. A template can hold up to 500 examples. Each text can use up to 50 distinct variables plus `app_name`. Didit fills `app_name` with your application's name by default. If you supply it when sending, it counts toward the limit of 50 values per send.",
+            "example": {
+              "customer": "Ana",
+              "order_number": "1042"
+            }
+          },
+          "whatsapp": {
+            "$ref": "#/components/schemas/MessageTemplateWhatsApp"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Goes up by one with every change."
+          },
+          "contents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageTemplateContent"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MessageTemplateContent": {
+        "type": "object",
+        "required": [
+          "channel",
+          "language",
+          "subject",
+          "body",
+          "whatsapp",
+          "updated_at"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "whatsapp",
+              "email"
+            ]
+          },
+          "language": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string",
+            "nullable": true,
+            "description": "Email only."
+          },
+          "body": {
+            "type": "string"
+          },
+          "whatsapp": {
+            "$ref": "#/components/schemas/MessageTemplateWhatsApp"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MessageTemplateList": {
+        "type": "object",
+        "required": [
+          "count",
+          "next",
+          "previous",
+          "results"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "next": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "previous": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageTemplate"
+            }
+          }
+        }
+      },
+      "MessageTemplateWhatsApp": {
+        "type": "object",
+        "description": "WhatsApp's review of a WhatsApp text; `null` when there is no WhatsApp text (a text of any other channel, or a template with none). Only an `approved` text can be sent on WhatsApp.",
+        "required": [
+          "status",
+          "reason"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "pending",
+              "approved",
+              "rejected",
+              "paused",
+              "disabled"
+            ],
+            "description": "`draft`: not submitted yet. `pending`: in review. `approved`: can be sent. `rejected`, `paused` and `disabled`: WhatsApp refused or stopped it; the `reason` says why."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why a text was refused or could not be submitted; empty otherwise."
+          }
+        },
+        "nullable": true
+      },
+      "MessageTemplateContentInput": {
+        "type": "object",
+        "description": "One text of a template, for one channel and one language.",
+        "required": [
+          "channel",
+          "language",
+          "body"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "whatsapp",
+              "email"
+            ]
+          },
+          "language": {
+            "type": "string",
+            "description": "Two or three lowercase letters, optionally a hyphen and two to four letters: `en`, `pt-BR`, `zh-Hant`. A region is stored in its usual spelling, so `pt-br` is `pt-BR`.",
+            "pattern": "^[a-z]{2,3}(-[A-Za-z]{2,4})?$",
+            "maxLength": 16,
+            "example": "en"
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Email only: the subject line. It may use the same `{{variables}}`."
+          },
+          "body": {
+            "type": "string",
+            "description": "The text. Write `{{variables}}` with names you choose (letters, digits and `_`). At most 1,000 characters on SMS, 4,096 on WhatsApp, and 10,000 on email.",
+            "example": "Hi {{customer}}, order {{order_number}} ships today."
+          }
+        }
+      },
+      "UpdateMessageTemplateRequest": {
+        "type": "object",
+        "description": "Send the fields you want to update. Supplying `contents` replaces all texts, and supplying `variable_examples` replaces all examples. If you replace `contents` and omit `variable_examples`, Didit keeps stored examples for variables still used in any text and removes the rest.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "variable_examples": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "maxProperties": 500,
+            "description": "Examples are optional for variables used only in SMS or email. WhatsApp requires an example for each variable in a WhatsApp text except `app_name`. Each example must name a variable used by at least one text. A template can hold up to 500 examples. Each text can use up to 50 distinct variables plus `app_name`. Didit fills `app_name` with your application's name by default. If you supply it when sending, it counts toward the limit of 50 values per send.",
+            "example": {
+              "customer": "Ana",
+              "order_number": "1042"
+            }
+          },
+          "contents": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/MessageTemplateContentInput"
+            },
+            "description": "Every text the template should have: one per channel and language. Texts you leave out are removed."
+          }
+        }
+      },
+      "MessageTemplateFilterError": {
+        "type": "object",
+        "description": "The error envelope of a filter the list does not accept: one array of messages per offending parameter, keyed by the parameter's name.",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "example": {
+          "status": [
+            "\"disabled\" is not a valid choice."
+          ]
+        }
+      },
+      "MessageReceivedEvent": {
+        "description": "A person replied to a message sent with `POST /v3/messages/`, on WhatsApp or Telegram. The reply's text is the event's content: Didit does not keep it in the message, and it is only in the delivery log of your webhook destination, like every webhook payload. The event names the message it answers and never the person's number or the text of what was sent: read them with `GET /v3/messages/{message_id}/`. A reply to a message you deleted, or whose recipient Didit erased after its retention, is not reported. SMS replies are not reported: the carrier route only tells Didit about STOP and START, which arrive as `contact.consent.updated`.",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WebhookEventEnvelope"
+          },
+          {
+            "type": "object",
+            "required": [
+              "webhook_type",
+              "channel",
+              "received_at",
+              "text",
+              "in_reply_to",
+              "correlation_id"
+            ],
+            "properties": {
+              "webhook_type": {
+                "type": "string",
+                "enum": [
+                  "message.received"
+                ],
+                "description": "Always `message.received`."
+              },
+              "channel": {
+                "type": "string",
+                "enum": [
+                  "whatsapp",
+                  "telegram"
+                ]
+              },
+              "received_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "text": {
+                "type": "string",
+                "description": "What the person wrote, as Didit received it."
+              },
+              "in_reply_to": {
+                "type": "string",
+                "format": "uuid",
+                "description": "The `id` of the message the reply answers: the message the person quoted (WhatsApp, Telegram). Unquoted text is reported on WhatsApp for the latest message sent to the person from that number. On Telegram it is reported only when your application is the only one linked to the chat and sent to it in the 24 hours before the reply; when several applications are linked to the chat, no event is sent and the person is asked to use Reply on the message they answer; when none sent in that window, no event is sent and nothing is asked."
+              },
+              "correlation_id": {
+                "type": "string",
+                "nullable": true,
+                "description": "The `correlation_id` of that message."
+              }
+            }
+          }
+        ]
+      },
+      "ContactConsentUpdatedEvent": {
+        "description": "A person's consent to be messaged on a channel changed: they replied STOP or START, blocked the Telegram bot, the address bounced or marked an email as spam, a Telegram chat was linked through an opt-in link or is gone, or a change was recorded with `PATCH /v3/messages/contacts/{to}/consent/`. It is sent to the application whose SMS list changed; for the lists the organization owns (email, WhatsApp, Telegram) to every application of the organization that sent the person a message on the channel through the API, and for Telegram also to those with a chat linked for the person. `connected` and `disconnected` go only to the application whose Telegram chat changed. The event names the number (or email address), which is what identifies the person it is about. Order events by `occurred_at`.",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WebhookEventEnvelope"
+          },
+          {
+            "type": "object",
+            "required": [
+              "webhook_type",
+              "channel",
+              "to",
+              "status",
+              "reason",
+              "occurred_at"
+            ],
+            "properties": {
+              "webhook_type": {
+                "type": "string",
+                "enum": [
+                  "contact.consent.updated"
+                ],
+                "description": "Always `contact.consent.updated`."
+              },
+              "channel": {
+                "type": "string",
+                "enum": [
+                  "sms",
+                  "whatsapp",
+                  "telegram",
+                  "rcs",
+                  "viber",
+                  "voice",
+                  "email"
+                ],
+                "description": "The channel the consent changed on."
+              },
+              "to": {
+                "type": "string",
+                "description": "The person's phone number (E.164) or email address."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "opted_out",
+                  "opted_in",
+                  "connected",
+                  "disconnected"
+                ],
+                "description": "`opted_out`: messages on the channel are blocked; `opted_in`: allowed again; `connected`: a Telegram chat was linked through an opt-in link; `disconnected`: Telegram no longer has the chat."
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "stop",
+                  "start",
+                  "blocked",
+                  "bounce",
+                  "complaint",
+                  "manual",
+                  "link",
+                  "chat_gone",
+                  "other"
+                ],
+                "description": "`stop` / `start`: the person's STOP / START (`/stop` and `/start` on Telegram); `blocked`: the person blocked the sender or the bot; `bounce` / `complaint`: an email bounced or was marked as spam; `manual`: a team member changed it in the console; `link`: the person connected through an opt-in link; `chat_gone`: Telegram no longer has the chat. `other`: any other source, such as a change you recorded with `PATCH /v3/messages/contacts/{to}/consent/`."
+              },
+              "occurred_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ]
       }
     },
     "securitySchemes": {
@@ -160736,6 +162435,82 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/MessageStatusUpdatedEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Any 2xx response acknowledges the delivery. Other responses and timeouts are retried; see https://docs.didit.me/integration/webhooks."
+          }
+        }
+      }
+    },
+    "message.received": {
+      "post": {
+        "summary": "Message received",
+        "description": "A person replied to a message sent with `POST /v3/messages/`, on WhatsApp or Telegram. Subscribe a webhook destination to `message.received`. The text is the event's content; the payload never carries the person's number or what you sent: read them with `GET /v3/messages/{message_id}/`.",
+        "tags": [
+          "Webhook"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WebhookSignature"
+          },
+          {
+            "$ref": "#/components/parameters/WebhookSignatureV2"
+          },
+          {
+            "$ref": "#/components/parameters/WebhookSignatureSimple"
+          },
+          {
+            "$ref": "#/components/parameters/WebhookTimestamp"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageReceivedEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Any 2xx response acknowledges the delivery. Other responses and timeouts are retried; see https://docs.didit.me/integration/webhooks."
+          }
+        }
+      }
+    },
+    "contact.consent.updated": {
+      "post": {
+        "summary": "Contact consent updated",
+        "description": "A person's consent on a channel changed: STOP, START, a blocked Telegram bot, a bounce, a spam complaint, a Telegram chat linked or gone. Subscribe a webhook destination to `contact.consent.updated`.",
+        "tags": [
+          "Webhook"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WebhookSignature"
+          },
+          {
+            "$ref": "#/components/parameters/WebhookSignatureV2"
+          },
+          {
+            "$ref": "#/components/parameters/WebhookSignatureSimple"
+          },
+          {
+            "$ref": "#/components/parameters/WebhookTimestamp"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContactConsentUpdatedEvent"
               }
             }
           }
