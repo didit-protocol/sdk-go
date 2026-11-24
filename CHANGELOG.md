@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.38.0](https://github.com/didit-protocol/sdk-go/compare/v1.37.0...v1.38.0) (2026-11-24)
+
+
+### Features
+
+* **spec:** sync API spec 2026-11-23 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** sync API spec 2026-11-24 ([b3906ec](https://github.com/didit-protocol/sdk-go/commit/b3906ec8ad786e79ccd61ada8f3010e4debf849c))
+* **spec:** sync API spec 2026-11-24 ([bc8a756](https://github.com/didit-protocol/sdk-go/commit/bc8a756fb0299a99d586a4c8cf272c2adf9b72da))
+
+
+### API changes that can break typed code
+
+* **spec:** `DELETE /v3/phone/factors/{factor_id}/`: operation removed; `phone.factors.delete` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `DELETE /v3/phone/network/registrations/{registration_id}/test-numbers/{phone_number}/`: operation removed; `phone.network.registrations.test_numbers.delete` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `DELETE /v3/phone/sdk-keys/{key_id}/`: operation removed; `phone.sdk_keys.revoke` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `GET /v3/phone/factors/{factor_id}/`: operation removed; `phone.factors.retrieve` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `GET /v3/phone/factors/`: operation removed; `phone.factors.list` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `GET /v3/phone/network/registrations/{registration_id}/`: operation removed; `phone.network.registrations.retrieve` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `GET /v3/phone/network/registrations/`: operation removed; `phone.network.registrations.list` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `GET /v3/phone/sdk-keys/`: operation removed; `phone.sdk_keys.list` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `GET /v3/phone/silent/coverage/`: operation removed; `phone.silent.coverage` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `GET /v3/phone/silent/registrations/{registration_id}/`: operation removed; `phone.silent.registrations.retrieve` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `PATCH /v3/phone/factors/{factor_id}/`: operation removed; `phone.factors.update` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/check/` request body `code`: now required ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/check/` request body `factor_id`: removed ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/check/` request body `phone_number`: now required ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/check/` request body: type changed from any to object ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/check/` request body: type changed: 1 anyOf variant(s) removed ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/check/` response `status`: no longer always present ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/check/` response: type changed: 1 oneOf variant(s) removed ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/factors/`: operation removed; `phone.factors.create` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/network/registrations/{registration_id}/test-numbers/`: operation removed; `phone.network.registrations.test_numbers.create` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/network/registrations/`: operation removed; `phone.network.registrations.create` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/sdk-keys/{key_id}/rotate/`: operation removed; `phone.sdk_keys.rotate` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/sdk-keys/`: operation removed; `phone.sdk_keys.create` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/silent/eligibility/`: operation removed; `phone.silent.eligibility` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+* **spec:** `POST /v3/phone/silent/registrations/`: operation removed; `phone.silent.registrations.create` stays as a deprecated method until version 1.38.0 ([6edcabc](https://github.com/didit-protocol/sdk-go/commit/6edcabc7f86ec9520b9c23decef57eb1120d4bca))
+
 ## [1.37.0](https://github.com/didit-protocol/sdk-go/compare/v1.36.0...v1.37.0) (2026-11-23)
 
 
