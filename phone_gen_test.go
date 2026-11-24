@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/didit-protocol/sdk-go"
 )
@@ -85,7 +86,7 @@ func TestPhoneRetrieveRiskBulk(t *testing.T) {
 }
 
 func TestPhoneSendCode(t *testing.T) {
-	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"e39cb057-92fc-4b59-b84e-02fec29a0f24","status":"Success","channel":null,"reason":null,"vendor_data":"user-1234","metadata":null}`)
+	client, mock := newMockClient(t, 200, "application/json", `{"request_id":"e39cb057-92fc-4b59-b84e-02fec29a0f24","status":"Success","channel":null,"reason":null,"vendor_data":"user-1234","metadata":null,"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d"}`)
 	var params didit.PhoneSendCodeParams
 	mustUnmarshal(t, `{"phone_number":"+14155552671","options":{"locale":"en-US","preferred_channel":"whatsapp"},"vendor_data":"user-1234"}`, &params)
 	res, err := client.Phone.SendCode(context.Background(), params)
@@ -96,7 +97,22 @@ func TestPhoneSendCode(t *testing.T) {
 	req.expect(t, "POST", "/v3/phone/send/")
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"phone_number":"+14155552671","options":{"locale":"en-US","preferred_channel":"whatsapp"},"vendor_data":"user-1234"}`)
-	expectFields(t, res.JSON, []string{"request_id", "status", "vendor_data"})
+	expectFields(t, res.JSON, []string{"request_id", "status", "vendor_data", "verification_id"})
+}
+
+func TestPhoneCountriesUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"updated":1}`)
+	var params didit.PhoneCountriesUpdateRequest
+	mustUnmarshal(t, `{"countries":[{"country":"TJ","sms":false,"objective":"conversion","closed_channels":[{"channel":"sms","platforms":["web"]}]}]}`, &params)
+	res, err := client.Phone.Countries.Update(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/phone/countries/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"countries":[{"country":"TJ","sms":false,"objective":"conversion","closed_channels":[{"channel":"sms","platforms":["web"]}]}]}`)
+	expectFields(t, res.JSON, []string{"updated"})
 }
 
 func TestPhoneFactorsCreate(t *testing.T) {
@@ -175,6 +191,36 @@ func TestPhoneFactorsUpdate(t *testing.T) {
 	req.expectAPIKey(t)
 	req.expectJSON(t, `{"friendly_name":"Work phone","metadata":{"device":"iPhone 16"},"status":"disabled"}`)
 	expectFields(t, res.JSON, []string{"factor_id", "type", "status", "user_id", "friendly_name", "metadata", "created_at", "last_used_at"})
+}
+
+func TestPhoneFeedbackCreate(t *testing.T) {
+	client, mock := newMockClient(t, 202, "application/json", `{"received":true,"weight":0.9}`)
+	var params didit.PhoneFeedbackRequest
+	mustUnmarshal(t, `{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","outcome":"converted","event":"chargeback","confidence":"high","occurred_at":"2026-11-20T18:40:00Z"}`, &params)
+	res, err := client.Phone.Feedback.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/feedback/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","outcome":"converted","event":"chargeback","confidence":"high","occurred_at":"2026-11-20T18:40:00Z"}`)
+	expectFields(t, res.JSON, []string{"received", "weight"})
+}
+
+func TestPhoneFeedbackCreateBatch(t *testing.T) {
+	client, mock := newMockClient(t, 207, "application/json", `{"accepted":1,"results":[{"index":0,"status":"accepted","error":null}]}`)
+	var params didit.PhoneFeedbackBatchRequest
+	mustUnmarshal(t, `{"items":[{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","outcome":"fraud","event":"chargeback","confidence":"high","occurred_at":"2026-11-20T18:40:00Z"}]}`, &params)
+	res, err := client.Phone.Feedback.CreateBatch(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/feedback/batch/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"items":[{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","outcome":"fraud","event":"chargeback","confidence":"high","occurred_at":"2026-11-20T18:40:00Z"}]}`)
+	expectFields(t, res.JSON, []string{"accepted", "results"})
 }
 
 func TestPhoneFraudEvaluate(t *testing.T) {
@@ -385,6 +431,31 @@ func TestPhoneListsRemove(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "DELETE", "/v3/phone/lists/list-id-1/entries/entry-id-1/")
 	req.expectAPIKey(t)
+}
+
+func TestPhoneLookupsList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"lookup_id":"123e4567-e89b-42d3-a456-426614174001","phone_number":"+12025550136","status":"Approved","country":"US","line_type":"mobile","risk_score":12.5,"created_at":"2026-11-21T12:00:00Z"}]}`)
+	var params didit.PhoneLookupsListParams
+	params.PhoneNumber = didit.String("+12025550136")
+	params.CreatedAfter = didit.Some(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC))
+	params.CreatedBefore = didit.Some(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC))
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(1)
+	res, err := client.Phone.Lookups.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/lookups/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"created_after": "2025-01-02T03:04:05Z", "created_before": "2025-01-02T03:04:05Z", "limit": "20", "offset": "1", "phone_number": "+12025550136"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"lookup_id", "phone_number", "status", "country", "line_type", "risk_score", "created_at"})
 }
 
 func TestPhoneNetworkRegistrationsCreate(t *testing.T) {
@@ -604,6 +675,33 @@ func TestPhoneSDKKeysRotate(t *testing.T) {
 	expectFields(t, res.JSON, []string{"key_id", "platform", "publishable_key", "app_ids", "status", "created_at", "previous_expires_at"})
 }
 
+func TestPhoneSettingsRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"verification":{"code_length":6,"valid_minutes":5,"max_attempts":5,"resend_limit":5,"channel_order":["silent","whatsapp","sms"],"routing":"conversion","voice":{"tts_voice":"es-ES-female-2"},"email":{"domain_id":"ed_01JCH8S3"}},"messages":{"retention_days":30},"data_region":"eu"}`)
+	res, err := client.Phone.Settings.Retrieve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/settings/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"verification", "messages", "data_region"})
+}
+
+func TestPhoneSettingsUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"updated_at":"2026-11-21T10:00:00Z"}`)
+	var params didit.PhoneSettingsUpdate
+	mustUnmarshal(t, `{"verification":{"code_length":6,"routing":"conversion"},"messages":{"retention_days":30}}`, &params)
+	res, err := client.Phone.Settings.Update(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/phone/settings/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"verification":{"code_length":6,"routing":"conversion"},"messages":{"retention_days":30}}`)
+	expectFields(t, res.JSON, []string{"updated_at"})
+}
+
 func TestPhoneSilentCoverage(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"countries":[{"country":"ES","wifi":true,"networks":[{"name":"Mobile network A","approval":"live"}]}]}`)
 	var params didit.PhoneSilentCoverageParams
@@ -661,4 +759,103 @@ func TestPhoneSilentRegistrationsRetrieve(t *testing.T) {
 	req.expect(t, "GET", "/v3/phone/silent/registrations/registration-id-1/")
 	req.expectAPIKey(t)
 	expectFields(t, res.JSON, []string{"registration_id", "country", "status", "networks", "live_at"})
+}
+
+func TestPhoneVerificationsApprove(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","status":"verified","verified_by":"api","verified_at":"2026-11-21T10:00:12Z"}`)
+	var params didit.PhoneVerificationApproveRequest
+	mustUnmarshal(t, `{"reason":"own_code_check"}`, &params)
+	res, err := client.Phone.Verifications.Approve(context.Background(), "verification-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/verifications/verification-id-1/approve/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"reason":"own_code_check"}`)
+	expectFields(t, res.JSON, []string{"verification_id", "status", "verified_by", "verified_at"})
+}
+
+func TestPhoneVerificationsCancel(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","status":"cancelled"}`)
+	res, err := client.Phone.Verifications.Cancel(context.Background(), "verification-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/verifications/verification-id-1/cancel/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"verification_id", "status"})
+}
+
+func TestPhoneVerificationsList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","status":"verified","phone_number":"+12025550136","country":"US","attempts":[{"channel":"whatsapp","status":"delivered","network":"Mobile network A","route":"Route A","error":null,"silent_result":null,"sent_at":"2026-11-21T10:00:01Z","delivered_at":"2026-11-21T10:00:03Z","read_at":null,"expired_at":null,"charged":true,"price":{"amount":"0.0300","carrier":null,"fee":null,"final":true}}],"reference":"signup-48221","tags":{"flow":"signup"},"created_at":"2026-11-21T10:00:00Z","verified_at":"2026-11-21T10:00:12Z"}]}`)
+	var params didit.PhoneVerificationsListParams
+	params.Status = didit.Some(didit.PhoneVerificationsListParamsStatusVerified)
+	params.Channel = didit.Some(didit.PhoneChannelSilent)
+	params.PhoneNumber = didit.String("+34600000012")
+	params.Reference = didit.String("signup-48221")
+	params.Tag = didit.String("flow:signup")
+	params.CreatedAfter = didit.Some(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC))
+	params.CreatedBefore = didit.Some(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC))
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(1)
+	params.Format = didit.Some(didit.PhoneVerificationsListParamsFormatJSON)
+	res, err := client.Phone.Verifications.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/verifications/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"channel": "silent", "created_after": "2025-01-02T03:04:05Z", "created_before": "2025-01-02T03:04:05Z", "format": "json", "limit": "20", "offset": "1", "phone_number": "+34600000012", "reference": "signup-48221", "status": "verified", "tag": "flow:signup"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"verification_id", "status", "phone_number", "country", "attempts", "reference", "tags", "created_at", "verified_at"})
+}
+
+func TestPhoneVerificationsNext(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","channel":"sms","status":"pending"}`)
+	var params didit.PhoneVerificationNextRequest
+	mustUnmarshal(t, `{"channel":"sms"}`, &params)
+	res, err := client.Phone.Verifications.Next(context.Background(), "verification-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/verifications/verification-id-1/next/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"channel":"sms"}`)
+	expectFields(t, res.JSON, []string{"verification_id", "channel", "status"})
+}
+
+func TestPhoneVerificationsRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","status":"verified","phone_number":"+12025550136","country":"US","attempts":[{"channel":"whatsapp","status":"delivered","network":"Mobile network A","route":"Route A","error":null,"silent_result":null,"sent_at":"2026-11-21T10:00:01Z","delivered_at":"2026-11-21T10:00:03Z","read_at":null,"expired_at":null,"charged":true,"price":{"amount":"0.0300","carrier":null,"fee":null,"final":true}}],"reference":"signup-48221","tags":{"flow":"signup"},"created_at":"2026-11-21T10:00:00Z","verified_at":"2026-11-21T10:00:12Z"}`)
+	res, err := client.Phone.Verifications.Retrieve(context.Background(), "verification-id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/phone/verifications/verification-id-1/")
+	req.expectAPIKey(t)
+	expectFields(t, res.JSON, []string{"verification_id", "status", "phone_number", "country", "attempts", "reference", "tags", "created_at", "verified_at"})
+}
+
+func TestPhoneVerificationsRetry(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"verification_id":"c9b18621-9f8f-4590-a3b4-f8ebea4baa7d","status":"pending","channel":"sms","sends":2,"sends_left":1,"expires_at":"2026-11-21T10:05:00Z","charged":true}`)
+	var params didit.PhoneVerificationRetryRequest
+	mustUnmarshal(t, `{}`, &params)
+	res, err := client.Phone.Verifications.Retry(context.Background(), "verification-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/phone/verifications/verification-id-1/retry/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{}`)
+	expectFields(t, res.JSON, []string{"verification_id", "status", "channel", "sends", "sends_left", "expires_at", "charged"})
 }

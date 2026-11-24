@@ -129,6 +129,83 @@ func TestMessagesUpdateSettings(t *testing.T) {
 	expectFields(t, res.JSON, []string{"retention_days"})
 }
 
+func TestMessagesCapabilitiesRetrieve(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"channels":{"sms":true,"whatsapp":true,"telegram":false,"rcs":true,"viber":false,"mms":true}}`)
+	var params didit.MessagesCapabilitiesRetrieveParams
+	params.To = "+34600000012"
+	res, err := client.Messages.Capabilities.Retrieve(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/messages/capabilities/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"to": "+34600000012"})
+	expectFields(t, res.JSON, []string{"channels"})
+}
+
+func TestMessagesConfigurationsCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"configuration_id":"d7e3d55d-4fc8-4bab-9710-123456789abc","name":"Order updates","from":"","channels":["sms"],"status_callback_url":"","inbound_url":"","opt_out":{},"append_opt_out_line":true}`)
+	var params didit.MessagingConfigurationCreateRequest
+	mustUnmarshal(t, `{"name":"Order updates","channels":["sms"],"append_opt_out_line":true}`, &params)
+	res, err := client.Messages.Configurations.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/messages/configurations/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"name":"Order updates","channels":["sms"],"append_opt_out_line":true}`)
+	expectFields(t, res.JSON, []string{"configuration_id", "name", "from", "channels", "status_callback_url", "inbound_url", "opt_out", "append_opt_out_line"})
+}
+
+func TestMessagesConfigurationsDelete(t *testing.T) {
+	client, mock := newMockClient(t, 204, "", ``)
+	if err := client.Messages.Configurations.Delete(context.Background(), "configuration-id-1"); err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "DELETE", "/v3/messages/configurations/configuration-id-1/")
+	req.expectAPIKey(t)
+}
+
+func TestMessagesConfigurationsList(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"count":1,"next":null,"previous":null,"results":[{"configuration_id":"d7e3d55d-4fc8-4bab-9710-123456789abc","name":"Order updates","from":"","channels":["sms"],"status_callback_url":"","inbound_url":"","opt_out":{},"append_opt_out_line":true}]}`)
+	var params didit.MessagesConfigurationsListParams
+	params.Limit = didit.Int(20)
+	params.Offset = didit.Int(1)
+	res, err := client.Messages.Configurations.List(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/messages/configurations/")
+	req.expectAPIKey(t)
+	req.expectQuery(t, map[string]string{"limit": "20", "offset": "1"})
+	if res == nil {
+		t.Fatal("nil page")
+	}
+	if len(res.Results) == 0 {
+		t.Fatal("no results")
+	}
+	expectFields(t, res.Results[0].JSON, []string{"configuration_id", "name", "from", "channels", "status_callback_url", "inbound_url", "opt_out", "append_opt_out_line"})
+}
+
+func TestMessagesConfigurationsUpdate(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"configuration_id":"d7e3d55d-4fc8-4bab-9710-123456789abc","name":"Order updates","from":"","channels":["whatsapp","sms"],"status_callback_url":"","inbound_url":"","opt_out":{},"append_opt_out_line":true}`)
+	var params didit.MessagingConfigurationUpdateRequest
+	mustUnmarshal(t, `{"name":"Order updates","channels":["whatsapp","sms"]}`, &params)
+	res, err := client.Messages.Configurations.Update(context.Background(), "configuration-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "PATCH", "/v3/messages/configurations/configuration-id-1/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"name":"Order updates","channels":["whatsapp","sms"]}`)
+	expectFields(t, res.JSON, []string{"configuration_id", "name", "from", "channels", "status_callback_url", "inbound_url", "opt_out", "append_opt_out_line"})
+}
+
 func TestMessagesConsentRetrieve(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"channels":[{"channel":"sms","status":"opted_in","source":"api","updated_at":"2026-11-12T08:30:00Z"}],"reassigned":false}`)
 	res, err := client.Messages.Consent.Retrieve(context.Background(), "to-1")
