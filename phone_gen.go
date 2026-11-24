@@ -14,14 +14,19 @@ import (
 type PhoneService struct {
 	client *Client
 
+	Countries         *PhoneCountriesService
 	Factors           *PhoneFactorsService
+	Feedback          *PhoneFeedbackService
 	Fraud             *PhoneFraudService
 	LineTypeOverrides *PhoneLineTypeOverridesService
 	Lists             *PhoneListsService
+	Lookups           *PhoneLookupsService
 	Network           *PhoneNetworkService
 	RateLimits        *PhoneRateLimitsService
 	SDKKeys           *PhoneSDKKeysService
+	Settings          *PhoneSettingsService
 	Silent            *PhoneSilentService
+	Verifications     *PhoneVerificationsService
 }
 
 // AssessRisk: Risk-score a phone number.
@@ -109,17 +114,24 @@ func (r *PhoneService) AssessRiskBulk(ctx context.Context, params PhoneAssessRis
 // result plus phone intelligence: carrier name and line type, virtual (VoIP)
 // and disposable flags, and duplicate usage of the number across your sessions.
 //
-// **How the check finds the verification.** Matching is by your application
-// plus the E.164 `phone_number` - `request_id` is not an input. The most recent
-// pending verification created within the last **5 minutes** is checked. If
-// there is none (never sent, already finalized, or older than 5 minutes) the
-// endpoint returns `200` with `status: "Expired or Not Found"`.
+// **How the check finds the verification.** Send the code and the E.164
+// `phone_number`: the number selects its latest pending verification in your
+// application. Add the `verification_id` the send returned to check that
+// specific verification: Didit then checks it and takes its number, so the
+// `phone_number` of the request is not used. `phone_number` stays a required
+// field of the request. An ID that is not one of your application's checkable
+// verifications (unknown, cancelled, or of another application) is ignored, and
+// the check falls back to the latest pending verification of `phone_number`. A
+// finalized or expired verification, or no matching verification, returns `200`
+// with `status: "Expired or Not Found"`.
 //
-// **Attempt budget.** Each verification allows **3 code attempts**. The first
-// two wrong codes return `status: "Failed"` with the attempts remaining and
-// `phone: null`; the third wrong code finalizes the verification as `Declined`
-// with a `VERIFICATION_CODE_ATTEMPTS_EXCEEDED` warning and returns the full
-// phone report.
+// **Attempt budget for delivered codes.** Your application's
+// `verification.max_attempts` setting (3 to 10) sets how many wrong codes a
+// verification takes, and it defaults to 5 on v3. With that default, the first
+// four wrong codes return `Failed` with the attempts remaining and `phone:
+// null`, and the fifth returns `Declined` with the full phone report and a
+// `VERIFICATION_CODE_ATTEMPTS_EXCEEDED` warning. A verification started in a
+// hosted flow uses the workflow's own limit instead.
 //
 // **Outcomes.** `Approved` - correct code and no declining risk. `Declined` -
 // terminal: the code was correct but a declining risk matched (a `DECLINE`
@@ -144,15 +156,16 @@ func (r *PhoneService) AssessRiskBulk(ctx context.Context, params PhoneAssessRis
 // send (visible in the Business Console, queryable via `GET
 // /v3/session/{sessionId}/decision/`) and fires a `status.updated` webhook.
 //
-// **Sandbox.** Sandbox API keys skip all processing: any well-formed code (4-8
-// digits, `123456` included) returns a static `Approved` payload with a
-// simplified flat `phone` object (`status`, `phone_number`, `country_code`,
-// `carrier_name`, `line_type`, `flags`); malformed input still returns `400`.
-// Nothing is persisted.
+// **Sandbox.** Sandbox API keys skip all processing and charge nothing;
+// malformed input still returns `400`. In a sandbox application, use the code
+// `123456` or the fixed code of a sandbox test number. Today the sandbox check
+// also approves any other well-formed code for a number that has no fixed code;
+// that is being tightened to the two codes above, so do not rely on it.
 //
 // **Authentication.** Send your application's API key in the `x-api-key`
-// header. Missing or invalid credentials return `403` (`{"detail": "You do not
-// have permission to perform this action."}`) - this API never returns `401`.
+// header. A missing `x-api-key` header, or a key that is scoped and does not
+// carry write access to `sessions`, returns `403`; a wrong, revoked or expired
+// key returns `401`.
 //
 // **Rate limits.** Shared write budget of 300 requests/min per API key, plus
 // the upstream anti-abuse cap of 4 attempts per number per hour; exceeding
@@ -230,16 +243,41 @@ func (r *PhoneService) RetrieveRiskBulk(ctx context.Context, jobID string, opts 
 // another supported channel, then verify it with [`POST
 // /v3/phone/check/`](/standalone-apis/phone-check).
 //
-// **How send and check pair up.** Verification state is keyed by your
-// application plus the E.164 `phone_number` - the check call does not take
-// `request_id`. Each new send creates a pending verification that lives for **5
-// minutes**: call the check with the same number and the code the user received
-// before the window closes. Calling send again for the same number while a
-// verification is pending re-sends a code for that same verification (`status:
-// "Retry"`, same `request_id`). At most one retry is attached this way (two
-// sends total); a further send starts a fresh verification with a new
-// `request_id`. The 5-minute window is measured from the first send and is not
-// extended by retries.
+// **How send and check pair up.** Send the same E.164 `phone_number` and the
+// code to check the latest pending verification of that number in your
+// application. Add the `verification_id` the send returned to check that
+// specific verification: Didit then checks it and takes its number, so the
+// `phone_number` of the request is not used. `phone_number` stays a required
+// field of the request. An ID that is not one of your application's checkable
+// verifications (unknown, cancelled, or of another application) is ignored, and
+// the check falls back to the latest pending verification of `phone_number`.
+// The verification window defaults to **5 minutes**. Calling send again for the
+// same number while a verification is pending follows `on_conflict`: by default
+// (`replace`) it starts a fresh verification with a new `request_id`; `retry`
+// re-sends a code for the same verification (`status: "Retry"`, same
+// `request_id` and `verification_id`), at most twice (three sends total, the
+// first included, shared with `POST
+// /v3/phone/verifications/{verification_id}/retry/`); `reuse` returns the
+// pending verification without sending; `reject` answers `409
+// verification_in_progress`. For `reuse` and `retry`, if the pending
+// verification does not meet the requested channel or challenge policy, the
+// send starts a new verification. A retry also starts a new verification if the
+// requested channel differs from the last delivery channel. Both `reuse` and
+// `retry` start a new verification if the caller supplies a different code. A
+// same-window retry keeps the expiry from the first send.
+//
+// **Conflict, challenge and code options.** `on_conflict` picks what happens
+// while a code is still valid: `replace` (default) sends a new one, `reuse`
+// returns it without sending, `retry` sends the same code again in the same
+// window, up to two retries (three sends total, the first included), and
+// `reject` answers `409 verification_in_progress`. `force_challenge` restricts
+// the send to `fraud.channels_allowed` and records the challenge as yours, not
+// as fraud. `trusted_user` needs a `fraud_override` signed for this number with
+// your application's webhook signing secret; an unsigned or wrongly signed one
+// returns `403 invalid_fraud_override`. `code` sets your own 4 to 10
+// letter-and-digit code and `code_length` the length of a Didit-made numeric
+// code; `code` wins over `code_length`, and `code_length` wins over
+// `options.code_size`.
 //
 // **Delivery channels.** `options.preferred_channel` selects the channel
 // (`whatsapp` by default; `sms`, `telegram`, `voice`, `rcs`, `viber`, and
@@ -293,14 +331,20 @@ func (r *PhoneService) RetrieveRiskBulk(ctx context.Context, jobID string, opts 
 // /v3/session/{sessionId}/decision/`, the verification appears in the Business
 // Console, and `status.updated` webhooks fire as it progresses.
 //
-// **Sandbox.** Sandbox API keys skip delivery and billing: after request
-// validation (malformed input still returns `400`), the endpoint returns a
-// static `Success` payload with a random `request_id`; no message is sent and
-// nothing is persisted. Use code `123456` on the sandbox check.
+// **Sandbox.** A sandbox application's send takes the same path as a live one:
+// the same validation, `on_conflict` handling, channel policy and refusals (an
+// unsupported destination included) and the same answer, with a
+// `verification_id` you can read, cancel or approve. Only the delivery is
+// simulated: no message is sent and nothing is charged. In a sandbox
+// application, use the code `123456` or the fixed code of a sandbox test
+// number. Today the sandbox check also approves any other well-formed code for
+// a number that has no fixed code; that is being tightened to the two codes
+// above, so do not rely on it.
 //
 // **Authentication.** Send your application's API key in the `x-api-key`
-// header. Missing or invalid credentials return `403` (`{"detail": "You do not
-// have permission to perform this action."}`) - this API never returns `401`.
+// header. A missing `x-api-key` header, or a key that is scoped and does not
+// carry write access to `sessions`, returns `403`; a wrong, revoked or expired
+// key returns `401`.
 //
 // **Rate limits.** Shared write budget of 300 requests/min per API key across
 // all POST/PATCH/DELETE endpoints, plus an anti-abuse cap of 4 send attempts
@@ -310,6 +354,36 @@ func (r *PhoneService) RetrieveRiskBulk(ctx context.Context, jobID string, opts 
 func (r *PhoneService) SendCode(ctx context.Context, params PhoneSendCodeParams, opts ...option.RequestOption) (*PhoneVerificationSendResponse, error) {
 	res := new(PhoneVerificationSendResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/send/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneCountriesService holds the phone countries operations. Use it through
+// Client.Phone.Countries.
+type PhoneCountriesService struct {
+	client *Client
+}
+
+// Update: Switch countries and routes in bulk.
+//
+// Update channel settings for multiple countries, the SMS route (`Route A` or
+// `Route B`) and the routing objective (`price`, `balanced` or `conversion`).
+// The `sms`, `voice`, `whatsapp` and `silent` switches apply to delivery for
+// the whole country. Didit checks each `closed_channels` entry on the initial
+// send and every fallback hop. The entry blocks its channel when
+// `signals.device_platform` matches a listed platform (`web`, `ios`, or
+// `android`). Both `ipados` and `tvos` match `ios`. Omit `platforms` or pass
+// `[]` to block the channel for every send. Listing all three platforms also
+// blocks the channel for every send, including a send that omits
+// `signals.device_platform`. A list of one or two platforms applies only when
+// the send matches one of them. A restricted API key needs write access to
+// `applications`.
+//
+//	PATCH /v3/phone/countries/
+func (r *PhoneCountriesService) Update(ctx context.Context, params PhoneCountriesUpdateRequest, opts ...option.RequestOption) (*PhoneCountriesUpdateResponse, error) {
+	res := new(PhoneCountriesUpdateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/phone/countries/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -448,6 +522,46 @@ func (r *PhoneFactorsService) Retrieve(ctx context.Context, factorID string, opt
 func (r *PhoneFactorsService) Update(ctx context.Context, factorID string, params PhoneFactorUpdateRequest, opts ...option.RequestOption) (*PhoneFactor, error) {
 	res := new(PhoneFactor)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/phone/factors/{factor_id}/", pathParams: []string{"factor_id", factorID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneFeedbackService holds the phone feedback operations. Use it through
+// Client.Phone.Feedback.
+type PhoneFeedbackService struct {
+	client *Client
+}
+
+// Create: Report fraud, a conversion or an abuse event.
+//
+// Report fraud, a legitimate user, a conversion or an abuse event. Give the
+// `verification_id`, the `phone_number` or the `email` it concerns. An outcome
+// that names a verification or a phone number counts toward that number's fraud
+// rules from its next send; `confidence` decides how much it weighs. An outcome
+// that names only an `email` is recorded, but does not change any score.
+//
+//	POST /v3/phone/feedback/
+func (r *PhoneFeedbackService) Create(ctx context.Context, params PhoneFeedbackRequest, opts ...option.RequestOption) (*PhoneFeedbackResponse, error) {
+	res := new(PhoneFeedbackResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/feedback/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// CreateBatch: Report up to 1,000 outcomes at once.
+//
+// Report up to 1,000 outcomes at once. The answer is `207 Multi-Status`: one
+// result per item, in order, with `accepted` or `rejected` and why. Recorded
+// items are counted in `accepted`. An item that names a verification or a phone
+// number is used by that number's fraud rules from its next send; an
+// `email`-only item changes no score.
+//
+//	POST /v3/phone/feedback/batch/
+func (r *PhoneFeedbackService) CreateBatch(ctx context.Context, params PhoneFeedbackBatchRequest, opts ...option.RequestOption) (*PhoneFeedbackBatchResponse, error) {
+	res := new(PhoneFeedbackBatchResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/feedback/batch/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -773,6 +887,35 @@ func (r *PhoneListsService) ListEntriesAutoPaging(ctx context.Context, listID st
 func (r *PhoneListsService) Remove(ctx context.Context, listID string, entryID string, opts ...option.RequestOption) error {
 	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/phone/lists/{list_id}/entries/{entry_id}/", pathParams: []string{"list_id", listID, "entry_id", entryID}}, nil, opts)
 	return err
+}
+
+// PhoneLookupsService holds the phone lookups operations. Use it through
+// Client.Phone.Lookups.
+type PhoneLookupsService struct {
+	client *Client
+}
+
+// List: Lookup history.
+//
+// List your application's [Phone risk lookups](/standalone-apis/phone-risk),
+// newest first. Each result includes the full phone number, lookup status and
+// risk score when available. Filter by an exact number or creation time. Use
+// `limit` and `offset` to page through the results: `next` and `previous` are
+// offsets, not URLs, so send `next` as `offset` to read the next page.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/phone/lookups/
+func (r *PhoneLookupsService) List(ctx context.Context, params PhoneLookupsListParams, opts ...option.RequestOption) (*Page[PhoneLookupSummary], error) {
+	return getPage[PhoneLookupSummary](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/lookups/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *PhoneLookupsService) ListAutoPaging(ctx context.Context, params PhoneLookupsListParams, opts ...option.RequestOption) *PageIterator[PhoneLookupSummary] {
+	return newPageIterator(ctx, func() (*Page[PhoneLookupSummary], error) {
+		return r.List(ctx, params, opts...)
+	})
 }
 
 // PhoneNetworkService holds the phone network operations. Use it through
@@ -1160,6 +1303,47 @@ func (r *PhoneSDKKeysService) Rotate(ctx context.Context, keyID string, params P
 	return res, nil
 }
 
+// PhoneSettingsService holds the phone settings operations. Use it through
+// Client.Phone.Settings.
+type PhoneSettingsService struct {
+	client *Client
+}
+
+// Retrieve: Retrieve the Phone settings.
+//
+// Read your application's verification settings, message retention period and
+// saved data region preference.
+//
+//	GET /v3/phone/settings/
+func (r *PhoneSettingsService) Retrieve(ctx context.Context, opts ...option.RequestOption) (*PhoneSettings, error) {
+	res := new(PhoneSettings)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/settings/"}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Update: Change the Phone settings.
+//
+// Update verification options, the message retention period
+// (`messages.retention_days`) and the data region preference (`data_region`).
+// Send only what you want to change: each property you send under
+// `verification` replaces its saved value, and `cancel_on_resend` is accepted
+// here too. A value out of range answers `400 invalid_setting` (`code_length` 4
+// to 10, `valid_minutes` 1 to 15, `max_attempts` 3 to 10, `resend_limit` 1 to
+// 10, `routing` `fixed` or `conversion`, `channel_order` a list of Phone
+// channels, `messages.retention_days` 7, 30, 90 or 365). A restricted API key
+// needs write access to `applications`.
+//
+//	PATCH /v3/phone/settings/
+func (r *PhoneSettingsService) Update(ctx context.Context, params PhoneSettingsUpdate, opts ...option.RequestOption) (*PhoneSettingsUpdateResponse, error) {
+	res := new(PhoneSettingsUpdateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/phone/settings/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // PhoneSilentService holds the phone silent operations. Use it through
 // Client.Phone.Silent.
 type PhoneSilentService struct {
@@ -1293,6 +1477,131 @@ func (r *PhoneSilentRegistrationsService) Create(ctx context.Context, params Pho
 func (r *PhoneSilentRegistrationsService) Retrieve(ctx context.Context, registrationID string, opts ...option.RequestOption) (*PhoneSilentRegistration, error) {
 	res := new(PhoneSilentRegistration)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/silent/registrations/{registration_id}/", pathParams: []string{"registration_id", registrationID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneVerificationsService holds the phone verifications operations. Use it
+// through Client.Phone.Verifications.
+type PhoneVerificationsService struct {
+	client *Client
+}
+
+// Approve: Mark a verification verified.
+//
+// Mark a verification verified after your own code check. It counts in
+// Verifications, Analytics and the events like any other verification, and
+// `verified_by` is `api`. `reason` defaults to `own_code_check`. A verification
+// that already ended returns `409 already_final`. Only verifications your
+// application started with `POST /v3/phone/send/` can be changed here: a Phone
+// step of a hosted verification session is read-only and returns `404
+// not_found`.
+//
+//	POST /v3/phone/verifications/{verification_id}/approve/
+func (r *PhoneVerificationsService) Approve(ctx context.Context, verificationID string, params PhoneVerificationApproveRequest, opts ...option.RequestOption) (*PhoneVerificationApproveResponse, error) {
+	res := new(PhoneVerificationApproveResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/verifications/{verification_id}/approve/", pathParams: []string{"verification_id", verificationID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Cancel: Cancel a verification.
+//
+// Cancel a verification. The code stops working and unsent steps are not
+// charged. If the code window elapsed but the verification has yet to be
+// finalized, cancellation returns `200` with status `cancelled` even if the
+// verification history shows `expired`. A verification already finalized as
+// verified, blocked, cancelled or expired returns `409 already_final`. Only
+// verifications your application started with `POST /v3/phone/send/` can be
+// changed here: a Phone step of a hosted verification session is read-only and
+// returns `404 not_found`.
+//
+//	POST /v3/phone/verifications/{verification_id}/cancel/
+func (r *PhoneVerificationsService) Cancel(ctx context.Context, verificationID string, opts ...option.RequestOption) (*PhoneVerificationCancelResponse, error) {
+	res := new(PhoneVerificationCancelResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/verifications/{verification_id}/cancel/", pathParams: []string{"verification_id", verificationID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// List: List or export verifications.
+//
+// List your application's verifications, newest first. Filter by status,
+// channel, phone number, reference, tag (`key:value`) or creation time. Use
+// `limit` and `offset` to page through JSON results: `next` and `previous` are
+// offsets, not URLs, so send `next` as `offset` to read the next page. Use
+// `format=csv` to export all matching verifications. The `template` query
+// parameter does not filter these records. Verification history does not return
+// a `template_used` field.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/phone/verifications/
+func (r *PhoneVerificationsService) List(ctx context.Context, params PhoneVerificationsListParams, opts ...option.RequestOption) (*Page[PhoneVerificationDetail], error) {
+	return getPage[PhoneVerificationDetail](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/phone/verifications/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *PhoneVerificationsService) ListAutoPaging(ctx context.Context, params PhoneVerificationsListParams, opts ...option.RequestOption) *PageIterator[PhoneVerificationDetail] {
+	return newPageIterator(ctx, func() (*Page[PhoneVerificationDetail], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Next: Move to the next channel now.
+//
+// Move to the next channel now, without waiting for the current step's timeout,
+// or jump to `channel`. A successful send keeps the same verification ID and
+// expiry, but the new channel may deliver a different code than the earlier
+// sends; only [a same-window retry](/standalone-apis/phone-verifications-retry)
+// promises the same code. When every channel in the order was tried, the
+// endpoint returns `409 no_next_channel`; a verification that already ended
+// returns `409 already_final`. Only verifications your application started with
+// `POST /v3/phone/send/` can be changed here: a Phone step of a hosted
+// verification session is read-only and returns `404 not_found`.
+//
+//	POST /v3/phone/verifications/{verification_id}/next/
+func (r *PhoneVerificationsService) Next(ctx context.Context, verificationID string, params PhoneVerificationNextRequest, opts ...option.RequestOption) (*PhoneVerificationNextResponse, error) {
+	res := new(PhoneVerificationNextResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/verifications/{verification_id}/next/", pathParams: []string{"verification_id", verificationID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Retrieve: One verification with every attempt.
+//
+// Retrieve one verification and its delivery attempts in order. Each attempt
+// includes the channel, status, network, route, delivery timestamps and price.
+//
+//	GET /v3/phone/verifications/{verification_id}/
+func (r *PhoneVerificationsService) Retrieve(ctx context.Context, verificationID string, opts ...option.RequestOption) (*PhoneVerificationDetail, error) {
+	res := new(PhoneVerificationDetail)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/verifications/{verification_id}/", pathParams: []string{"verification_id", verificationID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Retry: Send the code again in the same window.
+//
+// Resend the same code on its last delivery channel. The verification ID and
+// expiry stay the same. Wait at least 30 seconds after the last send. A
+// verification allows up to three sends, including the first. To change
+// channels, use [the next-channel
+// endpoint](/standalone-apis/phone-verifications-next). Only verifications your
+// application started with `POST /v3/phone/send/` can be changed here: a Phone
+// step of a hosted verification session is read-only and returns `404
+// not_found`.
+//
+//	POST /v3/phone/verifications/{verification_id}/retry/
+func (r *PhoneVerificationsService) Retry(ctx context.Context, verificationID string, params PhoneVerificationRetryRequest, opts ...option.RequestOption) (*PhoneVerificationRetryResponse, error) {
+	res := new(PhoneVerificationRetryResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/verifications/{verification_id}/retry/", pathParams: []string{"verification_id", verificationID}, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -1609,10 +1918,9 @@ type PhoneCheckCodeParams struct {
 	// what links the check to the send. Required.
 	PhoneNumber string `json:"phone_number"`
 
-	// The OTP the end user received. Must be 4-8 numeric digits - anything else
-	// returns `400` without consuming an attempt. A well-formed but wrong code
-	// returns `200` with `status: "Failed"` and consumes one of the 3 attempts.
-	// Required.
+	// For a delivered code, enter 4 to 10 letters or digits. Letters match in
+	// either case. A wrong delivered code consumes one attempt and returns `Failed`
+	// while attempts remain or `Declined` on the last attempt. Required.
 	Code string `json:"code"`
 
 	// What to do when the same number was already used by a different user
@@ -1681,10 +1989,13 @@ type PhoneCheckCodeParams struct {
 	// `code` `400 code_required`.
 	FactorID Opt[string] `json:"factor_id"`
 
-	// Check the code Didit sent to a registration test number: send the
-	// `verification_id` that `POST
-	// /v3/phone/network/registrations/{registration_id}/test-numbers/` returned
-	// with the `code`. The number itself still goes in `phone_number`.
+	// Check this verification instead of the number's latest one: the
+	// `verification_id` a send returned, or the one `POST
+	// /v3/phone/network/registrations/{registration_id}/test-numbers/` returned for
+	// a registration test number. Didit takes the number from that verification, so
+	// the request's `phone_number` is not used, but it stays a required field. An
+	// ID that is not one of your application's checkable verifications is ignored
+	// and the check uses the latest pending verification of `phone_number`.
 	VerificationID Opt[string] `json:"verification_id"`
 }
 
@@ -1823,7 +2134,8 @@ type PhoneVerificationCheckResponse struct {
 	RequestID string `json:"request_id"`
 
 	// `Approved` - correct code, no declining risk. `Declined` - terminal: a
-	// declining risk matched or the attempt budget (3) was exhausted. `Failed` -
+	// declining risk matched or the attempt budget (your
+	// `verification.max_attempts` setting, 5 by default) was exhausted. `Failed` -
 	// wrong code, attempts remaining. `Expired or Not Found` - no pending
 	// verification for this number in the last 5 minutes. For a TOTP factor check
 	// (a request that names `factor_id`) the status is `verified` (the code
@@ -1871,10 +2183,11 @@ func (r *PhoneVerificationCheckResponse) UnmarshalJSON(data []byte) error {
 
 // PhoneVerificationCheckResponseStatus: `Approved` - correct code, no declining
 // risk. `Declined` - terminal: a declining risk matched or the attempt budget
-// (3) was exhausted. `Failed` - wrong code, attempts remaining. `Expired or Not
-// Found` - no pending verification for this number in the last 5 minutes. For a
-// TOTP factor check (a request that names `factor_id`) the status is `verified`
-// (the code matched) or `failed`.
+// (your `verification.max_attempts` setting, 5 by default) was exhausted.
+// `Failed` - wrong code, attempts remaining. `Expired or Not Found` - no
+// pending verification for this number in the last 5 minutes. For a TOTP factor
+// check (a request that names `factor_id`) the status is `verified` (the code
+// matched) or `failed`.
 //
 // PhoneVerificationCheckResponseStatus is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -2157,6 +2470,49 @@ type PhoneSendCodeParams struct {
 	// the send response, the matching check response, webhooks, and the Business
 	// Console.
 	Metadata Opt[map[string]any] `json:"metadata"`
+
+	// Supply 4 to 10 letters and digits, such as K7P2QX. Letters match in either
+	// case. Your code takes precedence over `code_length` and `options.code_size`.
+	// Choose a channel that supports caller-supplied codes, such as WhatsApp. If
+	// the allowed channels cannot carry your code, the send returns `400
+	// custom_code_unavailable`.
+	Code Opt[string] `json:"code"`
+
+	// 4 to 10 digits, for this request. Wins over `options.code_size` when both are
+	// sent; ignored when `code` is sent.
+	CodeLength Opt[int64] `json:"code_length"`
+
+	// A code is still valid: `replace` (default) sends a new one, `reuse` returns
+	// it without sending, `retry` sends the same code again in the same window (up
+	// to two retries, three sends total), `reject` answers `409
+	// verification_in_progress`. For `reuse` and `retry`, if the pending
+	// verification does not meet the requested channel or challenge policy, the
+	// send starts a new verification. A retry also starts a new verification if the
+	// requested channel differs from the last delivery channel. Both `reuse` and
+	// `retry` start a new verification if the caller supplies a different code.
+	OnConflict Opt[PhoneSendCodeParamsOnConflict] `json:"on_conflict"`
+
+	// Your server vouches for this user: this one request goes past your fraud
+	// rules (velocity limits, risk score, network blocks, policies). Needs a
+	// `fraud_override` signed for it; a block list still stops the number.
+	TrustedUser Opt[bool] `json:"trusted_user"`
+
+	// Your server asks for a challenge on this request: Didit uses only
+	// fraud-resistant channels (`fraud.channels_allowed`) and records it as
+	// challenged by you; it is not reported or scored as fraud.
+	ForceChallenge Opt[bool] `json:"force_challenge"`
+
+	// A token signed for this phone number and expiry, in the form
+	// `v1.<expires_at>.<signature>`. `<expires_at>` is the Unix time in seconds, at
+	// most 5 minutes ahead. `<signature>` is the base64url encoding, without
+	// padding, of the HMAC-SHA256 of the UTF-8 string
+	// `v1\n<phone_number>\n<expires_at>` (the number in E.164 format, with a
+	// newline between each value), keyed with your application's webhook signing
+	// secret. It lets the request past a temporary network block, or with
+	// `trusted_user` past your fraud rules. An unsigned token, a past expiry, a
+	// wrong signature or one signed for another number is refused with `403
+	// invalid_fraud_override`.
+	FraudOverride Opt[string] `json:"fraud_override"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -2278,6 +2634,28 @@ const (
 	PhoneSendCodeParamsSignalsDevicePlatformWeb     PhoneSendCodeParamsSignalsDevicePlatform = "web"
 )
 
+// PhoneSendCodeParamsOnConflict: A code is still valid: `replace` (default)
+// sends a new one, `reuse` returns it without sending, `retry` sends the same
+// code again in the same window (up to two retries, three sends total),
+// `reject` answers `409 verification_in_progress`. For `reuse` and `retry`, if
+// the pending verification does not meet the requested channel or challenge
+// policy, the send starts a new verification. A retry also starts a new
+// verification if the requested channel differs from the last delivery channel.
+// Both `reuse` and `retry` start a new verification if the caller supplies a
+// different code.
+//
+// PhoneSendCodeParamsOnConflict is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneSendCodeParamsOnConflict string
+
+// Known values of PhoneSendCodeParamsOnConflict.
+const (
+	PhoneSendCodeParamsOnConflictReplace PhoneSendCodeParamsOnConflict = "replace"
+	PhoneSendCodeParamsOnConflictReuse   PhoneSendCodeParamsOnConflict = "reuse"
+	PhoneSendCodeParamsOnConflictRetry   PhoneSendCodeParamsOnConflict = "retry"
+	PhoneSendCodeParamsOnConflictReject  PhoneSendCodeParamsOnConflict = "reject"
+)
+
 // PhoneVerificationSendResponse is a response object.
 type PhoneVerificationSendResponse struct {
 	// Session id of the verification. A `Retry` send returns the same `request_id`
@@ -2309,6 +2687,19 @@ type PhoneVerificationSendResponse struct {
 	// Echo of the `metadata` stored on the session (from the first send).
 	Metadata map[string]any `json:"metadata"`
 
+	// UUID of the phone verification. Pass this value to check the code, retrieve
+	// the record, cancel, change channels, approve or retry. A same-window retry
+	// keeps this UUID. Use `request_id` to retrieve the session decision.
+	VerificationID string `json:"verification_id"`
+
+	// Seconds the code stays valid. A new send returns the full configured window;
+	// a same-window retry or a `reuse` of a pending verification returns the
+	// seconds left, because a retry keeps the expiry of the first send.
+	ExpiresIn int64 `json:"expires_in"`
+
+	// The fraud decision for this send.
+	Fraud PhoneVerificationSendResponseFraud `json:"fraud"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -2334,6 +2725,241 @@ const (
 	PhoneVerificationSendResponseStatusRetry   PhoneVerificationSendResponseStatus = "Retry"
 	PhoneVerificationSendResponseStatusBlocked PhoneVerificationSendResponseStatus = "Blocked"
 )
+
+// PhoneVerificationSendResponseFraud: The fraud decision for this send.
+type PhoneVerificationSendResponseFraud struct {
+	// allow, or challenge: the verification continues on fraud-resistant channels
+	// only.
+	Action PhoneVerificationSendResponseFraudAction `json:"action"`
+
+	// caller (your force_challenge) or policy (a fraud rule), when challenged.
+	ChallengeSource PhoneVerificationSendResponseFraudChallengeSource `json:"challenge_source"`
+
+	// The channels it may use, when challenged.
+	ChannelsAllowed []PhoneChannel `json:"channels_allowed"`
+
+	// trusted_user when this request went past your fraud rules as a trusted user;
+	// null otherwise.
+	Exception PhoneVerificationSendResponseFraudException `json:"exception"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVerificationSendResponseFraud leniently.
+func (r *PhoneVerificationSendResponseFraud) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVerificationSendResponseFraudAction: allow, or challenge: the
+// verification continues on fraud-resistant channels only.
+//
+// PhoneVerificationSendResponseFraudAction is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneVerificationSendResponseFraudAction string
+
+// Known values of PhoneVerificationSendResponseFraudAction.
+const (
+	PhoneVerificationSendResponseFraudActionAllow     PhoneVerificationSendResponseFraudAction = "allow"
+	PhoneVerificationSendResponseFraudActionChallenge PhoneVerificationSendResponseFraudAction = "challenge"
+)
+
+// PhoneVerificationSendResponseFraudChallengeSource: caller (your
+// force_challenge) or policy (a fraud rule), when challenged.
+//
+// PhoneVerificationSendResponseFraudChallengeSource is a string with known
+// values below. The set is open: other values may appear and never cause an
+// error.
+type PhoneVerificationSendResponseFraudChallengeSource string
+
+// Known values of PhoneVerificationSendResponseFraudChallengeSource.
+const (
+	PhoneVerificationSendResponseFraudChallengeSourceCaller PhoneVerificationSendResponseFraudChallengeSource = "caller"
+	PhoneVerificationSendResponseFraudChallengeSourcePolicy PhoneVerificationSendResponseFraudChallengeSource = "policy"
+)
+
+// PhoneChannel: A verification channel.
+//
+// PhoneChannel is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type PhoneChannel string
+
+// Known values of PhoneChannel.
+const (
+	PhoneChannelSilent   PhoneChannel = "silent"
+	PhoneChannelSMS      PhoneChannel = "sms"
+	PhoneChannelWhatsapp PhoneChannel = "whatsapp"
+	PhoneChannelTelegram PhoneChannel = "telegram"
+	PhoneChannelVoice    PhoneChannel = "voice"
+	PhoneChannelRcs      PhoneChannel = "rcs"
+	PhoneChannelViber    PhoneChannel = "viber"
+	PhoneChannelZalo     PhoneChannel = "zalo"
+	PhoneChannelEmail    PhoneChannel = "email"
+	PhoneChannelPush     PhoneChannel = "push"
+	PhoneChannelTotp     PhoneChannel = "totp"
+	PhoneChannelPasskey  PhoneChannel = "passkey"
+)
+
+// PhoneVerificationSendResponseFraudException: trusted_user when this request
+// went past your fraud rules as a trusted user; null otherwise.
+//
+// PhoneVerificationSendResponseFraudException is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneVerificationSendResponseFraudException string
+
+// Known values of PhoneVerificationSendResponseFraudException.
+const (
+	PhoneVerificationSendResponseFraudExceptionTrustedUser PhoneVerificationSendResponseFraudException = "trusted_user"
+)
+
+// PhoneCountriesUpdateRequest: Countries and routes to switch in bulk.
+type PhoneCountriesUpdateRequest struct {
+	// The countries to change. Required.
+	Countries []PhoneCountryUpdate `json:"countries"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneCountriesUpdateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneCountryUpdate is a request object.
+type PhoneCountryUpdate struct {
+	// ISO country code. Required.
+	Country string `json:"country"`
+
+	// SMS on or off for the country.
+	SMS Opt[bool] `json:"sms"`
+
+	// Voice on or off.
+	Voice Opt[bool] `json:"voice"`
+
+	// WhatsApp on or off.
+	Whatsapp Opt[bool] `json:"whatsapp"`
+
+	// Silent verification on or off.
+	Silent Opt[bool] `json:"silent"`
+
+	// Route A or Route B for SMS.
+	Route Opt[PhoneCountryUpdateRoute] `json:"route"`
+
+	// What routing optimises in the country: price, balanced (default) or
+	// conversion.
+	Objective Opt[PhoneCountryUpdateObjective] `json:"objective"`
+
+	// Didit checks each `closed_channels` entry on the initial send and every
+	// fallback hop. The entry blocks its channel when `signals.device_platform`
+	// matches a listed platform (`web`, `ios`, or `android`). Both `ipados` and
+	// `tvos` match `ios`. Omit `platforms` or pass `[]` to block the channel for
+	// every send. Listing all three platforms also blocks the channel for every
+	// send, including a send that omits `signals.device_platform`. A list of one or
+	// two platforms applies only when the send matches one of them. Send an empty
+	// `closed_channels` list to remove the country's channel closures.
+	ClosedChannels Opt[[]PhoneCountryClosedChannel] `json:"closed_channels"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneCountryUpdate) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneCountryUpdateRoute: Route A or Route B for SMS.
+//
+// PhoneCountryUpdateRoute is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneCountryUpdateRoute string
+
+// Known values of PhoneCountryUpdateRoute.
+const (
+	PhoneCountryUpdateRouteRouteA PhoneCountryUpdateRoute = "Route A"
+	PhoneCountryUpdateRouteRouteB PhoneCountryUpdateRoute = "Route B"
+)
+
+// PhoneCountryUpdateObjective: What routing optimises in the country: price,
+// balanced (default) or conversion.
+//
+// PhoneCountryUpdateObjective is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneCountryUpdateObjective string
+
+// Known values of PhoneCountryUpdateObjective.
+const (
+	PhoneCountryUpdateObjectivePrice      PhoneCountryUpdateObjective = "price"
+	PhoneCountryUpdateObjectiveBalanced   PhoneCountryUpdateObjective = "balanced"
+	PhoneCountryUpdateObjectiveConversion PhoneCountryUpdateObjective = "conversion"
+)
+
+// PhoneCountryClosedChannel is a request object.
+type PhoneCountryClosedChannel struct {
+	// Channel to block for this country. Required.
+	Channel PhoneCountryClosedChannelChannel `json:"channel"`
+
+	// Didit checks each `closed_channels` entry on the initial send and every
+	// fallback hop. The entry blocks its channel when `signals.device_platform`
+	// matches a listed platform (`web`, `ios`, or `android`). Both `ipados` and
+	// `tvos` match `ios`. Omit `platforms` or pass `[]` to block the channel for
+	// every send. Listing all three platforms also blocks the channel for every
+	// send, including a send that omits `signals.device_platform`. A list of one or
+	// two platforms applies only when the send matches one of them.
+	Platforms Opt[[]PhoneCountryClosedChannelPlatforms] `json:"platforms"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneCountryClosedChannel) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneCountryClosedChannelChannel: Channel to block for this country.
+//
+// PhoneCountryClosedChannelChannel is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneCountryClosedChannelChannel string
+
+// Known values of PhoneCountryClosedChannelChannel.
+const (
+	PhoneCountryClosedChannelChannelSilent   PhoneCountryClosedChannelChannel = "silent"
+	PhoneCountryClosedChannelChannelSMS      PhoneCountryClosedChannelChannel = "sms"
+	PhoneCountryClosedChannelChannelWhatsapp PhoneCountryClosedChannelChannel = "whatsapp"
+	PhoneCountryClosedChannelChannelTelegram PhoneCountryClosedChannelChannel = "telegram"
+	PhoneCountryClosedChannelChannelVoice    PhoneCountryClosedChannelChannel = "voice"
+	PhoneCountryClosedChannelChannelRcs      PhoneCountryClosedChannelChannel = "rcs"
+	PhoneCountryClosedChannelChannelViber    PhoneCountryClosedChannelChannel = "viber"
+	PhoneCountryClosedChannelChannelZalo     PhoneCountryClosedChannelChannel = "zalo"
+	PhoneCountryClosedChannelChannelEmail    PhoneCountryClosedChannelChannel = "email"
+	PhoneCountryClosedChannelChannelPush     PhoneCountryClosedChannelChannel = "push"
+	PhoneCountryClosedChannelChannelTotp     PhoneCountryClosedChannelChannel = "totp"
+	PhoneCountryClosedChannelChannelPasskey  PhoneCountryClosedChannelChannel = "passkey"
+)
+
+// PhoneCountryClosedChannelPlatforms: Device platform.
+//
+// PhoneCountryClosedChannelPlatforms is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneCountryClosedChannelPlatforms string
+
+// Known values of PhoneCountryClosedChannelPlatforms.
+const (
+	PhoneCountryClosedChannelPlatformsWeb     PhoneCountryClosedChannelPlatforms = "web"
+	PhoneCountryClosedChannelPlatformsIos     PhoneCountryClosedChannelPlatforms = "ios"
+	PhoneCountryClosedChannelPlatformsAndroid PhoneCountryClosedChannelPlatforms = "android"
+)
+
+// PhoneCountriesUpdateResponse: How many country entries the request carried.
+type PhoneCountriesUpdateResponse struct {
+	// How many country entries the request carried, whether or not an entry changed
+	// a saved value.
+	Updated int64 `json:"updated"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneCountriesUpdateResponse leniently.
+func (r *PhoneCountriesUpdateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // PhoneFactorCreateRequest is a request object.
 type PhoneFactorCreateRequest struct {
@@ -2583,6 +3209,211 @@ type PhoneFactorUpdateRequestStatus string
 const (
 	PhoneFactorUpdateRequestStatusDisabled PhoneFactorUpdateRequestStatus = "disabled"
 	PhoneFactorUpdateRequestStatusVerified PhoneFactorUpdateRequestStatus = "verified"
+)
+
+// PhoneFeedbackRequest: One outcome to report. Send at least one of
+// `verification_id`, `phone_number` or `email`: with none of them the answer is
+// `target_required`.
+type PhoneFeedbackRequest struct {
+	// The verification, by the `verification_id` the send returned.
+	VerificationID Opt[string] `json:"verification_id"`
+
+	// Or the number.
+	PhoneNumber Opt[string] `json:"phone_number"`
+
+	// Or the email address it concerns.
+	Email Opt[string] `json:"email"`
+
+	// fraud, legitimate, converted, or abuse with event naming what happened.
+	// Required.
+	Outcome PhoneFeedbackRequestOutcome `json:"outcome"`
+
+	// Your own label, for example chargeback, account_banned or promo_abuse.
+	Event Opt[string] `json:"event"`
+
+	// low, medium or high: how sure you are; high weighs most in the scoring.
+	Confidence Opt[PhoneFeedbackRequestConfidence] `json:"confidence"`
+
+	// When it happened, ISO 8601.
+	OccurredAt Opt[time.Time] `json:"occurred_at"`
+
+	// Up to 500 characters.
+	Note Opt[string] `json:"note"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFeedbackRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFeedbackRequestOutcome: fraud, legitimate, converted, or abuse with
+// event naming what happened.
+//
+// PhoneFeedbackRequestOutcome is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFeedbackRequestOutcome string
+
+// Known values of PhoneFeedbackRequestOutcome.
+const (
+	PhoneFeedbackRequestOutcomeFraud      PhoneFeedbackRequestOutcome = "fraud"
+	PhoneFeedbackRequestOutcomeLegitimate PhoneFeedbackRequestOutcome = "legitimate"
+	PhoneFeedbackRequestOutcomeConverted  PhoneFeedbackRequestOutcome = "converted"
+	PhoneFeedbackRequestOutcomeAbuse      PhoneFeedbackRequestOutcome = "abuse"
+)
+
+// PhoneFeedbackRequestConfidence: low, medium or high: how sure you are; high
+// weighs most in the scoring.
+//
+// PhoneFeedbackRequestConfidence is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneFeedbackRequestConfidence string
+
+// Known values of PhoneFeedbackRequestConfidence.
+const (
+	PhoneFeedbackRequestConfidenceLow    PhoneFeedbackRequestConfidence = "low"
+	PhoneFeedbackRequestConfidenceMedium PhoneFeedbackRequestConfidence = "medium"
+	PhoneFeedbackRequestConfidenceHigh   PhoneFeedbackRequestConfidence = "high"
+)
+
+// PhoneFeedbackResponse is a response object.
+type PhoneFeedbackResponse struct {
+	// `true` when the outcome was recorded. One that names a verification or a
+	// phone number is used by that number's fraud rules from its next send.
+	Received bool `json:"received"`
+
+	// How much it counts toward the number's future sends, from the confidence. An
+	// outcome that names only an `email` does not change any score.
+	Weight float64 `json:"weight"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFeedbackResponse leniently.
+func (r *PhoneFeedbackResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFeedbackBatchRequest: Outcomes to report.
+type PhoneFeedbackBatchRequest struct {
+	// Up to 1,000 outcomes. Required.
+	Items []PhoneFeedbackBatchItem `json:"items"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFeedbackBatchRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFeedbackBatchItem: Send at least one of `verification_id`,
+// `phone_number` or `email`: with none of them the answer is `target_required`.
+type PhoneFeedbackBatchItem struct {
+	// The verification, by the `verification_id` the send returned.
+	VerificationID Opt[string] `json:"verification_id"`
+
+	// Or the number.
+	PhoneNumber Opt[string] `json:"phone_number"`
+
+	// Or the email address.
+	Email Opt[string] `json:"email"`
+
+	// fraud, legitimate, converted or abuse. Required.
+	Outcome PhoneFeedbackBatchItemOutcome `json:"outcome"`
+
+	// Your own label, for abuse.
+	Event Opt[string] `json:"event"`
+
+	// low, medium or high.
+	Confidence Opt[PhoneFeedbackBatchItemConfidence] `json:"confidence"`
+
+	// When it happened, ISO 8601.
+	OccurredAt Opt[time.Time] `json:"occurred_at"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneFeedbackBatchItem) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneFeedbackBatchItemOutcome: fraud, legitimate, converted or abuse.
+//
+// PhoneFeedbackBatchItemOutcome is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneFeedbackBatchItemOutcome string
+
+// Known values of PhoneFeedbackBatchItemOutcome.
+const (
+	PhoneFeedbackBatchItemOutcomeFraud      PhoneFeedbackBatchItemOutcome = "fraud"
+	PhoneFeedbackBatchItemOutcomeLegitimate PhoneFeedbackBatchItemOutcome = "legitimate"
+	PhoneFeedbackBatchItemOutcomeConverted  PhoneFeedbackBatchItemOutcome = "converted"
+	PhoneFeedbackBatchItemOutcomeAbuse      PhoneFeedbackBatchItemOutcome = "abuse"
+)
+
+// PhoneFeedbackBatchItemConfidence: low, medium or high.
+//
+// PhoneFeedbackBatchItemConfidence is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneFeedbackBatchItemConfidence string
+
+// Known values of PhoneFeedbackBatchItemConfidence.
+const (
+	PhoneFeedbackBatchItemConfidenceLow    PhoneFeedbackBatchItemConfidence = "low"
+	PhoneFeedbackBatchItemConfidenceMedium PhoneFeedbackBatchItemConfidence = "medium"
+	PhoneFeedbackBatchItemConfidenceHigh   PhoneFeedbackBatchItemConfidence = "high"
+)
+
+// PhoneFeedbackBatchResponse is a response object.
+type PhoneFeedbackBatchResponse struct {
+	// Items recorded. Those that name a verification or a phone number are used by
+	// that number's fraud rules from its next send; an `email`-only item changes no
+	// score.
+	Accepted int64 `json:"accepted"`
+
+	// One result per item, in the same order.
+	Results []PhoneFeedbackBatchResponseResults `json:"results"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFeedbackBatchResponse leniently.
+func (r *PhoneFeedbackBatchResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFeedbackBatchResponseResults is a response object.
+type PhoneFeedbackBatchResponseResults struct {
+	// The item's place in items.
+	Index int64 `json:"index"`
+
+	// accepted or rejected.
+	Status PhoneFeedbackBatchResponseResultsStatus `json:"status"`
+
+	// Why it was rejected.
+	Error string `json:"error"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneFeedbackBatchResponseResults leniently.
+func (r *PhoneFeedbackBatchResponseResults) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneFeedbackBatchResponseResultsStatus: accepted or rejected.
+//
+// PhoneFeedbackBatchResponseResultsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneFeedbackBatchResponseResultsStatus string
+
+// Known values of PhoneFeedbackBatchResponseResultsStatus.
+const (
+	PhoneFeedbackBatchResponseResultsStatusAccepted PhoneFeedbackBatchResponseResultsStatus = "accepted"
+	PhoneFeedbackBatchResponseResultsStatusRejected PhoneFeedbackBatchResponseResultsStatus = "rejected"
 )
 
 // PhoneFraudEvaluateParams holds the parameters of Client.Phone.Fraud.Evaluate.
@@ -3715,6 +4546,64 @@ const (
 	PhoneListsListEntriesParamsFormatCSV  PhoneListsListEntriesParamsFormat = "csv"
 )
 
+// PhoneLookupsListParams holds the parameters of Client.Phone.Lookups.List.
+type PhoneLookupsListParams struct {
+	// One number.
+	PhoneNumber Opt[string] `json:"-" query:"phone_number"`
+
+	// Include lookups created at or after this time.
+	CreatedAfter Opt[time.Time] `json:"-" query:"created_after"`
+
+	// Include lookups created before this time.
+	CreatedBefore Opt[time.Time] `json:"-" query:"created_before"`
+
+	// 20 by default, 100 at most.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Where the page starts: 0 by default, or the `next` or `previous` value of
+	// another page.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneLookupsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneLookupSummary: One result from your application's Phone risk lookup
+// history.
+type PhoneLookupSummary struct {
+	// Unique identifier for the lookup.
+	LookupID string `json:"lookup_id"`
+
+	// Full phone number used for the lookup.
+	PhoneNumber string `json:"phone_number"`
+
+	// Status returned by the Phone risk lookup.
+	Status string `json:"status"`
+
+	// Country code of the number, or an empty string when unknown.
+	Country string `json:"country"`
+
+	// Line type, or an empty string when unknown.
+	LineType string `json:"line_type"`
+
+	// Risk score when available.
+	RiskScore float64 `json:"risk_score"`
+
+	// When the lookup was recorded.
+	CreatedAt time.Time `json:"created_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneLookupSummary leniently.
+func (r *PhoneLookupSummary) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // PhoneNetworkRegistrationRequest is a request object.
 type PhoneNetworkRegistrationRequest struct {
 	// The network feature to ask approval for. Required.
@@ -4485,6 +5374,315 @@ const (
 	PhoneSDKKeyRotatedStatusActive PhoneSDKKeyRotatedStatus = "active"
 )
 
+// PhoneSettings: Your Phone settings.
+type PhoneSettings struct {
+	// Verification settings.
+	Verification PhoneSettingsVerification `json:"verification"`
+
+	// Message settings.
+	Messages PhoneSettingsMessages `json:"messages"`
+
+	// The application's saved data region preference.
+	DataRegion PhoneSettingsDataRegion `json:"data_region"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSettings leniently.
+func (r *PhoneSettings) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSettingsVerification: Verification settings.
+type PhoneSettingsVerification struct {
+	// 4 to 10.
+	CodeLength int64 `json:"code_length"`
+
+	// How long a code works.
+	ValidMinutes int64 `json:"valid_minutes"`
+
+	// Maximum wrong code entries per standalone verification. The default is 5.
+	MaxAttempts int64 `json:"max_attempts"`
+
+	// Codes per number per hour.
+	ResendLimit int64 `json:"resend_limit"`
+
+	// The default order.
+	ChannelOrder []PhoneSettingsVerificationChannelOrder `json:"channel_order"`
+
+	// fixed or conversion.
+	Routing PhoneSettingsVerificationRouting `json:"routing"`
+
+	// Voice policy.
+	Voice PhoneSettingsVerificationVoice `json:"voice"`
+
+	// Email policy.
+	Email PhoneSettingsVerificationEmail `json:"email"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSettingsVerification leniently.
+func (r *PhoneSettingsVerification) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSettingsVerificationChannelOrder: A verification channel.
+//
+// PhoneSettingsVerificationChannelOrder is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneSettingsVerificationChannelOrder string
+
+// Known values of PhoneSettingsVerificationChannelOrder.
+const (
+	PhoneSettingsVerificationChannelOrderSilent   PhoneSettingsVerificationChannelOrder = "silent"
+	PhoneSettingsVerificationChannelOrderSMS      PhoneSettingsVerificationChannelOrder = "sms"
+	PhoneSettingsVerificationChannelOrderWhatsapp PhoneSettingsVerificationChannelOrder = "whatsapp"
+	PhoneSettingsVerificationChannelOrderTelegram PhoneSettingsVerificationChannelOrder = "telegram"
+	PhoneSettingsVerificationChannelOrderVoice    PhoneSettingsVerificationChannelOrder = "voice"
+	PhoneSettingsVerificationChannelOrderRcs      PhoneSettingsVerificationChannelOrder = "rcs"
+	PhoneSettingsVerificationChannelOrderViber    PhoneSettingsVerificationChannelOrder = "viber"
+	PhoneSettingsVerificationChannelOrderZalo     PhoneSettingsVerificationChannelOrder = "zalo"
+	PhoneSettingsVerificationChannelOrderEmail    PhoneSettingsVerificationChannelOrder = "email"
+	PhoneSettingsVerificationChannelOrderPush     PhoneSettingsVerificationChannelOrder = "push"
+	PhoneSettingsVerificationChannelOrderTotp     PhoneSettingsVerificationChannelOrder = "totp"
+	PhoneSettingsVerificationChannelOrderPasskey  PhoneSettingsVerificationChannelOrder = "passkey"
+)
+
+// PhoneSettingsVerificationRouting: fixed or conversion.
+//
+// PhoneSettingsVerificationRouting is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneSettingsVerificationRouting string
+
+// Known values of PhoneSettingsVerificationRouting.
+const (
+	PhoneSettingsVerificationRoutingFixed      PhoneSettingsVerificationRouting = "fixed"
+	PhoneSettingsVerificationRoutingConversion PhoneSettingsVerificationRouting = "conversion"
+)
+
+// PhoneSettingsVerificationVoice: Voice policy.
+type PhoneSettingsVerificationVoice struct {
+	// The identifier of the voice that reads verification codes aloud.
+	TtsVoice string `json:"tts_voice"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSettingsVerificationVoice leniently.
+func (r *PhoneSettingsVerificationVoice) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSettingsVerificationEmail: Email policy.
+type PhoneSettingsVerificationEmail struct {
+	// The verified domain email codes go out from.
+	DomainID string `json:"domain_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSettingsVerificationEmail leniently.
+func (r *PhoneSettingsVerificationEmail) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSettingsMessages: Message settings.
+type PhoneSettingsMessages struct {
+	// 7, 30, 90 or 365.
+	RetentionDays any `json:"retention_days"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSettingsMessages leniently.
+func (r *PhoneSettingsMessages) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneSettingsDataRegion: The application's saved data region preference.
+//
+// PhoneSettingsDataRegion is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneSettingsDataRegion string
+
+// Known values of PhoneSettingsDataRegion.
+const (
+	PhoneSettingsDataRegionEu PhoneSettingsDataRegion = "eu"
+	PhoneSettingsDataRegionUs PhoneSettingsDataRegion = "us"
+)
+
+// PhoneSettingsUpdate: The application settings to update. Omit a section to
+// keep its current settings.
+type PhoneSettingsUpdate struct {
+	// Each property you supply replaces its saved value.
+	Verification Opt[PhoneSettingsUpdateVerification] `json:"verification"`
+
+	// Message settings to change.
+	Messages Opt[PhoneSettingsUpdateMessages] `json:"messages"`
+
+	// The data region preference to save for the application.
+	DataRegion Opt[PhoneSettingsUpdateDataRegion] `json:"data_region"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSettingsUpdate) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSettingsUpdateVerification: Each property you supply replaces its saved
+// value.
+type PhoneSettingsUpdateVerification struct {
+	// 4 to 10 digits.
+	CodeLength Opt[int64] `json:"code_length"`
+
+	// 1 to 15.
+	ValidMinutes Opt[int64] `json:"valid_minutes"`
+
+	// Maximum wrong code entries per standalone verification. The default is 5.
+	MaxAttempts Opt[int64] `json:"max_attempts"`
+
+	// 1 to 10 per hour.
+	ResendLimit Opt[int64] `json:"resend_limit"`
+
+	// A new code cancels the previous one.
+	CancelOnResend Opt[bool] `json:"cancel_on_resend"`
+
+	// The default order.
+	ChannelOrder Opt[[]PhoneSettingsUpdateVerificationChannelOrder] `json:"channel_order"`
+
+	// conversion picks the route and channel with the best conversion per country
+	// over 7 days; fixed keeps your order.
+	Routing Opt[PhoneSettingsUpdateVerificationRouting] `json:"routing"`
+
+	// Voice policy.
+	Voice Opt[PhoneSettingsUpdateVerificationVoice] `json:"voice"`
+
+	// Email policy.
+	Email Opt[PhoneSettingsUpdateVerificationEmail] `json:"email"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSettingsUpdateVerification) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSettingsUpdateVerificationChannelOrder: A verification channel.
+//
+// PhoneSettingsUpdateVerificationChannelOrder is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneSettingsUpdateVerificationChannelOrder string
+
+// Known values of PhoneSettingsUpdateVerificationChannelOrder.
+const (
+	PhoneSettingsUpdateVerificationChannelOrderSilent   PhoneSettingsUpdateVerificationChannelOrder = "silent"
+	PhoneSettingsUpdateVerificationChannelOrderSMS      PhoneSettingsUpdateVerificationChannelOrder = "sms"
+	PhoneSettingsUpdateVerificationChannelOrderWhatsapp PhoneSettingsUpdateVerificationChannelOrder = "whatsapp"
+	PhoneSettingsUpdateVerificationChannelOrderTelegram PhoneSettingsUpdateVerificationChannelOrder = "telegram"
+	PhoneSettingsUpdateVerificationChannelOrderVoice    PhoneSettingsUpdateVerificationChannelOrder = "voice"
+	PhoneSettingsUpdateVerificationChannelOrderRcs      PhoneSettingsUpdateVerificationChannelOrder = "rcs"
+	PhoneSettingsUpdateVerificationChannelOrderViber    PhoneSettingsUpdateVerificationChannelOrder = "viber"
+	PhoneSettingsUpdateVerificationChannelOrderZalo     PhoneSettingsUpdateVerificationChannelOrder = "zalo"
+	PhoneSettingsUpdateVerificationChannelOrderEmail    PhoneSettingsUpdateVerificationChannelOrder = "email"
+	PhoneSettingsUpdateVerificationChannelOrderPush     PhoneSettingsUpdateVerificationChannelOrder = "push"
+	PhoneSettingsUpdateVerificationChannelOrderTotp     PhoneSettingsUpdateVerificationChannelOrder = "totp"
+	PhoneSettingsUpdateVerificationChannelOrderPasskey  PhoneSettingsUpdateVerificationChannelOrder = "passkey"
+)
+
+// PhoneSettingsUpdateVerificationRouting: conversion picks the route and
+// channel with the best conversion per country over 7 days; fixed keeps your
+// order.
+//
+// PhoneSettingsUpdateVerificationRouting is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneSettingsUpdateVerificationRouting string
+
+// Known values of PhoneSettingsUpdateVerificationRouting.
+const (
+	PhoneSettingsUpdateVerificationRoutingConversion PhoneSettingsUpdateVerificationRouting = "conversion"
+	PhoneSettingsUpdateVerificationRoutingFixed      PhoneSettingsUpdateVerificationRouting = "fixed"
+)
+
+// PhoneSettingsUpdateVerificationVoice: Voice policy.
+type PhoneSettingsUpdateVerificationVoice struct {
+	// The identifier of the voice that reads verification codes aloud.
+	TtsVoice Opt[string] `json:"tts_voice"`
+
+	// 0.8 to 1.2: slower reads each digit more clearly.
+	SpeechRate Opt[float64] `json:"speech_rate"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSettingsUpdateVerificationVoice) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSettingsUpdateVerificationEmail: Email policy.
+type PhoneSettingsUpdateVerificationEmail struct {
+	// The verified domain email codes go out from.
+	DomainID Opt[string] `json:"domain_id"`
+
+	// The address on that domain.
+	FromAddress Opt[string] `json:"from_address"`
+
+	// The name people see.
+	FromName Opt[string] `json:"from_name"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSettingsUpdateVerificationEmail) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSettingsUpdateMessages: Message settings to change.
+type PhoneSettingsUpdateMessages struct {
+	// 7, 30, 90 or 365.
+	RetentionDays Opt[any] `json:"retention_days"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSettingsUpdateMessages) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSettingsUpdateDataRegion: The data region preference to save for the
+// application.
+//
+// PhoneSettingsUpdateDataRegion is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneSettingsUpdateDataRegion string
+
+// Known values of PhoneSettingsUpdateDataRegion.
+const (
+	PhoneSettingsUpdateDataRegionEu PhoneSettingsUpdateDataRegion = "eu"
+	PhoneSettingsUpdateDataRegionUs PhoneSettingsUpdateDataRegion = "us"
+)
+
+// PhoneSettingsUpdateResponse is a response object.
+type PhoneSettingsUpdateResponse struct {
+	// When the settings changed.
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSettingsUpdateResponse leniently.
+func (r *PhoneSettingsUpdateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // PhoneSilentCoverageParams holds the parameters of
 // Client.Phone.Silent.Coverage.
 type PhoneSilentCoverageParams struct {
@@ -4740,4 +5938,558 @@ const (
 	PhoneSilentRegistrationStatusApproved       PhoneSilentRegistrationStatus = "approved"
 	PhoneSilentRegistrationStatusPartlyApproved PhoneSilentRegistrationStatus = "partly_approved"
 	PhoneSilentRegistrationStatusRejected       PhoneSilentRegistrationStatus = "rejected"
+)
+
+// PhoneVerificationApproveRequest: Why the verification is approved.
+type PhoneVerificationApproveRequest struct {
+	// own_code_check (default): your backend checked the code it sent with code.
+	Reason Opt[PhoneVerificationApproveRequestReason] `json:"reason"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneVerificationApproveRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneVerificationApproveRequestReason: own_code_check (default): your backend
+// checked the code it sent with code.
+//
+// PhoneVerificationApproveRequestReason is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneVerificationApproveRequestReason string
+
+// Known values of PhoneVerificationApproveRequestReason.
+const (
+	PhoneVerificationApproveRequestReasonOwnCodeCheck PhoneVerificationApproveRequestReason = "own_code_check"
+)
+
+// PhoneVerificationApproveResponse is a response object.
+type PhoneVerificationApproveResponse struct {
+	// The verification.
+	VerificationID string `json:"verification_id"`
+
+	// verified: it counts in Verifications, Analytics and the events like any
+	// other.
+	Status PhoneVerificationApproveResponseStatus `json:"status"`
+
+	// api: your backend approved it.
+	VerifiedBy PhoneVerificationApproveResponseVerifiedBy `json:"verified_by"`
+
+	// When.
+	VerifiedAt time.Time `json:"verified_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVerificationApproveResponse leniently.
+func (r *PhoneVerificationApproveResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVerificationApproveResponseStatus: verified: it counts in Verifications,
+// Analytics and the events like any other.
+//
+// PhoneVerificationApproveResponseStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneVerificationApproveResponseStatus string
+
+// Known values of PhoneVerificationApproveResponseStatus.
+const (
+	PhoneVerificationApproveResponseStatusVerified PhoneVerificationApproveResponseStatus = "verified"
+)
+
+// PhoneVerificationApproveResponseVerifiedBy: api: your backend approved it.
+//
+// PhoneVerificationApproveResponseVerifiedBy is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type PhoneVerificationApproveResponseVerifiedBy string
+
+// Known values of PhoneVerificationApproveResponseVerifiedBy.
+const (
+	PhoneVerificationApproveResponseVerifiedByAPI PhoneVerificationApproveResponseVerifiedBy = "api"
+)
+
+// PhoneVerificationCancelResponse is a response object.
+type PhoneVerificationCancelResponse struct {
+	// The verification.
+	VerificationID string `json:"verification_id"`
+
+	// cancelled: the code stops working, unsent steps are not charged.
+	Status PhoneVerificationCancelResponseStatus `json:"status"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVerificationCancelResponse leniently.
+func (r *PhoneVerificationCancelResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVerificationCancelResponseStatus: cancelled: the code stops working,
+// unsent steps are not charged.
+//
+// PhoneVerificationCancelResponseStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneVerificationCancelResponseStatus string
+
+// Known values of PhoneVerificationCancelResponseStatus.
+const (
+	PhoneVerificationCancelResponseStatusCancelled PhoneVerificationCancelResponseStatus = "cancelled"
+)
+
+// PhoneVerificationsListParams holds the parameters of
+// Client.Phone.Verifications.List.
+type PhoneVerificationsListParams struct {
+	// pending, verified, not_delivered, expired, blocked or cancelled.
+	Status Opt[PhoneVerificationsListParamsStatus] `json:"-" query:"status"`
+
+	// Any channel.
+	Channel Opt[PhoneChannel] `json:"-" query:"channel"`
+
+	// One number.
+	PhoneNumber Opt[string] `json:"-" query:"phone_number"`
+
+	// Your reference.
+	Reference Opt[string] `json:"-" query:"reference"`
+
+	// key:value, one of your tags.
+	Tag Opt[string] `json:"-" query:"tag"`
+
+	// ISO 8601 date and time.
+	CreatedAfter Opt[time.Time] `json:"-" query:"created_after"`
+
+	// ISO 8601 date and time.
+	CreatedBefore Opt[time.Time] `json:"-" query:"created_before"`
+
+	// 20 by default, 100 at most.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Where the page starts: 0 by default, or the `next` or `previous` value of
+	// another page.
+	Offset Opt[int64] `json:"-" query:"offset"`
+
+	// json, or csv to export every row of the filtered list.
+	Format Opt[PhoneVerificationsListParamsFormat] `json:"-" query:"format"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneVerificationsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneVerificationsListParamsStatus: Its status.
+//
+// PhoneVerificationsListParamsStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneVerificationsListParamsStatus string
+
+// Known values of PhoneVerificationsListParamsStatus.
+const (
+	PhoneVerificationsListParamsStatusPending      PhoneVerificationsListParamsStatus = "pending"
+	PhoneVerificationsListParamsStatusVerified     PhoneVerificationsListParamsStatus = "verified"
+	PhoneVerificationsListParamsStatusNotDelivered PhoneVerificationsListParamsStatus = "not_delivered"
+	PhoneVerificationsListParamsStatusExpired      PhoneVerificationsListParamsStatus = "expired"
+	PhoneVerificationsListParamsStatusBlocked      PhoneVerificationsListParamsStatus = "blocked"
+	PhoneVerificationsListParamsStatusCancelled    PhoneVerificationsListParamsStatus = "cancelled"
+)
+
+// PhoneVerificationsListParamsFormat: The response format.
+//
+// PhoneVerificationsListParamsFormat is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneVerificationsListParamsFormat string
+
+// Known values of PhoneVerificationsListParamsFormat.
+const (
+	PhoneVerificationsListParamsFormatJSON PhoneVerificationsListParamsFormat = "json"
+	PhoneVerificationsListParamsFormatCSV  PhoneVerificationsListParamsFormat = "csv"
+)
+
+// PhoneVerificationDetail: One verification with every attempt.
+type PhoneVerificationDetail struct {
+	// The verification.
+	VerificationID string `json:"verification_id"`
+
+	// Its status.
+	Status PhoneVerificationDetailStatus `json:"status"`
+
+	// The number.
+	PhoneNumber string `json:"phone_number"`
+
+	// ISO country code.
+	Country string `json:"country"`
+
+	// One entry per send, in the order the sends went out. A same-window retry
+	// repeats the last channel, so one channel can appear more than once.
+	Attempts []PhoneVerificationAttempt `json:"attempts"`
+
+	// Your reference.
+	Reference string `json:"reference"`
+
+	// The verification's session metadata. Values can include nested JSON objects
+	// and arrays.
+	Tags map[string]any `json:"tags"`
+
+	// When it started.
+	CreatedAt time.Time `json:"created_at"`
+
+	// When it was verified.
+	VerifiedAt time.Time `json:"verified_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVerificationDetail leniently.
+func (r *PhoneVerificationDetail) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVerificationDetailStatus: Its status.
+//
+// PhoneVerificationDetailStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneVerificationDetailStatus string
+
+// Known values of PhoneVerificationDetailStatus.
+const (
+	PhoneVerificationDetailStatusPending      PhoneVerificationDetailStatus = "pending"
+	PhoneVerificationDetailStatusVerified     PhoneVerificationDetailStatus = "verified"
+	PhoneVerificationDetailStatusNotDelivered PhoneVerificationDetailStatus = "not_delivered"
+	PhoneVerificationDetailStatusExpired      PhoneVerificationDetailStatus = "expired"
+	PhoneVerificationDetailStatusBlocked      PhoneVerificationDetailStatus = "blocked"
+	PhoneVerificationDetailStatusCancelled    PhoneVerificationDetailStatus = "cancelled"
+)
+
+// PhoneVerificationAttempt: One channel tried for a verification.
+type PhoneVerificationAttempt struct {
+	// The channel this attempt used.
+	Channel PhoneVerificationAttemptChannel `json:"channel"`
+
+	// Its status: sent, delivered, read, failed or expired.
+	Status PhoneVerificationAttemptStatus `json:"status"`
+
+	// The mobile network it went through.
+	Network string `json:"network"`
+
+	// The route Didit picked.
+	Route string `json:"route"`
+
+	// The reason for a failed attempt, when available. Possible reasons include
+	// `undelivered`, `unreachable`, `unsupported_network`, `channel_closed`,
+	// `silent_mismatch` and `silent_retryable`. Other reasons can occur.
+	Error string `json:"error"`
+
+	// match, mismatch or failed, for a silent attempt.
+	SilentResult PhoneVerificationAttemptSilentResult `json:"silent_result"`
+
+	// When it went out.
+	SentAt time.Time `json:"sent_at"`
+
+	// When the network reported delivery.
+	DeliveredAt time.Time `json:"delivered_at"`
+
+	// When the channel reported that the recipient read the code.
+	ReadAt time.Time `json:"read_at"`
+
+	// When the code ran out before delivery.
+	ExpiredAt time.Time `json:"expired_at"`
+
+	// True when the attempt has been billed or has a nonzero actual price. See
+	// `status` for the delivery outcome.
+	Charged bool                   `json:"charged"`
+	Price   PhoneVerificationPrice `json:"price"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVerificationAttempt leniently.
+func (r *PhoneVerificationAttempt) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVerificationAttemptChannel: The channel this attempt used.
+//
+// PhoneVerificationAttemptChannel is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneVerificationAttemptChannel string
+
+// Known values of PhoneVerificationAttemptChannel.
+const (
+	PhoneVerificationAttemptChannelSilent   PhoneVerificationAttemptChannel = "silent"
+	PhoneVerificationAttemptChannelSMS      PhoneVerificationAttemptChannel = "sms"
+	PhoneVerificationAttemptChannelWhatsapp PhoneVerificationAttemptChannel = "whatsapp"
+	PhoneVerificationAttemptChannelTelegram PhoneVerificationAttemptChannel = "telegram"
+	PhoneVerificationAttemptChannelVoice    PhoneVerificationAttemptChannel = "voice"
+	PhoneVerificationAttemptChannelRcs      PhoneVerificationAttemptChannel = "rcs"
+	PhoneVerificationAttemptChannelViber    PhoneVerificationAttemptChannel = "viber"
+	PhoneVerificationAttemptChannelZalo     PhoneVerificationAttemptChannel = "zalo"
+	PhoneVerificationAttemptChannelEmail    PhoneVerificationAttemptChannel = "email"
+	PhoneVerificationAttemptChannelPush     PhoneVerificationAttemptChannel = "push"
+	PhoneVerificationAttemptChannelTotp     PhoneVerificationAttemptChannel = "totp"
+	PhoneVerificationAttemptChannelPasskey  PhoneVerificationAttemptChannel = "passkey"
+)
+
+// PhoneVerificationAttemptStatus: Its status: sent, delivered, read, failed or
+// expired.
+//
+// PhoneVerificationAttemptStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneVerificationAttemptStatus string
+
+// Known values of PhoneVerificationAttemptStatus.
+const (
+	PhoneVerificationAttemptStatusSent      PhoneVerificationAttemptStatus = "sent"
+	PhoneVerificationAttemptStatusDelivered PhoneVerificationAttemptStatus = "delivered"
+	PhoneVerificationAttemptStatusRead      PhoneVerificationAttemptStatus = "read"
+	PhoneVerificationAttemptStatusFailed    PhoneVerificationAttemptStatus = "failed"
+	PhoneVerificationAttemptStatusExpired   PhoneVerificationAttemptStatus = "expired"
+)
+
+// PhoneVerificationAttemptSilentResult: match, mismatch or failed, for a silent
+// attempt.
+//
+// PhoneVerificationAttemptSilentResult is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneVerificationAttemptSilentResult string
+
+// Known values of PhoneVerificationAttemptSilentResult.
+const (
+	PhoneVerificationAttemptSilentResultMatch    PhoneVerificationAttemptSilentResult = "match"
+	PhoneVerificationAttemptSilentResultMismatch PhoneVerificationAttemptSilentResult = "mismatch"
+	PhoneVerificationAttemptSilentResultFailed   PhoneVerificationAttemptSilentResult = "failed"
+)
+
+// PhoneVerificationPrice: The price line of one attempt.
+type PhoneVerificationPrice struct {
+	// What it cost, in USD.
+	Amount string `json:"amount"`
+
+	// The carrier part, passed on at cost.
+	Carrier string `json:"carrier"`
+
+	// Didit's fee.
+	Fee string `json:"fee"`
+
+	// false until the carrier reports delivery, then the reported price.
+	Final bool `json:"final"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVerificationPrice leniently.
+func (r *PhoneVerificationPrice) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVerificationNextRequest: The channel to move to.
+type PhoneVerificationNextRequest struct {
+	// Jump to this channel instead of the next one.
+	Channel Opt[PhoneVerificationNextRequestChannel] `json:"channel"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneVerificationNextRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneVerificationNextRequestChannel: Jump to this channel instead of the next
+// one.
+//
+// PhoneVerificationNextRequestChannel is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneVerificationNextRequestChannel string
+
+// Known values of PhoneVerificationNextRequestChannel.
+const (
+	PhoneVerificationNextRequestChannelSilent   PhoneVerificationNextRequestChannel = "silent"
+	PhoneVerificationNextRequestChannelSMS      PhoneVerificationNextRequestChannel = "sms"
+	PhoneVerificationNextRequestChannelWhatsapp PhoneVerificationNextRequestChannel = "whatsapp"
+	PhoneVerificationNextRequestChannelTelegram PhoneVerificationNextRequestChannel = "telegram"
+	PhoneVerificationNextRequestChannelVoice    PhoneVerificationNextRequestChannel = "voice"
+	PhoneVerificationNextRequestChannelRcs      PhoneVerificationNextRequestChannel = "rcs"
+	PhoneVerificationNextRequestChannelViber    PhoneVerificationNextRequestChannel = "viber"
+	PhoneVerificationNextRequestChannelZalo     PhoneVerificationNextRequestChannel = "zalo"
+	PhoneVerificationNextRequestChannelEmail    PhoneVerificationNextRequestChannel = "email"
+	PhoneVerificationNextRequestChannelPush     PhoneVerificationNextRequestChannel = "push"
+	PhoneVerificationNextRequestChannelTotp     PhoneVerificationNextRequestChannel = "totp"
+	PhoneVerificationNextRequestChannelPasskey  PhoneVerificationNextRequestChannel = "passkey"
+)
+
+// PhoneVerificationNextResponse is a response object.
+type PhoneVerificationNextResponse struct {
+	// The verification.
+	VerificationID string `json:"verification_id"`
+
+	// The channel trying now.
+	Channel PhoneVerificationNextResponseChannel `json:"channel"`
+
+	// A successful send remains pending. A blocked send ends the verification.
+	Status PhoneVerificationNextResponseStatus `json:"status"`
+
+	// Returned on a blocked send. May be null when no reason is available.
+	Reason string `json:"reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVerificationNextResponse leniently.
+func (r *PhoneVerificationNextResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVerificationNextResponseChannel: The channel trying now.
+//
+// PhoneVerificationNextResponseChannel is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneVerificationNextResponseChannel string
+
+// Known values of PhoneVerificationNextResponseChannel.
+const (
+	PhoneVerificationNextResponseChannelSilent   PhoneVerificationNextResponseChannel = "silent"
+	PhoneVerificationNextResponseChannelSMS      PhoneVerificationNextResponseChannel = "sms"
+	PhoneVerificationNextResponseChannelWhatsapp PhoneVerificationNextResponseChannel = "whatsapp"
+	PhoneVerificationNextResponseChannelTelegram PhoneVerificationNextResponseChannel = "telegram"
+	PhoneVerificationNextResponseChannelVoice    PhoneVerificationNextResponseChannel = "voice"
+	PhoneVerificationNextResponseChannelRcs      PhoneVerificationNextResponseChannel = "rcs"
+	PhoneVerificationNextResponseChannelViber    PhoneVerificationNextResponseChannel = "viber"
+	PhoneVerificationNextResponseChannelZalo     PhoneVerificationNextResponseChannel = "zalo"
+	PhoneVerificationNextResponseChannelEmail    PhoneVerificationNextResponseChannel = "email"
+	PhoneVerificationNextResponseChannelPush     PhoneVerificationNextResponseChannel = "push"
+	PhoneVerificationNextResponseChannelTotp     PhoneVerificationNextResponseChannel = "totp"
+	PhoneVerificationNextResponseChannelPasskey  PhoneVerificationNextResponseChannel = "passkey"
+)
+
+// PhoneVerificationNextResponseStatus: A successful send remains pending. A
+// blocked send ends the verification.
+//
+// PhoneVerificationNextResponseStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneVerificationNextResponseStatus string
+
+// Known values of PhoneVerificationNextResponseStatus.
+const (
+	PhoneVerificationNextResponseStatusPending PhoneVerificationNextResponseStatus = "pending"
+	PhoneVerificationNextResponseStatusBlocked PhoneVerificationNextResponseStatus = "blocked"
+)
+
+// PhoneVerificationRetryRequest: Optional channel confirmation for a
+// same-window retry.
+type PhoneVerificationRetryRequest struct {
+	// The last delivery channel. Requesting a different allowed channel returns
+	// `409 code_not_resendable`.
+	Channel Opt[PhoneVerificationRetryRequestChannel] `json:"channel"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneVerificationRetryRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneVerificationRetryRequestChannel: The last delivery channel. Requesting a
+// different allowed channel returns `409 code_not_resendable`.
+//
+// PhoneVerificationRetryRequestChannel is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneVerificationRetryRequestChannel string
+
+// Known values of PhoneVerificationRetryRequestChannel.
+const (
+	PhoneVerificationRetryRequestChannelSilent   PhoneVerificationRetryRequestChannel = "silent"
+	PhoneVerificationRetryRequestChannelSMS      PhoneVerificationRetryRequestChannel = "sms"
+	PhoneVerificationRetryRequestChannelWhatsapp PhoneVerificationRetryRequestChannel = "whatsapp"
+	PhoneVerificationRetryRequestChannelTelegram PhoneVerificationRetryRequestChannel = "telegram"
+	PhoneVerificationRetryRequestChannelVoice    PhoneVerificationRetryRequestChannel = "voice"
+	PhoneVerificationRetryRequestChannelRcs      PhoneVerificationRetryRequestChannel = "rcs"
+	PhoneVerificationRetryRequestChannelViber    PhoneVerificationRetryRequestChannel = "viber"
+	PhoneVerificationRetryRequestChannelZalo     PhoneVerificationRetryRequestChannel = "zalo"
+	PhoneVerificationRetryRequestChannelEmail    PhoneVerificationRetryRequestChannel = "email"
+	PhoneVerificationRetryRequestChannelPush     PhoneVerificationRetryRequestChannel = "push"
+	PhoneVerificationRetryRequestChannelTotp     PhoneVerificationRetryRequestChannel = "totp"
+	PhoneVerificationRetryRequestChannelPasskey  PhoneVerificationRetryRequestChannel = "passkey"
+)
+
+// PhoneVerificationRetryResponse: A pending retry includes sends, sends_left,
+// expires_at and charged. A blocked retry returns the reason instead.
+type PhoneVerificationRetryResponse struct {
+	// The same verification.
+	VerificationID string `json:"verification_id"`
+
+	// A successful send remains pending. A blocked send ends the verification.
+	Status PhoneVerificationRetryResponseStatus `json:"status"`
+
+	// The channel this send went by.
+	Channel PhoneVerificationRetryResponseChannel `json:"channel"`
+
+	// Sends of this code so far, the first one included.
+	Sends int64 `json:"sends"`
+
+	// Retries left in this window.
+	SendsLeft int64 `json:"sends_left"`
+
+	// Unchanged: a retry keeps the window and the code.
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// True when the channel accepts the retry and returns a send ID. Delivery
+	// confirmation can arrive later. Check the verification's attempt history for
+	// the delivery status and price.
+	Charged bool `json:"charged"`
+
+	// Returned on a blocked send. May be null when no reason is available.
+	Reason string `json:"reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVerificationRetryResponse leniently.
+func (r *PhoneVerificationRetryResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVerificationRetryResponseStatus: A successful send remains pending. A
+// blocked send ends the verification.
+//
+// PhoneVerificationRetryResponseStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type PhoneVerificationRetryResponseStatus string
+
+// Known values of PhoneVerificationRetryResponseStatus.
+const (
+	PhoneVerificationRetryResponseStatusPending PhoneVerificationRetryResponseStatus = "pending"
+	PhoneVerificationRetryResponseStatusBlocked PhoneVerificationRetryResponseStatus = "blocked"
+)
+
+// PhoneVerificationRetryResponseChannel: The channel this send went by.
+//
+// PhoneVerificationRetryResponseChannel is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type PhoneVerificationRetryResponseChannel string
+
+// Known values of PhoneVerificationRetryResponseChannel.
+const (
+	PhoneVerificationRetryResponseChannelSilent   PhoneVerificationRetryResponseChannel = "silent"
+	PhoneVerificationRetryResponseChannelSMS      PhoneVerificationRetryResponseChannel = "sms"
+	PhoneVerificationRetryResponseChannelWhatsapp PhoneVerificationRetryResponseChannel = "whatsapp"
+	PhoneVerificationRetryResponseChannelTelegram PhoneVerificationRetryResponseChannel = "telegram"
+	PhoneVerificationRetryResponseChannelVoice    PhoneVerificationRetryResponseChannel = "voice"
+	PhoneVerificationRetryResponseChannelRcs      PhoneVerificationRetryResponseChannel = "rcs"
+	PhoneVerificationRetryResponseChannelViber    PhoneVerificationRetryResponseChannel = "viber"
+	PhoneVerificationRetryResponseChannelZalo     PhoneVerificationRetryResponseChannel = "zalo"
+	PhoneVerificationRetryResponseChannelEmail    PhoneVerificationRetryResponseChannel = "email"
+	PhoneVerificationRetryResponseChannelPush     PhoneVerificationRetryResponseChannel = "push"
+	PhoneVerificationRetryResponseChannelTotp     PhoneVerificationRetryResponseChannel = "totp"
+	PhoneVerificationRetryResponseChannelPasskey  PhoneVerificationRetryResponseChannel = "passkey"
 )

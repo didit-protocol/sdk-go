@@ -15,10 +15,12 @@ import (
 type MessagesService struct {
 	client *Client
 
-	Consent       *MessagesConsentService
-	Conversations *MessagesConversationsService
-	Rules         *MessagesRulesService
-	Templates     *MessagesTemplatesService
+	Capabilities   *MessagesCapabilitiesService
+	Configurations *MessagesConfigurationsService
+	Consent        *MessagesConsentService
+	Conversations  *MessagesConversationsService
+	Rules          *MessagesRulesService
+	Templates      *MessagesTemplatesService
 }
 
 // Cancel: Cancel a scheduled message.
@@ -202,6 +204,91 @@ func (r *MessagesService) Send(ctx context.Context, params MessagesSendParams, o
 func (r *MessagesService) UpdateSettings(ctx context.Context, params MessagesSettingsParam, opts ...option.RequestOption) (*MessagesSettings, error) {
 	res := new(MessagesSettings)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/messages/settings/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// MessagesCapabilitiesService holds the messages capabilities operations. Use
+// it through Client.Messages.Capabilities.
+type MessagesCapabilitiesService struct {
+	client *Client
+}
+
+// Retrieve: Channels a number can receive now.
+//
+// Check which messaging channels are available for the E.164 phone number in
+// `to`. The response reports a boolean for each channel.
+//
+//	GET /v3/messages/capabilities/
+func (r *MessagesCapabilitiesService) Retrieve(ctx context.Context, params MessagesCapabilitiesRetrieveParams, opts ...option.RequestOption) (*MessageCapabilities, error) {
+	res := new(MessageCapabilities)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/messages/capabilities/", params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// MessagesConfigurationsService holds the messages configurations operations.
+// Use it through Client.Messages.Configurations.
+type MessagesConfigurationsService struct {
+	client *Client
+}
+
+// Create: Create a messaging configuration.
+//
+// Save the channel order, status callback URL and SMS opt-out line for a
+// workload. Pass the returned `configuration_id` to send a message with `POST
+// /v3/messages/`. Leave `from`, `inbound_url` and `opt_out` empty for a
+// configuration used to send messages.
+//
+//	POST /v3/messages/configurations/
+func (r *MessagesConfigurationsService) Create(ctx context.Context, params MessagingConfigurationCreateRequest, opts ...option.RequestOption) (*MessagingConfiguration, error) {
+	res := new(MessagingConfiguration)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/messages/configurations/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Delete: Remove a messaging configuration.
+//
+// Permanently delete a messaging configuration by its UUID.
+//
+//	DELETE /v3/messages/configurations/{configuration_id}/
+func (r *MessagesConfigurationsService) Delete(ctx context.Context, configurationID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/messages/configurations/{configuration_id}/", pathParams: []string{"configuration_id", configurationID}}, nil, opts)
+	return err
+}
+
+// List: List your messaging configurations.
+//
+// List your messaging configurations. `limit` is 20 by default and 100 at most;
+// `offset` starts another page.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/messages/configurations/
+func (r *MessagesConfigurationsService) List(ctx context.Context, params MessagesConfigurationsListParams, opts ...option.RequestOption) (*Page[MessagingConfiguration], error) {
+	return getPage[MessagingConfiguration](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/messages/configurations/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *MessagesConfigurationsService) ListAutoPaging(ctx context.Context, params MessagesConfigurationsListParams, opts ...option.RequestOption) *PageIterator[MessagingConfiguration] {
+	return newPageIterator(ctx, func() (*Page[MessagingConfiguration], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Update: Change a messaging configuration.
+//
+// Change a messaging configuration. Only the fields you send change.
+//
+//	PATCH /v3/messages/configurations/{configuration_id}/
+func (r *MessagesConfigurationsService) Update(ctx context.Context, configurationID string, params MessagingConfigurationUpdateRequest, opts ...option.RequestOption) (*MessagingConfiguration, error) {
+	res := new(MessagingConfiguration)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/messages/configurations/{configuration_id}/", pathParams: []string{"configuration_id", configurationID}, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -962,6 +1049,16 @@ type MessagesSendParams struct {
 	// list.
 	CorrelationID Opt[string]                    `json:"correlation_id"`
 	Options       Opt[MessagesSendParamsOptions] `json:"options"`
+
+	// One of your messaging configurations (`POST /v3/messages/configurations/`):
+	// its channel order applies unless this request sets `channels` itself, its
+	// status callback URL is used for the message's status events, and its
+	// `append_opt_out_line` applies unless `options.append_opt_out_line` is sent. A
+	// configuration that sets a sender (`from`), an `inbound_url` or `opt_out`
+	// rules cannot be used in a send yet and answers `400` on `configuration_id`,
+	// as does an id that is not one of your application's configurations or a
+	// configuration that lists no channel Messages can send on.
+	ConfigurationID Opt[string] `json:"configuration_id"`
 }
 
 // MarshalJSON encodes the fields that are set.
@@ -1008,6 +1105,290 @@ type MessagesSettingsParam struct {
 
 // MarshalJSON encodes the fields that are set.
 func (r MessagesSettingsParam) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessagesCapabilitiesRetrieveParams holds the parameters of
+// Client.Messages.Capabilities.Retrieve.
+type MessagesCapabilitiesRetrieveParams struct {
+	// An E.164 number. Required.
+	To string `json:"-" query:"to"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessagesCapabilitiesRetrieveParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessageCapabilities: Channels a number can receive now.
+type MessageCapabilities struct {
+	// What the number can receive now.
+	Channels MessageCapabilitiesChannels `json:"channels"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageCapabilities leniently.
+func (r *MessageCapabilities) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessageCapabilitiesChannels: What the number can receive now.
+type MessageCapabilitiesChannels struct {
+	// True for a mobile number or one classified as fixed-line or mobile.
+	SMS bool `json:"sms"`
+
+	// True for a mobile number or one classified as fixed-line or mobile.
+	Whatsapp bool `json:"whatsapp"`
+
+	// Connected to your bot.
+	Telegram bool `json:"telegram"`
+
+	// True for a mobile number or one classified as fixed-line or mobile.
+	Rcs bool `json:"rcs"`
+
+	// Whether this channel is available. Currently always false.
+	Viber bool `json:"viber"`
+
+	// True for a mobile number or one classified as fixed-line or mobile.
+	Mms bool `json:"mms"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageCapabilitiesChannels leniently.
+func (r *MessageCapabilitiesChannels) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessagingConfigurationCreateRequest: A messaging configuration to create.
+type MessagingConfigurationCreateRequest struct {
+	// Its name. Required.
+	Name string `json:"name"`
+
+	// Stored sender or sender pool. Leave empty to use this configuration in a
+	// send.
+	From Opt[string] `json:"from"`
+
+	// Channel order for this workload. Message sends use the supported channels in
+	// this order unless the request sets its own channels.
+	Channels Opt[[]MessagingConfigurationCreateRequestChannels] `json:"channels"`
+
+	// Use a publicly reachable HTTPS URL for this workload's message.status.updated
+	// events. An empty string clears the callback.
+	StatusCallbackURL Opt[string] `json:"status_callback_url"`
+
+	// Stored inbound URL. Leave empty to use this configuration in a send.
+	InboundURL Opt[string] `json:"inbound_url"`
+
+	// Stored opt-out rules. Leave this object empty to use this configuration in a
+	// send.
+	OptOut Opt[MessagingConfigurationCreateRequestOptOut] `json:"opt_out"`
+
+	// Add the opt-out line to its SMS.
+	AppendOptOutLine Opt[bool] `json:"append_opt_out_line"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessagingConfigurationCreateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessagingConfigurationCreateRequestChannels: A messaging channel.
+//
+// MessagingConfigurationCreateRequestChannels is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type MessagingConfigurationCreateRequestChannels string
+
+// Known values of MessagingConfigurationCreateRequestChannels.
+const (
+	MessagingConfigurationCreateRequestChannelsSMS      MessagingConfigurationCreateRequestChannels = "sms"
+	MessagingConfigurationCreateRequestChannelsWhatsapp MessagingConfigurationCreateRequestChannels = "whatsapp"
+	MessagingConfigurationCreateRequestChannelsTelegram MessagingConfigurationCreateRequestChannels = "telegram"
+	MessagingConfigurationCreateRequestChannelsVoice    MessagingConfigurationCreateRequestChannels = "voice"
+	MessagingConfigurationCreateRequestChannelsRcs      MessagingConfigurationCreateRequestChannels = "rcs"
+	MessagingConfigurationCreateRequestChannelsViber    MessagingConfigurationCreateRequestChannels = "viber"
+	MessagingConfigurationCreateRequestChannelsZalo     MessagingConfigurationCreateRequestChannels = "zalo"
+	MessagingConfigurationCreateRequestChannelsEmail    MessagingConfigurationCreateRequestChannels = "email"
+	MessagingConfigurationCreateRequestChannelsMms      MessagingConfigurationCreateRequestChannels = "mms"
+)
+
+// MessagingConfigurationCreateRequestOptOut: Stored opt-out rules. Leave this
+// object empty to use this configuration in a send.
+type MessagingConfigurationCreateRequestOptOut struct {
+	// Words that opt a recipient out, STOP included.
+	Keywords Opt[[]string] `json:"keywords"`
+
+	// The reply sent after an opt-out.
+	Confirmation Opt[string] `json:"confirmation"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessagingConfigurationCreateRequestOptOut) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessagingConfiguration: A messaging configuration.
+type MessagingConfiguration struct {
+	// The configuration UUID.
+	ConfigurationID string `json:"configuration_id"`
+
+	// Its name.
+	Name string `json:"name"`
+
+	// Stored sender or sender pool. Leave empty to use this configuration in a
+	// send.
+	From string `json:"from"`
+
+	// Channel order for this workload. Message sends use the supported channels in
+	// this order unless the request sets its own channels.
+	Channels []MessagingConfigurationChannels `json:"channels"`
+
+	// Default URL for this workload's message.status.updated events.
+	StatusCallbackURL string `json:"status_callback_url"`
+
+	// Stored inbound URL. Leave empty to use this configuration in a send.
+	InboundURL string `json:"inbound_url"`
+
+	// Stored opt-out rules. Leave this object empty to use this configuration in a
+	// send.
+	OptOut MessagingConfigurationOptOut `json:"opt_out"`
+
+	// Add the opt-out line to its SMS.
+	AppendOptOutLine bool `json:"append_opt_out_line"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessagingConfiguration leniently.
+func (r *MessagingConfiguration) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessagingConfigurationChannels: A messaging channel.
+//
+// MessagingConfigurationChannels is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type MessagingConfigurationChannels string
+
+// Known values of MessagingConfigurationChannels.
+const (
+	MessagingConfigurationChannelsSMS      MessagingConfigurationChannels = "sms"
+	MessagingConfigurationChannelsWhatsapp MessagingConfigurationChannels = "whatsapp"
+	MessagingConfigurationChannelsTelegram MessagingConfigurationChannels = "telegram"
+	MessagingConfigurationChannelsVoice    MessagingConfigurationChannels = "voice"
+	MessagingConfigurationChannelsRcs      MessagingConfigurationChannels = "rcs"
+	MessagingConfigurationChannelsViber    MessagingConfigurationChannels = "viber"
+	MessagingConfigurationChannelsZalo     MessagingConfigurationChannels = "zalo"
+	MessagingConfigurationChannelsEmail    MessagingConfigurationChannels = "email"
+	MessagingConfigurationChannelsMms      MessagingConfigurationChannels = "mms"
+)
+
+// MessagingConfigurationOptOut: Stored opt-out rules. Leave this object empty
+// to use this configuration in a send.
+type MessagingConfigurationOptOut struct {
+	// Words that opt a recipient out, STOP included.
+	Keywords []string `json:"keywords"`
+
+	// The reply sent after an opt-out.
+	Confirmation string `json:"confirmation"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessagingConfigurationOptOut leniently.
+func (r *MessagingConfigurationOptOut) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessagesConfigurationsListParams holds the parameters of
+// Client.Messages.Configurations.List.
+type MessagesConfigurationsListParams struct {
+	// 20 by default, 100 at most.
+	Limit Opt[int64] `json:"-" query:"limit"`
+
+	// Where the page starts.
+	Offset Opt[int64] `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessagesConfigurationsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessagingConfigurationUpdateRequest: The messaging configuration fields to
+// change.
+type MessagingConfigurationUpdateRequest struct {
+	// Its name.
+	Name Opt[string] `json:"name"`
+
+	// Stored sender or sender pool. Leave empty to use this configuration in a
+	// send.
+	From Opt[string] `json:"from"`
+
+	// Channel order for this workload. Message sends use the supported channels in
+	// this order unless the request sets its own channels.
+	Channels Opt[[]MessagingConfigurationUpdateRequestChannels] `json:"channels"`
+
+	// Use a publicly reachable HTTPS URL for this workload's message.status.updated
+	// events. An empty string clears the callback.
+	StatusCallbackURL Opt[string] `json:"status_callback_url"`
+
+	// Stored inbound URL. Leave empty to use this configuration in a send.
+	InboundURL Opt[string] `json:"inbound_url"`
+
+	// Stored opt-out rules. Leave this object empty to use this configuration in a
+	// send.
+	OptOut Opt[MessagingConfigurationUpdateRequestOptOut] `json:"opt_out"`
+
+	// Add the opt-out line to its SMS.
+	AppendOptOutLine Opt[bool] `json:"append_opt_out_line"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessagingConfigurationUpdateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessagingConfigurationUpdateRequestChannels: A messaging channel.
+//
+// MessagingConfigurationUpdateRequestChannels is a string with known values
+// below. The set is open: other values may appear and never cause an error.
+type MessagingConfigurationUpdateRequestChannels string
+
+// Known values of MessagingConfigurationUpdateRequestChannels.
+const (
+	MessagingConfigurationUpdateRequestChannelsSMS      MessagingConfigurationUpdateRequestChannels = "sms"
+	MessagingConfigurationUpdateRequestChannelsWhatsapp MessagingConfigurationUpdateRequestChannels = "whatsapp"
+	MessagingConfigurationUpdateRequestChannelsTelegram MessagingConfigurationUpdateRequestChannels = "telegram"
+	MessagingConfigurationUpdateRequestChannelsVoice    MessagingConfigurationUpdateRequestChannels = "voice"
+	MessagingConfigurationUpdateRequestChannelsRcs      MessagingConfigurationUpdateRequestChannels = "rcs"
+	MessagingConfigurationUpdateRequestChannelsViber    MessagingConfigurationUpdateRequestChannels = "viber"
+	MessagingConfigurationUpdateRequestChannelsZalo     MessagingConfigurationUpdateRequestChannels = "zalo"
+	MessagingConfigurationUpdateRequestChannelsEmail    MessagingConfigurationUpdateRequestChannels = "email"
+	MessagingConfigurationUpdateRequestChannelsMms      MessagingConfigurationUpdateRequestChannels = "mms"
+)
+
+// MessagingConfigurationUpdateRequestOptOut: Stored opt-out rules. Leave this
+// object empty to use this configuration in a send.
+type MessagingConfigurationUpdateRequestOptOut struct {
+	// Words that opt a recipient out, STOP included.
+	Keywords Opt[[]string] `json:"keywords"`
+
+	// The reply sent after an opt-out.
+	Confirmation Opt[string] `json:"confirmation"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessagingConfigurationUpdateRequestOptOut) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
