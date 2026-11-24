@@ -41,6 +41,14 @@ func (r *AccountService) Login(ctx context.Context, params LoginRequest, opts ..
 // Rate limits: 5/IP/hour, plus a shared hourly budget per network (/24 for
 // IPv4, /64 for IPv6).
 //
+// Register with the mailbox address without a `+tag`. If normalization removes
+// a tag (for example, `you+test@yourdomain.com` becomes `you@yourdomain.com`),
+// registration returns 400 with an `email` field error naming that address,
+// before looking up an account. The response is the same whether the account
+// exists or not. No account is created or changed and no code is sent. Only
+// explicitly configured staging test mailboxes keep their tags; production does
+// not allow this exception.
+//
 //	POST /programmatic/register/
 func (r *AccountService) Register(ctx context.Context, params RegisterRequest, opts ...option.RequestOption) (*RegisterResponse, error) {
 	res := new(RegisterResponse)
@@ -60,6 +68,9 @@ func (r *AccountService) Register(ctx context.Context, params RegisterRequest, o
 // Rate limits: a per-email cooldown of 60 seconds between resends (HTTP 429
 // with `Retry-After`), and the same 5-per-IP-per-hour and per-network hourly
 // budgets as registration.
+//
+// The password is required on every resend request. Omitting it returns HTTP
+// 400 with {"password": ["This field is required."]}; no code is sent.
 //
 //	POST /programmatic/resend-otp/
 func (r *AccountService) ResendOTP(ctx context.Context, params AccountResendOTPParams, opts ...option.RequestOption) (*AccountResendOTPResponse, error) {
@@ -250,8 +261,10 @@ func (r *LoginResponse) UnmarshalJSON(data []byte) error {
 
 // RegisterRequest is a request object.
 type RegisterRequest struct {
-	// Any valid email address (personal, work, alias). Used as the unique account
-	// identifier. Required.
+	// A real, deliverable mailbox address without a +tag, used as the unique
+	// account identifier. Registration rejects tags that normalization would
+	// remove, with a 400 email field error naming the canonical address. Only
+	// explicitly configured staging test mailboxes retain tags. Required.
 	Email string `json:"email"`
 
 	// Minimum 8 characters. Must contain at least one uppercase letter (`A-Z`), one
