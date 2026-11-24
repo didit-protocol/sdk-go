@@ -15,7 +15,10 @@ import (
 type MessagesService struct {
 	client *Client
 
-	Rules *MessagesRulesService
+	Consent       *MessagesConsentService
+	Conversations *MessagesConversationsService
+	Rules         *MessagesRulesService
+	Templates     *MessagesTemplatesService
 }
 
 // Cancel: Cancel a scheduled message.
@@ -145,7 +148,9 @@ func (r *MessagesService) RetrieveSettings(ctx context.Context, opts ...option.R
 // and no price.
 //
 // **Statuses** reach your webhook destinations subscribed to
-// `message.status.updated`.
+// `message.status.updated`; a reply from the person reaches `message.received`
+// (WhatsApp and Telegram) and a change of their consent
+// `contact.consent.updated`.
 //
 // **Billing.** SMS: the carrier's price plus Didit's fee, per segment. WhatsApp
 // from Didit's number: WhatsApp's rate for the market plus Didit's fee; from
@@ -202,6 +207,168 @@ func (r *MessagesService) UpdateSettings(ctx context.Context, params MessagesSet
 	return res, nil
 }
 
+// MessagesConsentService holds the messages consent operations. Use it through
+// Client.Messages.Consent.
+type MessagesConsentService struct {
+	client *Client
+}
+
+// Retrieve: Retrieve a recipient's consent.
+//
+// The recipient's consent for every channel your application has a record on,
+// with where each record came from and when it changed. A channel with no
+// record is not listed, and a `to` that is none of the three recipient types
+// below answers `{"channels": [], "reassigned": false}`.
+//
+// `reassigned` is always `false`: this release does not detect that a number
+// changed owner, and no send is skipped for it.
+//
+// `to` is one of three recipient types, and each has its own channels: an E.164
+// number (`+` and up to 15 ASCII digits `[0-9]`) is on `sms`, `whatsapp`,
+// `telegram`, `rcs`, `viber` and `voice`; an email address is on `email` only;
+// a WhatsApp business-scoped user id (a country code, a dot and an id, such as
+// `US.13491208655302741918`) is on `whatsapp` only. Percent-encode it in the
+// path: a number's `+` becomes `%2B`.
+//
+// A scoped API key needs read access to messages.
+//
+//	GET /v3/messages/contacts/{to}/consent/
+func (r *MessagesConsentService) Retrieve(ctx context.Context, to string, opts ...option.RequestOption) (*MessageConsent, error) {
+	res := new(MessageConsent)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/messages/contacts/{to}/consent/", pathParams: []string{"to", to}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Update: Update a recipient's consent.
+//
+// Record an opt-in or an opt-out for one channel. The record applies from now
+// on: a send to an opted-out recipient on that channel is refused with
+// `opted_out` and not charged. Each send reads the record of its own channel
+// only, and a record for a channel Didit does not send on yet is kept for when
+// it does. `source` records where the choice came from, `api` when left out.
+//
+// `to` is one of three recipient types, and each has its own channels: an E.164
+// number (`+` and up to 15 ASCII digits `[0-9]`) is on `sms`, `whatsapp`,
+// `telegram`, `rcs`, `viber` and `voice`; an email address is on `email` only;
+// a WhatsApp business-scoped user id (a country code, a dot and an id, such as
+// `US.13491208655302741918`) is on `whatsapp` only. Percent-encode it in the
+// path: a number's `+` becomes `%2B`. `channel` has to fit the recipient.
+//
+// A scoped API key needs write access to messages.
+//
+//	PATCH /v3/messages/contacts/{to}/consent/
+func (r *MessagesConsentService) Update(ctx context.Context, to string, params MessageConsentUpdate, opts ...option.RequestOption) (*MessageConsentChannels, error) {
+	res := new(MessageConsentChannels)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/messages/contacts/{to}/consent/", pathParams: []string{"to", to}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// MessagesConversationsService holds the messages conversations operations. Use
+// it through Client.Messages.Conversations.
+type MessagesConversationsService struct {
+	client *Client
+
+	Webhooks *MessagesConversationsWebhooksService
+}
+
+// List: List conversations.
+//
+// Your application's conversations: the member who owns each thread and how
+// many replies arrived since the conversation was last read. A conversation
+// groups every message exchanged with one person, on every channel.
+//
+// `status` filters on `open`, `needs_reply` (the person wrote last and nobody
+// answered) or `closed`; `assignee` takes a member id, exactly as a
+// conversation's `assignee` shows it, and lists only that member's
+// conversations.
+//
+// A scoped API key needs read access to messages and to sessions, and its
+// workflow and approved-only session limits apply: a conversation outside them
+// is left out of the list.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/messages/conversations/
+func (r *MessagesConversationsService) List(ctx context.Context, params MessagesConversationsListParams, opts ...option.RequestOption) (*Page[MessageConversation], error) {
+	return getPage[MessageConversation](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/messages/conversations/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *MessagesConversationsService) ListAutoPaging(ctx context.Context, params MessagesConversationsListParams, opts ...option.RequestOption) *PageIterator[MessageConversation] {
+	return newPageIterator(ctx, func() (*Page[MessageConversation], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Update: Update a conversation.
+//
+// Assign the conversation to a member or unassign it, open or close it, and
+// mark it read up to a message. A field left out keeps its value; closing only
+// takes the thread out of the open list, and opening it puts it back.
+//
+// A scoped API key needs write access to messages. It also needs read access to
+// sessions, and its workflow and approved-only session limits apply: a
+// conversation outside them, or one whose session was deleted, answers 404 as
+// another application's would.
+//
+//	PATCH /v3/messages/conversations/{conversation_id}/
+func (r *MessagesConversationsService) Update(ctx context.Context, conversationID string, params MessageConversationUpdate, opts ...option.RequestOption) (*MessageConversation, error) {
+	res := new(MessageConversation)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/messages/conversations/{conversation_id}/", pathParams: []string{"conversation_id", conversationID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// MessagesConversationsWebhooksService holds the messages conversations
+// webhooks operations. Use it through Client.Messages.Conversations.Webhooks.
+type MessagesConversationsWebhooksService struct {
+	client *Client
+}
+
+// Create: Subscribe a URL to one conversation's events.
+//
+// Subscribe an HTTPS endpoint to one conversation's events: `message.received`,
+// `message.status.updated` and `contact.consent.updated`, all three when
+// `events` is left out. Every delivery is signed with `X-Signature-V2` using
+// the returned `secret`, which this answer shows only once; other conversations
+// keep their own subscriptions and endpoints.
+//
+// A scoped API key needs write access to messages. It also needs read access to
+// sessions, and its workflow and approved-only session limits apply: a
+// conversation outside them, or one whose session was deleted, answers 404 as
+// another application's would.
+//
+//	POST /v3/messages/conversations/{conversation_id}/webhooks/
+func (r *MessagesConversationsWebhooksService) Create(ctx context.Context, conversationID string, params MessageConversationWebhookCreate, opts ...option.RequestOption) (*MessageConversationWebhook, error) {
+	res := new(MessageConversationWebhook)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/messages/conversations/{conversation_id}/webhooks/", pathParams: []string{"conversation_id", conversationID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Delete: Stop one conversation's events.
+//
+// Remove one of a conversation's webhook subscriptions: deliveries to its URL
+// stop. Other subscriptions, and the conversation itself, are not touched.
+//
+// A scoped API key needs write access to messages. It also needs read access to
+// sessions, and its workflow and approved-only session limits apply: a
+// conversation outside them, or one whose session was deleted, answers 404 as
+// another application's would.
+//
+//	DELETE /v3/messages/conversations/{conversation_id}/webhooks/{webhook_id}/
+func (r *MessagesConversationsWebhooksService) Delete(ctx context.Context, conversationID string, webhookID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/messages/conversations/{conversation_id}/webhooks/{webhook_id}/", pathParams: []string{"conversation_id", conversationID, "webhook_id", webhookID}}, nil, opts)
+	return err
+}
+
 // MessagesRulesService holds the messages rules operations. Use it through
 // Client.Messages.Rules.
 type MessagesRulesService struct {
@@ -221,6 +388,89 @@ type MessagesRulesService struct {
 func (r *MessagesRulesService) Create(ctx context.Context, params MessagesRulesCreateParams, opts ...option.RequestOption) (*MessagesRulesCreateResponse, error) {
 	res := new(MessagesRulesCreateResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/messages/rules/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// MessagesTemplatesService holds the messages templates operations. Use it
+// through Client.Messages.Templates.
+type MessagesTemplatesService struct {
+	client *Client
+}
+
+// Delete: Delete a message template.
+//
+// Delete the template. Messages already sent keep their history, with no
+// template. A template that a scheduled or queued message, or a message with a
+// channel left to fall back to, was made from cannot be deleted until they are
+// done: cancel the scheduled messages first (`409 template_in_use`).
+//
+// A scoped API key needs write access to messages.
+//
+//	DELETE /v3/messages/templates/{template_id}/
+func (r *MessagesTemplatesService) Delete(ctx context.Context, templateID string, opts ...option.RequestOption) error {
+	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/messages/templates/{template_id}/", pathParams: []string{"template_id", templateID}}, nil, opts)
+	return err
+}
+
+// List: List message templates.
+//
+// The templates you created through the API, newest first, each with its texts
+// and the state of WhatsApp's review of its WhatsApp texts.
+//
+// `status` keeps the templates in one review state, `channel` those with a text
+// on that channel, and `locale` those with a text in that language; `channel`
+// and `locale` match the same text.
+//
+// A scoped API key needs read access to messages.
+//
+// It returns one page; ListAutoPaging iterates over every item of every page.
+//
+//	GET /v3/messages/templates/
+func (r *MessagesTemplatesService) List(ctx context.Context, params MessagesTemplatesListParams, opts ...option.RequestOption) (*Page[MessageTemplate], error) {
+	return getPage[MessageTemplate](ctx, r.client, &apiRequest{method: http.MethodGet, path: "/v3/messages/templates/", params: params}, opts)
+}
+
+// ListAutoPaging iterates over every item of every page of List, fetching pages
+// as needed.
+func (r *MessagesTemplatesService) ListAutoPaging(ctx context.Context, params MessagesTemplatesListParams, opts ...option.RequestOption) *PageIterator[MessageTemplate] {
+	return newPageIterator(ctx, func() (*Page[MessageTemplate], error) {
+		return r.List(ctx, params, opts...)
+	})
+}
+
+// Retrieve: Retrieve a message template.
+//
+// One template with its texts and the state of WhatsApp's review of each
+// WhatsApp text.
+//
+// A scoped API key needs read access to messages.
+//
+//	GET /v3/messages/templates/{template_id}/
+func (r *MessagesTemplatesService) Retrieve(ctx context.Context, templateID string, opts ...option.RequestOption) (*MessageTemplate, error) {
+	res := new(MessageTemplate)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/messages/templates/{template_id}/", pathParams: []string{"template_id", templateID}}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Update: Update a message template.
+//
+// Change the name, the description, the examples or the texts. The texts you
+// send replace all of the template's texts. A change makes a new version and
+// WhatsApp reviews the new WhatsApp texts again: until they are approved a
+// message cannot go out on WhatsApp from this template. Messages already
+// accepted keep the text they were accepted with, a scheduled WhatsApp message
+// included.
+//
+// A scoped API key needs write access to messages.
+//
+//	PATCH /v3/messages/templates/{template_id}/
+func (r *MessagesTemplatesService) Update(ctx context.Context, templateID string, params UpdateMessageTemplateRequest, opts ...option.RequestOption) (*MessageTemplate, error) {
+	res := new(MessageTemplate)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/messages/templates/{template_id}/", pathParams: []string{"template_id", templateID}, params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -761,6 +1011,337 @@ func (r MessagesSettingsParam) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
+// MessageConsent is a response object.
+type MessageConsent struct {
+	// The recipient's consent per channel, for the channels you have a record on.
+	Channels []MessageConsentChannel `json:"channels"`
+
+	// Always `false`: this release does not detect that a number changed owner, and
+	// no send is skipped for it.
+	Reassigned bool `json:"reassigned"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageConsent leniently.
+func (r *MessageConsent) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessageConsentChannel: One channel's consent record for the recipient.
+type MessageConsentChannel struct {
+	// The channel this consent applies to.
+	Channel MessageConsentChannelChannel `json:"channel"`
+
+	// `opted_out` refuses every send on this channel with `opted_out`, uncharged.
+	Status MessageConsentChannelStatus `json:"status"`
+
+	// Where the choice came from. `stop_reply` and `start_reply`: the recipient's
+	// own STOP or START reply; an email bounce or spam complaint reads
+	// `stop_reply`, and a completed Telegram opt-in link `start_reply`. `bot_left`:
+	// the recipient blocked or left the sender on the channel. `console`: a team
+	// member in the console. `api`: your API call without a `source`. A `source`
+	// your API call sets, `reassigned` included, is returned as you sent it; Didit
+	// never records `reassigned` itself.
+	Source    MessageConsentChannelSource `json:"source"`
+	UpdatedAt time.Time                   `json:"updated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageConsentChannel leniently.
+func (r *MessageConsentChannel) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessageConsentChannelChannel: The channel this consent applies to.
+//
+// MessageConsentChannelChannel is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type MessageConsentChannelChannel string
+
+// Known values of MessageConsentChannelChannel.
+const (
+	MessageConsentChannelChannelSMS      MessageConsentChannelChannel = "sms"
+	MessageConsentChannelChannelWhatsapp MessageConsentChannelChannel = "whatsapp"
+	MessageConsentChannelChannelTelegram MessageConsentChannelChannel = "telegram"
+	MessageConsentChannelChannelRcs      MessageConsentChannelChannel = "rcs"
+	MessageConsentChannelChannelViber    MessageConsentChannelChannel = "viber"
+	MessageConsentChannelChannelVoice    MessageConsentChannelChannel = "voice"
+	MessageConsentChannelChannelEmail    MessageConsentChannelChannel = "email"
+)
+
+// MessageConsentChannelStatus: `opted_out` refuses every send on this channel
+// with `opted_out`, uncharged.
+//
+// MessageConsentChannelStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type MessageConsentChannelStatus string
+
+// Known values of MessageConsentChannelStatus.
+const (
+	MessageConsentChannelStatusOptedIn  MessageConsentChannelStatus = "opted_in"
+	MessageConsentChannelStatusOptedOut MessageConsentChannelStatus = "opted_out"
+)
+
+// MessageConsentChannelSource: Where the choice came from. `stop_reply` and
+// `start_reply`: the recipient's own STOP or START reply; an email bounce or
+// spam complaint reads `stop_reply`, and a completed Telegram opt-in link
+// `start_reply`. `bot_left`: the recipient blocked or left the sender on the
+// channel. `console`: a team member in the console. `api`: your API call
+// without a `source`. A `source` your API call sets, `reassigned` included, is
+// returned as you sent it; Didit never records `reassigned` itself.
+//
+// MessageConsentChannelSource is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type MessageConsentChannelSource string
+
+// Known values of MessageConsentChannelSource.
+const (
+	MessageConsentChannelSourceStopReply  MessageConsentChannelSource = "stop_reply"
+	MessageConsentChannelSourceStartReply MessageConsentChannelSource = "start_reply"
+	MessageConsentChannelSourceBotLeft    MessageConsentChannelSource = "bot_left"
+	MessageConsentChannelSourceAPI        MessageConsentChannelSource = "api"
+	MessageConsentChannelSourceConsole    MessageConsentChannelSource = "console"
+	MessageConsentChannelSourceReassigned MessageConsentChannelSource = "reassigned"
+)
+
+// MessageConsentUpdate is a request object.
+type MessageConsentUpdate struct {
+	// The channel the choice applies to. Required.
+	Channel MessageConsentUpdateChannel `json:"channel"`
+
+	// `opted_out` refuses sends on this channel; `opted_in` allows them again.
+	// Required.
+	Status MessageConsentUpdateStatus `json:"status"`
+
+	// Where the choice came from, returned as you send it; `api` when left out.
+	// `reassigned` is only a label you can record: Didit does not detect a change
+	// of owner.
+	Source Opt[MessageConsentUpdateSource] `json:"source"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessageConsentUpdate) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessageConsentUpdateChannel: The channel the choice applies to.
+//
+// MessageConsentUpdateChannel is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type MessageConsentUpdateChannel string
+
+// Known values of MessageConsentUpdateChannel.
+const (
+	MessageConsentUpdateChannelSMS      MessageConsentUpdateChannel = "sms"
+	MessageConsentUpdateChannelWhatsapp MessageConsentUpdateChannel = "whatsapp"
+	MessageConsentUpdateChannelTelegram MessageConsentUpdateChannel = "telegram"
+	MessageConsentUpdateChannelRcs      MessageConsentUpdateChannel = "rcs"
+	MessageConsentUpdateChannelViber    MessageConsentUpdateChannel = "viber"
+	MessageConsentUpdateChannelVoice    MessageConsentUpdateChannel = "voice"
+	MessageConsentUpdateChannelEmail    MessageConsentUpdateChannel = "email"
+)
+
+// MessageConsentUpdateStatus: `opted_out` refuses sends on this channel;
+// `opted_in` allows them again.
+//
+// MessageConsentUpdateStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type MessageConsentUpdateStatus string
+
+// Known values of MessageConsentUpdateStatus.
+const (
+	MessageConsentUpdateStatusOptedIn  MessageConsentUpdateStatus = "opted_in"
+	MessageConsentUpdateStatusOptedOut MessageConsentUpdateStatus = "opted_out"
+)
+
+// MessageConsentUpdateSource: Where the choice came from, returned as you send
+// it; `api` when left out. `reassigned` is only a label you can record: Didit
+// does not detect a change of owner.
+//
+// MessageConsentUpdateSource is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type MessageConsentUpdateSource string
+
+// Known values of MessageConsentUpdateSource.
+const (
+	MessageConsentUpdateSourceStopReply  MessageConsentUpdateSource = "stop_reply"
+	MessageConsentUpdateSourceStartReply MessageConsentUpdateSource = "start_reply"
+	MessageConsentUpdateSourceBotLeft    MessageConsentUpdateSource = "bot_left"
+	MessageConsentUpdateSourceAPI        MessageConsentUpdateSource = "api"
+	MessageConsentUpdateSourceConsole    MessageConsentUpdateSource = "console"
+	MessageConsentUpdateSourceReassigned MessageConsentUpdateSource = "reassigned"
+)
+
+// MessageConsentChannels is a response object.
+type MessageConsentChannels struct {
+	// The recipient's consent per channel, as the retrieve call returns it.
+	Channels []MessageConsentChannel `json:"channels"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageConsentChannels leniently.
+func (r *MessageConsentChannels) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessagesConversationsListParams holds the parameters of
+// Client.Messages.Conversations.List.
+type MessagesConversationsListParams struct {
+	// `needs_reply`: the person wrote last and nobody answered yet. `closed`: a
+	// team member closed the thread.
+	Status Opt[MessagesConversationsListParamsStatus] `json:"-" query:"status"`
+
+	// A member's id, exactly as `assignee` shows it on a conversation: only the
+	// conversations assigned to that member are listed. The value is compared as it
+	// is; this operation takes your application's credential, which has no member
+	// behind it.
+	Assignee Opt[string] `json:"-" query:"assignee"`
+	Limit    Opt[int64]  `json:"-" query:"limit"`
+	Offset   Opt[int64]  `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessagesConversationsListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessagesConversationsListParamsStatus is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type MessagesConversationsListParamsStatus string
+
+// Known values of MessagesConversationsListParamsStatus.
+const (
+	MessagesConversationsListParamsStatusOpen       MessagesConversationsListParamsStatus = "open"
+	MessagesConversationsListParamsStatusNeedsReply MessagesConversationsListParamsStatus = "needs_reply"
+	MessagesConversationsListParamsStatusClosed     MessagesConversationsListParamsStatus = "closed"
+)
+
+// MessageConversation: One conversation: every message exchanged with one
+// person, on every channel.
+type MessageConversation struct {
+	// The conversation.
+	ConversationID string `json:"conversation_id"`
+
+	// The member who owns the conversation, or `null` when nobody does.
+	Assignee string `json:"assignee"`
+
+	// Inbound messages that arrived after the conversation was last read (with
+	// `read_up_to`). It belongs to the conversation, not to a member.
+	UnreadCount int64 `json:"unread_count"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageConversation leniently.
+func (r *MessageConversation) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessageConversationUpdate: The fields to change; one left out keeps its
+// value.
+type MessageConversationUpdate struct {
+	// The member who owns the conversation, or `null` to unassign it.
+	Assignee Opt[string] `json:"assignee"`
+
+	// `closed` takes the thread out of the open list and keeps its messages
+	// readable; `open` puts it back.
+	Status Opt[MessageConversationUpdateStatus] `json:"status"`
+
+	// The id of a message in the conversation: the conversation is read up to it,
+	// and only later inbound messages count in `unread_count`.
+	ReadUpTo Opt[string] `json:"read_up_to"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessageConversationUpdate) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessageConversationUpdateStatus: `closed` takes the thread out of the open
+// list and keeps its messages readable; `open` puts it back.
+//
+// MessageConversationUpdateStatus is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type MessageConversationUpdateStatus string
+
+// Known values of MessageConversationUpdateStatus.
+const (
+	MessageConversationUpdateStatusOpen   MessageConversationUpdateStatus = "open"
+	MessageConversationUpdateStatusClosed MessageConversationUpdateStatus = "closed"
+)
+
+// MessageConversationWebhookCreate is a request object.
+type MessageConversationWebhookCreate struct {
+	// A public HTTPS URL of your own that receives this conversation's events.
+	// Replace the placeholder in the examples with it: a URL that is not HTTPS, or
+	// that points to a loopback, private or internal address, answers `400
+	// invalid_url`. Required.
+	URL string `json:"url"`
+
+	// The events to deliver; left out, all three.
+	Events Opt[[]MessageConversationWebhookCreateEvents] `json:"events"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessageConversationWebhookCreate) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessageConversationWebhookCreateEvents is a string with known values below.
+// The set is open: other values may appear and never cause an error.
+type MessageConversationWebhookCreateEvents string
+
+// Known values of MessageConversationWebhookCreateEvents.
+const (
+	MessageConversationWebhookCreateEventsMessageReceived       MessageConversationWebhookCreateEvents = "message.received"
+	MessageConversationWebhookCreateEventsMessageStatusUpdated  MessageConversationWebhookCreateEvents = "message.status.updated"
+	MessageConversationWebhookCreateEventsContactConsentUpdated MessageConversationWebhookCreateEvents = "contact.consent.updated"
+)
+
+// MessageConversationWebhook is a response object.
+type MessageConversationWebhook struct {
+	// The subscription; remove it with the delete call.
+	WebhookID string `json:"webhook_id"`
+
+	// The signing secret for this subscription's deliveries, shown only in this
+	// answer.
+	Secret string `json:"secret"`
+
+	// The events this subscription delivers.
+	Events []MessageConversationWebhookEvents `json:"events"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageConversationWebhook leniently.
+func (r *MessageConversationWebhook) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessageConversationWebhookEvents is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type MessageConversationWebhookEvents string
+
+// Known values of MessageConversationWebhookEvents.
+const (
+	MessageConversationWebhookEventsMessageReceived       MessageConversationWebhookEvents = "message.received"
+	MessageConversationWebhookEventsMessageStatusUpdated  MessageConversationWebhookEvents = "message.status.updated"
+	MessageConversationWebhookEventsContactConsentUpdated MessageConversationWebhookEvents = "contact.consent.updated"
+)
+
 // MessagesRulesCreateParams holds the parameters of
 // Client.Messages.Rules.Create.
 type MessagesRulesCreateParams struct {
@@ -821,3 +1402,247 @@ type MessagesRulesCreateResponse struct {
 func (r *MessagesRulesCreateResponse) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// MessagesTemplatesListParams holds the parameters of
+// Client.Messages.Templates.List.
+type MessagesTemplatesListParams struct {
+	// The state of WhatsApp's review of the whole template, not of one of its
+	// texts: the most serious state any of its WhatsApp texts carries, in this
+	// order: rejected, disabled, paused, pending (`in_review` here), draft. A
+	// template with a WhatsApp text that none of them applies to is `approved`.
+	// `no_review` selects the templates with no WhatsApp text, so nothing is
+	// reviewed. A template whose state is `disabled` has no filter value of its
+	// own, and `status=disabled` answers `400`.
+	Status Opt[MessagesTemplatesListParamsStatus] `json:"-" query:"status"`
+
+	// Only the templates with a text on this channel. With `locale`, both must
+	// match the same text: `channel=sms&locale=es` does not select a template whose
+	// SMS text is English and whose Spanish text is on WhatsApp. A template holds
+	// SMS, WhatsApp and email texts, so `telegram` matches no template.
+	Channel Opt[MessagesTemplatesListParamsChannel] `json:"-" query:"channel"`
+
+	// Only the templates with a text in this BCP-47 language tag, for example `es`
+	// or `pt-BR`. With `channel`, both must match the same text.
+	Locale Opt[string] `json:"-" query:"locale"`
+	Limit  Opt[int64]  `json:"-" query:"limit"`
+	Offset Opt[int64]  `json:"-" query:"offset"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessagesTemplatesListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessagesTemplatesListParamsStatus is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type MessagesTemplatesListParamsStatus string
+
+// Known values of MessagesTemplatesListParamsStatus.
+const (
+	MessagesTemplatesListParamsStatusApproved MessagesTemplatesListParamsStatus = "approved"
+	MessagesTemplatesListParamsStatusInReview MessagesTemplatesListParamsStatus = "in_review"
+	MessagesTemplatesListParamsStatusRejected MessagesTemplatesListParamsStatus = "rejected"
+	MessagesTemplatesListParamsStatusPaused   MessagesTemplatesListParamsStatus = "paused"
+	MessagesTemplatesListParamsStatusDraft    MessagesTemplatesListParamsStatus = "draft"
+	MessagesTemplatesListParamsStatusNoReview MessagesTemplatesListParamsStatus = "no_review"
+)
+
+// MessagesTemplatesListParamsChannel is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type MessagesTemplatesListParamsChannel string
+
+// Known values of MessagesTemplatesListParamsChannel.
+const (
+	MessagesTemplatesListParamsChannelSMS      MessagesTemplatesListParamsChannel = "sms"
+	MessagesTemplatesListParamsChannelWhatsapp MessagesTemplatesListParamsChannel = "whatsapp"
+	MessagesTemplatesListParamsChannelTelegram MessagesTemplatesListParamsChannel = "telegram"
+	MessagesTemplatesListParamsChannelEmail    MessagesTemplatesListParamsChannel = "email"
+)
+
+// MessageTemplate: A message you write once and send in several channels and
+// languages, with variables you name.
+type MessageTemplate struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+
+	// The channels the template has a text for: SMS, WhatsApp or email.
+	Channels []MessageTemplateChannels `json:"channels"`
+
+	// The languages the template has texts in.
+	Languages []string `json:"languages"`
+
+	// Every variable any text uses.
+	Variables []string `json:"variables"`
+
+	// Examples are optional for variables used only in SMS or email. WhatsApp
+	// requires an example for each variable in a WhatsApp text except `app_name`.
+	// Each example must name a variable used by at least one text. A template can
+	// hold up to 500 examples. Each text can use up to 50 distinct variables plus
+	// `app_name`. Didit fills `app_name` with your application's name by default.
+	// If you supply it when sending, it counts toward the limit of 50 values per
+	// send.
+	VariableExamples map[string]string       `json:"variable_examples"`
+	Whatsapp         MessageTemplateWhatsApp `json:"whatsapp"`
+
+	// Goes up by one with every change.
+	Version   int64                    `json:"version"`
+	Contents  []MessageTemplateContent `json:"contents"`
+	CreatedAt time.Time                `json:"created_at"`
+	UpdatedAt time.Time                `json:"updated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageTemplate leniently.
+func (r *MessageTemplate) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessageTemplateChannels is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type MessageTemplateChannels string
+
+// Known values of MessageTemplateChannels.
+const (
+	MessageTemplateChannelsSMS      MessageTemplateChannels = "sms"
+	MessageTemplateChannelsWhatsapp MessageTemplateChannels = "whatsapp"
+	MessageTemplateChannelsEmail    MessageTemplateChannels = "email"
+)
+
+// MessageTemplateWhatsApp: WhatsApp's review of a WhatsApp text; `null` when
+// there is no WhatsApp text (a text of any other channel, or a template with
+// none). Only an `approved` text can be sent on WhatsApp.
+type MessageTemplateWhatsApp struct {
+	// `draft`: not submitted yet. `pending`: in review. `approved`: can be sent.
+	// `rejected`, `paused` and `disabled`: WhatsApp refused or stopped it; the
+	// `reason` says why.
+	Status MessageTemplateWhatsAppStatus `json:"status"`
+
+	// Why a text was refused or could not be submitted; empty otherwise.
+	Reason string `json:"reason"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageTemplateWhatsApp leniently.
+func (r *MessageTemplateWhatsApp) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessageTemplateWhatsAppStatus: `draft`: not submitted yet. `pending`: in
+// review. `approved`: can be sent. `rejected`, `paused` and `disabled`:
+// WhatsApp refused or stopped it; the `reason` says why.
+//
+// MessageTemplateWhatsAppStatus is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type MessageTemplateWhatsAppStatus string
+
+// Known values of MessageTemplateWhatsAppStatus.
+const (
+	MessageTemplateWhatsAppStatusDraft    MessageTemplateWhatsAppStatus = "draft"
+	MessageTemplateWhatsAppStatusPending  MessageTemplateWhatsAppStatus = "pending"
+	MessageTemplateWhatsAppStatusApproved MessageTemplateWhatsAppStatus = "approved"
+	MessageTemplateWhatsAppStatusRejected MessageTemplateWhatsAppStatus = "rejected"
+	MessageTemplateWhatsAppStatusPaused   MessageTemplateWhatsAppStatus = "paused"
+	MessageTemplateWhatsAppStatusDisabled MessageTemplateWhatsAppStatus = "disabled"
+)
+
+// MessageTemplateContent is a response object.
+type MessageTemplateContent struct {
+	Channel  MessageTemplateContentChannel `json:"channel"`
+	Language string                        `json:"language"`
+
+	// Email only.
+	Subject   string                  `json:"subject"`
+	Body      string                  `json:"body"`
+	Whatsapp  MessageTemplateWhatsApp `json:"whatsapp"`
+	UpdatedAt time.Time               `json:"updated_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageTemplateContent leniently.
+func (r *MessageTemplateContent) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessageTemplateContentChannel is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type MessageTemplateContentChannel string
+
+// Known values of MessageTemplateContentChannel.
+const (
+	MessageTemplateContentChannelSMS      MessageTemplateContentChannel = "sms"
+	MessageTemplateContentChannelWhatsapp MessageTemplateContentChannel = "whatsapp"
+	MessageTemplateContentChannelEmail    MessageTemplateContentChannel = "email"
+)
+
+// UpdateMessageTemplateRequest: Send the fields you want to update. Supplying
+// `contents` replaces all texts, and supplying `variable_examples` replaces all
+// examples. If you replace `contents` and omit `variable_examples`, Didit keeps
+// stored examples for variables still used in any text and removes the rest.
+type UpdateMessageTemplateRequest struct {
+	Name        Opt[string] `json:"name"`
+	Description Opt[string] `json:"description"`
+
+	// Examples are optional for variables used only in SMS or email. WhatsApp
+	// requires an example for each variable in a WhatsApp text except `app_name`.
+	// Each example must name a variable used by at least one text. A template can
+	// hold up to 500 examples. Each text can use up to 50 distinct variables plus
+	// `app_name`. Didit fills `app_name` with your application's name by default.
+	// If you supply it when sending, it counts toward the limit of 50 values per
+	// send.
+	VariableExamples Opt[map[string]string] `json:"variable_examples"`
+
+	// Every text the template should have: one per channel and language. Texts you
+	// leave out are removed.
+	Contents Opt[[]MessageTemplateContentInput] `json:"contents"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r UpdateMessageTemplateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessageTemplateContentInput: One text of a template, for one channel and one
+// language.
+type MessageTemplateContentInput struct {
+	// Required.
+	Channel MessageTemplateContentInputChannel `json:"channel"`
+
+	// Two or three lowercase letters, optionally a hyphen and two to four letters:
+	// `en`, `pt-BR`, `zh-Hant`. A region is stored in its usual spelling, so
+	// `pt-br` is `pt-BR`. Required.
+	Language string `json:"language"`
+
+	// Email only: the subject line. It may use the same `{{variables}}`.
+	Subject Opt[string] `json:"subject"`
+
+	// The text. Write `{{variables}}` with names you choose (letters, digits and
+	// `_`). At most 1,000 characters on SMS, 4,096 on WhatsApp, and 10,000 on
+	// email. Required.
+	Body string `json:"body"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessageTemplateContentInput) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessageTemplateContentInputChannel is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type MessageTemplateContentInputChannel string
+
+// Known values of MessageTemplateContentInputChannel.
+const (
+	MessageTemplateContentInputChannelSMS      MessageTemplateContentInputChannel = "sms"
+	MessageTemplateContentInputChannelWhatsapp MessageTemplateContentInputChannel = "whatsapp"
+	MessageTemplateContentInputChannelEmail    MessageTemplateContentInputChannel = "email"
+)

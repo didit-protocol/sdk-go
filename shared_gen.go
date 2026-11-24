@@ -2751,6 +2751,8 @@ const (
 	WebhookEventBankSyncFailed                    WebhookEvent = "bank.sync.failed"
 	WebhookEventBankSyncRecovered                 WebhookEvent = "bank.sync.recovered"
 	WebhookEventMessageStatusUpdated              WebhookEvent = "message.status.updated"
+	WebhookEventMessageReceived                   WebhookEvent = "message.received"
+	WebhookEventContactConsentUpdated             WebhookEvent = "contact.consent.updated"
 )
 
 // TravelRuleUtxo: The inputs and outputs of a UTXO transfer (BTC, LTC, BCH,
