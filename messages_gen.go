@@ -150,9 +150,31 @@ func (r *MessagesService) RetrieveSettings(ctx context.Context, opts ...option.R
 // and no price.
 //
 // **Statuses** reach your webhook destinations subscribed to
-// `message.status.updated`; a reply from the person reaches `message.received`
-// (WhatsApp and Telegram) and a change of their consent
-// `contact.consent.updated`.
+// `message.status.updated`.
+//
+// **Replies on Didit's shared WhatsApp number.** Many organizations send from
+// this number, so a reply reaches an organization only when the person replies
+// to (quotes) that organization's message. An unquoted reply reaches no
+// organization and gets no automatic answer; for two-way conversations, connect
+// your own WhatsApp number. The one exception is an unquoted STOP, which is
+// also recorded in the thread of the organization that wrote to the person
+// last, so that organization sees the opt-out; an unquoted START is recorded in
+// no organization's thread. STOP and START always apply, quoted or not: a
+// recipient who replies STOP to the shared number is opted out of the messages
+// that go out from it for every organization that sends from it, not only the
+// one whose message they answered. The WhatsApp attempt to them is skipped with
+// the error `opted_out`: the next channel in `channels` takes the message when
+// it can (the request still succeeds, and the skipped attempt shows `opted_out`
+// in `attempts`), and a request with no channel left is refused. A reply of
+// START to Didit's shared number lifts the shared-number opt-out; when the
+// START quotes (replies to) an organization's message it also lifts that
+// organization's own opt-out, and an unquoted START lifts no organization's own
+// opt-out. So after an unquoted START an organization's own opt-out can still
+// answer `opted_out`; only the shared-number opt-out ever applies to every
+// organization. A WhatsApp number you connect yourself keeps consent per
+// organization: a STOP to it only affects your own sends; a reply from the
+// person reaches `message.received` (WhatsApp and Telegram) and a change of
+// their consent `contact.consent.updated`.
 //
 // **Billing.** SMS: the carrier's price plus Didit's fee, per segment. WhatsApp
 // from Didit's number: WhatsApp's rate for the market plus Didit's fee; from
@@ -716,16 +738,20 @@ type MessageError struct {
 	// `invalid_recipient`: the address is not valid for the channel, or the number
 	// has no account on it. `unreachable`: the carrier could not reach the device.
 	// `rejected`: the carrier or platform refused the message. `opted_out`: the
-	// recipient opted out of the channel. `expired`: `expires_at` passed before it
-	// could go out. `template_required`: WhatsApp only delivers an approved
-	// WhatsApp template. `channel_unavailable`: the channel is switched off, not
-	// configured, not in your contract or locked until a paid plan or your first
-	// top-up. `insufficient_credits`: the balance does not cover it.
-	// `rate_limited`: throttled and retries ran out. `delivery_unconfirmed`: the
-	// outcome is unknown and it is not sent again automatically. `cancelled`:
-	// cancelled before its time. `template_channel_missing`,
-	// `template_variable_missing`, `empty_body`, `body_too_long`: the content
-	// cannot go out on this channel. `unknown`: any other failure.
+	// recipient opted out of the channel. On Didit's shared WhatsApp number two
+	// opt-outs can apply: a STOP to the shared number blocks it for every
+	// organization that sends from it, while an organization's own opt-out blocks
+	// only that organization. The code alone does not say which one blocked the
+	// attempt. `expired`: `expires_at` passed before it could go out.
+	// `template_required`: WhatsApp only delivers an approved WhatsApp template.
+	// `channel_unavailable`: the channel is switched off, not configured, not in
+	// your contract or locked until a paid plan or your first top-up.
+	// `insufficient_credits`: the balance does not cover it. `rate_limited`:
+	// throttled and retries ran out. `delivery_unconfirmed`: the outcome is unknown
+	// and it is not sent again automatically. `cancelled`: cancelled before its
+	// time. `template_channel_missing`, `template_variable_missing`, `empty_body`,
+	// `body_too_long`: the content cannot go out on this channel. `unknown`: any
+	// other failure.
 	Code    MessageErrorCode `json:"code"`
 	Message string           `json:"message"`
 
@@ -742,15 +768,18 @@ func (r *MessageError) UnmarshalJSON(data []byte) error {
 // MessageErrorCode: `invalid_recipient`: the address is not valid for the
 // channel, or the number has no account on it. `unreachable`: the carrier could
 // not reach the device. `rejected`: the carrier or platform refused the
-// message. `opted_out`: the recipient opted out of the channel. `expired`:
-// `expires_at` passed before it could go out. `template_required`: WhatsApp
-// only delivers an approved WhatsApp template. `channel_unavailable`: the
-// channel is switched off, not configured, not in your contract or locked until
-// a paid plan or your first top-up. `insufficient_credits`: the balance does
-// not cover it. `rate_limited`: throttled and retries ran out.
-// `delivery_unconfirmed`: the outcome is unknown and it is not sent again
-// automatically. `cancelled`: cancelled before its time.
-// `template_channel_missing`, `template_variable_missing`, `empty_body`,
+// message. `opted_out`: the recipient opted out of the channel. On Didit's
+// shared WhatsApp number two opt-outs can apply: a STOP to the shared number
+// blocks it for every organization that sends from it, while an organization's
+// own opt-out blocks only that organization. The code alone does not say which
+// one blocked the attempt. `expired`: `expires_at` passed before it could go
+// out. `template_required`: WhatsApp only delivers an approved WhatsApp
+// template. `channel_unavailable`: the channel is switched off, not configured,
+// not in your contract or locked until a paid plan or your first top-up.
+// `insufficient_credits`: the balance does not cover it. `rate_limited`:
+// throttled and retries ran out. `delivery_unconfirmed`: the outcome is unknown
+// and it is not sent again automatically. `cancelled`: cancelled before its
+// time. `template_channel_missing`, `template_variable_missing`, `empty_body`,
 // `body_too_long`: the content cannot go out on this channel. `unknown`: any
 // other failure.
 //
