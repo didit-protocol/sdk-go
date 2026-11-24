@@ -1392,12 +1392,15 @@ type BankLinkCreateRequestSandbox struct {
 	// `business_multi` (three accounts held by a company), `long_history` (one
 	// account with 400 days and 1,400 movements; a read returns the last 365 days,
 	// so set `history_days` to 365), `pending` (includes pending transactions),
-	// `sparse_fields` (no value date, no counterparty IBAN, no bank reference) or
+	// `sparse_fields` (no value date, no counterparty IBAN, no bank reference),
 	// `no_ongoing` (a bank that only allows one-time access: use
-	// `allow_one_time_fallback`). `requires_email`: the Test Bank behaves as a bank
-	// that needs the person's email, so the link asks for an email address and a
-	// code before the bank. In sandbox no email is sent and the code is always
-	// `123456`; ignored for live applications.
+	// `allow_one_time_fallback`) or `multi_currency` (one multi-currency account
+	// that the bank lists as an EUR and a USD account on the same IBAN; a link that
+	// selects both stores both, and they share one `account_ref` and differ by `id`
+	// and `currency`). `requires_email`: the Test Bank behaves as a bank that needs
+	// the person's email, so the link asks for an email address and a code before
+	// the bank. In sandbox no email is sent and the code is always `123456`;
+	// ignored for live applications.
 	Persona Opt[BankLinkCreateRequestSandboxPersona] `json:"persona"`
 
 	// Accepted and reserved for the sandbox simulator: the values change nothing
@@ -1415,11 +1418,14 @@ func (r BankLinkCreateRequestSandbox) MarshalJSON() ([]byte, error) {
 // a company), `long_history` (one account with 400 days and 1,400 movements; a
 // read returns the last 365 days, so set `history_days` to 365), `pending`
 // (includes pending transactions), `sparse_fields` (no value date, no
-// counterparty IBAN, no bank reference) or `no_ongoing` (a bank that only
-// allows one-time access: use `allow_one_time_fallback`). `requires_email`: the
-// Test Bank behaves as a bank that needs the person's email, so the link asks
-// for an email address and a code before the bank. In sandbox no email is sent
-// and the code is always `123456`; ignored for live applications.
+// counterparty IBAN, no bank reference), `no_ongoing` (a bank that only allows
+// one-time access: use `allow_one_time_fallback`) or `multi_currency` (one
+// multi-currency account that the bank lists as an EUR and a USD account on the
+// same IBAN; a link that selects both stores both, and they share one
+// `account_ref` and differ by `id` and `currency`). `requires_email`: the Test
+// Bank behaves as a bank that needs the person's email, so the link asks for an
+// email address and a code before the bank. In sandbox no email is sent and the
+// code is always `123456`; ignored for live applications.
 //
 // BankLinkCreateRequestSandboxPersona is a string with known values below. The
 // set is open: other values may appear and never cause an error.
@@ -1433,6 +1439,7 @@ const (
 	BankLinkCreateRequestSandboxPersonaPending       BankLinkCreateRequestSandboxPersona = "pending"
 	BankLinkCreateRequestSandboxPersonaSparseFields  BankLinkCreateRequestSandboxPersona = "sparse_fields"
 	BankLinkCreateRequestSandboxPersonaNoOngoing     BankLinkCreateRequestSandboxPersona = "no_ongoing"
+	BankLinkCreateRequestSandboxPersonaMultiCurrency BankLinkCreateRequestSandboxPersona = "multi_currency"
 	BankLinkCreateRequestSandboxPersonaRequiresEmail BankLinkCreateRequestSandboxPersona = "requires_email"
 )
 
@@ -3442,8 +3449,10 @@ type BankLinkSimulateRequest struct {
 	// The Test Bank customer who signs in: `personal_basic` (one current account),
 	// `business_multi` (several business accounts), `long_history` (a long
 	// transaction history), `pending` (pending rows), `sparse_fields` (transactions
-	// with fields missing, one automatic sync a day) or `no_ongoing` (a bank that
-	// cannot keep access open).
+	// with fields missing, one automatic sync a day), `no_ongoing` (a bank that
+	// cannot keep access open) or `multi_currency` (an EUR and a USD account on one
+	// IBAN; the connection keeps both, with one `account_ref` and a different `id`
+	// and `currency` each).
 	Persona Opt[BankLinkSimulateRequestPersona] `json:"persona"`
 
 	// How the link ends.
@@ -3463,7 +3472,9 @@ func (r BankLinkSimulateRequest) MarshalJSON() ([]byte, error) {
 // `personal_basic` (one current account), `business_multi` (several business
 // accounts), `long_history` (a long transaction history), `pending` (pending
 // rows), `sparse_fields` (transactions with fields missing, one automatic sync
-// a day) or `no_ongoing` (a bank that cannot keep access open).
+// a day), `no_ongoing` (a bank that cannot keep access open) or
+// `multi_currency` (an EUR and a USD account on one IBAN; the connection keeps
+// both, with one `account_ref` and a different `id` and `currency` each).
 //
 // BankLinkSimulateRequestPersona is a string with known values below. The set
 // is open: other values may appear and never cause an error.
@@ -3477,6 +3488,7 @@ const (
 	BankLinkSimulateRequestPersonaPending       BankLinkSimulateRequestPersona = "pending"
 	BankLinkSimulateRequestPersonaSparseFields  BankLinkSimulateRequestPersona = "sparse_fields"
 	BankLinkSimulateRequestPersonaNoOngoing     BankLinkSimulateRequestPersona = "no_ongoing"
+	BankLinkSimulateRequestPersonaMultiCurrency BankLinkSimulateRequestPersona = "multi_currency"
 )
 
 // BankLinkSimulateRequestOutcome: How the link ends.
