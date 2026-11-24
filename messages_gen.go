@@ -14,6 +14,8 @@ import (
 // Client.Messages.
 type MessagesService struct {
 	client *Client
+
+	Rules *MessagesRulesService
 }
 
 // Cancel: Cancel a scheduled message.
@@ -195,6 +197,30 @@ func (r *MessagesService) Send(ctx context.Context, params MessagesSendParams, o
 func (r *MessagesService) UpdateSettings(ctx context.Context, params MessagesSettingsParam, opts ...option.RequestOption) (*MessagesSettings, error) {
 	res := new(MessagesSettings)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPatch, path: "/v3/messages/settings/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// MessagesRulesService holds the messages rules operations. Use it through
+// Client.Messages.Rules.
+type MessagesRulesService struct {
+	client *Client
+}
+
+// Create: Create a messaging rule.
+//
+// Add a messaging rule that allows or blocks by country, prefix or number. Send
+// exactly one of `match.country` (an ISO country code), `match.prefix` or
+// `match.number`; `direction` is `outbound` (the default) or `inbound`, and
+// `channels` limits the rule to the channels it names.
+//
+// **Authentication.** Send your application's API key in `x-api-key`.
+//
+//	POST /v3/messages/rules/
+func (r *MessagesRulesService) Create(ctx context.Context, params MessagesRulesCreateParams, opts ...option.RequestOption) (*MessagesRulesCreateResponse, error) {
+	res := new(MessagesRulesCreateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/messages/rules/", params: params, body: bodyJSON}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -733,4 +759,65 @@ type MessagesSettingsParam struct {
 // MarshalJSON encodes the fields that are set.
 func (r MessagesSettingsParam) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
+}
+
+// MessagesRulesCreateParams holds the parameters of
+// Client.Messages.Rules.Create.
+type MessagesRulesCreateParams struct {
+	// allow or block Required.
+	Action MessagesRulesCreateParamsAction `json:"action"`
+
+	// outbound (default) or inbound
+	Direction Opt[MessagesRulesCreateParamsDirection] `json:"direction"`
+
+	// Exactly one of `country`, `prefix` or `number`. Required.
+	Match any `json:"match"`
+
+	// The channels it covers, for example `sms`, `whatsapp` or `voice`; all
+	// channels when you send none
+	Channels Opt[[]string] `json:"channels"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessagesRulesCreateParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessagesRulesCreateParamsAction: allow or block
+//
+// MessagesRulesCreateParamsAction is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type MessagesRulesCreateParamsAction string
+
+// Known values of MessagesRulesCreateParamsAction.
+const (
+	MessagesRulesCreateParamsActionAllow MessagesRulesCreateParamsAction = "allow"
+	MessagesRulesCreateParamsActionBlock MessagesRulesCreateParamsAction = "block"
+)
+
+// MessagesRulesCreateParamsDirection: outbound (default) or inbound
+//
+// MessagesRulesCreateParamsDirection is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type MessagesRulesCreateParamsDirection string
+
+// Known values of MessagesRulesCreateParamsDirection.
+const (
+	MessagesRulesCreateParamsDirectionOutbound MessagesRulesCreateParamsDirection = "outbound"
+	MessagesRulesCreateParamsDirectionInbound  MessagesRulesCreateParamsDirection = "inbound"
+)
+
+// MessagesRulesCreateResponse is a response object.
+type MessagesRulesCreateResponse struct {
+	// The rule
+	RuleID string `json:"rule_id"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessagesRulesCreateResponse leniently.
+func (r *MessagesRulesCreateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
 }

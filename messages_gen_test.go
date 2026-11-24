@@ -128,3 +128,18 @@ func TestMessagesUpdateSettings(t *testing.T) {
 	req.expectJSON(t, `{"retention_days":7}`)
 	expectFields(t, res.JSON, []string{"retention_days"})
 }
+
+func TestMessagesRulesCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"rule_id":"5b1e7a90-2c43-4d68-8f15-0a9c3e6d7b22"}`)
+	var params didit.MessagesRulesCreateParams
+	mustUnmarshal(t, `{"action":"block","direction":"outbound","match":{"prefix":"+88216"},"channels":["sms"]}`, &params)
+	res, err := client.Messages.Rules.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/messages/rules/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"action":"block","direction":"outbound","match":{"prefix":"+88216"},"channels":["sms"]}`)
+	expectFields(t, res.JSON, []string{"rule_id"})
+}
