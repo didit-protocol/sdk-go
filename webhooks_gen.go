@@ -18,6 +18,40 @@ type WebhooksService struct {
 	Destinations *WebhooksDestinationsService
 }
 
+// Create: Add a webhook endpoint.
+//
+// Create a webhook endpoint: an HTTPS endpoint that receives the events in
+// `events`. Send the event types to deliver, or `["*"]` for every event Didit
+// lists: `*` is expanded when the endpoint is created and the answer lists the
+// event names it now carries. An event Didit does not know answers `400
+// invalid_events`.
+//
+// The endpoint it creates is the destination the Business Console lists and
+// `GET /v3/webhook/destinations/` returns: `webhook_id` is that destination's
+// `destination_uuid`, `secret` is the same signing secret as
+// `secret_shared_key`, and `events` is its stored `subscribed_events`, changed
+// later through `PATCH /v3/webhook/destinations/{destination_uuid}/`.
+// `description` names it in the console; left out, it takes the host of `url`.
+// The `(application, url)` pair must be unique among the application's
+// destinations.
+//
+// Didit delivers events only to the HTTPS endpoint in `url`.
+//
+// **Errors.** `400 invalid_url`: `url` is not an HTTPS URL, or the application
+// already has an endpoint at it. `400 invalid_events`: an event in `events` is
+// not one Didit lists.
+//
+// A scoped API key needs `webhooks: write`.
+//
+//	POST /v3/webhooks/
+func (r *WebhooksService) Create(ctx context.Context, params WebhookCreateRequest, opts ...option.RequestOption) (*WebhookCreateResponse, error) {
+	res := new(WebhookCreateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/webhooks/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // RetrieveConfig: Get webhook configuration.
 //
 // Return the application's webhook settings in one call: every [webhook
@@ -279,6 +313,114 @@ func (r *WebhooksDestinationsService) Update(ctx context.Context, destinationUUI
 		return nil, err
 	}
 	return res, nil
+}
+
+// WebhookCreateRequest is a request object.
+type WebhookCreateRequest struct {
+	// HTTPS endpoint that receives `POST` requests, one per event. Must be unique
+	// among the application's destinations. Use a stable, hardened endpoint: Didit
+	// retries failed deliveries on a backoff schedule. Required.
+	URL string `json:"url"`
+
+	// Event types to deliver, or `["*"]` for every event Didit lists. `*` is
+	// expanded when the endpoint is created, and the answer lists every event it
+	// covers. A value Didit does not know answers `400 invalid_events`. Required.
+	Events []WebhookCreateRequestEvents `json:"events"`
+
+	// Its name in the console, so you can tell endpoints apart. Left out, it takes
+	// the host of `url`.
+	Description Opt[string] `json:"description"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r WebhookCreateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// WebhookCreateRequestEvents is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type WebhookCreateRequestEvents string
+
+// Known values of WebhookCreateRequestEvents.
+const (
+	WebhookCreateRequestEventsStatusUpdated                     WebhookCreateRequestEvents = "status.updated"
+	WebhookCreateRequestEventsDataUpdated                       WebhookCreateRequestEvents = "data.updated"
+	WebhookCreateRequestEventsUserStatusUpdated                 WebhookCreateRequestEvents = "user.status.updated"
+	WebhookCreateRequestEventsUserDataUpdated                   WebhookCreateRequestEvents = "user.data.updated"
+	WebhookCreateRequestEventsBusinessStatusUpdated             WebhookCreateRequestEvents = "business.status.updated"
+	WebhookCreateRequestEventsBusinessDataUpdated               WebhookCreateRequestEvents = "business.data.updated"
+	WebhookCreateRequestEventsActivityCreated                   WebhookCreateRequestEvents = "activity.created"
+	WebhookCreateRequestEventsTransactionCreated                WebhookCreateRequestEvents = "transaction.created"
+	WebhookCreateRequestEventsTransactionStatusUpdated          WebhookCreateRequestEvents = "transaction.status.updated"
+	WebhookCreateRequestEventsTravelRuleStatusUpdated           WebhookCreateRequestEvents = "travel_rule.status.updated"
+	WebhookCreateRequestEventsWorkflowComplianceChanged         WebhookCreateRequestEvents = "workflow.compliance_changed"
+	WebhookCreateRequestEventsTransactionRuleSuggestionsCreated WebhookCreateRequestEvents = "transaction_rule_suggestions.created"
+	WebhookCreateRequestEventsAuthSignup                        WebhookCreateRequestEvents = "auth.signup"
+	WebhookCreateRequestEventsAuthLogin                         WebhookCreateRequestEvents = "auth.login"
+	WebhookCreateRequestEventsAuthLoginFailed                   WebhookCreateRequestEvents = "auth.login_failed"
+	WebhookCreateRequestEventsAuthPasswordResetRequested        WebhookCreateRequestEvents = "auth.password_reset_requested"
+	WebhookCreateRequestEventsAuthPasswordResetCompleted        WebhookCreateRequestEvents = "auth.password_reset_completed"
+	WebhookCreateRequestEventsAuthMFAChanged                    WebhookCreateRequestEvents = "auth.mfa_changed"
+	WebhookCreateRequestEventsAuthNewDevice                     WebhookCreateRequestEvents = "auth.new_device"
+	WebhookCreateRequestEventsAuthAccountLocked                 WebhookCreateRequestEvents = "auth.account_locked"
+	WebhookCreateRequestEventsInvestigatorReportReady           WebhookCreateRequestEvents = "investigator.report.ready"
+	WebhookCreateRequestEventsInvestigatorDecisionAutomated     WebhookCreateRequestEvents = "investigator.decision.automated"
+	WebhookCreateRequestEventsInvestigatorDecisionOverridden    WebhookCreateRequestEvents = "investigator.decision.overridden"
+	WebhookCreateRequestEventsInvestigatorDecisionContested     WebhookCreateRequestEvents = "investigator.decision.contested"
+	WebhookCreateRequestEventsInvestigatorQuestionRaised        WebhookCreateRequestEvents = "investigator.question.raised"
+	WebhookCreateRequestEventsInvestigatorAutomationPaused      WebhookCreateRequestEvents = "investigator.automation.paused"
+	WebhookCreateRequestEventsInvestigatorRfiAnswered           WebhookCreateRequestEvents = "investigator.rfi.answered"
+	WebhookCreateRequestEventsInvestigatorRfiOverdue            WebhookCreateRequestEvents = "investigator.rfi.overdue"
+	WebhookCreateRequestEventsInvestigatorDriftDetected         WebhookCreateRequestEvents = "investigator.drift.detected"
+	WebhookCreateRequestEventsInvestigatorSLABreached           WebhookCreateRequestEvents = "investigator.sla.breached"
+	WebhookCreateRequestEventsInvestigatorQaFailed              WebhookCreateRequestEvents = "investigator.qa.failed"
+	WebhookCreateRequestEventsInvestigatorExternalReportReady   WebhookCreateRequestEvents = "investigator.external.report.ready"
+	WebhookCreateRequestEventsBankLinkCompleted                 WebhookCreateRequestEvents = "bank.link.completed"
+	WebhookCreateRequestEventsBankLinkCancelled                 WebhookCreateRequestEvents = "bank.link.cancelled"
+	WebhookCreateRequestEventsBankLinkExpired                   WebhookCreateRequestEvents = "bank.link.expired"
+	WebhookCreateRequestEventsBankLinkFailed                    WebhookCreateRequestEvents = "bank.link.failed"
+	WebhookCreateRequestEventsBankConnectionCreated             WebhookCreateRequestEvents = "bank.connection.created"
+	WebhookCreateRequestEventsBankConnectionUpdated             WebhookCreateRequestEvents = "bank.connection.updated"
+	WebhookCreateRequestEventsBankConnectionConsentExpiring     WebhookCreateRequestEvents = "bank.connection.consent_expiring"
+	WebhookCreateRequestEventsBankConnectionRenewalRequired     WebhookCreateRequestEvents = "bank.connection.renewal_required"
+	WebhookCreateRequestEventsBankConnectionRenewed             WebhookCreateRequestEvents = "bank.connection.renewed"
+	WebhookCreateRequestEventsBankConnectionRevoked             WebhookCreateRequestEvents = "bank.connection.revoked"
+	WebhookCreateRequestEventsBankConnectionDeleted             WebhookCreateRequestEvents = "bank.connection.deleted"
+	WebhookCreateRequestEventsBankConnectionHistoryComplete     WebhookCreateRequestEvents = "bank.connection.history_complete"
+	WebhookCreateRequestEventsBankDataUpdated                   WebhookCreateRequestEvents = "bank.data.updated"
+	WebhookCreateRequestEventsBankSyncCompleted                 WebhookCreateRequestEvents = "bank.sync.completed"
+	WebhookCreateRequestEventsBankSyncFailed                    WebhookCreateRequestEvents = "bank.sync.failed"
+	WebhookCreateRequestEventsBankSyncRecovered                 WebhookCreateRequestEvents = "bank.sync.recovered"
+	WebhookCreateRequestEventsMessageStatusUpdated              WebhookCreateRequestEvents = "message.status.updated"
+	WebhookCreateRequestEventsMessageReceived                   WebhookCreateRequestEvents = "message.received"
+	WebhookCreateRequestEventsContactConsentUpdated             WebhookCreateRequestEvents = "contact.consent.updated"
+	WebhookCreateRequestEventsEmpty                             WebhookCreateRequestEvents = "*"
+)
+
+// WebhookCreateResponse is a response object.
+type WebhookCreateResponse struct {
+	// The endpoint's id. It is the destination's `destination_uuid`: `GET
+	// /v3/webhook/destinations/{destination_uuid}/` reads the endpoint back, and
+	// `PATCH` and `DELETE` on that path change it.
+	WebhookID string `json:"webhook_id"`
+
+	// Use this HMAC signing secret to verify `X-Signature-V2` on deliveries.
+	// Authorized callers can retrieve it as `secret_shared_key` with `GET
+	// /v3/webhook/destinations/{destination_uuid}/`.
+	Secret string `json:"secret"`
+
+	// The events the endpoint now receives, with `*` already expanded to every
+	// event it covered when the endpoint was created.
+	Events []WebhookEvent `json:"events"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes WebhookCreateResponse leniently.
+func (r *WebhookCreateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
 }
 
 // WebhookConfig: Application-level webhook configuration, retention policy and

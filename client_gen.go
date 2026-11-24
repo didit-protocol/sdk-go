@@ -104,6 +104,7 @@ func (c *Client) init() {
 	c.Messages.Consent = &MessagesConsentService{client: c}
 	c.Messages.Conversations = &MessagesConversationsService{client: c}
 	c.Messages.Conversations.Webhooks = &MessagesConversationsWebhooksService{client: c}
+	c.Messages.Feedback = &MessagesFeedbackService{client: c}
 	c.Messages.Rules = &MessagesRulesService{client: c}
 	c.Messages.Templates = &MessagesTemplatesService{client: c}
 	c.MonitoringEvents = &MonitoringEventsService{client: c}
@@ -111,6 +112,7 @@ func (c *Client) init() {
 	c.Networks.Notes = &NetworksNotesService{client: c}
 	c.PassiveLiveness = &PassiveLivenessService{client: c}
 	c.Phone = &PhoneService{client: c}
+	c.Phone.Balance = &PhoneBalanceService{client: c}
 	c.Phone.Countries = &PhoneCountriesService{client: c}
 	c.Phone.Factors = &PhoneFactorsService{client: c}
 	c.Phone.Feedback = &PhoneFeedbackService{client: c}
@@ -125,11 +127,14 @@ func (c *Client) init() {
 	c.Phone.Network.Registrations.TestNumbers = &PhoneNetworkRegistrationsTestNumbersService{client: c}
 	c.Phone.RateLimits = &PhoneRateLimitsService{client: c}
 	c.Phone.RateLimits.Buckets = &PhoneRateLimitsBucketsService{client: c}
+	c.Phone.SandboxNumbers = &PhoneSandboxNumbersService{client: c}
 	c.Phone.SDKKeys = &PhoneSDKKeysService{client: c}
 	c.Phone.Settings = &PhoneSettingsService{client: c}
 	c.Phone.Silent = &PhoneSilentService{client: c}
 	c.Phone.Silent.Registrations = &PhoneSilentRegistrationsService{client: c}
+	c.Phone.Stats = &PhoneStatsService{client: c}
 	c.Phone.Verifications = &PhoneVerificationsService{client: c}
+	c.Phone.Voices = &PhoneVoicesService{client: c}
 	c.Pricing = &PricingService{client: c}
 	c.ProofOfAddress = &ProofOfAddressService{client: c}
 	c.Questionnaires = &QuestionnairesService{client: c}
