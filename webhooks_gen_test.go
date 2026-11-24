@@ -9,6 +9,21 @@ import (
 	"github.com/didit-protocol/sdk-go"
 )
 
+func TestWebhooksCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"webhook_id":"8f14e45f-ceea-467f-a8d4-6f2b1c9b0d11","secret":"sample-secret","events":["status.updated","message.status.updated"]}`)
+	var params didit.WebhookCreateRequest
+	mustUnmarshal(t, `{"url":"https://api.demo-app.example/didit/webhooks","events":["status.updated","message.status.updated"],"description":"Phone events"}`, &params)
+	res, err := client.Webhooks.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/webhooks/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"url":"https://api.demo-app.example/didit/webhooks","events":["status.updated","message.status.updated"],"description":"Phone events"}`)
+	expectFields(t, res.JSON, []string{"webhook_id", "secret", "events"})
+}
+
 func TestWebhooksRetrieveConfig(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"webhook_url":"https://yourapp.com/webhooks/didit","webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","capture_method":"MOBILE","data_retention_months":24,"face_retention_policy":"delete_with_session","face_retention_days":null,"biometric_consent_mode":"auto","available_events":[{"value":"status.updated","label":"Session status updated"},{"value":"data.updated","label":"Session data updated"},{"value":"user.status.updated","label":"User status updated"},{"value":"user.data.updated","label":"User data updated"},{"value":"business.status.updated","label":"Business status updated"},{"value":"business.data.updated","label":"Business data updated"},{"value":"activity.created","label":"Activity created"},{"value":"transaction.created","label":"Transaction created"},{"value":"transaction.status.updated","label":"Transaction status updated"},{"value":"travel_rule.status.updated","label":"Travel Rule Status Updated"},{"value":"workflow.compliance_changed","label":"Workflow Compliance Changed"}],"allowed_return_hosts":["shop.example.com"],"endpoints":[{"uuid":"11111111-2222-3333-4444-555555555555","label":"Production session webhooks","url":"https://yourapp.com/webhooks/didit","enabled":true,"webhook_version":"v3","secret_shared_key":"sample-secret-shared-key","subscribed_events":["status.updated","data.updated"],"created_at":"2026-01-04T08:00:00.000000Z","updated_at":"2026-04-22T14:09:11.523671Z"}]}`)
 	res, err := client.Webhooks.RetrieveConfig(context.Background())

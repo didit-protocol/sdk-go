@@ -14,6 +14,7 @@ import (
 type PhoneService struct {
 	client *Client
 
+	Balance           *PhoneBalanceService
 	Countries         *PhoneCountriesService
 	Factors           *PhoneFactorsService
 	Feedback          *PhoneFeedbackService
@@ -23,10 +24,13 @@ type PhoneService struct {
 	Lookups           *PhoneLookupsService
 	Network           *PhoneNetworkService
 	RateLimits        *PhoneRateLimitsService
+	SandboxNumbers    *PhoneSandboxNumbersService
 	SDKKeys           *PhoneSDKKeysService
 	Settings          *PhoneSettingsService
 	Silent            *PhoneSilentService
+	Stats             *PhoneStatsService
 	Verifications     *PhoneVerificationsService
+	Voices            *PhoneVoicesService
 }
 
 // AssessRisk: Risk-score a phone number.
@@ -157,10 +161,14 @@ func (r *PhoneService) AssessRiskBulk(ctx context.Context, params PhoneAssessRis
 // /v3/session/{sessionId}/decision/`) and fires a `status.updated` webhook.
 //
 // **Sandbox.** Sandbox API keys skip all processing and charge nothing;
-// malformed input still returns `400`. In a sandbox application, use the code
-// `123456` or the fixed code of a sandbox test number. Today the sandbox check
-// also approves any other well-formed code for a number that has no fixed code;
-// that is being tightened to the two codes above, so do not rely on it.
+// malformed input still returns `400`. A number you registered with `POST
+// /v3/phone/sandbox/numbers/` answers by its outcome: with `verified` or
+// `silent_fallback` it accepts the fixed code it was registered with (any
+// well-formed code when it has none), a wrong code answers `Failed` and the
+// last attempt `Declined`; `silent_match` answers `Approved`; `not_delivered`,
+// `blocked` and `silent_mismatch` answer `Declined`; `expired` answers `Expired
+// or Not Found`. For any other number, the code is `123456`, or the `code` your
+// send set; any other code answers `Failed`, and the last attempt `Declined`.
 //
 // **Authentication.** Send your application's API key in the `x-api-key`
 // header. A missing `x-api-key` header, or a key that is scoped and does not
@@ -315,7 +323,8 @@ func (r *PhoneService) RetrieveRiskBulk(ctx context.Context, jobID string, opts 
 // refused to send (see `reason`, e.g. `repeated_attempts`, `suspicious`,
 // `spam`). A `Blocked` send immediately finalizes the verification as
 // `Declined` with a high-risk warning, so a follow-up check returns `Expired or
-// Not Found`.
+// Not Found`. A sandbox test number registered as `blocked` is the exception:
+// its send answers `Blocked` and its check answers `Declined`.
 //
 // **Billing.** The price depends on the destination country and the channel
 // that actually delivers the message - see [Phone Verification
@@ -335,11 +344,12 @@ func (r *PhoneService) RetrieveRiskBulk(ctx context.Context, jobID string, opts 
 // the same validation, `on_conflict` handling, channel policy and refusals (an
 // unsupported destination included) and the same answer, with a
 // `verification_id` you can read, cancel or approve. Only the delivery is
-// simulated: no message is sent and nothing is charged. In a sandbox
-// application, use the code `123456` or the fixed code of a sandbox test
-// number. Today the sandbox check also approves any other well-formed code for
-// a number that has no fixed code; that is being tightened to the two codes
-// above, so do not rely on it.
+// simulated: no message is sent and nothing is charged. A number you registered
+// with `POST /v3/phone/sandbox/numbers/` plays the outcome it was registered
+// with: `blocked` answers `Blocked`, every other outcome answers `Success`, and
+// the outcomes that end the verification at send time (`not_delivered`,
+// `silent_match`, `silent_mismatch`) settle it. For any other number, check
+// with `123456`, or with the `code` your send set.
 //
 // **Authentication.** Send your application's API key in the `x-api-key`
 // header. A missing `x-api-key` header, or a key that is scoped and does not
@@ -354,6 +364,53 @@ func (r *PhoneService) RetrieveRiskBulk(ctx context.Context, jobID string, opts 
 func (r *PhoneService) SendCode(ctx context.Context, params PhoneSendCodeParams, opts ...option.RequestOption) (*PhoneVerificationSendResponse, error) {
 	res := new(PhoneVerificationSendResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/send/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Validate: Validate and format a phone number.
+//
+// Check that a number can exist and return it formatted, without looking
+// anything up: `valid`, `format.e164`, `format.national` and `country`. Send
+// the number in international format, or a national number with `country`.
+//
+// If the number parses but is invalid for its numbering plan, the response is
+// `200` with `valid: false` and both formats. Validation and formatting are
+// free: `charged` is always `false`.
+//
+// **Errors.** `400 invalid_phone_number`: not a number at all.
+//
+// A scoped API key needs `phone: write`.
+//
+//	POST /v3/phone/validate/
+func (r *PhoneService) Validate(ctx context.Context, params PhoneValidateRequest, opts ...option.RequestOption) (*PhoneValidateResponse, error) {
+	res := new(PhoneValidateResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/validate/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneBalanceService holds the phone balance operations. Use it through
+// Client.Phone.Balance.
+type PhoneBalanceService struct {
+	client *Client
+}
+
+// Retrieve: Read the balance and auto top-up.
+//
+// The account's Phone balance in USD, and the auto top-up that keeps it funded:
+// whether it is on, the amount added each time, and the balance that triggers
+// it. See [Phone pricing](/getting-started/phone-verification-pricing) for what
+// a code or a lookup costs.
+//
+// A scoped API key needs `phone: read`.
+//
+//	GET /v3/phone/balance/
+func (r *PhoneBalanceService) Retrieve(ctx context.Context, opts ...option.RequestOption) (*PhoneBalanceResponse, error) {
+	res := new(PhoneBalanceResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/balance/"}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -1198,6 +1255,38 @@ func (r *PhoneRateLimitsBucketsService) Delete(ctx context.Context, rateLimitID 
 	return err
 }
 
+// PhoneSandboxNumbersService holds the phone sandbox_numbers operations. Use it
+// through Client.Phone.SandboxNumbers.
+type PhoneSandboxNumbersService struct {
+	client *Client
+}
+
+// Create: Add your own test number, its code and outcome.
+//
+// Define a test number in the sandbox: what it answers when a code is sent to
+// it, and what it accepts. `outcome` plays the result: `verified`,
+// `not_delivered`, `blocked`, `expired`, `silent_match`, `silent_mismatch` or
+// `silent_fallback`. To set a fixed code for `/v3/phone/check/`, send `code` as
+// a string of 4 to 8 digits. An invalid format returns `400` at registration.
+//
+// A test number behaves this way in the sandbox only and is never billed. Set
+// `real_device` to `true` to identify your own handset.
+//
+// **Errors.** `403 sandbox_only`: the key belongs to a Live application, where
+// a test number could approve a real one for free. `409 number_exists`: this
+// number already has a test outcome.
+//
+// A scoped API key needs `phone: write`.
+//
+//	POST /v3/phone/sandbox/numbers/
+func (r *PhoneSandboxNumbersService) Create(ctx context.Context, params PhoneSandboxNumberRequest, opts ...option.RequestOption) (*PhoneSandboxNumberResponse, error) {
+	res := new(PhoneSandboxNumberResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/sandbox/numbers/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // PhoneSDKKeysService holds the phone sdk_keys operations. Use it through
 // Client.Phone.SDKKeys.
 type PhoneSDKKeysService struct {
@@ -1482,6 +1571,41 @@ func (r *PhoneSilentRegistrationsService) Retrieve(ctx context.Context, registra
 	return res, nil
 }
 
+// PhoneStatsService holds the phone stats operations. Use it through
+// Client.Phone.Stats.
+type PhoneStatsService struct {
+	client *Client
+}
+
+// Retrieve: Conversion, delivery time and spend, grouped.
+//
+// Read conversion, delivery times and spend in USD for the requested product
+// and date range. Each entry in `rows` identifies its group in `key`. Choose a
+// grouping supported by that product in `group_by`.
+//
+// For `verification`, read and reply rates are always `0`. For `messages`,
+// silent success and code-free share are always `0`. For `lookups`, only spend
+// applies, so all rates and delivery percentiles are `0`. A rate or percentile
+// a group has no events for is `0`, never `null`.
+//
+// **Errors.** `400 invalid_product`: not a product this endpoint groups. `400
+// invalid_group`: not a grouping this product supports. `400
+// stats_window_too_wide`: the range is longer than a year. `400` naming `to`:
+// `to` is a date no window can end on, such as `9999-12-31`, the last date
+// there is; the body is `{"to": ["to must be a date a window can end on, before
+// 9999-12-31."]}`.
+//
+// A scoped API key needs `phone: read`.
+//
+//	GET /v3/phone/stats/
+func (r *PhoneStatsService) Retrieve(ctx context.Context, params PhoneStatsRetrieveParams, opts ...option.RequestOption) (*PhoneStatsResponse, error) {
+	res := new(PhoneStatsResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/stats/", params: params}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // PhoneVerificationsService holds the phone verifications operations. Use it
 // through Client.Phone.Verifications.
 type PhoneVerificationsService struct {
@@ -1602,6 +1726,29 @@ func (r *PhoneVerificationsService) Retrieve(ctx context.Context, verificationID
 func (r *PhoneVerificationsService) Retry(ctx context.Context, verificationID string, params PhoneVerificationRetryRequest, opts ...option.RequestOption) (*PhoneVerificationRetryResponse, error) {
 	res := new(PhoneVerificationRetryResponse)
 	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/phone/verifications/{verification_id}/retry/", pathParams: []string{"verification_id", verificationID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PhoneVoicesService holds the phone voices operations. Use it through
+// Client.Phone.Voices.
+type PhoneVoicesService struct {
+	client *Client
+}
+
+// List: List the voices that read codes aloud, per language.
+//
+// List the voices that read verification codes aloud. Each locale has one
+// default voice. Every voice includes `sample_url`, which is currently `null`
+// because no recordings are published. No operation takes a `voice_id` yet.
+//
+// A scoped API key needs `phone: read`.
+//
+//	GET /v3/phone/voices/
+func (r *PhoneVoicesService) List(ctx context.Context, params PhoneVoicesListParams, opts ...option.RequestOption) (*PhoneVoiceListResponse, error) {
+	res := new(PhoneVoiceListResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/phone/voices/", params: params}, res, opts); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -2812,6 +2959,99 @@ type PhoneVerificationSendResponseFraudException string
 const (
 	PhoneVerificationSendResponseFraudExceptionTrustedUser PhoneVerificationSendResponseFraudException = "trusted_user"
 )
+
+// PhoneValidateRequest is a request object.
+type PhoneValidateRequest struct {
+	// The number in international format, or a national number with `country`.
+	// Required.
+	PhoneNumber string `json:"phone_number"`
+
+	// The ISO 3166-1 alpha-2 code of a national number.
+	Country Opt[string] `json:"country"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneValidateRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneValidateResponse is a response object.
+type PhoneValidateResponse struct {
+	// Whether the number can exist.
+	Valid  bool              `json:"valid"`
+	Format PhoneNumberFormat `json:"format"`
+
+	// The number's ISO 3166-1 alpha-2 country code, or `null` when no single
+	// country can be identified, as with an international freephone number.
+	Country string `json:"country"`
+
+	// Always `false`: validation and formatting are free.
+	Charged bool `json:"charged"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneValidateResponse leniently.
+func (r *PhoneValidateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneNumberFormat: The number in international and national form.
+type PhoneNumberFormat struct {
+	// International format.
+	E164 string `json:"e164"`
+
+	// National format.
+	National string `json:"national"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneNumberFormat leniently.
+func (r *PhoneNumberFormat) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneBalanceResponse is a response object.
+type PhoneBalanceResponse struct {
+	// The balance in USD.
+	Balance   string         `json:"balance"`
+	AutoTopUp PhoneAutoTopUp `json:"auto_top_up"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneBalanceResponse leniently.
+func (r *PhoneBalanceResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneAutoTopUp is a response object.
+type PhoneAutoTopUp struct {
+	// On or off.
+	Enabled bool `json:"enabled"`
+
+	// Added each time, in USD.
+	Amount string `json:"amount"`
+
+	// When the balance falls below, in USD.
+	Below string `json:"below"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneAutoTopUp leniently.
+func (r *PhoneAutoTopUp) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
 
 // PhoneCountriesUpdateRequest: Countries and routes to switch in bulk.
 type PhoneCountriesUpdateRequest struct {
@@ -5124,6 +5364,66 @@ func (r PhoneRateLimitsUpdateParamsBuckets) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
 
+// PhoneSandboxNumberRequest is a request object.
+type PhoneSandboxNumberRequest struct {
+	// A fictional number, or your own handset with `real_device`. Required.
+	PhoneNumber string `json:"phone_number"`
+
+	// What the number answers in the sandbox: a correct code, no delivery, a
+	// blocked number, an expired code, a silent check that matches, one that does
+	// not, or one that falls back to a code. Required.
+	Outcome PhoneSandboxNumberRequestOutcome `json:"outcome"`
+
+	// Fixed code accepted by `/v3/phone/check/` for this test number. Send 4 to 8
+	// digits as a string to preserve leading zeros.
+	Code Opt[string] `json:"code"`
+
+	// Set to `true` to mark the test number as your own handset.
+	RealDevice Opt[bool] `json:"real_device"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneSandboxNumberRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneSandboxNumberRequestOutcome: What the number answers in the sandbox: a
+// correct code, no delivery, a blocked number, an expired code, a silent check
+// that matches, one that does not, or one that falls back to a code.
+//
+// PhoneSandboxNumberRequestOutcome is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneSandboxNumberRequestOutcome string
+
+// Known values of PhoneSandboxNumberRequestOutcome.
+const (
+	PhoneSandboxNumberRequestOutcomeVerified       PhoneSandboxNumberRequestOutcome = "verified"
+	PhoneSandboxNumberRequestOutcomeNotDelivered   PhoneSandboxNumberRequestOutcome = "not_delivered"
+	PhoneSandboxNumberRequestOutcomeBlocked        PhoneSandboxNumberRequestOutcome = "blocked"
+	PhoneSandboxNumberRequestOutcomeExpired        PhoneSandboxNumberRequestOutcome = "expired"
+	PhoneSandboxNumberRequestOutcomeSilentMatch    PhoneSandboxNumberRequestOutcome = "silent_match"
+	PhoneSandboxNumberRequestOutcomeSilentMismatch PhoneSandboxNumberRequestOutcome = "silent_mismatch"
+	PhoneSandboxNumberRequestOutcomeSilentFallback PhoneSandboxNumberRequestOutcome = "silent_fallback"
+)
+
+// PhoneSandboxNumberResponse is a response object.
+type PhoneSandboxNumberResponse struct {
+	// The UUID of the registered sandbox number.
+	NumberID string `json:"number_id"`
+
+	// What it plays.
+	Outcome string `json:"outcome"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneSandboxNumberResponse leniently.
+func (r *PhoneSandboxNumberResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // PhoneSDKKeyRequest is a request object.
 type PhoneSDKKeyRequest struct {
 	// The platform the key is for: `ios`, `android` or `web`. Required.
@@ -5940,6 +6240,126 @@ const (
 	PhoneSilentRegistrationStatusRejected       PhoneSilentRegistrationStatus = "rejected"
 )
 
+// PhoneStatsRetrieveParams holds the parameters of Client.Phone.Stats.Retrieve.
+type PhoneStatsRetrieveParams struct {
+	// The product to report on.
+	Product Opt[PhoneStatsRetrieveParamsProduct] `json:"-" query:"product"`
+
+	// For `verification`, use `country`, `channel`, `network`, `line_type` or
+	// `day`. For `messages`, use `country`, `channel` or `day`. For `lookups`, use
+	// `country`, `network`, `line_type` or `day`. Defaults to `day`.
+	GroupBy Opt[PhoneStatsRetrieveParamsGroupBy] `json:"-" query:"group_by"`
+
+	// The first day, as YYYY-MM-DD.
+	From Opt[string] `json:"-" query:"from"`
+
+	// The last day, as YYYY-MM-DD, before `9999-12-31`.
+	To Opt[string] `json:"-" query:"to"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneStatsRetrieveParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneStatsRetrieveParamsProduct is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneStatsRetrieveParamsProduct string
+
+// Known values of PhoneStatsRetrieveParamsProduct.
+const (
+	PhoneStatsRetrieveParamsProductVerification PhoneStatsRetrieveParamsProduct = "verification"
+	PhoneStatsRetrieveParamsProductMessages     PhoneStatsRetrieveParamsProduct = "messages"
+	PhoneStatsRetrieveParamsProductLookups      PhoneStatsRetrieveParamsProduct = "lookups"
+)
+
+// PhoneStatsRetrieveParamsGroupBy is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type PhoneStatsRetrieveParamsGroupBy string
+
+// Known values of PhoneStatsRetrieveParamsGroupBy.
+const (
+	PhoneStatsRetrieveParamsGroupByCountry  PhoneStatsRetrieveParamsGroupBy = "country"
+	PhoneStatsRetrieveParamsGroupByChannel  PhoneStatsRetrieveParamsGroupBy = "channel"
+	PhoneStatsRetrieveParamsGroupByNetwork  PhoneStatsRetrieveParamsGroupBy = "network"
+	PhoneStatsRetrieveParamsGroupByLineType PhoneStatsRetrieveParamsGroupBy = "line_type"
+	PhoneStatsRetrieveParamsGroupByDay      PhoneStatsRetrieveParamsGroupBy = "day"
+)
+
+// PhoneStatsResponse is a response object.
+type PhoneStatsResponse struct {
+	// One entry per group, in the requested grouping.
+	Rows []PhoneStatsRow `json:"rows"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneStatsResponse leniently.
+func (r *PhoneStatsResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneStatsRow: One group of the filtered figures.
+type PhoneStatsRow struct {
+	// The group: a country, channel, network, line type or day.
+	Key string `json:"key"`
+
+	// Approved verifications per verification started, or converted messages per
+	// delivered message. Zero for lookups.
+	ConversionRate float64 `json:"conversion_rate"`
+
+	// Verifications approved without a code per verification started. Zero for
+	// messages and lookups.
+	SilentSuccessRate float64 `json:"silent_success_rate"`
+
+	// Share of approved verifications that needed no code. Zero for messages and
+	// lookups.
+	CodeFreeShare   float64              `json:"code_free_share"`
+	DeliverySeconds PhoneDeliverySeconds `json:"delivery_seconds"`
+
+	// Read messages per delivered message. Zero for verifications and lookups.
+	ReadRate float64 `json:"read_rate"`
+
+	// Inbound replies per delivered message in the same group and date range. Zero
+	// for verifications and lookups.
+	ReplyRate float64 `json:"reply_rate"`
+
+	// Spend in USD.
+	Spend string `json:"spend"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneStatsRow leniently.
+func (r *PhoneStatsRow) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneDeliverySeconds: Time from send to delivery, in seconds.
+type PhoneDeliverySeconds struct {
+	// Median.
+	P50 float64 `json:"p50"`
+
+	// 90th percentile.
+	P90 float64 `json:"p90"`
+
+	// 99th percentile.
+	P99 float64 `json:"p99"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneDeliverySeconds leniently.
+func (r *PhoneDeliverySeconds) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
 // PhoneVerificationApproveRequest: Why the verification is approved.
 type PhoneVerificationApproveRequest struct {
 	// own_code_check (default): your backend checked the code it sent with code.
@@ -6492,4 +6912,74 @@ const (
 	PhoneVerificationRetryResponseChannelPush     PhoneVerificationRetryResponseChannel = "push"
 	PhoneVerificationRetryResponseChannelTotp     PhoneVerificationRetryResponseChannel = "totp"
 	PhoneVerificationRetryResponseChannelPasskey  PhoneVerificationRetryResponseChannel = "passkey"
+)
+
+// PhoneVoicesListParams holds the parameters of Client.Phone.Voices.List.
+type PhoneVoicesListParams struct {
+	// Filter by a canonical BCP 47 tag such as `es-ES` or `pt-BR`. A language alone
+	// returns every matching locale. For example, `pt` returns both `pt-BR` and
+	// `pt-PT`.
+	Locale Opt[string] `json:"-" query:"locale"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PhoneVoicesListParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// PhoneVoiceListResponse is a response object.
+type PhoneVoiceListResponse struct {
+	// The available voices, one per locale.
+	Voices []PhoneVoice `json:"voices"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVoiceListResponse leniently.
+func (r *PhoneVoiceListResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVoice is a response object.
+type PhoneVoice struct {
+	// Identifies the voice in this list.
+	VoiceID string `json:"voice_id"`
+
+	// Its language, as a BCP 47 tag.
+	Locale string `json:"locale"`
+
+	// Its voice.
+	Gender PhoneVoiceGender `json:"gender"`
+
+	// URL of a sample recording. This field is currently `null` for every voice
+	// because no recordings are published.
+	SampleURL string `json:"sample_url"`
+
+	// Whether this is the default voice for its locale. Each supported locale has
+	// one voice.
+	Default bool `json:"default"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes PhoneVoice leniently.
+func (r *PhoneVoice) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PhoneVoiceGender: Its voice.
+//
+// PhoneVoiceGender is a string with known values below. The set is open: other
+// values may appear and never cause an error.
+type PhoneVoiceGender string
+
+// Known values of PhoneVoiceGender.
+const (
+	PhoneVoiceGenderFemale  PhoneVoiceGender = "female"
+	PhoneVoiceGenderMale    PhoneVoiceGender = "male"
+	PhoneVoiceGenderNeutral PhoneVoiceGender = "neutral"
 )

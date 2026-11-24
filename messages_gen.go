@@ -19,6 +19,7 @@ type MessagesService struct {
 	Configurations *MessagesConfigurationsService
 	Consent        *MessagesConsentService
 	Conversations  *MessagesConversationsService
+	Feedback       *MessagesFeedbackService
 	Rules          *MessagesRulesService
 	Templates      *MessagesTemplatesService
 }
@@ -476,6 +477,35 @@ func (r *MessagesConversationsWebhooksService) Create(ctx context.Context, conve
 func (r *MessagesConversationsWebhooksService) Delete(ctx context.Context, conversationID string, webhookID string, opts ...option.RequestOption) error {
 	_, err := r.client.do(ctx, &apiRequest{method: http.MethodDelete, path: "/v3/messages/conversations/{conversation_id}/webhooks/{webhook_id}/", pathParams: []string{"conversation_id", conversationID, "webhook_id", webhookID}}, nil, opts)
 	return err
+}
+
+// MessagesFeedbackService holds the messages feedback operations. Use it
+// through Client.Messages.Feedback.
+type MessagesFeedbackService struct {
+	client *Client
+}
+
+// Create: Report what the recipient did after a message.
+//
+// Record what the recipient did after a message: `converted` or
+// `not_converted`, and when. Analytics groups outcomes by channel and template.
+// It measures time to the action from delivery, or from send time when there is
+// no delivery receipt. One outcome per message: a second one answers `409
+// feedback_exists`.
+//
+// An `occurred_at` more than five minutes in the future returns `400` with an
+// error on that field. If the application has no message with this ID, the API
+// returns `404` with a `detail` message.
+//
+// A scoped API key needs `messages: write`.
+//
+//	POST /v3/messages/{message_id}/feedback/
+func (r *MessagesFeedbackService) Create(ctx context.Context, messageID string, params MessageFeedbackRequest, opts ...option.RequestOption) (*MessageFeedbackResponse, error) {
+	res := new(MessageFeedbackResponse)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/messages/{message_id}/feedback/", pathParams: []string{"message_id", messageID}, params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // MessagesRulesService holds the messages rules operations. Use it through
@@ -1750,6 +1780,69 @@ const (
 	MessageConversationWebhookEventsMessageReceived       MessageConversationWebhookEvents = "message.received"
 	MessageConversationWebhookEventsMessageStatusUpdated  MessageConversationWebhookEvents = "message.status.updated"
 	MessageConversationWebhookEventsContactConsentUpdated MessageConversationWebhookEvents = "contact.consent.updated"
+)
+
+// MessageFeedbackRequest is a request object.
+type MessageFeedbackRequest struct {
+	// What the recipient did after the message. Required.
+	Outcome MessageFeedbackRequestOutcome `json:"outcome"`
+
+	// When the recipient acted. The timestamp can be up to five minutes ahead of
+	// the service clock. Omit it to use the time of the request.
+	OccurredAt Opt[time.Time] `json:"occurred_at"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r MessageFeedbackRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// MessageFeedbackRequestOutcome: What the recipient did after the message.
+//
+// MessageFeedbackRequestOutcome is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type MessageFeedbackRequestOutcome string
+
+// Known values of MessageFeedbackRequestOutcome.
+const (
+	MessageFeedbackRequestOutcomeConverted    MessageFeedbackRequestOutcome = "converted"
+	MessageFeedbackRequestOutcomeNotConverted MessageFeedbackRequestOutcome = "not_converted"
+)
+
+// MessageFeedbackResponse is a response object.
+type MessageFeedbackResponse struct {
+	// The message.
+	MessageID string `json:"message_id"`
+
+	// As sent.
+	Outcome MessageFeedbackResponseOutcome `json:"outcome"`
+
+	// Whole seconds from delivery to the action. If there is no delivery receipt,
+	// the interval starts at send time. An earlier action returns `0`. A message
+	// with neither timestamp, such as a scheduled message awaiting send, returns
+	// `null`.
+	ConversionSeconds int64 `json:"conversion_seconds"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes MessageFeedbackResponse leniently.
+func (r *MessageFeedbackResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// MessageFeedbackResponseOutcome: As sent.
+//
+// MessageFeedbackResponseOutcome is a string with known values below. The set
+// is open: other values may appear and never cause an error.
+type MessageFeedbackResponseOutcome string
+
+// Known values of MessageFeedbackResponseOutcome.
+const (
+	MessageFeedbackResponseOutcomeConverted    MessageFeedbackResponseOutcome = "converted"
+	MessageFeedbackResponseOutcomeNotConverted MessageFeedbackResponseOutcome = "not_converted"
 )
 
 // MessagesRulesCreateParams holds the parameters of

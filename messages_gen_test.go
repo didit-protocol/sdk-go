@@ -297,6 +297,21 @@ func TestMessagesConversationsWebhooksDelete(t *testing.T) {
 	req.expectAPIKey(t)
 }
 
+func TestMessagesFeedbackCreate(t *testing.T) {
+	client, mock := newMockClient(t, 202, "application/json", `{"message_id":"3f6c9a52-8d1e-4b7a-9c20-5e1f7a3b8d44","outcome":"converted","conversion_seconds":240}`)
+	var params didit.MessageFeedbackRequest
+	mustUnmarshal(t, `{"outcome":"converted","occurred_at":"2026-11-21T10:04:00Z"}`, &params)
+	res, err := client.Messages.Feedback.Create(context.Background(), "message-id-1", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/messages/message-id-1/feedback/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"outcome":"converted","occurred_at":"2026-11-21T10:04:00Z"}`)
+	expectFields(t, res.JSON, []string{"message_id", "outcome", "conversion_seconds"})
+}
+
 func TestMessagesRulesCreate(t *testing.T) {
 	client, mock := newMockClient(t, 201, "application/json", `{"rule_id":"5b1e7a90-2c43-4d68-8f15-0a9c3e6d7b22"}`)
 	var params didit.MessagesRulesCreateParams
