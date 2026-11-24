@@ -152,9 +152,10 @@ func (r *MessagesService) RetrieveSettings(ctx context.Context, opts ...option.R
 // plan's discount applies to the fee, never to the carrier's or WhatsApp's
 // part. A failed SMS or WhatsApp attempt, a skipped one and a cancelled one are
 // free; an email is charged once the receiving mail system accepts it, so an
-// email that bounces later is charged. SMS and WhatsApp open after your first
-// top-up (`403 plan_locked`); a sandbox application simulates every message and
-// charges nothing. See the [prices per country](/getting-started/pricing).
+// email that bounces later is charged. SMS and WhatsApp open with a paid plan
+// or after your first top-up (`403 plan_locked`); a sandbox application
+// simulates every message and charges nothing. See the [prices per
+// country](/getting-started/pricing).
 //
 // **Retention.** Didit erases a message's text and recipient `retention_days`
 // after its last event (created, sent, delivered, read, failed or cancelled; 30
@@ -355,13 +356,13 @@ type MessageError struct {
 	// recipient opted out of the channel. `expired`: `expires_at` passed before it
 	// could go out. `template_required`: WhatsApp only delivers an approved
 	// WhatsApp template. `channel_unavailable`: the channel is switched off, not
-	// configured, not in your contract or locked until your first top-up.
-	// `insufficient_credits`: the balance does not cover it. `rate_limited`:
-	// throttled and retries ran out. `delivery_unconfirmed`: the outcome is unknown
-	// and it is not sent again automatically. `cancelled`: cancelled before its
-	// time. `template_channel_missing`, `template_variable_missing`, `empty_body`,
-	// `body_too_long`: the content cannot go out on this channel. `unknown`: any
-	// other failure.
+	// configured, not in your contract or locked until a paid plan or your first
+	// top-up. `insufficient_credits`: the balance does not cover it.
+	// `rate_limited`: throttled and retries ran out. `delivery_unconfirmed`: the
+	// outcome is unknown and it is not sent again automatically. `cancelled`:
+	// cancelled before its time. `template_channel_missing`,
+	// `template_variable_missing`, `empty_body`, `body_too_long`: the content
+	// cannot go out on this channel. `unknown`: any other failure.
 	Code    MessageErrorCode `json:"code"`
 	Message string           `json:"message"`
 
@@ -382,12 +383,13 @@ func (r *MessageError) UnmarshalJSON(data []byte) error {
 // `expires_at` passed before it could go out. `template_required`: WhatsApp
 // only delivers an approved WhatsApp template. `channel_unavailable`: the
 // channel is switched off, not configured, not in your contract or locked until
-// your first top-up. `insufficient_credits`: the balance does not cover it.
-// `rate_limited`: throttled and retries ran out. `delivery_unconfirmed`: the
-// outcome is unknown and it is not sent again automatically. `cancelled`:
-// cancelled before its time. `template_channel_missing`,
-// `template_variable_missing`, `empty_body`, `body_too_long`: the content
-// cannot go out on this channel. `unknown`: any other failure.
+// a paid plan or your first top-up. `insufficient_credits`: the balance does
+// not cover it. `rate_limited`: throttled and retries ran out.
+// `delivery_unconfirmed`: the outcome is unknown and it is not sent again
+// automatically. `cancelled`: cancelled before its time.
+// `template_channel_missing`, `template_variable_missing`, `empty_body`,
+// `body_too_long`: the content cannot go out on this channel. `unknown`: any
+// other failure.
 //
 // MessageErrorCode is a string with known values below. The set is open: other
 // values may appear and never cause an error.
