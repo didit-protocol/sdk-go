@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.47.0](https://github.com/didit-protocol/sdk-go/compare/v1.46.0...v1.47.0) (2026-11-25)
+
+
+### Features
+
+* **spec:** sync API spec 2026-11-25 ([55333e3](https://github.com/didit-protocol/sdk-go/commit/55333e30fdab2d69215aff481ac3fa7f5bfa160b))
+* **webhooks:** Bank link and connection event fields (renews_connection_id, ends_at, unpaid) in the hand-written webhook events [sdk-go ([#157](https://github.com/didit-protocol/sdk-go/issues/157)) ([6e334ea](https://github.com/didit-protocol/sdk-go/commit/6e334eaace2a21688070d39f7bb4d10f6b1088a8))
+
 ## [1.46.0](https://github.com/didit-protocol/sdk-go/compare/v1.45.0...v1.46.0) (2026-11-24)
 
 
