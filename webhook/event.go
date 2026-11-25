@@ -652,15 +652,16 @@ const (
 )
 
 // BankConnectionRevokedEvent is a bank.connection.revoked webhook: access
-// ended and the bank confirmed it. Stored data stays readable until
-// RetainUntil.
+// ended and the bank confirmed it, or Didit ended it (EndedBy system). Stored
+// data stays readable until RetainUntil.
 type BankConnectionRevokedEvent struct {
 	EventEnvelope
 	// ConnectionID is the connection the event is about.
 	ConnectionID string
 	// Status is revoked.
 	Status BankConnectionStatus
-	// EndedBy is who ended access.
+	// EndedBy is who ended access: end_user, bank, customer, system or
+	// unknown.
 	EndedBy BankConnectionEndedBy
 	// StatusReason is why the connection is revoked, empty when the payload
 	// has none.
