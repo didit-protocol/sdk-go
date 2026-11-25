@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in the Go SDK does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste API keys, webhook secrets, tokens or personal data. Replace them with placeholders.
+  - type: input
+    id: version
+    attributes:
+      label: SDK version
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: go
+    attributes:
+      label: Go version and OS
+      placeholder: go1.27.2 linux/amd64
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The call you made, what you expected and what you got (error text, request id).
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      render: go
