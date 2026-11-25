@@ -328,12 +328,15 @@ func (r *PhoneService) RetrieveRiskBulk(ctx context.Context, jobID string, opts 
 //
 // **Billing.** The price depends on the destination country and the channel
 // that actually delivers the message - see [Phone Verification
-// Pricing](/getting-started/phone-verification-pricing). Only `Blocked` sends
-// are guaranteed free: any other unbilled send attempt is charged at
-// verification finalization or expiration, even if delivery was never confirmed
-// or the delivery provider reported the message undeliverable. Checks are
-// always free. As an anti-abuse measure, phone verification is disabled until
-// your organization has a paid plan or makes its first top-up (`403`).
+// Pricing](/getting-started/phone-verification-pricing). A `Blocked` send is
+// never charged. A send whose every message was reported undeliverable is not
+// charged either, unless a later delivery report shows one of its messages was
+// delivered: that report charges it. Any other send is charged once, even if
+// its delivery was never confirmed: when its delivery report arrives, or else
+// at billing close, a few minutes after the code's 5-minute validity ends.
+// Checks are always free. As an anti-abuse measure, phone verification is
+// disabled until your organization has a paid plan or makes its first top-up
+// (`403`).
 //
 // **Session persistence.** Every new verification is persisted as an API-type
 // session: `request_id` is a real session id you can pass to `GET
@@ -1659,7 +1662,8 @@ func (r *PhoneVerificationsService) Cancel(ctx context.Context, verificationID s
 // offsets, not URLs, so send `next` as `offset` to read the next page. Use
 // `format=csv` to export all matching verifications. The `template` query
 // parameter does not filter these records. Verification history does not return
-// a `template_used` field.
+// a `template_used` field. A Phone risk lookup is not a verification and is not
+// listed here: read lookups with `GET /v3/phone/lookups/`.
 //
 // It returns one page; ListAutoPaging iterates over every item of every page.
 //
@@ -2536,8 +2540,15 @@ type PhoneVerificationCheckResponsePhoneLifecycle struct {
 	// review.
 	Details map[string]any `json:"details"`
 
-	// USD amount billed for this event. Non-zero only on send events (the delivery
-	// price); 0 for code entries, delivery confirmations, and status events.
+	// USD price of this event. Non-zero only on send events: the send's estimated
+	// price until billing records its charge, then the price billing recorded for
+	// it. A `Blocked` send is never charged. A send whose every message was
+	// reported undeliverable is not charged either, unless a later delivery report
+	// shows one of its messages was delivered: that report charges it. A send that
+	// is not charged reads 0 from billing close, a few minutes after the code's
+	// 5-minute validity ends, and a later delivery report that charges it replaces
+	// the 0 with that charge. 0 for code entries, delivery confirmations, and
+	// status events, and 0 on every event in the sandbox.
 	Fee float64 `json:"fee"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -6326,7 +6337,9 @@ type PhoneStatsRow struct {
 	// for verifications and lookups.
 	ReplyRate float64 `json:"reply_rate"`
 
-	// Spend in USD.
+	// Spend in USD. For `verification` and `lookups`: what Didit charged, debited
+	// from your balance or invoiced under a contract in USD. For `messages`: the
+	// price recorded on each message sent. `0.00` in the sandbox.
 	Spend string `json:"spend"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -6620,8 +6633,9 @@ type PhoneVerificationAttempt struct {
 	// When the code ran out before delivery.
 	ExpiredAt time.Time `json:"expired_at"`
 
-	// True when the attempt has been billed or has a nonzero actual price. See
-	// `status` for the delivery outcome.
+	// True when the attempt has been billed or has a nonzero actual price. Always
+	// false in the sandbox, which charges nothing. See `status` for the delivery
+	// outcome.
 	Charged bool                   `json:"charged"`
 	Price   PhoneVerificationPrice `json:"price"`
 
@@ -6689,7 +6703,16 @@ const (
 
 // PhoneVerificationPrice: The price line of one attempt.
 type PhoneVerificationPrice struct {
-	// What it cost, in USD.
+	// What the attempt costs, in USD. It is the estimated price, with `final`
+	// false, until billing records a charge or billing close comes (a few minutes
+	// after the code's 5-minute validity ends). Once billing records a charge it is
+	// that charge, and `final` is true. An attempt that is not charged reads
+	// `0.0000` from billing close: final for a `Blocked` attempt, which is never
+	// charged, and not final (`final` false) for an attempt whose every message was
+	// reported undeliverable, because a later delivery report showing one of its
+	// messages was delivered charges it and replaces the `0.0000`. Under a
+	// contract, your invoice prices each code at the contract's rate, which this
+	// amount does not show. `0.0000` in the sandbox.
 	Amount string `json:"amount"`
 
 	// The carrier part, passed on at cost.
@@ -6698,7 +6721,14 @@ type PhoneVerificationPrice struct {
 	// Didit's fee.
 	Fee string `json:"fee"`
 
-	// false until the carrier reports delivery, then the reported price.
+	// true once billing has recorded the attempt's charge (on its delivery report
+	// or, when no report comes, at billing close, a few minutes after the code's
+	// 5-minute validity ends), and from billing close for a `Blocked` attempt,
+	// which is never charged (`amount` `0.0000`). false while `amount` is the
+	// estimated price before billing close, and for an attempt whose every message
+	// was reported undeliverable: it reads `amount` `0.0000` from billing close,
+	// but a later delivery report showing one of its messages was delivered charges
+	// it. Always true in the sandbox, where nothing is charged.
 	Final bool `json:"final"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown

@@ -451,6 +451,14 @@ func (r *BankService) ListTransactions(ctx context.Context, accountID string, pa
 // `live_syncs_left_today` and `budgets`. The limit is a ceiling set by the
 // bank, not a promise of a number of syncs.
 //
+// The bank also asks to rest after every read of a connection, whoever made it
+// (a few minutes, 15 on most banks): a call inside that rest answers `429
+// refresh_too_soon` with `Retry-After` set to the end of the rest, in seconds,
+// and the same `sync` object. It costs nothing and does not touch the day's
+// budget, so wait `Retry-After` and call again; `refresh_limit_reached` means
+// the day's budget is used up and the wait runs to its reset. An automatic sync
+// that meets the rest is skipped without a failure and runs again after it.
+//
 // When a sync stores changes, `bank.data.updated` tells you; then read the
 // change feed.
 //
@@ -872,8 +880,14 @@ type BankLink struct {
 	// When an unredeemed link stops working.
 	ExpiresAt time.Time `json:"expires_at"`
 
-	// The connection this link created or renewed, once `status` is `completed`.
+	// The connection this link produced or renewed. `null` until the link
+	// completes, on every kind of link.
 	ConnectionID string `json:"connection_id"`
+
+	// The connection a renewal link (`mode: renew`) targets, set when the link is
+	// created; `null` on a link that renews nothing. Always present.
+	// `connection_id` stays `null` until the link completes.
+	RenewsConnectionID string `json:"renews_connection_id"`
 
 	// The ownership result of this link, when it asked for `ownership.compare`
 	// other than `none`.
@@ -1126,9 +1140,12 @@ type BankLinkCreateRequest struct {
 	ExtendedHistory Opt[BankLinkCreateRequestExtendedHistory] `json:"extended_history"`
 
 	// Ongoing only. How many days to ask the bank to keep access open, 1 or more.
-	// Default: the longest the bank allows. The connection reports the date the
-	// bank actually granted in `consent.expires_at`. With `access: one_time` it
-	// answers `400 invalid_request` with `field: consent_days`.
+	// Default: the longest the bank allows. On a renewal link that sends none, the
+	// bank is asked for the length the person chose before, never above the bank's
+	// maximum; only a connection with no recorded length is asked for the maximum.
+	// The connection reports the date the bank actually granted in
+	// `consent.expires_at`. With `access: one_time` it answers `400
+	// invalid_request` with `field: consent_days`.
 	ConsentDays Opt[int64]                    `json:"consent_days"`
 	Ownership   Opt[BankLinkOwnershipRequest] `json:"ownership"`
 	EndUser     Opt[BankLinkEndUser]          `json:"end_user"`
@@ -1867,19 +1884,26 @@ type BankConnection struct {
 
 	// `pending`: first sync running. `active`: consent valid. `renewal_required`:
 	// the consent ended or the bank wants the person to sign in again, data
-	// readable as last synced and nothing charged. `paused`: balance too low for
-	// the month. `revoked`: access stopped by the person, the bank or you, or ended
-	// because the read of a one-time connection is complete. `deleted`: only `id`,
-	// `status`, `status_reason`, `created_at` and `erasure` remain. The list
-	// returns these only for `status=deleted`; reading one by id always returns it.
-	// `failed`: the first sync never succeeded.
+	// readable as last synced; a month that begins while it waits is not charged.
+	// `paused`: the current month could not be paid, so syncing stops. It resumes
+	// by itself once your balance covers the month: when a credit reaches your
+	// wallet, or at the daily check at 05:30 UTC. `revoked`: access stopped by the
+	// person, the bank or you, ended because the read of a one-time connection is
+	// complete, or ended by Didit because its coming month was not paid by the
+	// deadline (`status_reason: unpaid`). `deleted`: only `id`, `status`,
+	// `status_reason`, `created_at` and `erasure` remain. The list returns these
+	// only for `status=deleted`; reading one by id always returns it. `failed`: the
+	// first sync never succeeded.
 	Status BankConnectionStatus `json:"status"`
 
 	// Why the connection is in this status. `collection_complete`: a one-time
 	// connection whose read is complete, so its access has ended.
 	// `paused_by_customer` is reserved. On a `deleted` connection:
 	// `deleted_by_customer`, `consent_lapsed`, `retention_elapsed` or
-	// `application_deleted`.
+	// `application_deleted`. `unpaid`: the coming month was not paid by 20:00 UTC
+	// on the last day of the month before it, so Didit ended access and removed the
+	// connection at the bank; nothing more is charged. `bank.connection.revoked`
+	// with this reason is the final signal of that ending.
 	StatusReason BankConnectionStatusReason `json:"status_reason"`
 	Institution  BankInstitutionSummary     `json:"institution"`
 	Segment      BankConnectionSegment      `json:"segment"`
@@ -1941,12 +1965,16 @@ const (
 
 // BankConnectionStatus: `pending`: first sync running. `active`: consent valid.
 // `renewal_required`: the consent ended or the bank wants the person to sign in
-// again, data readable as last synced and nothing charged. `paused`: balance
-// too low for the month. `revoked`: access stopped by the person, the bank or
-// you, or ended because the read of a one-time connection is complete.
-// `deleted`: only `id`, `status`, `status_reason`, `created_at` and `erasure`
-// remain. The list returns these only for `status=deleted`; reading one by id
-// always returns it. `failed`: the first sync never succeeded.
+// again, data readable as last synced; a month that begins while it waits is
+// not charged. `paused`: the current month could not be paid, so syncing stops.
+// It resumes by itself once your balance covers the month: when a credit
+// reaches your wallet, or at the daily check at 05:30 UTC. `revoked`: access
+// stopped by the person, the bank or you, ended because the read of a one-time
+// connection is complete, or ended by Didit because its coming month was not
+// paid by the deadline (`status_reason: unpaid`). `deleted`: only `id`,
+// `status`, `status_reason`, `created_at` and `erasure` remain. The list
+// returns these only for `status=deleted`; reading one by id always returns it.
+// `failed`: the first sync never succeeded.
 //
 // BankConnectionStatus is a string with known values below. The set is open:
 // other values may appear and never cause an error.
@@ -1967,7 +1995,10 @@ const (
 // `collection_complete`: a one-time connection whose read is complete, so its
 // access has ended. `paused_by_customer` is reserved. On a `deleted`
 // connection: `deleted_by_customer`, `consent_lapsed`, `retention_elapsed` or
-// `application_deleted`.
+// `application_deleted`. `unpaid`: the coming month was not paid by 20:00 UTC
+// on the last day of the month before it, so Didit ended access and removed the
+// connection at the bank; nothing more is charged. `bank.connection.revoked`
+// with this reason is the final signal of that ending.
 //
 // BankConnectionStatusReason is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -1985,6 +2016,7 @@ const (
 	BankConnectionStatusReasonInsufficientBalance BankConnectionStatusReason = "insufficient_balance"
 	BankConnectionStatusReasonPausedByCustomer    BankConnectionStatusReason = "paused_by_customer"
 	BankConnectionStatusReasonFirstSyncFailed     BankConnectionStatusReason = "first_sync_failed"
+	BankConnectionStatusReasonUnpaid              BankConnectionStatusReason = "unpaid"
 	BankConnectionStatusReasonDeletedByCustomer   BankConnectionStatusReason = "deleted_by_customer"
 	BankConnectionStatusReasonRetentionElapsed    BankConnectionStatusReason = "retention_elapsed"
 	BankConnectionStatusReasonApplicationDeleted  BankConnectionStatusReason = "application_deleted"
@@ -2073,8 +2105,10 @@ type BankConnectionConsent struct {
 	// Set when `renewal_action` is `reconfirm`: the last moment to reconfirm.
 	ReconfirmBy time.Time `json:"reconfirm_by"`
 
-	// The last moment the same connection can be revived after the consent ended.
-	// After it the person connects again. It equals `retain_until`.
+	// The last moment the same connection can be renewed with its renewal link
+	// after access ended. `null` while access has not ended and whenever the
+	// connection cannot be renewed, so a non-null value is the test for a renewal
+	// and `ended_by` does not decide it. After it the person connects again.
 	RenewableUntil time.Time `json:"renewable_until"`
 
 	// Set once access ended: how long the stored data stays readable, set by the
@@ -2082,9 +2116,10 @@ type BankConnectionConsent struct {
 	RetainUntil time.Time `json:"retain_until"`
 	EndedAt     time.Time `json:"ended_at"`
 
-	// Who ended access, set from evidence. `system` when Didit ended it by design:
-	// a one-time connection once its read is complete. `unknown` when neither the
-	// bank nor the sync says.
+	// Who ended access, set from evidence. `system` when Didit ended it: a one-time
+	// connection once its read is complete (`status_reason: collection_complete`),
+	// or a connection whose coming month was not paid by the deadline
+	// (`status_reason: unpaid`). `unknown` when neither the bank nor the sync says.
 	EndedBy BankConnectionConsentEndedBy `json:"ended_by"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -2151,8 +2186,10 @@ const (
 )
 
 // BankConnectionConsentEndedBy: Who ended access, set from evidence. `system`
-// when Didit ended it by design: a one-time connection once its read is
-// complete. `unknown` when neither the bank nor the sync says.
+// when Didit ended it: a one-time connection once its read is complete
+// (`status_reason: collection_complete`), or a connection whose coming month
+// was not paid by the deadline (`status_reason: unpaid`). `unknown` when
+// neither the bank nor the sync says.
 //
 // BankConnectionConsentEndedBy is a string with known values below. The set is
 // open: other values may appear and never cause an error.
@@ -2469,17 +2506,30 @@ type BankConnectionBilling struct {
 	Unit BankConnectionBillingUnit `json:"unit"`
 
 	// Your price for the month meter today, for your application and the country,
-	// in USD, a decimal string with 4 decimals. A connection is charged for a month
-	// only when every accepted scope published data for at least one account in
-	// that month. `null` for one-time connections and in the sandbox. Ongoing
-	// access is billed per active connection per month; the current price is on the
-	// pricing page (https://docs.didit.me/getting-started/pricing). Amounts in
-	// examples are illustrative; the price for a country is shown on the pricing
-	// page.
+	// in USD, a decimal string with 4 decimals. A connection is charged once for
+	// each calendar month (UTC) it is active: its first month when its first sync
+	// succeeds, and every later month in advance, in the last five days of the
+	// month before it, while the connection's consent reaches into it. A connection
+	// created in the last five days of a month whose first read starts in the next
+	// month needs both months covered together before that read: with funds for
+	// only one, the read fails and neither is charged. `null` for one-time
+	// connections and in the sandbox. Ongoing access is billed per active
+	// connection per month; the current price is on the pricing page
+	// (https://docs.didit.me/getting-started/pricing). Amounts in examples are
+	// illustrative; the price for a country is shown on the pricing page.
 	PriceUsd string `json:"price_usd"`
 
 	// The last month end already settled.
 	BilledThrough string `json:"billed_through"`
+
+	// When the connection ends unless its coming month is paid first: 20:00 UTC on
+	// the last day of the month before it. Set once a payment of the coming month
+	// has failed, while the connection is `active` or `paused`. `null` when nothing
+	// has failed yet and once the month is paid, and also while the connection is
+	// `pending`, needs renewal, is being revoked or has ended, is a sandbox
+	// connection, or its consent ends before the month begins, so a `null` alone
+	// does not mean the month was paid.
+	EndsAt time.Time `json:"ends_at"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.

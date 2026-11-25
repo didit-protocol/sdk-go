@@ -87,11 +87,10 @@ func (r *SessionsService) AddImages(ctx context.Context, sessionID string, param
 //     `GET /v3/sessions/`, each prefixed with `filter_` (for example
 //     `filter_status`, `filter_workflow_id`, `filter_date_from`). Filters that
 //     take several values in List Sessions (`status`, `workflow_id`,
-//     `country`, `region`, `document_type`, `document_name`, `session_type`,
-//     `warning`, `organization_name`) accept a comma-separated string or an
-//     array; the others take one value. An empty value is ignored. Filters
-//     apply only together with `delete_all`, and a deletion job applies the
-//     same filters.
+//     `country`, `region`, `document_type`, `session_type`, `warning`,
+//     `organization_name`) accept a comma-separated string or an array; the
+//     others take one value. An empty value is ignored. Filters apply only
+//     together with `delete_all`, and a deletion job applies the same filters.
 //   - An unknown `filter_*` key, or a filter value that cannot be read,
 //     rejects the whole request with `400` before anything is deleted, so a
 //     mistyped filter never widens the deletion to every session.
@@ -576,12 +575,15 @@ func (r *SessionsService) ImportShared(ctx context.Context, params SessionsImpor
 // e.g. `DPC001` not `DPC-001` - vendor_data, session number, or session UUID),
 // `warning`, and `organization_name`; the remaining KYC-only filters are
 // ignored for KYB rows. Comma-separated parameters (`status`, `country`,
-// `document_type`, `region`, `workflow_id`, `document_name`, `warning`,
-// `organization_name`, `session_type`) match any of the listed values (OR
-// within the parameter). `vendor_data` is an exact match - use `search` for
-// partial matching. Unknown values in list filters simply return no rows (no
-// error); malformed typed values (`date_from`, `date_to`, `didit_internal_id`,
-// `api_service`, `session_kind`) return `400` with a per-field error object.
+// `document_type`, `region`, `workflow_id`, `warning`, `organization_name`,
+// `session_type`) match any of the listed values (OR within the parameter).
+// `vendor_data` is an exact match - use `search` for partial matching. Unknown
+// values in list filters simply return no rows (no error); malformed typed
+// values (`date_from`, `date_to`, `didit_internal_id`, `api_service`,
+// `session_kind`) return `400` with a per-field error object. `document_name`
+// is no longer accepted: a request that still sends it gets `400` with
+// `{"document_name": ["This filter is not available."]}`. Filter by
+// `document_type` and `country` instead.
 //
 // **Search.** `search` adapts to the input: a full UUID looks up `session_id`;
 // digits (with optional `+ - . space`) match session-number prefix,
@@ -2170,12 +2172,6 @@ type SessionsBatchDeleteParams struct {
 	// comma-separated string or an array. Ignored without `delete_all`. An empty
 	// value is ignored and does not narrow the selection.
 	FilterDocumentType Opt[any] `json:"filter_document_type"`
-
-	// Narrows a `delete_all` to the sessions that match the `document_name` filter
-	// of [List Sessions](/sessions-api/list-sessions), with the same values. A
-	// comma-separated string or an array. Ignored without `delete_all`. An empty
-	// value is ignored and does not narrow the selection.
-	FilterDocumentName Opt[any] `json:"filter_document_name"`
 
 	// Narrows a `delete_all` to the sessions that match the `region` filter of
 	// [List Sessions](/sessions-api/list-sessions), with the same values. A
@@ -8701,6 +8697,11 @@ type BankVerificationResultConnection struct {
 	// The bank's name. `null` for an account check.
 	InstitutionName string `json:"institution_name"`
 
+	// The address of the bank's logo hosted by Didit, or `null` when Didit has no
+	// logo for the bank. `null` for an account check, where no bank is picked.
+	// Returned with `institution_name`.
+	LogoURL string `json:"logo_url"`
+
 	// The account's country, ISO 3166-1 alpha-3.
 	InstitutionCountry string `json:"institution_country"`
 
@@ -9718,6 +9719,14 @@ const (
 
 // SignatureResultWarnings is a response object.
 type SignatureResultWarnings struct {
+	// The warning. `SIGNATURE_OTP_NOT_CONFIRMED` means no code was sent because the
+	// code goes by SMS and the signer's phone is on your phone block list (the
+	// number, its prefix, its network or its country); the signing ended by
+	// `signature_otp_failed_action`, and the same warning in the session's
+	// activity, and in the top-level `warnings` of a version 1 decision and its
+	// webhooks, carries `additional_data.blocked_reason: "blocked_by_list"`. The
+	// signer's own flow never receives the reason. See [E-signature
+	// warnings](/core-technology/electronic-signature/warnings-electronic-signature).
 	Code   SignatureResultWarningsCode `json:"code"`
 	NodeID string                      `json:"node_id"`
 
@@ -9731,6 +9740,16 @@ func (r *SignatureResultWarnings) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
+// SignatureResultWarningsCode: The warning. `SIGNATURE_OTP_NOT_CONFIRMED` means
+// no code was sent because the code goes by SMS and the signer's phone is on
+// your phone block list (the number, its prefix, its network or its country);
+// the signing ended by `signature_otp_failed_action`, and the same warning in
+// the session's activity, and in the top-level `warnings` of a version 1
+// decision and its webhooks, carries `additional_data.blocked_reason:
+// "blocked_by_list"`. The signer's own flow never receives the reason. See
+// [E-signature
+// warnings](/core-technology/electronic-signature/warnings-electronic-signature).
+//
 // SignatureResultWarningsCode is a string with known values below. The set is
 // open: other values may appear and never cause an error.
 type SignatureResultWarningsCode string
@@ -9739,6 +9758,7 @@ type SignatureResultWarningsCode string
 const (
 	SignatureResultWarningsCodeSignatureDeclined            SignatureResultWarningsCode = "SIGNATURE_DECLINED"
 	SignatureResultWarningsCodeSignatureOTPFailed           SignatureResultWarningsCode = "SIGNATURE_OTP_FAILED"
+	SignatureResultWarningsCodeSignatureOTPNotConfirmed     SignatureResultWarningsCode = "SIGNATURE_OTP_NOT_CONFIRMED"
 	SignatureResultWarningsCodeSignatureNameMismatch        SignatureResultWarningsCode = "SIGNATURE_NAME_MISMATCH"
 	SignatureResultWarningsCodeSignatureIdentityNotVerified SignatureResultWarningsCode = "SIGNATURE_IDENTITY_NOT_VERIFIED"
 	SignatureResultWarningsCodeSignatureDocumentChanged     SignatureResultWarningsCode = "SIGNATURE_DOCUMENT_CHANGED"
@@ -13747,13 +13767,6 @@ type SessionsListParams struct {
 	// Card), `BC` (Birth Certificate), `OTHER`. Note the response field
 	// `document_type` contains the display name, not the code.
 	DocumentType Opt[string] `json:"-" query:"document_type"`
-
-	// Exact document names; multiple names can be passed comma-separated, but the
-	// value is only split on commas when it contains more than one ` - ` separator
-	// (a lone name with an embedded comma is matched whole). Names are as
-	// recognized by document verification (front or back side), e.g. `Spain - Id
-	// Card (2021)`. KYC rows only.
-	DocumentName Opt[string] `json:"-" query:"document_name"`
 
 	// Comma-separated document region/state values (for documents issued per
 	// region, such as US driver's licenses). KYC rows only.

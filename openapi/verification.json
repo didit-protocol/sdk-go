@@ -11768,7 +11768,7 @@
     "/v3/sessions/": {
       "get": {
         "summary": "List verification sessions (KYC and/or KYB) with filters and pagination",
-        "description": "Returns a paginated list of verification sessions for the application identified by your API key, newest first (descending `session_number`).\n\n**Canonical URL:** the route is `/v3/sessions/` (trailing slash). Requests to `/v3/sessions` without the slash receive a `301` redirect to the slashed URL with the query string preserved; most HTTP clients follow it transparently on GET.\n\n**When to use this endpoint vs webhooks.** Use this endpoint for dashboards, back-office search, reconciliation, and batch exports. Do not poll it to track the progress of individual verifications - configure [webhooks](/integration/webhooks) instead, which push `status.updated` events the moment a session changes. For one session's full result, call `GET /v3/session/{sessionId}/decision/`.\n\n**KYC and KYB sessions.** `session_kind` selects which kinds are listed:\n- `user` (default) - User Verification (KYC) sessions only. Backward-compatible behavior.\n- `business` - Business Verification (KYB) sessions only. Rows have a different, smaller shape (see the response schema).\n- `all` - both kinds in one response: the KYC page and the KYB page for the same `limit`/`offset` are concatenated in `results` (KYC rows first), so a page can contain up to `2 x limit` rows. `count` is the sum of both kinds and `next`/`previous` reflect the KYC-side pagination. For strict pagination of mixed data, call `user` and `business` separately.\n\nEvery row carries a `session_kind` discriminator (`\"user\"` or `\"business\"`).\n\n**Pagination.** Standard limit/offset: `limit` (default 50) and `offset` (default 0), with `next`/`previous` ready-made page URLs. For KYC rows `count` is exact. For KYB rows `count` is computed with a bounded scan and is capped at 100 - when there are more than 100 matches it stays at 100, so iterate using `next` (or by checking whether a full page came back) rather than computing total pages from `count`.\n\n**Filter semantics.** All filters combine with AND and apply to KYC rows. When `session_kind` is `business` or `all`, the KYB side honors the shared parameters `vendor_data`, `status`, `workflow_id`, `country` (registry-company country code), `date_from`, `date_to`, `search` (company name, registration number — type registration numbers without separators, e.g. `DPC001` not `DPC-001` — vendor_data, session number, or session UUID), `warning`, and `organization_name`; the remaining KYC-only filters are ignored for KYB rows. Comma-separated parameters (`status`, `country`, `document_type`, `region`, `workflow_id`, `document_name`, `warning`, `organization_name`, `session_type`) match any of the listed values (OR within the parameter). `vendor_data` is an exact match - use `search` for partial matching. Unknown values in list filters simply return no rows (no error); malformed typed values (`date_from`, `date_to`, `didit_internal_id`, `api_service`, `session_kind`) return `400` with a per-field error object.\n\n**Search.** `search` adapts to the input: a full UUID looks up `session_id`; digits (with optional `+ - . space`) match session-number prefix, document/personal numbers, phone-number prefix, or `vendor_data`; values containing `@` match email prefixes; any other text matches names (accent-insensitive) and `vendor_data`.\n\nNo fixed per-endpoint rate limit is enforced, but keep list polling infrequent and rely on webhooks for real-time updates.",
+        "description": "Returns a paginated list of verification sessions for the application identified by your API key, newest first (descending `session_number`).\n\n**Canonical URL:** the route is `/v3/sessions/` (trailing slash). Requests to `/v3/sessions` without the slash receive a `301` redirect to the slashed URL with the query string preserved; most HTTP clients follow it transparently on GET.\n\n**When to use this endpoint vs webhooks.** Use this endpoint for dashboards, back-office search, reconciliation, and batch exports. Do not poll it to track the progress of individual verifications - configure [webhooks](/integration/webhooks) instead, which push `status.updated` events the moment a session changes. For one session's full result, call `GET /v3/session/{sessionId}/decision/`.\n\n**KYC and KYB sessions.** `session_kind` selects which kinds are listed:\n- `user` (default) - User Verification (KYC) sessions only. Backward-compatible behavior.\n- `business` - Business Verification (KYB) sessions only. Rows have a different, smaller shape (see the response schema).\n- `all` - both kinds in one response: the KYC page and the KYB page for the same `limit`/`offset` are concatenated in `results` (KYC rows first), so a page can contain up to `2 x limit` rows. `count` is the sum of both kinds and `next`/`previous` reflect the KYC-side pagination. For strict pagination of mixed data, call `user` and `business` separately.\n\nEvery row carries a `session_kind` discriminator (`\"user\"` or `\"business\"`).\n\n**Pagination.** Standard limit/offset: `limit` (default 50) and `offset` (default 0), with `next`/`previous` ready-made page URLs. For KYC rows `count` is exact. For KYB rows `count` is computed with a bounded scan and is capped at 100 - when there are more than 100 matches it stays at 100, so iterate using `next` (or by checking whether a full page came back) rather than computing total pages from `count`.\n\n**Filter semantics.** All filters combine with AND and apply to KYC rows. When `session_kind` is `business` or `all`, the KYB side honors the shared parameters `vendor_data`, `status`, `workflow_id`, `country` (registry-company country code), `date_from`, `date_to`, `search` (company name, registration number — type registration numbers without separators, e.g. `DPC001` not `DPC-001` — vendor_data, session number, or session UUID), `warning`, and `organization_name`; the remaining KYC-only filters are ignored for KYB rows. Comma-separated parameters (`status`, `country`, `document_type`, `region`, `workflow_id`, `warning`, `organization_name`, `session_type`) match any of the listed values (OR within the parameter). `vendor_data` is an exact match - use `search` for partial matching. Unknown values in list filters simply return no rows (no error); malformed typed values (`date_from`, `date_to`, `didit_internal_id`, `api_service`, `session_kind`) return `400` with a per-field error object. `document_name` is no longer accepted: a request that still sends it gets `400` with `{\"document_name\": [\"This filter is not available.\"]}`. Filter by `document_type` and `country` instead.\n\n**Search.** `search` adapts to the input: a full UUID looks up `session_id`; digits (with optional `+ - . space`) match session-number prefix, document/personal numbers, phone-number prefix, or `vendor_data`; values containing `@` match email prefixes; any other text matches names (accent-insensitive) and `vendor_data`.\n\nNo fixed per-endpoint rate limit is enforced, but keep list polling infrequent and rely on webhooks for real-time updates.",
         "operationId": "get_v3_sessions",
         "x-didit-sdk": {
           "resource": "sessions",
@@ -11932,16 +11932,6 @@
               "type": "string"
             },
             "example": "P,ID"
-          },
-          {
-            "name": "document_name",
-            "in": "query",
-            "required": false,
-            "description": "Exact document names; multiple names can be passed comma-separated, but the value is only split on commas when it contains more than one ` - ` separator (a lone name with an embedded comma is matched whole). Names are as recognized by document verification (front or back side), e.g. `Spain - Id Card (2021)`. KYC rows only.",
-            "schema": {
-              "type": "string"
-            },
-            "example": "Spain - Id Card (2021)"
           },
           {
             "name": "region",
@@ -12318,6 +12308,14 @@
                     "value": {
                       "api_service": [
                         "Select a valid choice. FOO is not one of the available choices."
+                      ]
+                    }
+                  },
+                  "Retired document_name filter": {
+                    "summary": "document_name is no longer a List Sessions filter",
+                    "value": {
+                      "document_name": [
+                        "This filter is not available."
                       ]
                     }
                   }
@@ -14842,7 +14840,7 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
-        "description": "Validate a person's identity data against official government and registry sources — CPF in Brazil, RENAPER in Argentina, DNI registries in Spain and Peru, INE in Mexico, and 100+ more services across 60+ countries.\n\n**Service selection.** Each country exposes one or more catalog services identified by a `service_id` (e.g. `bra_cpf`, `arg_renaper`, `pan_cedula_sib`). Pin the services you want with the `services` array — if you omit it, exactly **one** default service runs (the longest-established live service for the country). Sending `services` also switches the response to the extended shape with `services_used` and `match_score`. Discover services, their required fields, and prices via `GET /v1/organization/database-validation-countries/` (a catalog endpoint not documented in this spec) or the Business Console workflow editor. Some services are flagged `requires_consent=true` in the catalog and demand `consent=true`; others require onboarding for your organization before they can be called.\n\n**Input fields.** `identification_number` is a universal field that maps to the right country-specific field automatically (see its description). Country format rules are enforced before any provider is called (e.g. BRA CPF must be exactly 11 digits) and format failures are never billed. Biometric services need a `selfie` upload (multipart only); Argentina RENAPER additionally requires `gender`.\n\n**Results.** Each service returns a field-by-field `validation` map plus a vendor-neutral `outcome_code` (`MATCH`, `PARTIAL_MATCH`, `NO_MATCH`, `DOCUMENT_NOT_FOUND`, `INVALID_DOCUMENT_FORMAT`, `INVALID_INPUT`, `MINOR_BLOCKED`, `DECEASED`, `BIOMETRIC_NO_MATCH`, `BIOMETRIC_IMAGE_UNUSABLE`, `INCONCLUSIVE`, `DOCUMENT_SUPERSEDED`, `REGISTRY_UNAVAILABLE`, `REGISTRY_ERROR`). Note the distinctions: `NO_MATCH` is a definitive mismatch, `INCONCLUSIVE` means the registry could not confirm either way (review, not decline), and `BIOMETRIC_IMAGE_UNUSABLE` is a technical selfie problem (retake), unlike the definitive `BIOMETRIC_NO_MATCH`. The overall `match_type` aggregates across services (any full → `full_match`, else any partial → `partial_match`, else `no_match`) and `no_match_action`/`partial_match_action` translate it into the final `status`. `validation_type` is derived: `two_by_two` when two or more distinct services produced a full match (on the identification number, on full name + date of birth together, or on the address without contradictions), else `one_by_one`.\n\n**Persistence.** `save_api_request` defaults to **true**: the result is stored as a session (`request_id` works with `GET /v3/session/{sessionId}/decision/`), appears in the console, and fires a `status.updated` webhook. It also controls the `validations` shape — per-service objects when saved, a merged `{field: match}` map when not.\n\n**Billing.** Per-service: each service that returns a billable result is charged its own catalog price. Failed or skipped services are not billed, and requests rejected with `400` cost nothing. The pre-flight balance check covers the sum of the selected services' prices (`403` when short).\n\n**Failures.** When no selected service returns a usable result, the API returns `400` with `validation_errors` if every unanswered attempt explicitly refused the input (`provider_rejected_input`, `retryable: false`). Correct the input before trying again. Otherwise it returns `502` with `validation_errors` (`empty_provider_response`, `retryable: true`), including mixed input rejection and unavailable fallback attempts; nothing is billed (a session is still recorded with status `Not Finished` when `save_api_request=true`). When only some services fail, the `200` response carries their failures in `database_validation.errors`.\n\n**Sandbox.** Keys from sandbox applications skip the registry calls and billing and return a static `full_match` response — the sandbox payload always includes `services_used` and `match_score: 100` regardless of how `services` was sent, so don't validate the live extended-shape gating or the 0.0–1.0 `match_score` fraction against sandbox responses.\n\nSend the request as `application/json`, or as `multipart/form-data` when uploading a `selfie`.",
+        "description": "Validate a person's identity data against official government and registry sources — CPF in Brazil, RENAPER in Argentina, DNI registries in Spain and Peru, INE in Mexico, and 100+ more services across 60+ countries.\n\n**Service selection.** Each country exposes one or more catalog services identified by a `service_id` (e.g. `bra_cpf`, `arg_renaper`, `pan_cedula_sib`). Pin the services you want with the `services` array — if you omit it, exactly **one** default service runs (the longest-established live service for the country). Sending `services` also switches the response to the extended shape with `services_used` and `match_score`. Discover services, their required fields, and prices via `GET /v1/organization/database-validation-countries/` (a catalog endpoint not documented in this spec) or the Business Console workflow editor. Some services are flagged `requires_consent=true` in the catalog and demand `consent=true`; others require onboarding for your organization before they can be called.\n\n**Input fields.** `identification_number` is a universal field that maps to the right country-specific field automatically (see its description). Country format rules are enforced before any provider is called (e.g. BRA CPF must be exactly 11 digits) and format failures are never billed. Biometric services need a `selfie` upload (multipart only); Argentina RENAPER additionally requires `gender`.\n\n**Results.** Each service returns a field-by-field `validation` map plus a vendor-neutral `outcome_code` (`MATCH`, `PARTIAL_MATCH`, `NO_MATCH`, `DOCUMENT_NOT_FOUND`, `INVALID_DOCUMENT_FORMAT`, `INVALID_INPUT`, `MINOR_BLOCKED`, `DECEASED`, `BIOMETRIC_NO_MATCH`, `BIOMETRIC_IMAGE_UNUSABLE`, `INCONCLUSIVE`, `DOCUMENT_SUPERSEDED`, `REGISTRY_UNAVAILABLE`, `REGISTRY_ERROR`). Note the distinctions: `NO_MATCH` is a definitive mismatch, `INCONCLUSIVE` means the registry could not confirm either way (review, not decline), and `BIOMETRIC_IMAGE_UNUSABLE` is a technical selfie problem (retake), unlike the definitive `BIOMETRIC_NO_MATCH`. The overall `match_type` aggregates the services that compared fields (any full → `full_match`, else any partial → `partial_match`, else `no_match`), except that a rejected fingerprint, a fraud-list hit and a deceased flag without compared fields override it whatever another service returned; a rejected selfie makes only its own service `no_match`. `status` is the decision: the results raise warnings, and `no_match_action`/`partial_match_action` decide what each warning does (see `match_type` and `status` in the response). `validation_type` is derived: `two_by_two` when two or more distinct services produced a full match (on the identification number, on full name + date of birth together, or on the address without contradictions), else `one_by_one`.\n\n**Persistence.** `save_api_request` defaults to **true**: the result is stored as a session (`request_id` works with `GET /v3/session/{sessionId}/decision/`), appears in the console, and fires a `status.updated` webhook. It also controls the `validations` shape — per-service objects when saved, a merged `{field: match}` map when not.\n\n**Billing.** Per-service: each service that returns a billable result is charged its own catalog price. Failed or skipped services are not billed, and requests rejected with `400` cost nothing. The pre-flight balance check covers the sum of the selected services' prices (`403` when short).\n\n**Failures.** When no selected service returns a usable result, the API returns `400` with `validation_errors` if every unanswered attempt explicitly refused the input (`provider_rejected_input`, `retryable: false`). Correct the input before trying again. Otherwise it returns `502` with `validation_errors` (`empty_provider_response`, `retryable: true`), including mixed input rejection and unavailable fallback attempts; nothing is billed (a session is still recorded with status `Not Finished` when `save_api_request=true`). When only some services fail, the `200` response carries their failures in `database_validation.errors`.\n\n**Sandbox.** Keys from sandbox applications skip the registry calls and billing and return a static `full_match` response — the sandbox payload always includes `services_used` and `match_score: 100` regardless of how `services` was sent, so don't validate the live extended-shape gating or the 0.0–1.0 `match_score` fraction against sandbox responses.\n\nSend the request as `application/json`, or as `multipart/form-data` when uploading a `selfie`.",
         "requestBody": {
           "required": true,
           "content": {
@@ -15773,7 +15771,7 @@
                             "Declined",
                             "In Review"
                           ],
-                          "description": "`Declined` when the overall `match_type` triggers a `DECLINE` action (`no_match_action` defaults to `DECLINE`, `partial_match_action` to `NO_ACTION`); `In Review` when no service produced a usable comparison, for example when the only selected service came back `REGISTRY_UNAVAILABLE` or `INCONCLUSIVE`, and when the registry confirmed the identification number but returned a different name while `partial_match_action` is `NO_ACTION`; `Approved` otherwise. A request that selected several services can be `Approved` on one service's match while another was unavailable, so check `errors` and the per-service `outcome_code`s too."
+                          "description": "The request's decision. Didit turns the results into warnings and applies this request's actions to them. The no-match warning (`DATABASE_VALIDATION_NO_MATCH`) is raised by a `no_match` result and, when no service compared any field (`match_type` is `null`), by a definitive negative answer such as `DOCUMENT_NOT_FOUND` or a deceased flag; a definitive negative beside another service's full match raises no warning by itself. A superseded document raises its own warning (`DATABASE_VALIDATION_DOCUMENT_SUPERSEDED`), decided by the same `no_match_action`. A `partial_match` raises the partial-match warning, decided by `partial_match_action`. `no_match_action` defaults to `DECLINE` and `partial_match_action` to `NO_ACTION`. `Declined` when any warning's action is `DECLINE`, even on a `full_match`. Otherwise `In Review` when a check could not be performed - for example the only selected service came back `REGISTRY_UNAVAILABLE` or `INCONCLUSIVE`, or a service whose `INCONCLUSIVE` must not be approved silently (South Africa vehicle ownership, for example) is inconclusive while another service matched - or when the registry confirmed the identification number but returned a different name. `Approved` otherwise, including a request in which no service compared a field and no warning applies (an outcome-only screening with no hit) and a lone `DOCUMENT_NOT_FOUND` sent with `no_match_action: NO_ACTION`. A request that selected several services can be `Approved` on one service's match while another was unavailable, so check `warnings`, `errors` and each `outcome_code` too."
                         },
                         "issuing_state": {
                           "type": "string",
@@ -15800,7 +15798,7 @@
                             "partial_match",
                             "no_match"
                           ],
-                          "description": "Overall result aggregated across services with field-level comparisons: any `full_match` → `full_match`; else any `partial_match` → `partial_match`; else `no_match`. Outcome-only services, such as biometric criminal screening, can return `null`; inspect each item in `validations` for its `outcome_code`."
+                          "description": "Overall comparison result across the services that compared fields: any `full_match` → `full_match`; else any `partial_match` → `partial_match`; else `no_match`. Three results override the aggregate whatever another service returned: a rejected fingerprint comparison floors it to `no_match`, a fraud-list hit from the South Africa fraud screening floors it to `partial_match`, and a deceased flag that carries no compared fields floors it to `no_match` (a `DECEASED` answer that does compare fields, such as Brazil's death check, keeps its own comparison, and a deceased flag alone leaves `match_type` `null`). A rejected selfie (`validation.biometric: no_match`) is a per-service rule: it makes that service's comparison `no_match`, and another service's full match can still make the request `full_match`. A service that compared nothing (an `INCONCLUSIVE` answer, an outcome-only screening) does not contribute, so `match_type` can be `null`, or report another service's match while the inconclusive service still sends the request to review. It is a comparison, not the decision: read `status`."
                         },
                         "validations": {
                           "description": "Shape depends on `save_api_request`. **`true` (default):** an array of per-service objects (`service_id`, `service_name`, `validation`, `outcome_code`, `outcome_detail`, `source_data`). **`false`:** a single flat object merging the field-level results of all services (`{\"full_name\": \"full_match\", ...}`).",
@@ -16397,7 +16395,7 @@
     "/v3/phone/send/": {
       "post": {
         "summary": "Send Phone Code",
-        "description": "Send a one-time passcode (OTP) to a phone number over WhatsApp, SMS, or another supported channel, then verify it with [`POST /v3/phone/check/`](/standalone-apis/phone-check).\n\n**How send and check pair up.** Send the same E.164 `phone_number` and the code to check the latest pending verification of that number in your application. Add the `verification_id` the send returned to check that specific verification: Didit then checks it and takes its number, so the `phone_number` of the request is not used. `phone_number` stays a required field of the request. An ID that is not one of your application's checkable verifications (unknown, cancelled, or of another application) is ignored, and the check falls back to the latest pending verification of `phone_number`. The verification window defaults to **5 minutes**. Calling send again for the same number while a verification is pending follows `on_conflict`: by default (`replace`) it starts a fresh verification with a new `request_id`; `retry` re-sends a code for the same verification (`status: \"Retry\"`, same `request_id` and `verification_id`), at most twice (three sends total, the first included, shared with `POST /v3/phone/verifications/{verification_id}/retry/`); `reuse` returns the pending verification without sending; `reject` answers `409 verification_in_progress`. For `reuse` and `retry`, if the pending verification does not meet the requested channel or challenge policy, the send starts a new verification. A retry also starts a new verification if the requested channel differs from the last delivery channel. Both `reuse` and `retry` start a new verification if the caller supplies a different code. A same-window retry keeps the expiry from the first send.\n\n**Conflict, challenge and code options.** `on_conflict` picks what happens while a code is still valid: `replace` (default) sends a new one, `reuse` returns it without sending, `retry` sends the same code again in the same window, up to two retries (three sends total, the first included), and `reject` answers `409 verification_in_progress`. `force_challenge` restricts the send to `fraud.channels_allowed` and records the challenge as yours, not as fraud. `trusted_user` needs a `fraud_override` signed for this number with your application's webhook signing secret; an unsigned or wrongly signed one returns `403 invalid_fraud_override`. `code` sets your own 4 to 10 letter-and-digit code and `code_length` the length of a Didit-made numeric code; `code` wins over `code_length`, and `code_length` wins over `options.code_size`.\n\n**Delivery channels.** `options.preferred_channel` selects the channel (`whatsapp` by default; `sms`, `telegram`, `voice`, `rcs`, `viber`, and `zalo` are also supported). When the preferred channel is unavailable for the destination country or number, delivery automatically falls back to SMS — the send still reports `Success`, and the channel actually used is reported by the check response (`phone.verification_method` and the `lifecycle` events).\n\n**Fixed lines.** A fixed line takes no SMS. When `options.preferred_channel` is `sms` and the number is a fixed line (not a mobile, VoIP, toll-free or premium-rate number) in a destination where Didit delivers codes by voice, a new send places a call that reads the code aloud instead of sending an SMS, and the send is priced and checked against your balance as a voice code (one minute of call at the carrier's voice rate for the country plus the Didit fee; see [Phone Verification Pricing](/getting-started/phone-verification-pricing)). The call goes through the same abuse protections as other voice codes, so Didit may not place it: for a number an earlier call found unallocated, or for a destination where your recent landline calls rarely reach a line. The code then goes out the way it would have without the conversion. Nothing is converted for a send that repeats or reuses the pending code, when your routing settings do not allow voice, or in a sandbox application. The response `channel` is `voice` when the call is placed.\n\n**Branding.** SMS codes carry your application's SMS sender name, set in the Business Console, at no extra cost. Pass `options.sms_sender_name` to sign one code with another name, or `options.use_white_label_customization: true` to fall back to your white-label public name when no sender name is set. WhatsApp codes use a fixed message; connect your own WhatsApp Business number in the Business Console to send them from your business name and number, billed at the Didit fee only.\n\n**Send statuses.** `Success` — OTP sent for a new verification; `Retry` — OTP re-sent for the pending verification; `Blocked` — the anti-fraud layer refused to send (see `reason`, e.g. `repeated_attempts`, `suspicious`, `spam`). A `Blocked` send immediately finalizes the verification as `Declined` with a high-risk warning, so a follow-up check returns `Expired or Not Found`. A sandbox test number registered as `blocked` is the exception: its send answers `Blocked` and its check answers `Declined`.\n\n**Billing.** The price depends on the destination country and the channel that actually delivers the message — see [Phone Verification Pricing](/getting-started/phone-verification-pricing). Only `Blocked` sends are guaranteed free: any other unbilled send attempt is charged at verification finalization or expiration, even if delivery was never confirmed or the delivery provider reported the message undeliverable. Checks are always free. As an anti-abuse measure, phone verification is disabled until your organization has a paid plan or makes its first top-up (`403`).\n\n**Session persistence.** Every new verification is persisted as an API-type session: `request_id` is a real session id you can pass to `GET /v3/session/{sessionId}/decision/`, the verification appears in the Business Console, and `status.updated` webhooks fire as it progresses.\n\n**Sandbox.** A sandbox application's send takes the same path as a live one: the same validation, `on_conflict` handling, channel policy and refusals (an unsupported destination included) and the same answer, with a `verification_id` you can read, cancel or approve. Only the delivery is simulated: no message is sent and nothing is charged. A number you registered with `POST /v3/phone/sandbox/numbers/` plays the outcome it was registered with: `blocked` answers `Blocked`, every other outcome answers `Success`, and the outcomes that end the verification at send time (`not_delivered`, `silent_match`, `silent_mismatch`) settle it. For any other number, check with `123456`, or with the `code` your send set.\n\n**Authentication.** Send your application's API key in the `x-api-key` header. A missing `x-api-key` header, or a key that is scoped and does not carry write access to `sessions`, returns `403`; a wrong, revoked or expired key returns `401`.\n\n**Rate limits.** Shared write budget of 300 requests/min per API key across all POST/PATCH/DELETE endpoints, plus an anti-abuse cap of 4 send attempts per phone number per hour; exceeding either returns `429`.",
+        "description": "Send a one-time passcode (OTP) to a phone number over WhatsApp, SMS, or another supported channel, then verify it with [`POST /v3/phone/check/`](/standalone-apis/phone-check).\n\n**How send and check pair up.** Send the same E.164 `phone_number` and the code to check the latest pending verification of that number in your application. Add the `verification_id` the send returned to check that specific verification: Didit then checks it and takes its number, so the `phone_number` of the request is not used. `phone_number` stays a required field of the request. An ID that is not one of your application's checkable verifications (unknown, cancelled, or of another application) is ignored, and the check falls back to the latest pending verification of `phone_number`. The verification window defaults to **5 minutes**. Calling send again for the same number while a verification is pending follows `on_conflict`: by default (`replace`) it starts a fresh verification with a new `request_id`; `retry` re-sends a code for the same verification (`status: \"Retry\"`, same `request_id` and `verification_id`), at most twice (three sends total, the first included, shared with `POST /v3/phone/verifications/{verification_id}/retry/`); `reuse` returns the pending verification without sending; `reject` answers `409 verification_in_progress`. For `reuse` and `retry`, if the pending verification does not meet the requested channel or challenge policy, the send starts a new verification. A retry also starts a new verification if the requested channel differs from the last delivery channel. Both `reuse` and `retry` start a new verification if the caller supplies a different code. A same-window retry keeps the expiry from the first send.\n\n**Conflict, challenge and code options.** `on_conflict` picks what happens while a code is still valid: `replace` (default) sends a new one, `reuse` returns it without sending, `retry` sends the same code again in the same window, up to two retries (three sends total, the first included), and `reject` answers `409 verification_in_progress`. `force_challenge` restricts the send to `fraud.channels_allowed` and records the challenge as yours, not as fraud. `trusted_user` needs a `fraud_override` signed for this number with your application's webhook signing secret; an unsigned or wrongly signed one returns `403 invalid_fraud_override`. `code` sets your own 4 to 10 letter-and-digit code and `code_length` the length of a Didit-made numeric code; `code` wins over `code_length`, and `code_length` wins over `options.code_size`.\n\n**Delivery channels.** `options.preferred_channel` selects the channel (`whatsapp` by default; `sms`, `telegram`, `voice`, `rcs`, `viber`, and `zalo` are also supported). When the preferred channel is unavailable for the destination country or number, delivery automatically falls back to SMS — the send still reports `Success`, and the channel actually used is reported by the check response (`phone.verification_method` and the `lifecycle` events).\n\n**Fixed lines.** A fixed line takes no SMS. When `options.preferred_channel` is `sms` and the number is a fixed line (not a mobile, VoIP, toll-free or premium-rate number) in a destination where Didit delivers codes by voice, a new send places a call that reads the code aloud instead of sending an SMS, and the send is priced and checked against your balance as a voice code (one minute of call at the carrier's voice rate for the country plus the Didit fee; see [Phone Verification Pricing](/getting-started/phone-verification-pricing)). The call goes through the same abuse protections as other voice codes, so Didit may not place it: for a number an earlier call found unallocated, or for a destination where your recent landline calls rarely reach a line. The code then goes out the way it would have without the conversion. Nothing is converted for a send that repeats or reuses the pending code, when your routing settings do not allow voice, or in a sandbox application. The response `channel` is `voice` when the call is placed.\n\n**Branding.** SMS codes carry your application's SMS sender name, set in the Business Console, at no extra cost. Pass `options.sms_sender_name` to sign one code with another name, or `options.use_white_label_customization: true` to fall back to your white-label public name when no sender name is set. WhatsApp codes use a fixed message; connect your own WhatsApp Business number in the Business Console to send them from your business name and number, billed at the Didit fee only.\n\n**Send statuses.** `Success` — OTP sent for a new verification; `Retry` — OTP re-sent for the pending verification; `Blocked` — the anti-fraud layer refused to send (see `reason`, e.g. `repeated_attempts`, `suspicious`, `spam`). A `Blocked` send immediately finalizes the verification as `Declined` with a high-risk warning, so a follow-up check returns `Expired or Not Found`. A sandbox test number registered as `blocked` is the exception: its send answers `Blocked` and its check answers `Declined`.\n\n**Billing.** The price depends on the destination country and the channel that actually delivers the message — see [Phone Verification Pricing](/getting-started/phone-verification-pricing). A `Blocked` send is never charged. A send whose every message was reported undeliverable is not charged either, unless a later delivery report shows one of its messages was delivered: that report charges it. Any other send is charged once, even if its delivery was never confirmed: when its delivery report arrives, or else at billing close, a few minutes after the code's 5-minute validity ends. Checks are always free. As an anti-abuse measure, phone verification is disabled until your organization has a paid plan or makes its first top-up (`403`).\n\n**Session persistence.** Every new verification is persisted as an API-type session: `request_id` is a real session id you can pass to `GET /v3/session/{sessionId}/decision/`, the verification appears in the Business Console, and `status.updated` webhooks fire as it progresses.\n\n**Sandbox.** A sandbox application's send takes the same path as a live one: the same validation, `on_conflict` handling, channel policy and refusals (an unsupported destination included) and the same answer, with a `verification_id` you can read, cancel or approve. Only the delivery is simulated: no message is sent and nothing is charged. A number you registered with `POST /v3/phone/sandbox/numbers/` plays the outcome it was registered with: `blocked` answers `Blocked`, every other outcome answers `Success`, and the outcomes that end the verification at send time (`not_delivered`, `silent_match`, `silent_mismatch`) settle it. For any other number, check with `123456`, or with the `code` your send set.\n\n**Authentication.** Send your application's API key in the `x-api-key` header. A missing `x-api-key` header, or a key that is scoped and does not carry write access to `sessions`, returns `403`; a wrong, revoked or expired key returns `401`.\n\n**Rate limits.** Shared write budget of 300 requests/min per API key across all POST/PATCH/DELETE endpoints, plus an anti-abuse cap of 4 send attempts per phone number per hour; exceeding either returns `429`.",
         "operationId": "post_v3phone_send",
         "x-didit-sdk": {
           "resource": "phone",
@@ -28323,7 +28321,7 @@
     "/v3/sessions/delete/": {
       "post": {
         "summary": "Bulk delete KYC sessions by session_number",
-        "description": "Bulk delete User Verification (KYC) sessions by their numeric `session_number`, or every KYC session in your application with `delete_all: true`.\n\n`session_number` is the human-friendly incrementing counter shown in the Console session list and returned as `session_number` by the create-session and decision endpoints; it is **not** the `session_id` UUID. To delete a session by UUID, or to delete a Business Verification (KYB) session, which this endpoint never touches, use `DELETE /v3/session/{sessionId}/delete/` instead.\n\n**Up to 20 sessions are deleted in the request, more run as a job.** The number of matching sessions decides, whether they are selected by `session_numbers` or with `delete_all`:\n- Up to 20 matching sessions: they are deleted before the response, which is `200` with one entry per session in `results[]`.\n- More than 20: the response is `202` with a deletion job, and the sessions are deleted in the background. Poll `GET /v3/sessions/delete/{job_id}/` until `status` is `COMPLETED` or `FAILED`. A job reports counts per outcome, never which sessions it deleted. A `delete_all` job deletes only the sessions created before the request; sessions started while it runs are not deleted.\n\nEach deleted session gets exactly the same treatment as the single-session delete endpoint: the session, every verification attempt it holds, its decision and extracted data, its related feature records (ID verification, face, liveness, face match, and so on) and all of its stored files are deleted, it disappears from every read endpoint, and previously issued media URLs stop resolving. Webhook deliveries still queued for a deleted session, and their retries, are dropped; webhooks already delivered are not affected. Blocklist entries are **not** removed, credits already consumed are **not** refunded, and the parent User entities are **not** deleted (use `POST /v3/users/delete/` for those); no webhook is emitted for the deletion. Deletion is permanent and irreversible.\n\n**Selection semantics:**\n- With `delete_all: true` you can narrow the selection with the filters of `GET /v3/sessions/`, each prefixed with `filter_` (for example `filter_status`, `filter_workflow_id`, `filter_date_from`). Filters that take several values in List Sessions (`status`, `workflow_id`, `country`, `region`, `document_type`, `document_name`, `session_type`, `warning`, `organization_name`) accept a comma-separated string or an array; the others take one value. An empty value is ignored. Filters apply only together with `delete_all`, and a deletion job applies the same filters.\n- An unknown `filter_*` key, or a filter value that cannot be read, rejects the whole request with `400` before anything is deleted, so a mistyped filter never widens the deletion to every session.\n- Entries in `session_numbers` that do not match a live KYC session in your application (unknown numbers, already-deleted sessions, or sessions owned by another application) are **silently skipped**: they do not appear in `results` and are not counted in a job's `total`.\n- Validation failures (a non-numeric entry, an empty list, neither `session_numbers` nor `delete_all` provided, or a template retention the application cannot honour) reject the **whole request** with `400` and delete nothing.\n- Sessions are deleted in groups. If a group cannot be deleted (for example because a storage service is unavailable), every session in that group is reported as `face_retention_outcome: failed_retryable` and stays in place; the other groups are unaffected. Repeat the request for those sessions. A job retries such a group by itself.\n- There is no documented cap on the list length; the shared write rate limit (below) is the practical bound.\n\n**Face biometric data:** the optional `retain_face_embeddings`, `face_retention_days`, `face_retention_deadline`, `deletion_instruction`, and `instruction_id` fields have the same meaning as on `DELETE /v3/session/{sessionId}/delete/` and apply to every matched session. Each result reports its own `face_retention_outcome`.\n\n**Response:** `200 OK` with `results[]` for up to 20 matching sessions, or `202 Accepted` with a deletion job for more. Every result confirms deletion except `face_retention_outcome: failed_retryable`, which reports a session that was NOT deleted and should be retried. Earlier versions of this endpoint returned `204 No Content`; update clients that assert on `204`.\n\n**Idempotency:** repeating the same request deletes nothing more: numbers that no longer match a session are skipped.\n\n**`delete_all: true` (destructive):** deletes **every** remaining KYC session in the application; `session_numbers` is ignored when set. There is no confirmation step and no undo.\n\n**Authentication:** API key in the `x-api-key` header. Missing or invalid credentials return `403` (`{\"detail\": \"You do not have permission to perform this action.\"}`); this API never returns `401`.\n\n**Rate limit:** shared write budget of 300 requests/min per API key across all POST/PATCH/DELETE endpoints; exceeding it returns `429`.\n\nThis endpoint accepts API keys only. Business Console user Bearer tokens are rejected with `403` (unlike the single-session delete, which accepts both).\n\n**Filed regulatory reports:** if the selected data is in a finalized regulatory report, the whole request is refused with `409` and nothing is deleted. The body uses `code: in_filed_report` and names each report with `uuid`, `report_number`, `report_type` and `case_uuid`. Delete the reports, then repeat the request.",
+        "description": "Bulk delete User Verification (KYC) sessions by their numeric `session_number`, or every KYC session in your application with `delete_all: true`.\n\n`session_number` is the human-friendly incrementing counter shown in the Console session list and returned as `session_number` by the create-session and decision endpoints; it is **not** the `session_id` UUID. To delete a session by UUID, or to delete a Business Verification (KYB) session, which this endpoint never touches, use `DELETE /v3/session/{sessionId}/delete/` instead.\n\n**Up to 20 sessions are deleted in the request, more run as a job.** The number of matching sessions decides, whether they are selected by `session_numbers` or with `delete_all`:\n- Up to 20 matching sessions: they are deleted before the response, which is `200` with one entry per session in `results[]`.\n- More than 20: the response is `202` with a deletion job, and the sessions are deleted in the background. Poll `GET /v3/sessions/delete/{job_id}/` until `status` is `COMPLETED` or `FAILED`. A job reports counts per outcome, never which sessions it deleted. A `delete_all` job deletes only the sessions created before the request; sessions started while it runs are not deleted.\n\nEach deleted session gets exactly the same treatment as the single-session delete endpoint: the session, every verification attempt it holds, its decision and extracted data, its related feature records (ID verification, face, liveness, face match, and so on) and all of its stored files are deleted, it disappears from every read endpoint, and previously issued media URLs stop resolving. Webhook deliveries still queued for a deleted session, and their retries, are dropped; webhooks already delivered are not affected. Blocklist entries are **not** removed, credits already consumed are **not** refunded, and the parent User entities are **not** deleted (use `POST /v3/users/delete/` for those); no webhook is emitted for the deletion. Deletion is permanent and irreversible.\n\n**Selection semantics:**\n- With `delete_all: true` you can narrow the selection with the filters of `GET /v3/sessions/`, each prefixed with `filter_` (for example `filter_status`, `filter_workflow_id`, `filter_date_from`). Filters that take several values in List Sessions (`status`, `workflow_id`, `country`, `region`, `document_type`, `session_type`, `warning`, `organization_name`) accept a comma-separated string or an array; the others take one value. An empty value is ignored. Filters apply only together with `delete_all`, and a deletion job applies the same filters.\n- An unknown `filter_*` key, or a filter value that cannot be read, rejects the whole request with `400` before anything is deleted, so a mistyped filter never widens the deletion to every session.\n- Entries in `session_numbers` that do not match a live KYC session in your application (unknown numbers, already-deleted sessions, or sessions owned by another application) are **silently skipped**: they do not appear in `results` and are not counted in a job's `total`.\n- Validation failures (a non-numeric entry, an empty list, neither `session_numbers` nor `delete_all` provided, or a template retention the application cannot honour) reject the **whole request** with `400` and delete nothing.\n- Sessions are deleted in groups. If a group cannot be deleted (for example because a storage service is unavailable), every session in that group is reported as `face_retention_outcome: failed_retryable` and stays in place; the other groups are unaffected. Repeat the request for those sessions. A job retries such a group by itself.\n- There is no documented cap on the list length; the shared write rate limit (below) is the practical bound.\n\n**Face biometric data:** the optional `retain_face_embeddings`, `face_retention_days`, `face_retention_deadline`, `deletion_instruction`, and `instruction_id` fields have the same meaning as on `DELETE /v3/session/{sessionId}/delete/` and apply to every matched session. Each result reports its own `face_retention_outcome`.\n\n**Response:** `200 OK` with `results[]` for up to 20 matching sessions, or `202 Accepted` with a deletion job for more. Every result confirms deletion except `face_retention_outcome: failed_retryable`, which reports a session that was NOT deleted and should be retried. Earlier versions of this endpoint returned `204 No Content`; update clients that assert on `204`.\n\n**Idempotency:** repeating the same request deletes nothing more: numbers that no longer match a session are skipped.\n\n**`delete_all: true` (destructive):** deletes **every** remaining KYC session in the application; `session_numbers` is ignored when set. There is no confirmation step and no undo.\n\n**Authentication:** API key in the `x-api-key` header. Missing or invalid credentials return `403` (`{\"detail\": \"You do not have permission to perform this action.\"}`); this API never returns `401`.\n\n**Rate limit:** shared write budget of 300 requests/min per API key across all POST/PATCH/DELETE endpoints; exceeding it returns `429`.\n\nThis endpoint accepts API keys only. Business Console user Bearer tokens are rejected with `403` (unlike the single-session delete, which accepts both).\n\n**Filed regulatory reports:** if the selected data is in a finalized regulatory report, the whole request is refused with `409` and nothing is deleted. The body uses `code: in_filed_report` and names each report with `uuid`, `report_number`, `report_type` and `case_uuid`. Delete the reports, then repeat the request.",
         "operationId": "batch_delete_sessions",
         "x-didit-sdk": {
           "resource": "sessions",
@@ -28464,20 +28462,6 @@
                   },
                   "filter_document_type": {
                     "description": "Narrows a `delete_all` to the sessions that match the `document_type` filter of [List Sessions](/sessions-api/list-sessions), with the same values. A comma-separated string or an array. Ignored without `delete_all`. An empty value is ignored and does not narrow the selection.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      }
-                    ]
-                  },
-                  "filter_document_name": {
-                    "description": "Narrows a `delete_all` to the sessions that match the `document_name` filter of [List Sessions](/sessions-api/list-sessions), with the same values. A comma-separated string or an array. Ignored without `delete_all`. An empty value is ignored and does not narrow the selection.",
                     "oneOf": [
                       {
                         "type": "string"
@@ -28774,7 +28758,7 @@
                     }
                   },
                   "additionalProperties": {
-                    "description": "Other keys: a `filter_*` key that is not a List Sessions filter (`\"Unknown filter.\"`), or a `filter_*` key whose value cannot be read (keyed by that `filter_*` key, with an array of messages)."
+                    "description": "Other keys: a `filter_*` key that is not a List Sessions filter (`\"Unknown filter.\"`), or a `filter_*` key whose value cannot be read (keyed by that `filter_*` key, with an array of messages). `filter_document_name` is no longer accepted: it is refused with `[\"This filter is not available.\"]` and nothing is deleted."
                   }
                 },
                 "examples": {
@@ -34811,7 +34795,7 @@
     "/v1/transactions/": {
       "post": {
         "summary": "Submit a transaction from an SDK",
-        "description": "Device-facing endpoint the Didit SDKs call to submit a transaction directly from the end-user's device. Authentication is a scoped token from `POST /v3/transactions/sdk-token/` sent in the `X-Transaction-Token` header instead of an API key, and the endpoint is CORS-enabled so browsers can call it cross-origin. The payload uses the camelCase wire aliases shown below (the SDK `submitTransaction` methods build it for you). Three server-side guarantees: the application is always taken from the token; the subject identity (`externalUserId`) is always enforced from the token's `vendor_data`, so spoofed payload values are ignored; and device intelligence (the SDK device fingerprint plus server-derived IP and user agent) is attached to the subject automatically.",
+        "description": "Device-facing endpoint the Didit SDKs call to submit a transaction directly from the end-user's device. Authentication is a scoped token from `POST /v3/transactions/sdk-token/` sent in the `X-Transaction-Token` header instead of an API key, and the endpoint is CORS-enabled so browsers can call it cross-origin. The payload uses the camelCase wire aliases shown below (the SDK `submitTransaction` methods build it for you). Three server-side guarantees: the application is always taken from the token; the subject identity (`externalUserId`) is always enforced from the token's `vendor_data`, so spoofed payload values are ignored; and device intelligence (the SDK device fingerprint plus server-derived IP and user agent) is attached to the subject automatically. The device's automation score is Didit's to decide: it is returned in the subject's device context as `metadata.bot_score`, from 0 to 1, nothing the device sends can lower it, and it is absent when Didit had nothing to decide it from (absent means unknown, not 0).",
         "operationId": "submitTransactionFromSdk",
         "x-didit-sdk": {
           "resource": "transactions",
@@ -34951,7 +34935,7 @@
                       },
                       "device": {
                         "type": "object",
-                        "description": "Optional explicit device context. Merged with the automatically captured device intelligence; server-derived fields win on conflict."
+                        "description": "Optional explicit device context. Merged with the automatically captured device intelligence; server-derived fields win on conflict. A `metadata.bot_score` posted here is not kept: Didit decides the automation score."
                       },
                       "paymentMethod": {
                         "type": "object",
@@ -35068,7 +35052,7 @@
                   },
                   "fingerprint_v2": {
                     "type": "object",
-                    "description": "The `didit-fp-v2` device fingerprint payload. Injected automatically by the SDKs; only relevant when calling the wire API directly."
+                    "description": "The `didit-fp-v2` device fingerprint payload. Injected automatically by the SDKs; only relevant when calling the wire API directly. Newer SDK versions add `evidence`, a text of what they read about how the page or app is driven: Didit reads it to decide the automation score, and it is not stored with the transaction or returned."
                   }
                 },
                 "required": [
@@ -102597,7 +102581,7 @@
                         "documents": [
                           {
                             "sandbox_sample": null,
-                            "document_name": "Brazil - Passport (2015)",
+                            "document_type": "P",
                             "is_default": true,
                             "first_name": "ALICE",
                             "last_name": "SILVA",
@@ -105742,6 +105726,7 @@
                       "client_token": "example-client-token",
                       "expires_at": "2026-11-21T13:00:00Z",
                       "connection_id": null,
+                      "renews_connection_id": null,
                       "check_id": null,
                       "reused": false,
                       "error": null,
@@ -106055,6 +106040,7 @@
                       "client_token": null,
                       "expires_at": "2026-11-21T13:00:00Z",
                       "connection_id": "5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35",
+                      "renews_connection_id": null,
                       "check_id": null,
                       "reused": false,
                       "error": null,
@@ -106090,6 +106076,7 @@
                       "client_token": null,
                       "expires_at": "2026-11-21T13:00:00Z",
                       "connection_id": null,
+                      "renews_connection_id": null,
                       "check_id": null,
                       "reused": false,
                       "error": {
@@ -106258,6 +106245,7 @@
                       "client_token": null,
                       "expires_at": "2026-11-21T13:00:00Z",
                       "connection_id": null,
+                      "renews_connection_id": null,
                       "check_id": null,
                       "reused": false,
                       "error": null,
@@ -106447,6 +106435,7 @@
                       "client_token": null,
                       "expires_at": "2026-11-21T13:00:00Z",
                       "connection_id": "5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35",
+                      "renews_connection_id": null,
                       "check_id": null,
                       "reused": false,
                       "error": null,
@@ -106482,6 +106471,7 @@
                       "client_token": null,
                       "expires_at": "2026-11-21T13:00:00Z",
                       "connection_id": null,
+                      "renews_connection_id": null,
                       "check_id": null,
                       "reused": false,
                       "error": {
@@ -106861,7 +106851,8 @@
                           "billing": {
                             "unit": "connection_month",
                             "price_usd": "0.9000",
-                            "billed_through": "2026-11-30"
+                            "billed_through": "2026-11-30",
+                            "ends_at": null
                           },
                           "possible_duplicate_of": null,
                           "erasure": null,
@@ -107110,7 +107101,8 @@
                       "billing": {
                         "unit": "connection_month",
                         "price_usd": "0.9000",
-                        "billed_through": "2026-11-30"
+                        "billed_through": "2026-11-30",
+                        "ends_at": null
                       },
                       "possible_duplicate_of": null,
                       "erasure": null,
@@ -107221,7 +107213,8 @@
                       "billing": {
                         "unit": "connection_month",
                         "price_usd": "0.9000",
-                        "billed_through": "2026-11-30"
+                        "billed_through": "2026-11-30",
+                        "ends_at": null
                       },
                       "possible_duplicate_of": null,
                       "erasure": null,
@@ -107453,7 +107446,7 @@
     "/v3/bank/connections/{id}/refresh/": {
       "post": {
         "summary": "Refresh a bank connection",
-        "description": "Syncs now: reads the bank for new data at any moment. Answers `202` with the `sync_id`; if a sync is already running you get that same `sync_id`, not a second job. With `\"wait\": true` in the body, or the header `Prefer: wait=<seconds>` (up to 25), the call holds for up to 25 seconds and answers `200` with the finished sync (`outcome`, the per-account counts and `balances_changed`), so one request returns fresh data. If the bank has not answered in that time it answers `202`: read the sync with `get_sync_run` using the `sync_id`, or subscribe to `bank.sync.completed`. `bank.data.updated` follows only when the sync stores changes.\n\nLive syncs are included in the monthly price of the connection, like the automatic syncs: nothing extra is charged. The only limit is the bank's. Banks limit reads without the person present, for example to four a day (the Didit Test Bank in sandbox does the same). The automatic syncs of the day (`sync.frequency_per_day`) are set aside first and the rest are yours, so `sync.budgets` shows what is left and `sync.live_syncs_left_today` how many live syncs remain today. The automatic schedule never uses the last two reads of a day, so two live syncs always remain. When the budget is used up the call answers `429 refresh_limit_reached` with `Retry-After` (the seconds until the budget resets, 1 to 86400) and a `sync` object with `live_syncs_left_today` and `budgets`. The limit is a ceiling set by the bank, not a promise of a number of syncs.\n\nWhen a sync stores changes, `bank.data.updated` tells you; then read the change feed.\n\nNeeds an API key with write access to Bank data, because this operation changes something: a full-access key has it, and a scoped key needs `bank-data` write in its scopes. Otherwise the call answers `403 bank_data_access_denied`.\n\nRefreshing a deleted connection answers `409 connection_not_active`. A one-time connection is read once and its access then ends, so refreshing it answers `409 one_time_connection`: create a new link to read the bank again.",
+        "description": "Syncs now: reads the bank for new data at any moment. Answers `202` with the `sync_id`; if a sync is already running you get that same `sync_id`, not a second job. With `\"wait\": true` in the body, or the header `Prefer: wait=<seconds>` (up to 25), the call holds for up to 25 seconds and answers `200` with the finished sync (`outcome`, the per-account counts and `balances_changed`), so one request returns fresh data. If the bank has not answered in that time it answers `202`: read the sync with `get_sync_run` using the `sync_id`, or subscribe to `bank.sync.completed`. `bank.data.updated` follows only when the sync stores changes.\n\nLive syncs are included in the monthly price of the connection, like the automatic syncs: nothing extra is charged. The only limit is the bank's. Banks limit reads without the person present, for example to four a day (the Didit Test Bank in sandbox does the same). The automatic syncs of the day (`sync.frequency_per_day`) are set aside first and the rest are yours, so `sync.budgets` shows what is left and `sync.live_syncs_left_today` how many live syncs remain today. The automatic schedule never uses the last two reads of a day, so two live syncs always remain. When the budget is used up the call answers `429 refresh_limit_reached` with `Retry-After` (the seconds until the budget resets, 1 to 86400) and a `sync` object with `live_syncs_left_today` and `budgets`. The limit is a ceiling set by the bank, not a promise of a number of syncs.\n\nThe bank also asks to rest after every read of a connection, whoever made it (a few minutes, 15 on most banks): a call inside that rest answers `429 refresh_too_soon` with `Retry-After` set to the end of the rest, in seconds, and the same `sync` object. It costs nothing and does not touch the day's budget, so wait `Retry-After` and call again; `refresh_limit_reached` means the day's budget is used up and the wait runs to its reset. An automatic sync that meets the rest is skipped without a failure and runs again after it.\n\nWhen a sync stores changes, `bank.data.updated` tells you; then read the change feed.\n\nNeeds an API key with write access to Bank data, because this operation changes something: a full-access key has it, and a scoped key needs `bank-data` write in its scopes. Otherwise the call answers `403 bank_data_access_denied`.\n\nRefreshing a deleted connection answers `409 connection_not_active`. A one-time connection is read once and its access then ends, so refreshing it answers `409 one_time_connection`: create a new link to read the bank again.",
         "operationId": "refreshBankConnection",
         "tags": [
           "Bank Data"
@@ -107650,7 +107643,7 @@
             }
           },
           "429": {
-            "description": "The bank's budget for fetches without the person present is used up.",
+            "description": "Either the bank's budget for fetches without the person present is used up (`refresh_limit_reached`), or the bank was read a moment ago and asks to wait (`refresh_too_soon`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -107674,6 +107667,29 @@
                             "resource": "all",
                             "limit": 4,
                             "remaining": 0,
+                            "resets_at": "2026-11-22T00:00:00Z"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "Refresh too soon": {
+                    "summary": "Refresh too soon",
+                    "value": {
+                      "code": "refresh_too_soon",
+                      "message": "The bank was read a moment ago and asks to wait before it is read again.",
+                      "request_id": "3f6a1c8e-92b5-4d07-a1e3-8c4b7f0d2e59",
+                      "field": null,
+                      "next_action": "retry_later",
+                      "retry_after": 862,
+                      "sync": {
+                        "live_syncs_left_today": 2,
+                        "budgets": [
+                          {
+                            "scope": "connection",
+                            "resource": "all",
+                            "limit": 4,
+                            "remaining": 2,
                             "resets_at": "2026-11-22T00:00:00Z"
                           }
                         ]
@@ -108271,7 +108287,8 @@
                       "url": "https://verify.didit.me/bank/link/example-link-token",
                       "client_token": "example-client-token",
                       "expires_at": "2026-11-21T13:00:00Z",
-                      "connection_id": "5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35",
+                      "connection_id": null,
+                      "renews_connection_id": "5e1d2a70-3b94-4c1f-8a6e-d2f07b9c1e35",
                       "check_id": null,
                       "reused": false,
                       "error": null,
@@ -108622,7 +108639,7 @@
                         "renewal_action": "bank_auth",
                         "renew_by": "2027-05-20T12:04:11Z",
                         "reconfirm_by": null,
-                        "renewable_until": "2026-12-21T15:10:00Z",
+                        "renewable_until": null,
                         "retain_until": "2026-12-21T15:10:00Z",
                         "ended_at": "2026-11-21T15:10:00Z",
                         "ended_by": "customer"
@@ -108680,7 +108697,8 @@
                       "billing": {
                         "unit": "connection_month",
                         "price_usd": "0.9000",
-                        "billed_through": "2026-11-30"
+                        "billed_through": "2026-11-30",
+                        "ends_at": null
                       },
                       "possible_duplicate_of": null,
                       "erasure": null,
@@ -108944,7 +108962,8 @@
                       "billing": {
                         "unit": "connection_month",
                         "price_usd": "0.9000",
-                        "billed_through": "2026-11-30"
+                        "billed_through": "2026-11-30",
+                        "ends_at": null
                       },
                       "possible_duplicate_of": null,
                       "erasure": null,
@@ -113811,7 +113830,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "description": "List your application's verifications, newest first. Filter by status, channel, phone number, reference, tag (`key:value`) or creation time. Use `limit` and `offset` to page through JSON results: `next` and `previous` are offsets, not URLs, so send `next` as `offset` to read the next page. Use `format=csv` to export all matching verifications. The `template` query parameter does not filter these records. Verification history does not return a `template_used` field.",
+        "description": "List your application's verifications, newest first. Filter by status, channel, phone number, reference, tag (`key:value`) or creation time. Use `limit` and `offset` to page through JSON results: `next` and `previous` are offsets, not URLs, so send `next` as `offset` to read the next page. Use `format=csv` to export all matching verifications. The `template` query parameter does not filter these records. Verification history does not return a `template_used` field. A Phone risk lookup is not a verification and is not listed here: read lookups with `GET /v3/phone/lookups/`.",
         "x-codeSamples": [
           {
             "lang": "curl",
@@ -117605,7 +117624,7 @@
                     },
                     "fee": {
                       "type": "number",
-                      "description": "USD amount billed for this event. Non-zero only on send events (the delivery price); 0 for code entries, delivery confirmations, and status events."
+                      "description": "USD price of this event. Non-zero only on send events: the send's estimated price until billing records its charge, then the price billing recorded for it. A `Blocked` send is never charged. A send whose every message was reported undeliverable is not charged either, unless a later delivery report shows one of its messages was delivered: that report charges it. A send that is not charged reads 0 from billing close, a few minutes after the code's 5-minute validity ends, and a later delivery report that charges it replaces the 0 with that charge. 0 for code entries, delivery confirmations, and status events, and 0 on every event in the sandbox."
                     }
                   }
                 }
@@ -119657,6 +119676,16 @@
                         "longitude": {
                           "type": "number",
                           "description": "Geographic longitude of the IP."
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "Further keys of the device context, free-form: the `metadata` that was sent, of any shape, returned as stored. For the subject (the `APPLICANT` party) of a transaction submitted from a device with a transaction token (`POST /v1/transactions/`, the Didit SDKs), Didit adds what it read from the request, such as `bot_score`.",
+                      "properties": {
+                        "bot_score": {
+                          "description": "The device's automation score. Its type is not fixed for every party: read it as described here. For the subject (the `APPLICANT` party) of a transaction submitted from a device with a transaction token, Didit decides it on the server and it is a number from 0 (no sign of automation) to 1 (automated): from the request itself (a user agent that names an automation tool scores 1) and from what the SDK sent, which is what it read about how the page or app is driven or, from an older SDK version, its own score. Nothing the device sends can lower it, and a `bot_score` the device posts in its own device context is not kept. It is absent when Didit had nothing to decide it from: absent means unknown, not 0. For any other party, on a transaction your backend submitted with an API key, and on transactions stored before this behaviour, it is whatever was sent in `metadata`, unchanged and of whatever type it was sent."
                         }
                       }
                     }
@@ -132740,9 +132769,11 @@
               "properties": {
                 "code": {
                   "type": "string",
+                  "description": "The warning. `SIGNATURE_OTP_NOT_CONFIRMED` means no code was sent because the code goes by SMS and the signer's phone is on your phone block list (the number, its prefix, its network or its country); the signing ended by `signature_otp_failed_action`, and the same warning in the session's activity, and in the top-level `warnings` of a version 1 decision and its webhooks, carries `additional_data.blocked_reason: \"blocked_by_list\"`. The signer's own flow never receives the reason. See [E-signature warnings](/core-technology/electronic-signature/warnings-electronic-signature).",
                   "enum": [
                     "SIGNATURE_DECLINED",
                     "SIGNATURE_OTP_FAILED",
+                    "SIGNATURE_OTP_NOT_CONFIRMED",
                     "SIGNATURE_NAME_MISMATCH",
                     "SIGNATURE_IDENTITY_NOT_VERIFIED",
                     "SIGNATURE_DOCUMENT_CHANGED",
@@ -143811,7 +143842,7 @@
               "device_context": {
                 "type": "object",
                 "additionalProperties": true,
-                "description": "The device context as stored: your `device_context` (including `fingerprint`, `persistent_device_id` and `bot_score` when sent) with `network_context` completed by IP enrichment (`ip_country`, `ip_country_code`, `ip_city`, `asn_number`, `asn_organization`, `is_vpn_or_tor`, `is_data_center`, `proxy_type`, `connection_type`) for keys you left empty. For an event your backend submitted, `bot_score` is the integer you sent. For an event submitted from a device with a monitoring token (the Didit SDKs), `bot_score` is the score Didit decided for that request, an integer from 0 to 100, and it is absent when Didit had nothing to decide it from: absent means unknown, not 0. On those events a `bot_score` the device posted in its own `device_context` does not set the score and is returned as `metadata.client_bot_score`, an integer, present only when the device posted one."
+                "description": "The device context as stored: your `device_context` (including `fingerprint`, `persistent_device_id` and `bot_score` when sent) with `network_context` completed by IP enrichment (`ip_country`, `ip_country_code`, `ip_city`, `asn_number`, `asn_organization`, `is_vpn_or_tor`, `is_data_center`, `proxy_type`, `connection_type`) for keys you left empty. For an event your backend submitted, `bot_score` is the integer you sent. For an event submitted from a device with a monitoring token (the Didit SDKs), `bot_score` is the score Didit decided for that request, an integer from 0 to 100. It is `0` when Didit had something to judge and found nothing: it read the device evidence the SDK sent and no sign of automation was in it, or an older SDK reported a score of 0. It is absent when Didit had nothing to decide it from (no evidence it could read, no score from the SDK, nothing in the request): absent means unknown, not 0, so compare `0` only when the field is present. The object is otherwise open: a key the device added to its own device context is returned as it was sent, with one exception. A device fingerprint the device put there (`fingerprint_v2` or `fingerprintV2`, or a context that is itself a fingerprint) is returned without its `evidence` member: Didit reads that evidence to decide the score and does not store it. The fingerprint's other members and every key beside it are returned as sent. A fingerprint that is not a JSON object, or the JSON text of one, cannot be read and is left out of the stored context. On those events a `bot_score` the device posted in its own `device_context` does not set the score and is returned as `metadata.client_bot_score`, an integer, present only when the device posted one."
               },
               "field_sources": {
                 "type": "object",
@@ -143823,7 +143854,7 @@
                     "server"
                   ]
                 },
-                "description": "Field path to provenance: `customer` (sent by your backend), `sdk` (sent through the device lane) or `server` (derived by Didit, such as `received_at` and enriched network fields). Check it before acting on a match. For an event submitted from a device with a monitoring token, the entry `device_context.bot_score` says who decided that score: `sdk` when the Didit SDK's own report alone set it, `server` when Didit raised it from the request or decided there is no score. The entry is present in that case even when `device_context.bot_score` itself is absent, so it is not a way to tell whether a score exists: read the score. Events stored before this behaviour keep the entries they were stored with."
+                "description": "Field path to provenance: `customer` (sent by your backend), `sdk` (sent through the device lane) or `server` (derived by Didit, such as `received_at` and enriched network fields). Check it before acting on a match. For an event submitted from a device with a monitoring token, the entry `device_context.bot_score` says who decided that score: `sdk` when the Didit SDK's own score alone set it, `server` when Didit decided it from the request or from the device evidence the SDK sent, or decided there is no score. The entry is present in that case even when `device_context.bot_score` itself is absent, so it is not a way to tell whether a score exists: read the score. Events stored before this behaviour keep the entries they were stored with."
               },
               "session_sequence": {
                 "type": "integer",
@@ -150808,6 +150839,12 @@
                 "nullable": true,
                 "description": "The bank's name. `null` for an account check."
               },
+              "logo_url": {
+                "type": "string",
+                "format": "uri",
+                "nullable": true,
+                "description": "The address of the bank's logo hosted by Didit, or `null` when Didit has no logo for the bank. `null` for an account check, where no bank is picked. Returned with `institution_name`."
+              },
               "institution_country": {
                 "type": "string",
                 "nullable": true,
@@ -154489,7 +154526,7 @@
         "type": "object",
         "required": [
           "sandbox_sample",
-          "document_name",
+          "document_type",
           "is_default"
         ],
         "properties": {
@@ -154498,9 +154535,10 @@
             "nullable": true,
             "description": "The sample slug that selects this document, or `null` for the default document."
           },
-          "document_name": {
+          "document_type": {
             "type": "string",
-            "description": "The document the sandbox OCR mock returns."
+            "nullable": true,
+            "description": "The type of the document the sandbox OCR mock returns: `P` (Passport), `ID` (Identity Card), `DL` (Driver's License) or `RP` (Residence Permit). Its issuing country is `id_country`."
           },
           "is_default": {
             "type": "boolean",
@@ -157205,6 +157243,7 @@
               "renewal_window_expired",
               "access_removed",
               "refresh_limit_reached",
+              "refresh_too_soon",
               "cursor_expired",
               "page_expired",
               "invalid_cursor",
@@ -157626,7 +157665,7 @@
           },
           "consent_days": {
             "type": "integer",
-            "description": "Ongoing only. How many days to ask the bank to keep access open, 1 or more. Default: the longest the bank allows. The connection reports the date the bank actually granted in `consent.expires_at`. With `access: one_time` it answers `400 invalid_request` with `field: consent_days`.",
+            "description": "Ongoing only. How many days to ask the bank to keep access open, 1 or more. Default: the longest the bank allows. On a renewal link that sends none, the bank is asked for the length the person chose before, never above the bank's maximum; only a connection with no recorded length is asked for the maximum. The connection reports the date the bank actually granted in `consent.expires_at`. With `access: one_time` it answers `400 invalid_request` with `field: consent_days`.",
             "minimum": 1,
             "maximum": 32767
           },
@@ -157780,9 +157819,15 @@
           },
           "connection_id": {
             "type": "string",
-            "description": "The connection this link created or renewed, once `status` is `completed`.",
+            "description": "The connection this link produced or renewed. `null` until the link completes, on every kind of link.",
             "format": "uuid",
             "nullable": true
+          },
+          "renews_connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "The connection a renewal link (`mode: renew`) targets, set when the link is created; `null` on a link that renews nothing. Always present. `connection_id` stays `null` until the link completes."
           },
           "check_id": {
             "type": "string",
@@ -157825,7 +157870,8 @@
           "reused",
           "error",
           "quote",
-          "vendor_data"
+          "vendor_data",
+          "renews_connection_id"
         ]
       },
       "BankSyncBudget": {
@@ -158080,7 +158126,7 @@
           },
           "renewable_until": {
             "type": "string",
-            "description": "The last moment the same connection can be revived after the consent ended. After it the person connects again. It equals `retain_until`.",
+            "description": "The last moment the same connection can be renewed with its renewal link after access ended. `null` while access has not ended and whenever the connection cannot be renewed, so a non-null value is the test for a renewal and `ended_by` does not decide it. After it the person connects again.",
             "format": "date-time",
             "nullable": true
           },
@@ -158105,7 +158151,7 @@
               "unknown",
               null
             ],
-            "description": "Who ended access, set from evidence. `system` when Didit ended it by design: a one-time connection once its read is complete. `unknown` when neither the bank nor the sync says.",
+            "description": "Who ended access, set from evidence. `system` when Didit ended it: a one-time connection once its read is complete (`status_reason: collection_complete`), or a connection whose coming month was not paid by the deadline (`status_reason: unpaid`). `unknown` when neither the bank nor the sync says.",
             "nullable": true
           }
         },
@@ -158250,7 +158296,7 @@
           },
           "price_usd": {
             "type": "string",
-            "description": "Your price for the month meter today, for your application and the country, in USD, a decimal string with 4 decimals. A connection is charged for a month only when every accepted scope published data for at least one account in that month. `null` for one-time connections and in the sandbox. Ongoing access is billed per active connection per month; the current price is on the pricing page (https://docs.didit.me/getting-started/pricing). Amounts in examples are illustrative; the price for a country is shown on the pricing page.",
+            "description": "Your price for the month meter today, for your application and the country, in USD, a decimal string with 4 decimals. A connection is charged once for each calendar month (UTC) it is active: its first month when its first sync succeeds, and every later month in advance, in the last five days of the month before it, while the connection's consent reaches into it. A connection created in the last five days of a month whose first read starts in the next month needs both months covered together before that read: with funds for only one, the read fails and neither is charged. `null` for one-time connections and in the sandbox. Ongoing access is billed per active connection per month; the current price is on the pricing page (https://docs.didit.me/getting-started/pricing). Amounts in examples are illustrative; the price for a country is shown on the pricing page.",
             "pattern": "^-?\\d+(\\.\\d+)?$",
             "nullable": true
           },
@@ -158259,12 +158305,19 @@
             "description": "The last month end already settled.",
             "format": "date",
             "nullable": true
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the connection ends unless its coming month is paid first: 20:00 UTC on the last day of the month before it. Set once a payment of the coming month has failed, while the connection is `active` or `paused`. `null` when nothing has failed yet and once the month is paid, and also while the connection is `pending`, needs renewal, is being revoked or has ended, is a sandbox connection, or its consent ends before the month begins, so a `null` alone does not mean the month was paid."
           }
         },
         "required": [
           "unit",
           "price_usd",
-          "billed_through"
+          "billed_through",
+          "ends_at"
         ]
       },
       "BankConnectionErasure": {
@@ -158332,7 +158385,7 @@
               "deleted",
               "failed"
             ],
-            "description": "`pending`: first sync running. `active`: consent valid. `renewal_required`: the consent ended or the bank wants the person to sign in again, data readable as last synced and nothing charged. `paused`: balance too low for the month. `revoked`: access stopped by the person, the bank or you, or ended because the read of a one-time connection is complete. `deleted`: only `id`, `status`, `status_reason`, `created_at` and `erasure` remain. The list returns these only for `status=deleted`; reading one by id always returns it. `failed`: the first sync never succeeded."
+            "description": "`pending`: first sync running. `active`: consent valid. `renewal_required`: the consent ended or the bank wants the person to sign in again, data readable as last synced; a month that begins while it waits is not charged. `paused`: the current month could not be paid, so syncing stops. It resumes by itself once your balance covers the month: when a credit reaches your wallet, or at the daily check at 05:30 UTC. `revoked`: access stopped by the person, the bank or you, ended because the read of a one-time connection is complete, or ended by Didit because its coming month was not paid by the deadline (`status_reason: unpaid`). `deleted`: only `id`, `status`, `status_reason`, `created_at` and `erasure` remain. The list returns these only for `status=deleted`; reading one by id always returns it. `failed`: the first sync never succeeded."
           },
           "status_reason": {
             "type": "string",
@@ -158347,12 +158400,13 @@
               "insufficient_balance",
               "paused_by_customer",
               "first_sync_failed",
+              "unpaid",
               "deleted_by_customer",
               "retention_elapsed",
               "application_deleted",
               null
             ],
-            "description": "Why the connection is in this status. `collection_complete`: a one-time connection whose read is complete, so its access has ended. `paused_by_customer` is reserved. On a `deleted` connection: `deleted_by_customer`, `consent_lapsed`, `retention_elapsed` or `application_deleted`.",
+            "description": "Why the connection is in this status. `collection_complete`: a one-time connection whose read is complete, so its access has ended. `paused_by_customer` is reserved. On a `deleted` connection: `deleted_by_customer`, `consent_lapsed`, `retention_elapsed` or `application_deleted`. `unpaid`: the coming month was not paid by 20:00 UTC on the last day of the month before it, so Didit ended access and removed the connection at the bank; nothing more is charged. `bank.connection.revoked` with this reason is the final signal of that ending.",
             "nullable": true
           },
           "institution": {
@@ -159705,7 +159759,7 @@
       },
       "BankLinkEventData": {
         "type": "object",
-        "description": "Ids and statuses of a link. No personal data.",
+        "description": "Ids and statuses of a link. No personal data. `renews_connection_id` is optional and names the connection a renewal link targets; an older stored failed, cancelled or expired renewal event does not have it and carries that connection in `connection_id`. Every delivery attempt of one event carries the same body.",
         "properties": {
           "link_id": {
             "type": "string",
@@ -159723,9 +159777,15 @@
           },
           "connection_id": {
             "type": "string",
-            "description": "The connection the link created or renewed.",
+            "description": "The connection the link produced or renewed. `null` until the link completes.",
             "format": "uuid",
             "nullable": true
+          },
+          "renews_connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "The connection a renewal link targets, set when the link was created; `null` on a link that renews nothing. Optional: a redelivery sends the stored body again, and an event stored before this field existed does not have the key. A receiver uses the key when it is there. An older failed, cancelled or expired renewal event without it carried the connection it was renewing in `connection_id`."
           },
           "check_id": {
             "type": "string",
@@ -159824,7 +159884,7 @@
               "system",
               "unknown"
             ],
-            "description": "Who ended access. `system` when Didit ended it by design: a one-time connection once its read is complete."
+            "description": "Who ended access. `system` when Didit ended it: a one-time connection once its read is complete (`status_reason: collection_complete`), or a connection whose coming month was not paid by the deadline (`status_reason: unpaid`)."
           },
           "status_reason": {
             "type": "string",
@@ -159839,10 +159899,11 @@
               "insufficient_balance",
               "paused_by_customer",
               "first_sync_failed",
+              "unpaid",
               "collection_complete",
               null
             ],
-            "description": "Why the connection is in this status."
+            "description": "Why the connection is in this status. `unpaid`: the coming month was not paid by 20:00 UTC on the last day of the month before it, so Didit ended access and removed the connection at the bank; nothing more is charged. `bank.connection.revoked` with `unpaid` is the final signal of that ending."
           },
           "ended_at": {
             "type": "string",
@@ -160214,7 +160275,7 @@
         ]
       },
       "BankConnectionUpdatedEvent": {
-        "description": "A connection's status changed in a way no other event reports. It is sent when a revocation starts: `revocation_status` is `pending` until the bank confirms, then `bank.connection.revoked` follows. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
+        "description": "A connection's status changed in a way no other event reports. It is sent when a revocation starts (`revocation_status` is `pending` until the bank confirms, then `bank.connection.revoked` follows), when the coming month cannot be paid (with `ends_at`), one day before the deadline for a connection already told (the same `ends_at`), when that month is then paid (`ends_at: null`), when a connection pauses or resumes, and when a connection's first read did not complete, whether it was never started and given up or it ran and failed with no retry left (`status: failed`, `status_reason: first_sync_failed`, or `insufficient_balance` when the read failed because the organization's balance could not pay the connection's month). A first-read failure that will be retried sends nothing. A failed connection is never read again and cannot be resumed: create a new link for the person to connect again. The pending-revocation payload has no `status_reason` and no `ends_at`; every other payload has both. Sent for live and sandbox applications. Ids, statuses, `status_reason` and `ends_at` only: fetch the object to read it.",
         "allOf": [
           {
             "$ref": "#/components/schemas/WebhookEventEnvelope"
@@ -160318,7 +160379,7 @@
         ]
       },
       "BankConnectionRevokedEvent": {
-        "description": "Access ended: the person, the bank or you stopped it and the bank confirmed it, or Didit ended a one-time connection once its read was complete. `ended_by` says who ended it: `end_user`, `bank`, `customer` or `system`. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
+        "description": "Access ended: the person, the bank or you stopped it and the bank confirmed it, or Didit ended it: a one-time connection once its read was complete (`status_reason: collection_complete`), or a connection whose coming month was not paid by the deadline (`status_reason: unpaid`). It is the final signal of an ending. `ended_by` says who ended it: `end_user`, `bank`, `customer` or `system`. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
         "allOf": [
           {
             "$ref": "#/components/schemas/WebhookEventEnvelope"
@@ -160575,7 +160636,7 @@
             ]
           }
         ],
-        "description": "The refresh limit error with the connection's `sync` limits. `Retry-After` carries the seconds until the budget resets, between 1 and 86400."
+        "description": "The refresh error with the connection's `sync` limits: `refresh_limit_reached` (the day's budget is used up; `Retry-After` is the seconds until it resets) or `refresh_too_soon` (the bank is resting after its last read; `Retry-After` is the seconds until the rest ends). Both are between 1 and 86400 seconds."
       },
       "PublicPriceBookPlan": {
         "type": "object",
@@ -161552,7 +161613,7 @@
       },
       "BankConnectionUpdatedData": {
         "type": "object",
-        "description": "Fields of `bank.connection.updated`. The fields are at the top level of the body, next to the envelope fields.",
+        "description": "Fields of `bank.connection.updated`. The fields are at the top level of the body, next to the envelope fields. There are two shapes. When a revocation starts: `connection_id`, `status` and `revocation_status: pending`, with no `status_reason` and no `ends_at`. For every other trigger: `connection_id`, `status`, `status_reason` and `ends_at` (always present, a date-time or an explicit `null`), and no `revocation_status`.",
         "properties": {
           "connection_id": {
             "type": "string",
@@ -161577,13 +161638,28 @@
             "enum": [
               "pending"
             ],
-            "description": "`pending`: a revocation was requested and the bank has not confirmed it yet."
+            "description": "`pending`: a revocation was requested and the bank has not confirmed it yet. Present only in the payload that announces the revocation."
+          },
+          "status_reason": {
+            "type": "string",
+            "enum": [
+              "insufficient_balance",
+              "first_sync_failed",
+              null
+            ],
+            "description": "Why the connection is paused or failed: `insufficient_balance` while it is paused for a month it could not pay; `first_sync_failed` when its first read did not complete, whether it was never started or it failed with no retry left (the connection ends `failed`; when the read failed because the organization's balance could not pay the connection's month, the reason is `insufficient_balance` instead); `null` otherwise. Absent when a revocation starts.",
+            "nullable": true
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the connection ends unless its coming month is paid first. An explicit `null` once the month is paid or when nothing is pending. Absent when a revocation starts."
           }
         },
         "required": [
           "connection_id",
-          "status",
-          "revocation_status"
+          "status"
         ]
       },
       "BankConnectionRenewalRequiredData": {
@@ -161619,7 +161695,7 @@
             "type": "string",
             "format": "date-time",
             "nullable": true,
-            "description": "The last moment the same connection can be revived. After it the person connects again."
+            "description": "The last moment the same connection can be renewed. After it the person connects again."
           }
         },
         "required": [
@@ -164493,7 +164569,7 @@
         "properties": {
           "amount": {
             "type": "string",
-            "description": "What it cost, in USD.",
+            "description": "What the attempt costs, in USD. It is the estimated price, with `final` false, until billing records a charge or billing close comes (a few minutes after the code's 5-minute validity ends). Once billing records a charge it is that charge, and `final` is true. An attempt that is not charged reads `0.0000` from billing close: final for a `Blocked` attempt, which is never charged, and not final (`final` false) for an attempt whose every message was reported undeliverable, because a later delivery report showing one of its messages was delivered charges it and replaces the `0.0000`. Under a contract, your invoice prices each code at the contract's rate, which this amount does not show. `0.0000` in the sandbox.",
             "example": "0.0300"
           },
           "carrier": {
@@ -164510,7 +164586,7 @@
           },
           "final": {
             "type": "boolean",
-            "description": "false until the carrier reports delivery, then the reported price.",
+            "description": "true once billing has recorded the attempt's charge (on its delivery report or, when no report comes, at billing close, a few minutes after the code's 5-minute validity ends), and from billing close for a `Blocked` attempt, which is never charged (`amount` `0.0000`). false while `amount` is the estimated price before billing close, and for an attempt whose every message was reported undeliverable: it reads `amount` `0.0000` from billing close, but a later delivery report showing one of its messages was delivered charges it. Always true in the sandbox, where nothing is charged.",
             "example": true
           }
         },
@@ -164608,7 +164684,7 @@
           },
           "charged": {
             "type": "boolean",
-            "description": "True when the attempt has been billed or has a nonzero actual price. See `status` for the delivery outcome.",
+            "description": "True when the attempt has been billed or has a nonzero actual price. Always false in the sandbox, which charges nothing. See `status` for the delivery outcome.",
             "example": true
           },
           "price": {
@@ -166273,7 +166349,7 @@
           },
           "spend": {
             "type": "string",
-            "description": "Spend in USD.",
+            "description": "Spend in USD. For `verification` and `lookups`: what Didit charged, debited from your balance or invoiced under a contract in USD. For `messages`: the price recorded on each message sent. `0.00` in the sandbox.",
             "example": "412.20"
           }
         }
@@ -167969,7 +168045,7 @@
     "bank.connection.updated": {
       "post": {
         "summary": "Bank connection updated",
-        "description": "A connection's status changed in a way no other event reports. It is sent when a revocation starts: `revocation_status` is `pending` until the bank confirms, then `bank.connection.revoked` follows. Sent for live and sandbox applications.",
+        "description": "A connection's status changed in a way no other event reports. It is sent when a revocation starts (`revocation_status` is `pending` until the bank confirms, then `bank.connection.revoked` follows), when the coming month cannot be paid (with `ends_at`), one day before the deadline for a connection already told (the same `ends_at`), when that month is then paid (`ends_at: null`), when a connection pauses or resumes, and when a connection's first read did not complete, whether it was never started and given up or it ran and failed with no retry left (`status: failed`, `status_reason: first_sync_failed`, or `insufficient_balance` when the read failed because the organization's balance could not pay the connection's month). A first-read failure that will be retried sends nothing. A failed connection is never read again and cannot be resumed: create a new link for the person to connect again. The pending-revocation payload has no `status_reason` and no `ends_at`; every other payload has both. Sent for live and sandbox applications. Ids, statuses, `status_reason` and `ends_at` only: fetch the object to read it.",
         "tags": [
           "Webhook"
         ],
@@ -168121,7 +168197,7 @@
     "bank.connection.revoked": {
       "post": {
         "summary": "Bank connection revoked",
-        "description": "Access ended: the person, the bank or you stopped it and the bank confirmed it, or Didit ended a one-time connection once its read was complete. `ended_by` says who ended it: `end_user`, `bank`, `customer` or `system`. Sent for live and sandbox applications.",
+        "description": "Access ended: the person, the bank or you stopped it and the bank confirmed it, or Didit ended it: a one-time connection once its read was complete (`status_reason: collection_complete`), or a connection whose coming month was not paid by the deadline (`status_reason: unpaid`). It is the final signal of an ending. `ended_by` says who ended it: `end_user`, `bank`, `customer` or `system`. Sent for live and sandbox applications. Ids and statuses only: fetch the object to read it.",
         "tags": [
           "Webhook"
         ],

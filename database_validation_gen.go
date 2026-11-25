@@ -51,13 +51,17 @@ type DatabaseValidationService struct {
 // is a definitive mismatch, `INCONCLUSIVE` means the registry could not confirm
 // either way (review, not decline), and `BIOMETRIC_IMAGE_UNUSABLE` is a
 // technical selfie problem (retake), unlike the definitive
-// `BIOMETRIC_NO_MATCH`. The overall `match_type` aggregates across services
-// (any full → `full_match`, else any partial → `partial_match`, else
-// `no_match`) and `no_match_action`/`partial_match_action` translate it into
-// the final `status`. `validation_type` is derived: `two_by_two` when two or
-// more distinct services produced a full match (on the identification number,
-// on full name + date of birth together, or on the address without
-// contradictions), else `one_by_one`.
+// `BIOMETRIC_NO_MATCH`. The overall `match_type` aggregates the services that
+// compared fields (any full → `full_match`, else any partial → `partial_match`,
+// else `no_match`), except that a rejected fingerprint, a fraud-list hit and a
+// deceased flag without compared fields override it whatever another service
+// returned; a rejected selfie makes only its own service `no_match`. `status`
+// is the decision: the results raise warnings, and
+// `no_match_action`/`partial_match_action` decide what each warning does (see
+// `match_type` and `status` in the response). `validation_type` is derived:
+// `two_by_two` when two or more distinct services produced a full match (on the
+// identification number, on full name + date of birth together, or on the
+// address without contradictions), else `one_by_one`.
 //
 // **Persistence.** `save_api_request` defaults to **true**: the result is
 // stored as a session (`request_id` works with `GET
@@ -549,15 +553,29 @@ func (r *DatabaseValidationValidateResponse) UnmarshalJSON(data []byte) error {
 
 // DatabaseValidationValidateResponseDatabaseValidation is a response object.
 type DatabaseValidationValidateResponseDatabaseValidation struct {
-	// `Declined` when the overall `match_type` triggers a `DECLINE` action
-	// (`no_match_action` defaults to `DECLINE`, `partial_match_action` to
-	// `NO_ACTION`); `In Review` when no service produced a usable comparison, for
-	// example when the only selected service came back `REGISTRY_UNAVAILABLE` or
-	// `INCONCLUSIVE`, and when the registry confirmed the identification number but
-	// returned a different name while `partial_match_action` is `NO_ACTION`;
-	// `Approved` otherwise. A request that selected several services can be
-	// `Approved` on one service's match while another was unavailable, so check
-	// `errors` and the per-service `outcome_code`s too.
+	// The request's decision. Didit turns the results into warnings and applies
+	// this request's actions to them. The no-match warning
+	// (`DATABASE_VALIDATION_NO_MATCH`) is raised by a `no_match` result and, when
+	// no service compared any field (`match_type` is `null`), by a definitive
+	// negative answer such as `DOCUMENT_NOT_FOUND` or a deceased flag; a definitive
+	// negative beside another service's full match raises no warning by itself. A
+	// superseded document raises its own warning
+	// (`DATABASE_VALIDATION_DOCUMENT_SUPERSEDED`), decided by the same
+	// `no_match_action`. A `partial_match` raises the partial-match warning,
+	// decided by `partial_match_action`. `no_match_action` defaults to `DECLINE`
+	// and `partial_match_action` to `NO_ACTION`. `Declined` when any warning's
+	// action is `DECLINE`, even on a `full_match`. Otherwise `In Review` when a
+	// check could not be performed - for example the only selected service came
+	// back `REGISTRY_UNAVAILABLE` or `INCONCLUSIVE`, or a service whose
+	// `INCONCLUSIVE` must not be approved silently (South Africa vehicle ownership,
+	// for example) is inconclusive while another service matched - or when the
+	// registry confirmed the identification number but returned a different name.
+	// `Approved` otherwise, including a request in which no service compared a
+	// field and no warning applies (an outcome-only screening with no hit) and a
+	// lone `DOCUMENT_NOT_FOUND` sent with `no_match_action: NO_ACTION`. A request
+	// that selected several services can be `Approved` on one service's match while
+	// another was unavailable, so check `warnings`, `errors` and each
+	// `outcome_code` too.
 	Status DatabaseValidationValidateResponseDatabaseValidationStatus `json:"status"`
 
 	// Echo of the ISO 3166-1 alpha-3 country validated against.
@@ -574,10 +592,21 @@ type DatabaseValidationValidateResponseDatabaseValidation struct {
 	// pre-signed URL; `consent_obtained: true` is added when consent was given).
 	ScreenedData map[string]any `json:"screened_data"`
 
-	// Overall result aggregated across services with field-level comparisons: any
+	// Overall comparison result across the services that compared fields: any
 	// `full_match` → `full_match`; else any `partial_match` → `partial_match`; else
-	// `no_match`. Outcome-only services, such as biometric criminal screening, can
-	// return `null`; inspect each item in `validations` for its `outcome_code`.
+	// `no_match`. Three results override the aggregate whatever another service
+	// returned: a rejected fingerprint comparison floors it to `no_match`, a
+	// fraud-list hit from the South Africa fraud screening floors it to
+	// `partial_match`, and a deceased flag that carries no compared fields floors
+	// it to `no_match` (a `DECEASED` answer that does compare fields, such as
+	// Brazil's death check, keeps its own comparison, and a deceased flag alone
+	// leaves `match_type` `null`). A rejected selfie (`validation.biometric:
+	// no_match`) is a per-service rule: it makes that service's comparison
+	// `no_match`, and another service's full match can still make the request
+	// `full_match`. A service that compared nothing (an `INCONCLUSIVE` answer, an
+	// outcome-only screening) does not contribute, so `match_type` can be `null`,
+	// or report another service's match while the inconclusive service still sends
+	// the request to review. It is a comparison, not the decision: read `status`.
 	MatchType DatabaseValidationValidateResponseDatabaseValidationMatchType `json:"match_type"`
 
 	// Shape depends on `save_api_request`. **`true` (default):** an array of
@@ -618,16 +647,29 @@ func (r *DatabaseValidationValidateResponseDatabaseValidation) UnmarshalJSON(dat
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
-// DatabaseValidationValidateResponseDatabaseValidationStatus: `Declined` when
-// the overall `match_type` triggers a `DECLINE` action (`no_match_action`
-// defaults to `DECLINE`, `partial_match_action` to `NO_ACTION`); `In Review`
-// when no service produced a usable comparison, for example when the only
-// selected service came back `REGISTRY_UNAVAILABLE` or `INCONCLUSIVE`, and when
-// the registry confirmed the identification number but returned a different
-// name while `partial_match_action` is `NO_ACTION`; `Approved` otherwise. A
-// request that selected several services can be `Approved` on one service's
-// match while another was unavailable, so check `errors` and the per-service
-// `outcome_code`s too.
+// DatabaseValidationValidateResponseDatabaseValidationStatus: The request's
+// decision. Didit turns the results into warnings and applies this request's
+// actions to them. The no-match warning (`DATABASE_VALIDATION_NO_MATCH`) is
+// raised by a `no_match` result and, when no service compared any field
+// (`match_type` is `null`), by a definitive negative answer such as
+// `DOCUMENT_NOT_FOUND` or a deceased flag; a definitive negative beside another
+// service's full match raises no warning by itself. A superseded document
+// raises its own warning (`DATABASE_VALIDATION_DOCUMENT_SUPERSEDED`), decided
+// by the same `no_match_action`. A `partial_match` raises the partial-match
+// warning, decided by `partial_match_action`. `no_match_action` defaults to
+// `DECLINE` and `partial_match_action` to `NO_ACTION`. `Declined` when any
+// warning's action is `DECLINE`, even on a `full_match`. Otherwise `In Review`
+// when a check could not be performed - for example the only selected service
+// came back `REGISTRY_UNAVAILABLE` or `INCONCLUSIVE`, or a service whose
+// `INCONCLUSIVE` must not be approved silently (South Africa vehicle ownership,
+// for example) is inconclusive while another service matched - or when the
+// registry confirmed the identification number but returned a different name.
+// `Approved` otherwise, including a request in which no service compared a
+// field and no warning applies (an outcome-only screening with no hit) and a
+// lone `DOCUMENT_NOT_FOUND` sent with `no_match_action: NO_ACTION`. A request
+// that selected several services can be `Approved` on one service's match while
+// another was unavailable, so check `warnings`, `errors` and each
+// `outcome_code` too.
 //
 // DatabaseValidationValidateResponseDatabaseValidationStatus is a string with
 // known values below. The set is open: other values may appear and never cause
@@ -658,11 +700,22 @@ const (
 	DatabaseValidationValidateResponseDatabaseValidationValidationTypeTwoByTwo DatabaseValidationValidateResponseDatabaseValidationValidationType = "two_by_two"
 )
 
-// DatabaseValidationValidateResponseDatabaseValidationMatchType: Overall result
-// aggregated across services with field-level comparisons: any `full_match` →
-// `full_match`; else any `partial_match` → `partial_match`; else `no_match`.
-// Outcome-only services, such as biometric criminal screening, can return
-// `null`; inspect each item in `validations` for its `outcome_code`.
+// DatabaseValidationValidateResponseDatabaseValidationMatchType: Overall
+// comparison result across the services that compared fields: any `full_match`
+// → `full_match`; else any `partial_match` → `partial_match`; else `no_match`.
+// Three results override the aggregate whatever another service returned: a
+// rejected fingerprint comparison floors it to `no_match`, a fraud-list hit
+// from the South Africa fraud screening floors it to `partial_match`, and a
+// deceased flag that carries no compared fields floors it to `no_match` (a
+// `DECEASED` answer that does compare fields, such as Brazil's death check,
+// keeps its own comparison, and a deceased flag alone leaves `match_type`
+// `null`). A rejected selfie (`validation.biometric: no_match`) is a
+// per-service rule: it makes that service's comparison `no_match`, and another
+// service's full match can still make the request `full_match`. A service that
+// compared nothing (an `INCONCLUSIVE` answer, an outcome-only screening) does
+// not contribute, so `match_type` can be `null`, or report another service's
+// match while the inconclusive service still sends the request to review. It is
+// a comparison, not the decision: read `status`.
 //
 // DatabaseValidationValidateResponseDatabaseValidationMatchType is a string
 // with known values below. The set is open: other values may appear and never

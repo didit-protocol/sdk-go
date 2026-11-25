@@ -226,7 +226,6 @@ func TestSessionsList(t *testing.T) {
 	params.DecidedTo = didit.Some(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC))
 	params.Country = didit.String("ESP,USA")
 	params.DocumentType = didit.String("P,ID")
-	params.DocumentName = didit.String("Spain - Id Card (2021)")
 	params.Region = didit.String("CA,TX")
 	params.DiditInternalID = didit.String("d9e78474-6c8d-4f2a-bb90-6f5c2f3a1147")
 	params.SessionType = didit.String("HOSTED")
@@ -244,7 +243,7 @@ func TestSessionsList(t *testing.T) {
 	req := mock.single(t)
 	req.expect(t, "GET", "/v3/sessions/")
 	req.expectAPIKey(t)
-	req.expectQuery(t, map[string]string{"api_service": "AML", "country": "ESP,USA", "date_from": "2026-06-01", "date_to": "2026-06-30", "decided_from": "2025-01-02T03:04:05Z", "decided_to": "2025-01-02T03:04:05Z", "didit_internal_id": "d9e78474-6c8d-4f2a-bb90-6f5c2f3a1147", "document_name": "Spain - Id Card (2021)", "document_type": "P,ID", "euuid": "0f8fad5b-d9cb-469f-a165-70867728950e", "is_kyc_to_be_reviewed": "true", "limit": "20", "offset": "20", "organization_name": "Acme Inc", "region": "CA,TX", "screened_full_name": "Jane Doe", "search": "jane doe", "session_kind": "all", "session_type": "HOSTED", "status": "Approved,In Review", "status_initialized_as_in_review": "true", "tags": "value", "vendor_data": "your-user-id-123", "warning": "POSSIBLE_FRAUD", "workflow_id": "9f9b1234-aaaa-bbbb-cccc-1234567890ab"})
+	req.expectQuery(t, map[string]string{"api_service": "AML", "country": "ESP,USA", "date_from": "2026-06-01", "date_to": "2026-06-30", "decided_from": "2025-01-02T03:04:05Z", "decided_to": "2025-01-02T03:04:05Z", "didit_internal_id": "d9e78474-6c8d-4f2a-bb90-6f5c2f3a1147", "document_type": "P,ID", "euuid": "0f8fad5b-d9cb-469f-a165-70867728950e", "is_kyc_to_be_reviewed": "true", "limit": "20", "offset": "20", "organization_name": "Acme Inc", "region": "CA,TX", "screened_full_name": "Jane Doe", "search": "jane doe", "session_kind": "all", "session_type": "HOSTED", "status": "Approved,In Review", "status_initialized_as_in_review": "true", "tags": "value", "vendor_data": "your-user-id-123", "warning": "POSSIBLE_FRAUD", "workflow_id": "9f9b1234-aaaa-bbbb-cccc-1234567890ab"})
 	if res == nil {
 		t.Fatal("nil page")
 	}
