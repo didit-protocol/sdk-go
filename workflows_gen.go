@@ -192,11 +192,16 @@ type SimpleWorkflowFeature struct {
 	// `signature_documents_source` to `session` or `both` so each session can bring
 	// its own, or send `status: "draft"` and add the documents before you publish.
 	// `signature_level: "aes"` is refused with `aes_not_available` while
-	// `signature_availability.aes` is `false` on the workflow. For `OCR`, `methods`
-	// selects which ID Verification methods each country may use (document capture,
-	// non-doc lookup against a government or other authoritative source, and
-	// digital identity wallets); omit it and every country is document capture
-	// only. For `SIGNATURE`, see [E-signature
+	// `signature_availability.aes` is `false` on the workflow. For
+	// `BANK_VERIFICATION`, `bank_countries` is a whitelist: an empty map offers no
+	// bank and runs no check; see [Bank
+	// Verification](/management-api/workflows/feature-configs#bank-verification)
+	// for every key. The node is accepted only on an account where Bank
+	// Verification is enabled. For `OCR`, `methods` selects which ID Verification
+	// methods each country may use (document capture, non-doc lookup against a
+	// government or other authoritative source, and digital identity wallets); omit
+	// it and every country is document capture only. For `SIGNATURE`, see
+	// [E-signature
 	// settings](/management-api/workflows/feature-configs#e-signature):
 	// `signature_level` accepts `simple` (the default, no ID verification, email or
 	// phone needed), `aes` and `qes` (Qualified, an add-on that is refused with
@@ -234,6 +239,7 @@ const (
 	SimpleWorkflowFeatureFeaturePhoneVerification  SimpleWorkflowFeatureFeature = "PHONE_VERIFICATION"
 	SimpleWorkflowFeatureFeatureEmailVerification  SimpleWorkflowFeatureFeature = "EMAIL_VERIFICATION"
 	SimpleWorkflowFeatureFeatureDatabaseValidation SimpleWorkflowFeatureFeature = "DATABASE_VALIDATION"
+	SimpleWorkflowFeatureFeatureBankVerification   SimpleWorkflowFeatureFeature = "BANK_VERIFICATION"
 	SimpleWorkflowFeatureFeatureAML                SimpleWorkflowFeatureFeature = "AML"
 	SimpleWorkflowFeatureFeatureIPAnalysis         SimpleWorkflowFeatureFeature = "IP_ANALYSIS"
 	SimpleWorkflowFeatureFeatureAgeEstimation      SimpleWorkflowFeatureFeature = "AGE_ESTIMATION"
