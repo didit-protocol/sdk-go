@@ -2001,7 +2001,7 @@ type BankInstitutionSummary struct {
 	// Country of the bank, ISO 3166-1 alpha-3.
 	Country string `json:"country"`
 
-	// Logo of the bank, or `null`.
+	// The address of the bank's logo hosted by Didit.
 	LogoURL string `json:"logo_url"`
 
 	// JSON describes the decoded object: raw JSON, present, null and unknown
@@ -2567,6 +2567,8 @@ type BankInstitution struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Country string `json:"country"`
+
+	// The address of the bank's logo hosted by Didit.
 	LogoURL string `json:"logo_url"`
 
 	// IANA time zone the bank's dates are in.
