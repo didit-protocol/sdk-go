@@ -97,6 +97,8 @@ func newEvent(body map[string]any, raw []byte, authenticated bool, limit int) Ev
 			ConnectionID:     stringField(body, "connection_id"),
 			Status:           BankConnectionStatus(stringField(body, "status")),
 			RevocationStatus: BankRevocationStatus(stringField(body, "revocation_status")),
+			StatusReason:     BankConnectionStatusReason(stringField(body, "status_reason")),
+			EndsAt:           timeField(body, "ends_at"),
 		}
 	case TypeBankConnectionConsentExpiring:
 		return &BankConnectionConsentExpiringEvent{
@@ -222,11 +224,12 @@ func businessFields(body map[string]any) BusinessFields {
 func bankLinkFields(body map[string]any) BankLinkFields {
 	data, _ := body["data"].(map[string]any)
 	return BankLinkFields{
-		LinkID:       stringField(data, "link_id"),
-		Status:       BankLinkStatus(stringField(data, "status")),
-		ConnectionID: stringField(data, "connection_id"),
-		CheckID:      stringField(data, "check_id"),
-		ErrorCode:    BankLinkErrorCode(stringField(data, "error_code")),
+		LinkID:             stringField(data, "link_id"),
+		Status:             BankLinkStatus(stringField(data, "status")),
+		ConnectionID:       stringField(data, "connection_id"),
+		RenewsConnectionID: stringField(data, "renews_connection_id"),
+		CheckID:            stringField(data, "check_id"),
+		ErrorCode:          BankLinkErrorCode(stringField(data, "error_code")),
 	}
 }
 
