@@ -442,33 +442,73 @@ const (
 	bankCheckID      = "dddddddd-0000-4000-8000-000000000001"
 )
 
-// Recorded bodies and signing headers from sdk-java PR #108 at 412c4a4,
-// openapi/webhook-vectors.json (the primary-secret case for each Bank event).
-func bankDeliveries(t *testing.T) map[webhook.Type]vector {
+// allBankDeliveries reads testdata/bank-deliveries.json. A key that is a
+// webhook type is the recorded delivery of that event: the bodies and signing
+// headers from sdk-java PR #108 at 412c4a4, openapi/webhook-vectors.json (the
+// primary-secret case for each Bank event). A key "<type>#<case>" is a
+// further shape of that event, signed the same way.
+func allBankDeliveries(t *testing.T) map[string]vector {
 	t.Helper()
 	raw, err := os.ReadFile("testdata/bank-deliveries.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var v map[webhook.Type]vector
+	var v map[string]vector
 	if err := json.Unmarshal(raw, &v); err != nil {
 		t.Fatal(err)
 	}
 	return v
 }
 
+// bankDeliveries returns the recorded delivery of each Bank event type.
+func bankDeliveries(t *testing.T) map[webhook.Type]vector {
+	t.Helper()
+	out := map[webhook.Type]vector{}
+	for k, v := range allBankDeliveries(t) {
+		if !strings.Contains(k, "#") {
+			out[webhook.Type(k)] = v
+		}
+	}
+	return out
+}
+
 func bankEvent(t *testing.T, typ webhook.Type) webhook.Event {
 	t.Helper()
-	v, ok := bankDeliveries(t)[typ]
+	return bankCase(t, string(typ))
+}
+
+// bankCase verifies the delivery stored under key ("<type>" or
+// "<type>#<case>") and returns its event.
+func bankCase(t *testing.T, key string) webhook.Event {
+	t.Helper()
+	v, ok := allBankDeliveries(t)[key]
 	if !ok {
-		t.Fatalf("missing recorded delivery for %s", typ)
+		t.Fatalf("missing delivery %s", key)
 	}
+	typ := webhook.Type(strings.SplitN(key, "#", 2)[0])
 	ev := mustVerify(t, []byte(v.Body), v.header(), v.Secret, clockAt(v.Now))
 	checkVectorEvent(t, v, ev, true)
 	if ev.Type() != typ {
 		t.Fatalf("got %s, want %s", ev.Type(), typ)
 	}
 	return ev
+}
+
+// bankLinkFieldsOf returns the link fields of a bank.link.* event.
+func bankLinkFieldsOf(t *testing.T, ev webhook.Event) webhook.BankLinkFields {
+	t.Helper()
+	switch e := ev.(type) {
+	case *webhook.BankLinkCompletedEvent:
+		return e.BankLinkFields
+	case *webhook.BankLinkCancelledEvent:
+		return e.BankLinkFields
+	case *webhook.BankLinkExpiredEvent:
+		return e.BankLinkFields
+	case *webhook.BankLinkFailedEvent:
+		return e.BankLinkFields
+	}
+	t.Fatalf("got %T", ev)
+	return webhook.BankLinkFields{}
 }
 
 func mustTime(t *testing.T, s string) time.Time {
@@ -496,25 +536,115 @@ func TestBankLinkEvents(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.typ), func(t *testing.T) {
-			ev := bankEvent(t, tt.typ)
-			var f webhook.BankLinkFields
-			switch e := ev.(type) {
-			case *webhook.BankLinkCompletedEvent:
-				f = e.BankLinkFields
-			case *webhook.BankLinkCancelledEvent:
-				f = e.BankLinkFields
-			case *webhook.BankLinkExpiredEvent:
-				f = e.BankLinkFields
-			case *webhook.BankLinkFailedEvent:
-				f = e.BankLinkFields
-			default:
-				t.Fatalf("got %T", ev)
-			}
+			f := bankLinkFieldsOf(t, bankEvent(t, tt.typ))
 			want := webhook.BankLinkFields{
 				LinkID: tt.link, Status: tt.status, ConnectionID: tt.connection, CheckID: tt.check, ErrorCode: tt.errorCode,
 			}
 			if f != want {
 				t.Fatalf("fields = %+v, want %+v", f, want)
+			}
+		})
+	}
+}
+
+// TestBankLinkRenewsConnection: renews_connection_id is read when set, and a
+// link event without it (older deliveries) still decodes, so correlation
+// falls back to connection_id.
+func TestBankLinkRenewsConnection(t *testing.T) {
+	correlate := func(f webhook.BankLinkFields) string {
+		if f.RenewsConnectionID != "" {
+			return f.RenewsConnectionID
+		}
+		return f.ConnectionID
+	}
+	tests := []struct {
+		key  string
+		want webhook.BankLinkFields
+	}{
+		// A renew link that ended before completing: no connection yet, the
+		// target is known from creation.
+		{"bank.link.expired#renewal_before_completion", webhook.BankLinkFields{
+			LinkID: "bbbbbbbb-0000-4000-8000-000000000006", Status: webhook.BankLinkStatusExpired,
+			RenewsConnectionID: bankConnectionID,
+		}},
+		// A completed renew link: both set and equal.
+		{"bank.link.completed#renewal", webhook.BankLinkFields{
+			LinkID: "bbbbbbbb-0000-4000-8000-000000000005", Status: webhook.BankLinkStatusCompleted,
+			ConnectionID: bankConnectionID, RenewsConnectionID: bankConnectionID,
+		}},
+		// An older failed renewal: the target only in connection_id.
+		{"bank.link.failed#older_renewal", webhook.BankLinkFields{
+			LinkID: "bbbbbbbb-0000-4000-8000-000000000007", Status: webhook.BankLinkStatusFailed,
+			ConnectionID: bankConnectionID, ErrorCode: webhook.BankLinkErrorCodeRenewalLoginMismatch,
+		}},
+		// A link that renews nothing: renews_connection_id is null.
+		{"bank.link.completed#new_connection", webhook.BankLinkFields{
+			LinkID: "bbbbbbbb-0000-4000-8000-000000000008", Status: webhook.BankLinkStatusCompleted,
+			ConnectionID: bankConnectionID,
+		}},
+		// A link event with no renews_connection_id key at all.
+		{string(webhook.TypeBankLinkCompleted), webhook.BankLinkFields{
+			LinkID: "bbbbbbbb-0000-4000-8000-000000000001", Status: webhook.BankLinkStatusCompleted,
+			ConnectionID: bankConnectionID, CheckID: bankCheckID,
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			f := bankLinkFieldsOf(t, bankCase(t, tt.key))
+			if f != tt.want {
+				t.Fatalf("fields = %+v, want %+v", f, tt.want)
+			}
+			if got := correlate(f); got != bankConnectionID {
+				t.Fatalf("correlated connection = %q", got)
+			}
+		})
+	}
+}
+
+// TestBankConnectionUpdatedShapes: both shapes of bank.connection.updated
+// decode, each leaving the other shape's fields zero.
+func TestBankConnectionUpdatedShapes(t *testing.T) {
+	t.Run("revocation", func(t *testing.T) {
+		e := bankEvent(t, webhook.TypeBankConnectionUpdated).(*webhook.BankConnectionUpdatedEvent)
+		if e.RevocationStatus != webhook.BankRevocationStatusPending || e.StatusReason != "" || !e.EndsAt.IsZero() {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("insufficient_balance", func(t *testing.T) {
+		e := bankCase(t, "bank.connection.updated#insufficient_balance").(*webhook.BankConnectionUpdatedEvent)
+		if e.ConnectionID != bankConnectionID || e.Status != webhook.BankConnectionStatusPaused || e.RevocationStatus != "" ||
+			e.StatusReason != webhook.BankConnectionStatusReasonInsufficientBalance ||
+			!e.EndsAt.Equal(mustTime(t, "2026-12-22T09:00:00Z")) {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+	t.Run("ends_at null", func(t *testing.T) {
+		e := bankCase(t, "bank.connection.updated#no_end").(*webhook.BankConnectionUpdatedEvent)
+		if e.ConnectionID != bankConnectionID || e.Status != webhook.BankConnectionStatusActive || e.RevocationStatus != "" ||
+			e.StatusReason != "" || !e.EndsAt.IsZero() {
+			t.Fatalf("fields = %+v", e)
+		}
+	})
+}
+
+// TestBankConnectionRevokedBySystem: Didit ends a connection with ended_by
+// system, for an unpaid month or a completed one-time read.
+func TestBankConnectionRevokedBySystem(t *testing.T) {
+	tests := []struct {
+		key    string
+		reason webhook.BankConnectionStatusReason
+		ended  string
+	}{
+		{"bank.connection.revoked#unpaid", webhook.BankConnectionStatusReasonUnpaid, "2026-12-22T09:00:00Z"},
+		{"bank.connection.revoked#collection_complete", webhook.BankConnectionStatusReasonCollectionComplete, "2026-11-22T09:00:00Z"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			e := bankCase(t, tt.key).(*webhook.BankConnectionRevokedEvent)
+			if e.ConnectionID != bankConnectionID || e.Status != webhook.BankConnectionStatusRevoked ||
+				e.EndedBy != webhook.BankConnectionEndedBySystem || e.StatusReason != tt.reason ||
+				!e.EndedAt.Equal(mustTime(t, tt.ended)) || e.RetainUntil.IsZero() {
+				t.Fatalf("fields = %+v", e)
 			}
 		})
 	}

@@ -248,9 +248,14 @@ case *webhook.StatusUpdatedEvent:            // status.updated: e.SessionID, e.S
 case *webhook.TransactionStatusUpdatedEvent: // transaction.status.updated: e.TransactionID, e.Status, e.Score
 case *webhook.TravelRuleStatusUpdatedEvent:  // travel_rule.status.updated
 case *webhook.BankConnectionCreatedEvent:    // bank.connection.created: e.ConnectionID, e.InitialStatus
+case *webhook.BankLinkCompletedEvent:        // bank.link.completed: e.LinkID, e.ConnectionID, e.RenewsConnectionID
+case *webhook.BankConnectionUpdatedEvent:    // bank.connection.updated: e.RevocationStatus, or e.StatusReason and e.EndsAt
+case *webhook.BankConnectionRevokedEvent:    // bank.connection.revoked: e.EndedBy (system), e.StatusReason (unpaid)
 case *webhook.UnknownEvent:                  // a type this version does not know: e.Payload
 }
 ```
+
+To match a `bank.link.*` event to a connection, use `RenewsConnectionID` when it is set and `ConnectionID` otherwise: a renew link carries its target in `RenewsConnectionID` from creation, while an older failed renewal, stored before that field existed, carries it only in `ConnectionID`. `bank.connection.updated` has two shapes: a revocation starting sets `RevocationStatus`; every other update sets `StatusReason` (`insufficient_balance`, `first_sync_failed` or empty) and `EndsAt` (zero when null).
 
 Failures are `*didit.WebhookVerificationError` with `Reason` one of `missing_signature`, `invalid_signature`, `timestamp_mismatch`, `timestamp_out_of_tolerance`, `missing_timestamp` and `invalid_payload`.
 
