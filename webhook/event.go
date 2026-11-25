@@ -454,9 +454,16 @@ type BankLinkFields struct {
 	LinkID string
 	// Status is the link status: completed, cancelled, expired or failed.
 	Status BankLinkStatus
-	// ConnectionID is the connection the link created or renewed, empty when
-	// the link did not complete.
+	// ConnectionID is the connection the link created or renewed, empty until
+	// the link completes. An older failed renewal, stored before
+	// RenewsConnectionID existed, may carry its target connection here.
 	ConnectionID string
+	// RenewsConnectionID is the connection a renew link targets, set from the
+	// link's creation. It is empty on a link that renews nothing and on events
+	// stored before the field existed. To correlate a link event with a
+	// connection, use RenewsConnectionID when it is set and ConnectionID
+	// otherwise.
+	RenewsConnectionID string
 	// CheckID is the ownership check, empty when the link did not ask for one.
 	CheckID string
 	// ErrorCode is why the link failed, empty on every other link event.
@@ -518,6 +525,9 @@ const (
 	BankConnectionStatusReasonInsufficientBalance BankConnectionStatusReason = "insufficient_balance"
 	BankConnectionStatusReasonPausedByCustomer    BankConnectionStatusReason = "paused_by_customer"
 	BankConnectionStatusReasonFirstSyncFailed     BankConnectionStatusReason = "first_sync_failed"
+	// BankConnectionStatusReasonUnpaid: Didit ended the connection because its
+	// coming month was not paid.
+	BankConnectionStatusReasonUnpaid BankConnectionStatusReason = "unpaid"
 )
 
 // BankConnectionCreatedEvent is a bank.connection.created webhook: the first
@@ -543,16 +553,25 @@ const (
 )
 
 // BankConnectionUpdatedEvent is a bank.connection.updated webhook: a
-// connection's status changed in a way no other event reports, for example a
-// revocation started.
+// connection's status changed in a way no other event reports. It has two
+// shapes: a revocation starting carries ConnectionID, Status and
+// RevocationStatus; every other update carries ConnectionID, Status,
+// StatusReason and EndsAt. Fields the delivered shape lacks are zero.
 type BankConnectionUpdatedEvent struct {
 	EventEnvelope
 	// ConnectionID is the connection the event is about.
 	ConnectionID string
 	// Status is the connection status.
 	Status BankConnectionStatus
-	// RevocationStatus is pending until the bank confirms a revocation.
+	// RevocationStatus is pending until the bank confirms a revocation, empty
+	// on every other update.
 	RevocationStatus BankRevocationStatus
+	// StatusReason is why the connection is in its status, for example
+	// insufficient_balance or first_sync_failed; empty when null or absent.
+	StatusReason BankConnectionStatusReason
+	// EndsAt is when the connection's paid access ends, zero when null or
+	// absent.
+	EndsAt time.Time
 }
 
 // BankConnectionConsentExpiringEvent is a bank.connection.consent_expiring
@@ -626,6 +645,10 @@ const (
 	BankConnectionEndedByBank     BankConnectionEndedBy = "bank"
 	BankConnectionEndedByCustomer BankConnectionEndedBy = "customer"
 	BankConnectionEndedByUnknown  BankConnectionEndedBy = "unknown"
+	// BankConnectionEndedBySystem: Didit ended the connection, because its
+	// coming month was not paid (status reason unpaid) or a one-time read
+	// completed (status reason collection_complete).
+	BankConnectionEndedBySystem BankConnectionEndedBy = "system"
 )
 
 // BankConnectionRevokedEvent is a bank.connection.revoked webhook: access
