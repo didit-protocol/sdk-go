@@ -1113,7 +1113,10 @@ type BankLinkCreateRequest struct {
 	// country`. An empty request body stays valid.
 	Country Opt[string] `json:"country"`
 
-	// Optional bank to preselect, from `list_institutions`. Skips the picker.
+	// Optional. The bank the person starts with, from `list_institutions`. The
+	// picker is skipped; the person can still choose another bank the link allows,
+	// for example when this one is unavailable. The connection's `institution`
+	// reports the bank that was actually connected.
 	InstitutionID Opt[string] `json:"institution_id"`
 
 	// Filters the picker and tells the bank which login to open where the bank
