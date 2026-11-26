@@ -1739,6 +1739,13 @@ type TransactionDetailPartiesDevice struct {
 	// Network context with IP address and geo-location.
 	NetworkContext TransactionDetailPartiesDeviceNetworkContext `json:"network_context"`
 
+	// Further keys of the device context, free-form: the `metadata` that was sent,
+	// of any shape, returned as stored. For the subject (the `APPLICANT` party) of
+	// a transaction submitted from a device with a transaction token (`POST
+	// /v1/transactions/`, the Didit SDKs), Didit adds what it read from the
+	// request, such as `bot_score`.
+	Metadata TransactionDetailPartiesDeviceMetadata `json:"metadata"`
+
 	// JSON describes the decoded object: raw JSON, present, null and unknown
 	// fields.
 	JSON ResponseJSON `json:"-"`
@@ -1771,6 +1778,37 @@ type TransactionDetailPartiesDeviceNetworkContext struct {
 
 // UnmarshalJSON decodes TransactionDetailPartiesDeviceNetworkContext leniently.
 func (r *TransactionDetailPartiesDeviceNetworkContext) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TransactionDetailPartiesDeviceMetadata: Further keys of the device context,
+// free-form: the `metadata` that was sent, of any shape, returned as stored.
+// For the subject (the `APPLICANT` party) of a transaction submitted from a
+// device with a transaction token (`POST /v1/transactions/`, the Didit SDKs),
+// Didit adds what it read from the request, such as `bot_score`.
+type TransactionDetailPartiesDeviceMetadata struct {
+	// The device's automation score. Its type is not fixed for every party: read it
+	// as described here. For the subject (the `APPLICANT` party) of a transaction
+	// submitted from a device with a transaction token, Didit decides it on the
+	// server and it is a number from 0 (no sign of automation) to 1 (automated):
+	// from the request itself (a user agent that names an automation tool scores 1)
+	// and from what the SDK sent, which is what it read about how the page or app
+	// is driven or, from an older SDK version, its own score. Nothing the device
+	// sends can lower it, and a `bot_score` the device posts in its own device
+	// context is not kept. It is absent when Didit had nothing to decide it from:
+	// absent means unknown, not 0. For any other party, on a transaction your
+	// backend submitted with an API key, and on transactions stored before this
+	// behaviour, it is whatever was sent in `metadata`, unchanged and of whatever
+	// type it was sent.
+	BotScore any `json:"bot_score"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TransactionDetailPartiesDeviceMetadata leniently.
+func (r *TransactionDetailPartiesDeviceMetadata) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 

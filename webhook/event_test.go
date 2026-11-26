@@ -582,6 +582,15 @@ func TestBankLinkRenewsConnection(t *testing.T) {
 			LinkID: "bbbbbbbb-0000-4000-8000-000000000008", Status: webhook.BankLinkStatusCompleted,
 			ConnectionID: bankConnectionID,
 		}},
+		// A renew link the person cancelled or that failed before completing.
+		{"bank.link.cancelled#renewal", webhook.BankLinkFields{
+			LinkID: "bbbbbbbb-0000-4000-8000-000000000009", Status: webhook.BankLinkStatusCancelled,
+			RenewsConnectionID: bankConnectionID,
+		}},
+		{"bank.link.failed#renewal", webhook.BankLinkFields{
+			LinkID: "bbbbbbbb-0000-4000-8000-00000000000a", Status: webhook.BankLinkStatusFailed,
+			ErrorCode: webhook.BankLinkErrorCodeDuplicateConflict, RenewsConnectionID: bankConnectionID,
+		}},
 		// A link event with no renews_connection_id key at all.
 		{string(webhook.TypeBankLinkCompleted), webhook.BankLinkFields{
 			LinkID: "bbbbbbbb-0000-4000-8000-000000000001", Status: webhook.BankLinkStatusCompleted,
@@ -762,8 +771,9 @@ func TestBankEventsWithoutFields(t *testing.T) {
 
 // TestBankPayloadsMatchContract checks the recorded deliveries against the event schemas
 // of openapi/verification.json: every bank.* webhook of the document has a
-// payload, and each payload has exactly the properties of its schema, at the
-// level the schema puts them.
+// payload, each payload has every required property of its schema and none
+// outside it, at the level the schema puts them, and the recorded shapes of an
+// event together carry every property.
 func TestBankPayloadsMatchContract(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "openapi", "verification.json"))
 	if err != nil {
@@ -782,6 +792,7 @@ func TestBankPayloadsMatchContract(t *testing.T) {
 		Ref        string                     `json:"$ref"`
 		AllOf      []schema                   `json:"allOf"`
 		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
 	}
 	resolve := func(s schema) schema {
 		for s.Ref != "" {
@@ -820,6 +831,20 @@ func TestBankPayloadsMatchContract(t *testing.T) {
 		sort.Strings(out)
 		return out
 	}
+	var required func(s schema) map[string]bool
+	required = func(s schema) map[string]bool {
+		s = resolve(s)
+		out := map[string]bool{}
+		for _, part := range s.AllOf {
+			for k := range required(part) {
+				out[k] = true
+			}
+		}
+		for _, k := range s.Required {
+			out[k] = true
+		}
+		return out
+	}
 	envelopeKeys := map[string]bool{}
 	for k := range envelope("") {
 		envelopeKeys[k] = true
@@ -832,14 +857,10 @@ func TestBankPayloadsMatchContract(t *testing.T) {
 			continue
 		}
 		seen++
-		delivery, ok := deliveries[webhook.Type(name)]
+		_, ok := deliveries[webhook.Type(name)]
 		if !ok {
 			t.Errorf("%s: no typed payload in this test", name)
 			continue
-		}
-		payload := decodeUseNumber(t, []byte(delivery.Body))
-		for k := range envelopeKeys {
-			delete(payload, k)
 		}
 		var op struct {
 			RequestBody struct {
@@ -851,24 +872,58 @@ func TestBankPayloadsMatchContract(t *testing.T) {
 		if err := json.Unmarshal(ops["post"], &op); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		all := props(op.RequestBody.Content["application/json"].Schema)
+		root := op.RequestBody.Content["application/json"].Schema
+		all := props(root)
 		fields := map[string]schema{}
+		must := map[string]bool{}
 		for k, v := range all {
 			if !envelopeKeys[k] {
 				fields[k] = v
 			}
 		}
+		for k := range required(root) {
+			if !envelopeKeys[k] {
+				must[k] = true
+			}
+		}
+		nested := false
 		if data, ok := fields["data"]; ok {
+			nested = true
 			fields = props(data)
-			payload, _ = payload["data"].(map[string]any)
+			must = required(data)
 		}
-		got := make([]string, 0, len(payload))
-		for k := range payload {
-			got = append(got, k)
+		// A delivery carries every required property and nothing outside the
+		// schema; the recorded shapes of the event (the delivery and its
+		// "#case" variants) together carry every property, so an optional
+		// one the contract adds or drops still shows up here.
+		union := map[string]bool{}
+		for key, d := range allBankDeliveries(t) {
+			if key != name && !strings.HasPrefix(key, name+"#") {
+				continue
+			}
+			payload := decodeUseNumber(t, []byte(d.Body))
+			for k := range envelopeKeys {
+				delete(payload, k)
+			}
+			if nested {
+				payload, _ = payload["data"].(map[string]any)
+			}
+			for k := range payload {
+				union[k] = true
+				if _, ok := fields[k]; !ok {
+					t.Errorf("%s: payload field %s is not in the contract %v", key, k, keys(fields))
+				}
+			}
+			for k := range must {
+				if _, ok := payload[k]; !ok {
+					t.Errorf("%s: payload lacks the required field %s", key, k)
+				}
+			}
 		}
-		sort.Strings(got)
-		if want := keys(fields); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: payload fields %v, contract %v", name, got, want)
+		for k := range fields {
+			if !union[k] {
+				t.Errorf("%s: no recorded delivery carries the contract field %s", name, k)
+			}
 		}
 	}
 	if seen != len(deliveries) {

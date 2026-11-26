@@ -1295,12 +1295,23 @@ type MonitoringEventDetail struct {
 	// `proxy_type`, `connection_type`) for keys you left empty. For an event your
 	// backend submitted, `bot_score` is the integer you sent. For an event
 	// submitted from a device with a monitoring token (the Didit SDKs), `bot_score`
-	// is the score Didit decided for that request, an integer from 0 to 100, and it
-	// is absent when Didit had nothing to decide it from: absent means unknown, not
-	// 0. On those events a `bot_score` the device posted in its own
-	// `device_context` does not set the score and is returned as
-	// `metadata.client_bot_score`, an integer, present only when the device posted
-	// one.
+	// is the score Didit decided for that request, an integer from 0 to 100. It is
+	// `0` when Didit had something to judge and found nothing: it read the device
+	// evidence the SDK sent and no sign of automation was in it, or an older SDK
+	// reported a score of 0. It is absent when Didit had nothing to decide it from
+	// (no evidence it could read, no score from the SDK, nothing in the request):
+	// absent means unknown, not 0, so compare `0` only when the field is present.
+	// The object is otherwise open: a key the device added to its own device
+	// context is returned as it was sent, with one exception. A device fingerprint
+	// the device put there (`fingerprint_v2` or `fingerprintV2`, or a context that
+	// is itself a fingerprint) is returned without its `evidence` member: Didit
+	// reads that evidence to decide the score and does not store it. The
+	// fingerprint's other members and every key beside it are returned as sent. A
+	// fingerprint that is not a JSON object, or the JSON text of one, cannot be
+	// read and is left out of the stored context. On those events a `bot_score` the
+	// device posted in its own `device_context` does not set the score and is
+	// returned as `metadata.client_bot_score`, an integer, present only when the
+	// device posted one.
 	DeviceContext map[string]any `json:"device_context"`
 
 	// Field path to provenance: `customer` (sent by your backend), `sdk` (sent
@@ -1308,11 +1319,11 @@ type MonitoringEventDetail struct {
 	// and enriched network fields). Check it before acting on a match. For an event
 	// submitted from a device with a monitoring token, the entry
 	// `device_context.bot_score` says who decided that score: `sdk` when the Didit
-	// SDK's own report alone set it, `server` when Didit raised it from the request
-	// or decided there is no score. The entry is present in that case even when
-	// `device_context.bot_score` itself is absent, so it is not a way to tell
-	// whether a score exists: read the score. Events stored before this behaviour
-	// keep the entries they were stored with.
+	// SDK's own score alone set it, `server` when Didit decided it from the request
+	// or from the device evidence the SDK sent, or decided there is no score. The
+	// entry is present in that case even when `device_context.bot_score` itself is
+	// absent, so it is not a way to tell whether a score exists: read the score.
+	// Events stored before this behaviour keep the entries they were stored with.
 	FieldSources map[string]MonitoringEventDetailFieldSources `json:"field_sources"`
 
 	// `session.sequence` sent with the event.

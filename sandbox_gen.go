@@ -242,8 +242,10 @@ type SandboxSampleDocument struct {
 	// document.
 	SandboxSample string `json:"sandbox_sample"`
 
-	// The document the sandbox OCR mock returns.
-	DocumentName string `json:"document_name"`
+	// The type of the document the sandbox OCR mock returns: `P` (Passport), `ID`
+	// (Identity Card), `DL` (Driver's License) or `RP` (Residence Permit). Its
+	// issuing country is `id_country`.
+	DocumentType string `json:"document_type"`
 
 	// Whether this is the document returned when no sample is selected.
 	IsDefault bool `json:"is_default"`
