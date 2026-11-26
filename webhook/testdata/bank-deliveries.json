@@ -262,5 +262,27 @@
     },
     "secret": "whsec_test_8f3c2a91d4e7b6f05a1c9e2d7b4f8a63",
     "now": 1760702410
+  },
+  "bank.link.cancelled#renewal": {
+    "body": "{\"application_id\":\"0b5e8d2c-1f4a-4c3b-9d6e-2a7f8c1b3e5d\",\"created_at\":1760702400,\"data\":{\"check_id\":null,\"connection_id\":null,\"error_code\":null,\"link_id\":\"bbbbbbbb-0000-4000-8000-000000000009\",\"renews_connection_id\":\"cccccccc-0000-4000-8000-000000000001\",\"status\":\"cancelled\"},\"environment\":\"live\",\"event_id\":\"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\"timestamp\":1760702400,\"webhook_type\":\"bank.link.cancelled\"}",
+    "headers": {
+      "X-Signature": "29931dbe31e088a4ede6e32bcfb15ccec19370bc3d6c06dd493c34bdae8f5265",
+      "X-Signature-Simple": "a7e352b7faba3956df409f30f2a20c640cba0570e285b332b4c450d754be7c88",
+      "X-Signature-V2": "29931dbe31e088a4ede6e32bcfb15ccec19370bc3d6c06dd493c34bdae8f5265",
+      "X-Timestamp": "1760702400"
+    },
+    "now": 1760702410,
+    "secret": "whsec_test_8f3c2a91d4e7b6f05a1c9e2d7b4f8a63"
+  },
+  "bank.link.failed#renewal": {
+    "body": "{\"application_id\":\"0b5e8d2c-1f4a-4c3b-9d6e-2a7f8c1b3e5d\",\"created_at\":1760702400,\"data\":{\"check_id\":null,\"connection_id\":null,\"error_code\":\"duplicate_conflict\",\"link_id\":\"bbbbbbbb-0000-4000-8000-00000000000a\",\"renews_connection_id\":\"cccccccc-0000-4000-8000-000000000001\",\"status\":\"failed\"},\"environment\":\"live\",\"event_id\":\"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\"timestamp\":1760702400,\"webhook_type\":\"bank.link.failed\"}",
+    "headers": {
+      "X-Signature": "e15fee94054a65e93608bb915d5807558200f7cce9a2acfda7fbd8aee6d698e2",
+      "X-Signature-Simple": "efaad75d46d7fdd09d8956774d1a22fb3a2210f87ae3a556e823ef35e720b368",
+      "X-Signature-V2": "e15fee94054a65e93608bb915d5807558200f7cce9a2acfda7fbd8aee6d698e2",
+      "X-Timestamp": "1760702400"
+    },
+    "now": 1760702410,
+    "secret": "whsec_test_8f3c2a91d4e7b6f05a1c9e2d7b4f8a63"
   }
 }
