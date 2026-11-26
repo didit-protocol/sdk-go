@@ -1738,9 +1738,11 @@ func (r *SessionsImportsService) RetrieveTemplate(ctx context.Context, params Se
 
 // Retry: Retry a migration.
 //
-// Run a migration that ended again as a new job, with a new key (the old one
-// was erased). It keeps the provider, workflow, region, status mapping and face
-// templates choice; everything already in Didit is skipped.
+// Supply read-only provider credentials again when retrying an API migration.
+// Didit erases credentials when a job ends. Retrying a failed Sumsub migration
+// keeps the same job ID and continues its preview or import from the saved
+// position. Other eligible retries create a new job with the original migration
+// settings and skip previously imported records.
 //
 //	POST /v3/session/imports/{importId}/retry/
 func (r *SessionsImportsService) Retry(ctx context.Context, importID string, params SessionsImportsRetryParams, opts ...option.RequestOption) (*SessionImportJob, error) {
