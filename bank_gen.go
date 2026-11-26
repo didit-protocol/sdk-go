@@ -491,6 +491,10 @@ func (r *BankService) RefreshConnection(ctx context.Context, id string, params B
 // Afterwards the connection's `consent` shows a new `version`, `renewed_count`,
 // `expires_at` and `renew_by`, with `renewal_action` `bank_auth`.
 //
+// Send `consent_days` to choose how many days the renewal asks the bank for;
+// without it the renewal asks for the length the person chose before, and
+// either way the bank's own maximum is never exceeded.
+//
 // A one-time connection has no consent to renew: it answers `409
 // one_time_connection`, and a new link reads the bank again.
 //
@@ -3447,6 +3451,17 @@ type BankRenewLinkRequest struct {
 
 	// Lifetime in seconds, 300 to 86400.
 	ExpiresIn Opt[int64] `json:"expires_in"`
+
+	// Optional. How many days to ask the bank to keep access open, 1 or more.
+	// Without it, the bank is asked for the length the person chose before, never
+	// above the bank's maximum; only a connection with no recorded length is asked
+	// for the maximum. With it, the bank is asked for that many days, never above
+	// its maximum: a longer value is capped, not refused. A value below 1, above
+	// 32767 or not a whole number answers `400 invalid_request` with `field:
+	// consent_days`. The connection reports the date the bank actually granted in
+	// `consent.expires_at`. `create_link` with `mode: renew` takes the same field
+	// with the same rule.
+	ConsentDays Opt[int64] `json:"consent_days"`
 }
 
 // MarshalJSON encodes the fields that are set.
