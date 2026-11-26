@@ -228,8 +228,11 @@ func (r *WebhooksDestinationsService) ListDeliveriesAutoPaging(ctx context.Conte
 // your endpoint and returns the new delivery with `200` whatever your endpoint
 // answered: read `response_status`. A resend is not retried automatically,
 // every call sends again and creates a new delivery, and the request has no
-// body. A scoped API key needs `webhooks: write` and `decisions: read`; a key
-// limited to some workflows or to approved sessions cannot use this endpoint.
+// body. The one exception is a delivery of the sandbox's example data (the
+// example records every sandbox starts with): it is never resent, nothing is
+// recorded, and the call answers `409` with `code` `example_delivery`. A scoped
+// API key needs `webhooks: write` and `decisions: read`; a key limited to some
+// workflows or to approved sessions cannot use this endpoint.
 //
 //	POST /v3/webhook/destinations/{destination_uuid}/deliveries/{delivery_uuid}/resend/
 func (r *WebhooksDestinationsService) ResendDelivery(ctx context.Context, destinationUUID string, deliveryUUID string, opts ...option.RequestOption) (*WebhookDestinationDeliveryDetail, error) {

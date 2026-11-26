@@ -1988,8 +1988,11 @@ func (r *SessionsWebhooksService) List(ctx context.Context, sessionID string, op
 // attempt as a new delivery and returns it with `200` whatever your endpoint
 // answered: read `response_status`. A resend is not retried automatically, and
 // every call sends again, so make your endpoint idempotent on `event_id`. The
-// path has no trailing slash and the request has no body. A scoped API key
-// needs `webhooks: write` and `decisions: read`.
+// one exception is a delivery of the sandbox's example data (the example
+// records every sandbox starts with): it is never resent, nothing is recorded,
+// and the call answers `409` with `code` `example_delivery`. The path has no
+// trailing slash and the request has no body. A scoped API key needs `webhooks:
+// write` and `decisions: read`.
 //
 //	POST /v3/session/{sessionId}/webhook/{webhook_uuid}/resend
 func (r *SessionsWebhooksService) Resend(ctx context.Context, sessionID string, webhookUUID string, opts ...option.RequestOption) (*SessionWebhookDelivery, error) {
