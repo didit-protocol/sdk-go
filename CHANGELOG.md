@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.48.0](https://github.com/didit-protocol/sdk-go/compare/v1.47.0...v1.48.0) (2026-11-26)
+
+
+### Features
+
+* **spec:** sync API spec 2026-11-25 ([5f044e3](https://github.com/didit-protocol/sdk-go/commit/5f044e33df6915ba0ec9ef6d83cffb439c3a9cdd))
+* **spec:** sync API spec 2026-11-25 ([4f7b5b5](https://github.com/didit-protocol/sdk-go/commit/4f7b5b5bc30e0b8c060de8b0f53578dd25b06485))
+* **spec:** sync API spec 2026-11-25 ([370cd2e](https://github.com/didit-protocol/sdk-go/commit/370cd2ed2ded10521c50146b7064204227ce6024))
+
+
+### API changes that can break typed code
+
+* **spec:** `GET /v1/sandbox/scenarios/` response `sample_identity.documents[].document_name`: removed ([5f044e3](https://github.com/didit-protocol/sdk-go/commit/5f044e33df6915ba0ec9ef6d83cffb439c3a9cdd))
+* **spec:** `GET /v1/sandbox/scenarios/` response `sample_identity.documents[].document_name`: removed ([4f7b5b5](https://github.com/didit-protocol/sdk-go/commit/4f7b5b5bc30e0b8c060de8b0f53578dd25b06485))
+* **spec:** `GET /v1/sandbox/scenarios/` response `sample_identity.documents[].document_name`: removed ([370cd2e](https://github.com/didit-protocol/sdk-go/commit/370cd2ed2ded10521c50146b7064204227ce6024))
+* **spec:** `GET /v3/sessions/` query parameter `document_name`: removed ([5f044e3](https://github.com/didit-protocol/sdk-go/commit/5f044e33df6915ba0ec9ef6d83cffb439c3a9cdd))
+* **spec:** `GET /v3/sessions/` query parameter `document_name`: removed ([4f7b5b5](https://github.com/didit-protocol/sdk-go/commit/4f7b5b5bc30e0b8c060de8b0f53578dd25b06485))
+* **spec:** `GET /v3/sessions/` query parameter `document_name`: removed ([370cd2e](https://github.com/didit-protocol/sdk-go/commit/370cd2ed2ded10521c50146b7064204227ce6024))
+* **spec:** `POST /v3/sessions/delete/` request body `filter_document_name`: removed ([5f044e3](https://github.com/didit-protocol/sdk-go/commit/5f044e33df6915ba0ec9ef6d83cffb439c3a9cdd))
+* **spec:** `POST /v3/sessions/delete/` request body `filter_document_name`: removed ([4f7b5b5](https://github.com/didit-protocol/sdk-go/commit/4f7b5b5bc30e0b8c060de8b0f53578dd25b06485))
+* **spec:** `POST /v3/sessions/delete/` request body `filter_document_name`: removed ([370cd2e](https://github.com/didit-protocol/sdk-go/commit/370cd2ed2ded10521c50146b7064204227ce6024))
+
 ## [1.47.0](https://github.com/didit-protocol/sdk-go/compare/v1.46.0...v1.47.0) (2026-11-25)
 
 
