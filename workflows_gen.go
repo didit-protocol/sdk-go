@@ -132,6 +132,10 @@ type SimpleWorkflowRequest struct {
 	// Allow the verification flow to run on desktop browsers.
 	IsDesktopAllowed Opt[bool] `json:"is_desktop_allowed"`
 
+	// Show “Continue on another device” on the hosted verification welcome screen.
+	// Set to false to hide the QR code and link from the phone welcome.
+	IsWelcomeHandoffEnabled Opt[bool] `json:"is_welcome_handoff_enabled"`
+
 	// On Declined and In review results, the person being verified sees a short
 	// reference to the session, such as `S-20481`, shown on one line. This is the
 	// session number as the console shows it, so your support team can find the
@@ -273,6 +277,10 @@ type WorkflowDetail struct {
 
 	// Workflow template. `null` for graph workflows created without a template.
 	WorkflowType WorkflowDetailWorkflowType `json:"workflow_type"`
+
+	// Whether the hosted phone welcome screen offers the QR code and link to
+	// continue on another device.
+	IsWelcomeHandoffEnabled bool `json:"is_welcome_handoff_enabled"`
 
 	// Whether this is the application's default workflow.
 	IsDefault bool `json:"is_default"`
@@ -597,6 +605,10 @@ type SimpleWorkflowUpdateRequest struct {
 
 	// Allow the verification flow to run on desktop browsers.
 	IsDesktopAllowed Opt[bool] `json:"is_desktop_allowed"`
+
+	// Show “Continue on another device” on the hosted verification welcome screen.
+	// Set to false to hide the QR code and link from the phone welcome.
+	IsWelcomeHandoffEnabled Opt[bool] `json:"is_welcome_handoff_enabled"`
 
 	// On Declined and In review results, the person being verified sees a short
 	// reference to the session, such as `S-20481`, shown on one line. This is the
