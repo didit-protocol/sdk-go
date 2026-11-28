@@ -212,7 +212,11 @@ type SimpleWorkflowFeature struct {
 	// `qes_not_available` while `signature_availability.qes` is `false`), and
 	// workflow documents and their fields are managed in the console, so through
 	// the API send documents and fields per session with
-	// `signature_documents_source: "session"`.
+	// `signature_documents_source: "session"`. For `OCR`,
+	// `methods.<ISO3>.wallet.providers` may list a wallet that requires onboarding
+	// (UAE PASS) before Didit activates it for your application, on create and on
+	// update: the workflow keeps it as configured and sessions are offered it only
+	// while it is active.
 	Config Opt[map[string]any] `json:"config"`
 
 	// Optional internal label for this workflow node.

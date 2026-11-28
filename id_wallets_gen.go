@@ -556,12 +556,17 @@ func (r *IDWalletsService) StartSmartID(ctx context.Context, params IDWalletsSta
 
 // StartUaePass: Start UAE PASS verification.
 //
-// UAE PASS (UAE Digital Government Authority; ARE) never returns an identity:
-// it only confirms whether the details you declared for your user
-// (expected_details: name, date of birth, Emirates ID number) match, so it runs
-// only inside a verification session created with expected_details. This
-// endpoint never starts it and always answers 403 wallet_unavailable, sandbox
-// applications included.
+// Start a UAE PASS sign-in (UAE Digital Government Authority; ARE) without any
+// workflow. Billed once, only when the identity is verified. The response
+// carries next_action.type=redirect with the URL to send the user's browser to;
+// the user returns to return_url with request_id and result appended. Read the
+// outcome with GET /v3/id-verification/wallets/verifications/{request_id}/ or
+// from the webhook, never from the URL. Sandbox applications get a
+// deterministic simulation (simulated: true) that never contacts the provider.
+// Requires onboarding: UAE PASS signs people in with your own UAE PASS service
+// provider account, which Didit sets up for you; until it is active this
+// endpoint answers 403 wallet_unavailable (sandbox applications are not
+// affected).
 //
 //	POST /v3/id-verification/wallets/uae-pass/
 func (r *IDWalletsService) StartUaePass(ctx context.Context, params IDWalletsStartUaePassParams, opts ...option.RequestOption) (*DigitalIDWalletAPIWalletVerificationResponse, error) {
@@ -637,17 +642,29 @@ type DigitalIDWalletAPIWalletVerificationResult struct {
 	Country string                   `json:"country"`
 
 	// Not Finished while pending, then Approved (verified) or Declined.
-	Status           string                                                `json:"status"`
-	Outcome          DigitalIDWalletAPIWalletVerificationResultOutcomeEnum `json:"outcome"`
-	Error            string                                                `json:"error"`
-	Interaction      DigitalIDWalletAPIInteractionEnum                     `json:"interaction"`
-	Simulated        bool                                                  `json:"simulated"`
-	ExpiresAt        time.Time                                             `json:"expires_at"`
-	NextAction       DigitalIDWalletAPIWalletNextAction                    `json:"next_action"`
-	Identity         DigitalIDWalletAPIWalletIdentity                      `json:"identity"`
-	Attributes       map[string]any                                        `json:"attributes"`
-	LevelOfAssurance string                                                `json:"level_of_assurance"`
-	VerifiedAt       time.Time                                             `json:"verified_at"`
+	Status  string                                                `json:"status"`
+	Outcome DigitalIDWalletAPIWalletVerificationResultOutcomeEnum `json:"outcome"`
+
+	// Stable machine-readable code when the sign-in did not complete. For UAE PASS,
+	// `client_changed` means the application's own UAE PASS client was disabled,
+	// deleted or replaced while the person was signing in: the sign-in fails and
+	// the workflow's fallback applies.
+	Error       string                             `json:"error"`
+	Interaction DigitalIDWalletAPIInteractionEnum  `json:"interaction"`
+	Simulated   bool                               `json:"simulated"`
+	ExpiresAt   time.Time                          `json:"expires_at"`
+	NextAction  DigitalIDWalletAPIWalletNextAction `json:"next_action"`
+	Identity    DigitalIDWalletAPIWalletIdentity   `json:"identity"`
+
+	// The attributes the wallet shared, keyed as the wallet's catalog entry lists
+	// them. A UAE PASS sign-in returns the verified identity attributes `name_ar`,
+	// `emirates_id_number` (absent for visitors), `nationality`, `gender`,
+	// `document_type`, `document_issue_date`, `document_expiry_date` and
+	// `user_type` (`SOP2` or `SOP3`), alongside the normalized `full_name` and
+	// `date_of_birth`, and never the UAE PASS UUID.
+	Attributes       map[string]any `json:"attributes"`
+	LevelOfAssurance string         `json:"level_of_assurance"`
+	VerifiedAt       time.Time      `json:"verified_at"`
 
 	// True once the credential's signature was verified; null for a simulated one.
 	SignatureValid bool   `json:"signature_valid"`
