@@ -21,6 +21,7 @@ type MessagesService struct {
 	Conversations  *MessagesConversationsService
 	Feedback       *MessagesFeedbackService
 	Rules          *MessagesRulesService
+	TelegramLinks  *MessagesTelegramLinksService
 	Templates      *MessagesTemplatesService
 }
 
@@ -88,9 +89,13 @@ func (r *MessagesService) ListAutoPaging(ctx context.Context, params MessagesLis
 // per segment (carrier price plus Didit's fee), WhatsApp per message
 // (WhatsApp's utility rate plus Didit's fee from Didit's number; from your own
 // connected WhatsApp Business account, `carrier` is `0.0000`: WhatsApp bills
-// its rate to your account directly and Didit charges only its fee), email
-// flat. Your plan's discount is applied to the fee. The SMS carrier part is an
-// estimate; the billed one is the price the carrier reports.
+// its rate to your account directly and Didit charges only its fee), Telegram
+// per message, email flat. Your plan's discount is applied to the fee. The SMS
+// carrier part is an estimate; the billed one is the price the carrier reports.
+//
+// For a standard Telegram quote, `carrier` is `0.0000` and `fee` equals
+// `price`. If your organization uses a contract rate card, read the Telegram
+// total from `price`. The `carrier` and `fee` are both `null`.
 //
 // A scoped API key needs read access to messages.
 //
@@ -136,22 +141,24 @@ func (r *MessagesService) RetrieveSettings(ctx context.Context, opts ...option.R
 
 // Send: Send a message.
 //
-// Send a transactional SMS, WhatsApp or email message to a phone number or an
-// email address, now or scheduled, from one of your templates or as free text.
-// Free text goes out on SMS and email; WhatsApp delivers only an approved
-// template, except inside a 24-hour reply window (the person wrote to you
-// first), so a message that lists WhatsApp uses `template_id` for it to go out
-// there.
+// Send a transactional SMS, WhatsApp, Telegram or email message to a phone
+// number or an email address, now or scheduled, from one of your templates or
+// as free text. Free text goes out on SMS, email and Telegram; WhatsApp
+// delivers only an approved template, except inside a 24-hour reply window (the
+// person wrote to you first), so a message that lists WhatsApp uses
+// `template_id` for it to go out there.
 //
 // **Fallback.** List several `channels`: each is tried in order, and the next
 // one is used when a channel cannot take the message (switched off, the
-// recipient opted out, no approved WhatsApp template, balance) or when the
-// message fails on it later (rejected, undeliverable, expired). Every attempt
-// is in `attempts`; a skipped channel is a `failed` attempt with its `error`
-// and no price.
+// recipient opted out, no approved WhatsApp template, no connected Telegram
+// chat, balance) or when the message fails on it later (rejected,
+// undeliverable, expired). Every attempt is in `attempts`; a skipped channel is
+// a `failed` attempt with its `error` and no price.
 //
 // **Statuses** reach your webhook destinations subscribed to
-// `message.status.updated`.
+// `message.status.updated`; a reply from the person reaches `message.received`
+// (WhatsApp and Telegram) and a change of their consent
+// `contact.consent.updated`.
 //
 // **Replies on Didit's shared WhatsApp number.** Many organizations send from
 // this number, so a reply reaches an organization only when the person replies
@@ -173,21 +180,23 @@ func (r *MessagesService) RetrieveSettings(ctx context.Context, opts ...option.R
 // opt-out. So after an unquoted START an organization's own opt-out can still
 // answer `opted_out`; only the shared-number opt-out ever applies to every
 // organization. A WhatsApp number you connect yourself keeps consent per
-// organization: a STOP to it only affects your own sends; a reply from the
-// person reaches `message.received` (WhatsApp and Telegram) and a change of
-// their consent `contact.consent.updated`.
+// organization: a STOP to it only affects your own sends.
 //
 // **Billing.** SMS: the carrier's price plus Didit's fee, per segment. WhatsApp
 // from Didit's number: WhatsApp's rate for the market plus Didit's fee; from
 // your own connected WhatsApp Business account, WhatsApp bills its rate to your
-// account directly and Didit charges only its fee. Email: a flat price. Your
-// plan's discount applies to the fee, never to the carrier's or WhatsApp's
-// part. A failed SMS or WhatsApp attempt, a skipped one and a cancelled one are
-// free; an email is charged once the receiving mail system accepts it, so an
-// email that bounces later is charged. SMS and WhatsApp open with a paid plan
-// or after your first top-up (`403 plan_locked`); a sandbox application
-// simulates every message and charges nothing. See the [prices per
-// country](/getting-started/pricing).
+// account directly and Didit charges only its fee. Telegram: Didit's fee alone
+// (USD 0.02; USD 0.008 to the United States, USD 0.007 to Canada), charged when
+// Telegram accepts the message; Telegram sends no delivery report, so a message
+// Telegram accepts stops at `sent` and never becomes `delivered` or `read`.
+// Email: a flat price. Your plan's discount applies to the fee, never to the
+// carrier's or WhatsApp's part. A failed SMS, WhatsApp or Telegram attempt, a
+// skipped one and a cancelled one are free; an email is charged once the
+// receiving mail system accepts it, so an email that bounces later is charged.
+// SMS, WhatsApp and Telegram open with a paid plan or after your first top-up
+// (`403 plan_locked`); a sandbox application simulates every message and
+// charges nothing. See the [prices per country](/getting-started/pricing);
+// Telegram prices are listed by `GET /v3/messages/prices/`.
 //
 // **Retention.** Didit erases a message's text and recipient `retention_days`
 // after its last event (created, sent, delivered, read, failed or cancelled; 30
@@ -202,6 +211,19 @@ func (r *MessagesService) RetrieveSettings(ctx context.Context, opts ...option.R
 // settles within seconds.
 //
 // A scoped API key needs write access to messages.
+//
+// **Callback URL.** Give `callback_url` to receive this message's status events
+// at a URL of your own, besides your webhook destinations.
+//
+// **Telegram.** Telegram reaches only people who opted in: create an opt-in
+// link with `POST /v3/messages/telegram/links/`, show it to the person, and
+// once they tapped Start and shared their phone number with the bot, `channels:
+// ["telegram", "sms"]` sends on Telegram and falls back to SMS for a number
+// that never connected (`telegram_not_connected`) or opted out. A sandbox
+// application simulates every message, so it reports the Telegram attempt as
+// sent even when no chat is connected and never exercises the fallback; test
+// that fallback on a live application. Telegram carries text only; Didit's
+// verification codes never go through this API.
 //
 //	POST /v3/messages/
 func (r *MessagesService) Send(ctx context.Context, params MessagesSendParams, opts ...option.RequestOption) (*Message, error) {
@@ -547,6 +569,48 @@ func (r *MessagesRulesService) Create(ctx context.Context, params MessagesRulesC
 	return res, nil
 }
 
+// MessagesTelegramLinksService holds the messages telegram_links operations.
+// Use it through Client.Messages.TelegramLinks.
+type MessagesTelegramLinksService struct {
+	client *Client
+}
+
+// Create: Create a Telegram opt-in link.
+//
+// Telegram reaches only people who opted in. Create a single-use link for one
+// phone number and show it (or a QR code of it) to the person, for example on
+// your order page or in a first SMS.
+//
+// By default, the link opens Didit's shared Telegram bot. If your application
+// has connected its own bot, omitting `from` opens that bot instead. To choose
+// a bot explicitly, set `from` to your registered Telegram sender ID for your
+// own bot or to `didit-telegram` for Didit's shared bot.
+//
+//  1. The person taps the link and Start in Telegram. The bot says which
+//     application wants to message them and asks them to share their phone
+//     number (Telegram's contact button).
+//  2. The chat is linked only when the contact is the person's own and its
+//     number is `to`. Didit stores the chat id for your application and that
+//     number, never the person's Telegram name or username; it also records
+//     when the link was used and when the chat was last used.
+//  3. `POST /v3/messages/` with `channels: ["telegram", "sms"]` then sends on
+//     Telegram.
+//
+// `/stop` in the chat, or blocking the bot, puts the number on your
+// organization's Telegram list of recipients who opted out (every application
+// of the organization); `/start` turns it back on.
+//
+// A scoped API key needs write access to messages.
+//
+//	POST /v3/messages/telegram/links/
+func (r *MessagesTelegramLinksService) Create(ctx context.Context, params TelegramLinkRequest, opts ...option.RequestOption) (*TelegramLink, error) {
+	res := new(TelegramLink)
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodPost, path: "/v3/messages/telegram/links/", params: params, body: bodyJSON}, res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // MessagesTemplatesService holds the messages templates operations. Use it
 // through Client.Messages.Templates.
 type MessagesTemplatesService struct {
@@ -729,6 +793,7 @@ type MessageChannel string
 const (
 	MessageChannelSMS      MessageChannel = "sms"
 	MessageChannelWhatsapp MessageChannel = "whatsapp"
+	MessageChannelTelegram MessageChannel = "telegram"
 	MessageChannelEmail    MessageChannel = "email"
 )
 
@@ -740,6 +805,7 @@ type MessageChannels string
 const (
 	MessageChannelsSMS      MessageChannels = "sms"
 	MessageChannelsWhatsapp MessageChannels = "whatsapp"
+	MessageChannelsTelegram MessageChannels = "telegram"
 	MessageChannelsEmail    MessageChannels = "email"
 )
 
@@ -754,11 +820,13 @@ const (
 )
 
 // MessagePrice: What the message costs, in `currency`. `carrier` is the
-// carrier's or WhatsApp's part, passed through at cost; `fee` is Didit's fee
-// with your plan's discount. Both are `null` when one flat amount prices the
-// message (email, or a contract or negotiated rate). `final` is `false` while
-// the amount is an estimate, before the carrier's delivery report gives the
-// real price.
+// carrier's or WhatsApp's part, passed through at cost. `fee` is Didit's fee
+// with your plan's discount. When a contract rate card prices a live Telegram
+// message, both are `null`. For all other live Telegram rates, including a
+// negotiated rate, `carrier` is `0.0000` and `fee` equals `amount`. On other
+// channels both fields are `null` when one flat amount prices the message
+// (email, or a contract or negotiated rate). `final` is `false` for an estimate
+// and `true` once the amount is billed.
 type MessagePrice struct {
 	// Total price, carrier and fee included.
 	Amount   string `json:"amount"`
@@ -783,12 +851,14 @@ type MessageError struct {
 	// `invalid_recipient`: the address is not valid for the channel, or the number
 	// has no account on it. `unreachable`: the carrier could not reach the device.
 	// `rejected`: the carrier or platform refused the message. `opted_out`: the
-	// recipient opted out of the channel. On Didit's shared WhatsApp number two
-	// opt-outs can apply: a STOP to the shared number blocks it for every
-	// organization that sends from it, while an organization's own opt-out blocks
-	// only that organization. The code alone does not say which one blocked the
-	// attempt. `expired`: `expires_at` passed before it could go out.
-	// `template_required`: WhatsApp only delivers an approved WhatsApp template.
+	// recipient opted out of the channel (STOP, or on Telegram blocking the bot).
+	// On Didit's shared WhatsApp number two opt-outs can apply: a STOP to the
+	// shared number blocks it for every organization that sends from it, while an
+	// organization's own opt-out blocks only that organization. The code alone does
+	// not say which one blocked the attempt. `expired`: `expires_at` passed before
+	// it could go out. `template_required`: WhatsApp only delivers an approved
+	// WhatsApp template. `telegram_not_connected`: Telegram: the recipient never
+	// opted in through one of your opt-in links, or the chat is gone.
 	// `channel_unavailable`: the channel is switched off, not configured, not in
 	// your contract or locked until a paid plan or your first top-up.
 	// `insufficient_credits`: the balance does not cover it. `rate_limited`:
@@ -813,20 +883,22 @@ func (r *MessageError) UnmarshalJSON(data []byte) error {
 // MessageErrorCode: `invalid_recipient`: the address is not valid for the
 // channel, or the number has no account on it. `unreachable`: the carrier could
 // not reach the device. `rejected`: the carrier or platform refused the
-// message. `opted_out`: the recipient opted out of the channel. On Didit's
-// shared WhatsApp number two opt-outs can apply: a STOP to the shared number
-// blocks it for every organization that sends from it, while an organization's
-// own opt-out blocks only that organization. The code alone does not say which
-// one blocked the attempt. `expired`: `expires_at` passed before it could go
-// out. `template_required`: WhatsApp only delivers an approved WhatsApp
-// template. `channel_unavailable`: the channel is switched off, not configured,
-// not in your contract or locked until a paid plan or your first top-up.
-// `insufficient_credits`: the balance does not cover it. `rate_limited`:
-// throttled and retries ran out. `delivery_unconfirmed`: the outcome is unknown
-// and it is not sent again automatically. `cancelled`: cancelled before its
-// time. `template_channel_missing`, `template_variable_missing`, `empty_body`,
-// `body_too_long`: the content cannot go out on this channel. `unknown`: any
-// other failure.
+// message. `opted_out`: the recipient opted out of the channel (STOP, or on
+// Telegram blocking the bot). On Didit's shared WhatsApp number two opt-outs
+// can apply: a STOP to the shared number blocks it for every organization that
+// sends from it, while an organization's own opt-out blocks only that
+// organization. The code alone does not say which one blocked the attempt.
+// `expired`: `expires_at` passed before it could go out. `template_required`:
+// WhatsApp only delivers an approved WhatsApp template.
+// `telegram_not_connected`: Telegram: the recipient never opted in through one
+// of your opt-in links, or the chat is gone. `channel_unavailable`: the channel
+// is switched off, not configured, not in your contract or locked until a paid
+// plan or your first top-up. `insufficient_credits`: the balance does not cover
+// it. `rate_limited`: throttled and retries ran out. `delivery_unconfirmed`:
+// the outcome is unknown and it is not sent again automatically. `cancelled`:
+// cancelled before its time. `template_channel_missing`,
+// `template_variable_missing`, `empty_body`, `body_too_long`: the content
+// cannot go out on this channel. `unknown`: any other failure.
 //
 // MessageErrorCode is a string with known values below. The set is open: other
 // values may appear and never cause an error.
@@ -840,6 +912,7 @@ const (
 	MessageErrorCodeOptedOut                MessageErrorCode = "opted_out"
 	MessageErrorCodeExpired                 MessageErrorCode = "expired"
 	MessageErrorCodeTemplateRequired        MessageErrorCode = "template_required"
+	MessageErrorCodeTelegramNotConnected    MessageErrorCode = "telegram_not_connected"
 	MessageErrorCodeChannelUnavailable      MessageErrorCode = "channel_unavailable"
 	MessageErrorCodeInsufficientCredits     MessageErrorCode = "insufficient_credits"
 	MessageErrorCodeRateLimited             MessageErrorCode = "rate_limited"
@@ -896,6 +969,7 @@ type MessageAttemptChannel string
 const (
 	MessageAttemptChannelSMS      MessageAttemptChannel = "sms"
 	MessageAttemptChannelWhatsapp MessageAttemptChannel = "whatsapp"
+	MessageAttemptChannelTelegram MessageAttemptChannel = "telegram"
 	MessageAttemptChannelEmail    MessageAttemptChannel = "email"
 )
 
@@ -973,6 +1047,7 @@ type MessagesListParamsChannel string
 const (
 	MessagesListParamsChannelSMS      MessagesListParamsChannel = "sms"
 	MessagesListParamsChannelWhatsapp MessagesListParamsChannel = "whatsapp"
+	MessagesListParamsChannelTelegram MessagesListParamsChannel = "telegram"
 	MessagesListParamsChannelEmail    MessagesListParamsChannel = "email"
 )
 
@@ -1011,11 +1086,14 @@ type MessageChannelPrice struct {
 	// WhatsApp: the message category priced (`utility`).
 	Category string `json:"category"`
 
-	// The carrier's or WhatsApp's part, at cost; `0.0000` from your own connected
-	// WhatsApp Business account.
+	// The carrier's or WhatsApp's part, at cost. For standard quotes this is
+	// `0.0000` on Telegram and on your own connected WhatsApp Business account. A
+	// Telegram quote under a contract rate card returns `null` here.
 	Carrier string `json:"carrier"`
 
-	// Didit's fee with your plan's discount.
+	// Didit's fee with your plan's discount. For a standard Telegram quote this
+	// equals `price`. A Telegram quote under a contract rate card returns `null`
+	// here.
 	Fee string `json:"fee"`
 
 	// Total per unit.
@@ -1039,6 +1117,7 @@ type MessageChannelPriceChannel string
 const (
 	MessageChannelPriceChannelSMS      MessageChannelPriceChannel = "sms"
 	MessageChannelPriceChannelWhatsapp MessageChannelPriceChannel = "whatsapp"
+	MessageChannelPriceChannelTelegram MessageChannelPriceChannel = "telegram"
 	MessageChannelPriceChannelEmail    MessageChannelPriceChannel = "email"
 )
 
@@ -1077,8 +1156,8 @@ func (r *MessagesSettings) UnmarshalJSON(data []byte) error {
 
 // MessagesSendParams holds the parameters of Client.Messages.Send.
 type MessagesSendParams struct {
-	// Recipient: an E.164 phone number (`+447700900123`), or an email address for
-	// email. Required.
+	// Recipient: an E.164 phone number (`+447700900123`) for SMS, WhatsApp and
+	// Telegram, or an email address for email. Required.
 	To string `json:"to"`
 
 	// The email address for the `email` channel when `to` is a phone number.
@@ -1090,15 +1169,16 @@ type MessagesSendParams struct {
 	// for an email address.
 	Channels Opt[[]MessagesSendParamsChannels] `json:"channels"`
 
-	// Free text, sent as written, for SMS and email. On WhatsApp free text goes out
-	// only inside a 24-hour reply window (the person wrote to you first); outside
-	// it WhatsApp delivers only an approved template, so use `template_id`, or a
-	// free-text WhatsApp attempt falls back to the next channel. Limits: SMS 1,000,
-	// WhatsApp 4,096, email 10,000 characters.
+	// Free text, sent as written, for SMS, Telegram and email. On WhatsApp free
+	// text goes out only inside a 24-hour reply window (the person wrote to you
+	// first); outside it WhatsApp delivers only an approved template, so use
+	// `template_id`, or a free-text WhatsApp attempt falls back to the next
+	// channel. Limits: SMS 1,000, WhatsApp 4,096, Telegram 4,096, email 10,000
+	// characters. Telegram sends no formatting: the text is what the person reads.
 	Body Opt[string] `json:"body"`
 
 	// One of your message templates; each channel uses the template's text for that
-	// channel.
+	// channel (Telegram uses its SMS text, without the opt-out line).
 	TemplateID Opt[string] `json:"template_id"`
 
 	// Values for the template's `{{variables}}`. Every variable of the text used
@@ -1148,6 +1228,7 @@ type MessagesSendParamsChannels string
 const (
 	MessagesSendParamsChannelsSMS      MessagesSendParamsChannels = "sms"
 	MessagesSendParamsChannelsWhatsapp MessagesSendParamsChannels = "whatsapp"
+	MessagesSendParamsChannelsTelegram MessagesSendParamsChannels = "telegram"
 	MessagesSendParamsChannelsEmail    MessagesSendParamsChannels = "email"
 )
 
@@ -1918,6 +1999,45 @@ type MessagesRulesCreateResponse struct {
 
 // UnmarshalJSON decodes MessagesRulesCreateResponse leniently.
 func (r *MessagesRulesCreateResponse) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// TelegramLinkRequest is a request object.
+type TelegramLinkRequest struct {
+	// The person's phone number in E.164 format (`+447700900123`). Required.
+	To string `json:"to"`
+
+	// Seconds the link stays valid: 60 to 604,800 (7 days). Default 86,400 (24
+	// hours).
+	ExpiresIn Opt[int64] `json:"expires_in"`
+
+	// The id of one of your registered Telegram senders (`GET
+	// /v3/messages/senders/`) whose bot the link opens. Pass Didit's sender
+	// (`didit-telegram`) to let a person opt in to it while you have your own bot
+	// connected. Omitted, the link opens your default Telegram sender. An
+	// unregistered sender is refused with `sender_not_found`.
+	From Opt[string] `json:"from"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r TelegramLinkRequest) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// TelegramLink is a response object.
+type TelegramLink struct {
+	// `https://t.me/<bot>?start=<token>`. Show it, or a QR code of it, to the
+	// person: single use, and the person must share the phone number of `to`.
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes TelegramLink leniently.
+func (r *TelegramLink) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 

@@ -106,6 +106,7 @@ func (c *Client) init() {
 	c.Messages.Conversations.Webhooks = &MessagesConversationsWebhooksService{client: c}
 	c.Messages.Feedback = &MessagesFeedbackService{client: c}
 	c.Messages.Rules = &MessagesRulesService{client: c}
+	c.Messages.TelegramLinks = &MessagesTelegramLinksService{client: c}
 	c.Messages.Templates = &MessagesTemplatesService{client: c}
 	c.MonitoringEvents = &MonitoringEventsService{client: c}
 	c.Networks = &NetworksService{client: c}
