@@ -35,29 +35,52 @@ type PhoneService struct {
 
 // AssessRisk: Risk-score a phone number.
 //
-// Resolve a phone number and return carrier, line-type, porting,
-// disposable-number, cross-session match, and normalized risk-intelligence
-// signals without sending an OTP. The endpoint creates an API session and
-// returns its id as `request_id`.
+// Look up a phone number without sending an OTP, at one of three tiers chosen
+// with `tier`. The endpoint creates an API session and returns its id as
+// `request_id`.
+//
+// **Tiers.**
+//   - `basic` (basic lookup, $0.006): line type (`phone.carrier.type`),
+//     current carrier (`phone.carrier.name`), porting status
+//     (`phone.is_ported`), country (`phone.country_code`) and validity
+//     (`phone.is_valid`). Original carrier (`phone.original_carrier`) and
+//     temporary-number status (`phone.is_disposable`) are reported when
+//     available. No `phone_intelligence` or `phone_social` block.
+//   - `risk` (risk and intelligence, $0.04, the default): everything in the
+//     basic lookup plus the `phone_intelligence` block: the 0-100 risk score,
+//     phone-type risk, the trust and network-stability indexes, porting
+//     signals and `reachability`.
+//   - `social` (social profiles, $0.05): everything in the basic lookup plus
+//     the `phone_social` block, the online platforms the number is registered
+//     on. No `phone_intelligence` block.
 //
 // **Decision.** The top-level `status` mirrors `phone.status`. It is normally
 // `Approved`; the risk evaluation can produce `In Review` or `Declined`.
 //
+// **Invalid numbers.** An invalid or unparseable number is not a request error:
+// every tier answers it with `200` and `phone.is_valid: false`, with no
+// `phone_intelligence` or `phone_social` block and nothing billed. Read
+// `phone.is_valid`, not the HTTP status, to tell a refused number from one that
+// was looked up.
+//
 // **Compatibility aliases.** Live responses expose the normalized intelligence
 // object as both `phone.phone_intelligence` and `phone.enrichment`. The values
 // are identical. New integrations can read `phone.enrichment`. Both keys are
-// absent when no usable intelligence data was returned.
+// absent on the `basic` and `social` tiers and when no usable intelligence data
+// was returned.
 //
-// **Billing.** Live calls use Phone Risk API pricing. The request is billable
-// once the lookup starts, even when some best-effort fields are unavailable.
-// Phone Risk, including the optional `enable_social` add-on, is Phone usage:
-// the free credit pays it only up to $1 a month, shared with phone verification
-// codes, messages and the other Phone lookups. On the Free plan, what the $1
-// does not cover is paid from your top-up balance; Growth and Scale included
-// credit pays for Phone in full. The request is refused with `403` only when
-// the credit available to Phone, including the add-on, cannot cover it. Phone
-// Risk has no first-top-up requirement; a top-up is needed only when the credit
-// available to Phone (the free $1 or paid credit) cannot cover the lookup.
+// **Billing.** Each tier bills its own price once: a basic lookup $0.006, a
+// risk and intelligence lookup $0.04, a social profiles lookup $0.05. A number
+// the prefilter rejects - an invalid number, or a fixed line where only mobile
+// is allowed - is answered without a paid lookup and is not billed. A risk and
+// intelligence lookup that returns no intelligence data, and a social profiles
+// lookup whose check could not be completed, are not billed either. Phone
+// lookups are Phone usage, including the `enable_social` add-on on the risk
+// tier: the free credit pays them only up to $1 a month, shared with phone
+// verification codes, messages and the other Phone lookups. On the Free plan,
+// what the $1 does not cover is paid from your top-up balance; Growth and Scale
+// included credit pays for Phone in full. A request is refused with `403` only
+// when the credit available to Phone, including the add-on, cannot cover it.
 //
 // **Sandbox.** Sandbox keys validate the request and return deterministic
 // approved data without sending an OTP, consuming credits, creating a session,
@@ -70,13 +93,14 @@ type PhoneService struct {
 // across POST/PATCH/DELETE endpoints (transaction creates and event ingestion
 // have a separate budget of 600).
 //
-// **Social footprint.** Set `enable_social` to `true` to add a `phone_social`
-// block: the online platforms this number is registered on, with per-category
-// counts and any profile details available. `profiles_registered: 0` means the
-// platforms were checked and the number was found on none of them - a valid,
-// billable answer. The block is absent when the add-on was not requested or the
-// check could not be completed, and it is not billed in that case. Billing adds
-// one `phone_social` unit per request on top of this endpoint's own price.
+// **Social footprint.** `phone_social` lists the online platforms this number
+// is registered on, with per-category counts and any profile details available.
+// `profiles_registered: 0` means the platforms were checked and the number was
+// found on none of them - a valid, billable answer. Ask for it with `tier:
+// "social"`, or add it to a risk and intelligence lookup with `enable_social:
+// true`, which bills $0.05 on top of the $0.04. The block is absent when it was
+// not requested or the check could not be completed, and it is not billed in
+// that case.
 //
 //	POST /v3/phone/risk/
 func (r *PhoneService) AssessRisk(ctx context.Context, params PhoneRiskRequest, opts ...option.RequestOption) (*PhoneRiskResponse, error) {
@@ -1760,8 +1784,19 @@ func (r *PhoneVoicesService) List(ctx context.Context, params PhoneVoicesListPar
 
 // PhoneRiskRequest is a request object.
 type PhoneRiskRequest struct {
-	// Phone number to score. It is validated and normalized to E.164. Required.
+	// Phone number to score. Normalized to E.164 when it can be parsed; a number
+	// that cannot be parsed or is invalid is accepted and answered with
+	// `phone.is_valid: false`, not rejected. Required.
 	PhoneNumber string `json:"phone_number"`
+
+	// Lookup tier. `basic` ($0.006) reports line type, current carrier, porting
+	// status, country and validity. It identifies the original carrier and flags
+	// temporary numbers when that information is available. `risk` ($0.04, the
+	// default) adds the `phone_intelligence` block: the 0-100 risk score,
+	// reachability and network intelligence. `social` ($0.05) adds the
+	// `phone_social` block instead. An invalid number, or a fixed line where only
+	// mobile is allowed, is answered without a paid lookup and is not billed.
+	Tier Opt[PhoneRiskRequestTier] `json:"tier"`
 
 	// Optional ISO 3166-1 alpha-2 or alpha-3 country hint for intelligence
 	// coverage.
@@ -1776,9 +1811,10 @@ type PhoneRiskRequest struct {
 	// response.
 	Metadata Opt[map[string]any] `json:"metadata"`
 
-	// When true, also look up the social footprint of the number - the messaging,
-	// social, e-commerce and professional platforms it is registered on. Billed as
-	// one `phone_social` unit per request in addition to this endpoint's own price.
+	// On the `risk` tier only: when true, also return the `phone_social` block,
+	// billed as one `phone_social` unit ($0.05) on top of the $0.04 risk and
+	// intelligence lookup. To get the social profiles without the risk lookup, send
+	// `tier: "social"` instead.
 	EnableSocial Opt[bool] `json:"enable_social"`
 }
 
@@ -1786,6 +1822,26 @@ type PhoneRiskRequest struct {
 func (r PhoneRiskRequest) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
+
+// PhoneRiskRequestTier: Lookup tier. `basic` ($0.006) reports line type,
+// current carrier, porting status, country and validity. It identifies the
+// original carrier and flags temporary numbers when that information is
+// available. `risk` ($0.04, the default) adds the `phone_intelligence` block:
+// the 0-100 risk score, reachability and network intelligence. `social` ($0.05)
+// adds the `phone_social` block instead. An invalid number, or a fixed line
+// where only mobile is allowed, is answered without a paid lookup and is not
+// billed.
+//
+// PhoneRiskRequestTier is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type PhoneRiskRequestTier string
+
+// Known values of PhoneRiskRequestTier.
+const (
+	PhoneRiskRequestTierBasic  PhoneRiskRequestTier = "basic"
+	PhoneRiskRequestTierRisk   PhoneRiskRequestTier = "risk"
+	PhoneRiskRequestTierSocial PhoneRiskRequestTier = "social"
+)
 
 // PhoneRiskResponse is a response object.
 type PhoneRiskResponse struct {
@@ -1858,7 +1914,20 @@ type PhoneRiskResponsePhone struct {
 	// a carrier.
 	Carrier PhoneRiskResponsePhoneCarrier `json:"carrier"`
 
-	// `true` when the number belongs to a temporary or burner number service.
+	// Carrier that first issued the number, before any port. Empty string when the
+	// lookup could not identify it.
+	OriginalCarrier string `json:"original_carrier"`
+
+	// `true` when the number has moved from its original carrier to the current
+	// one.
+	IsPorted bool `json:"is_ported"`
+
+	// `true` when the number is a valid, dialable number for its country. An
+	// invalid number is answered by the prefilter and is not billed.
+	IsValid bool `json:"is_valid"`
+
+	// `true` when the lookup identifies the number as temporary. Coverage varies,
+	// so a negative flag alone cannot rule out a temporary number.
 	IsDisposable bool `json:"is_disposable"`
 
 	// `true` when the line type is virtual (`voip`, `isp`, or `vpn`).
@@ -1916,7 +1985,7 @@ const (
 // PhoneRiskResponsePhoneCarrier: Current network serving the number. `null`
 // when the lookup could not resolve a carrier.
 type PhoneRiskResponsePhoneCarrier struct {
-	// Carrier name. Empty string when the lookup could not identify it.
+	// Current carrier name. Empty string when the lookup could not identify it.
 	Name string `json:"name"`
 
 	// Line type reported by the lookup: `mobile`, `fixed_line`, `voip`, `isp`,

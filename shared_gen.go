@@ -2539,6 +2539,11 @@ type PhoneIntelligence struct {
 	// Stability of the line's network.
 	NetworkStabilityIndex float64 `json:"network_stability_index"`
 
+	// Whether the line could be reached on its network at the time of the lookup:
+	// `reachable`, `unreachable` or `unknown`. `null` when reachability was not
+	// checked.
+	Reachability PhoneIntelligenceReachability `json:"reachability"`
+
 	// `true` when the number looks disposable or virtual.
 	IsDisposable bool `json:"is_disposable"`
 
@@ -2565,6 +2570,21 @@ type PhoneIntelligence struct {
 func (r *PhoneIntelligence) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// PhoneIntelligenceReachability: Whether the line could be reached on its
+// network at the time of the lookup: `reachable`, `unreachable` or `unknown`.
+// `null` when reachability was not checked.
+//
+// PhoneIntelligenceReachability is a string with known values below. The set is
+// open: other values may appear and never cause an error.
+type PhoneIntelligenceReachability string
+
+// Known values of PhoneIntelligenceReachability.
+const (
+	PhoneIntelligenceReachabilityReachable   PhoneIntelligenceReachability = "reachable"
+	PhoneIntelligenceReachabilityUnreachable PhoneIntelligenceReachability = "unreachable"
+	PhoneIntelligenceReachabilityUnknown     PhoneIntelligenceReachability = "unknown"
+)
 
 // PhoneIntelligenceReasonCodes is a response object.
 type PhoneIntelligenceReasonCodes struct {
@@ -2610,9 +2630,11 @@ const (
 )
 
 // PhoneSocialFootprint: Social footprint of the phone number: the online
-// platforms it is registered on. Present only when `enable_social` was set and
-// the check completed. Every count may be null when no data was returned for
-// it. `profiles_registered: 0` means the platforms were checked and the phone
+// platforms it is registered on. Returned when a requested social check
+// completes. Request it with `tier: "social"` on a Phone Risk lookup, or with
+// `enable_social: true` on a risk-tier lookup or Phone Verification check.
+// Every count may be null when no data was returned for it.
+// `profiles_registered: 0` means the platforms were checked and the phone
 // number was found on none of them - a valid, billable answer and a common
 // synthetic-identity signal.
 type PhoneSocialFootprint struct {
