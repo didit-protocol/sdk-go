@@ -1007,7 +1007,16 @@ func (r *SessionsService) Simulate(ctx context.Context, sessionID string, params
 // ownership thresholds of the workflow which parties must be verified, creates
 // one individual KYC session (or a KYB sub-session for a corporate owner) for
 // each of them, sends the emails the workflow asks for, and advances the
-// session. Each child session is billed like in the hosted flow. The drafts are
+// session. When email notifications are off, you can submit a
+// verification-required party without an email unless the workflow separately
+// requires the field or distinct addresses are needed to distinguish ambiguous
+// same-name people. A Representative with Require KYC keeps the parent KYB
+// waiting until that child KYC completes, whether or not emails are sent. Cards
+// that share a name and have no email are combined into one party when their
+// roles differ and their first name, last name, nationality and date of birth
+// do not conflict; if they conflict, the submission is rejected as ambiguous
+// with a validation error on `email` asking for a distinct address per person.
+// Each child session is billed like in the hosted flow. The drafts are
 // consumed. Repeating the call after a successful submit changes nothing and
 // answers `200` with `already_submitted: true` and the parties that already
 // exist. The session must be on the Key People step. Send each person's
@@ -3597,9 +3606,11 @@ type SessionsCreateKYBPartyDraftParams struct {
 	// Registration number of a company party.
 	RegistrationNumber Opt[string] `json:"registration_number"`
 
-	// Where the verification link is sent. Required when the party has to complete
-	// verification, which depends on the role settings and ownership thresholds of
-	// the workflow.
+	// Where the verification link is sent. Required at submission for a party that
+	// must complete verification when the workflow sends links by email. With
+	// notifications off, email is optional unless the workflow separately requires
+	// the field or distinct addresses are needed to distinguish ambiguous same-name
+	// people.
 	Email Opt[string] `json:"email"`
 
 	// Share of the company the party owns.
@@ -3738,9 +3749,11 @@ type SessionsCreateKYBPartyDraftResponseParty struct {
 	// Registration number of a company party.
 	RegistrationNumber string `json:"registration_number"`
 
-	// Where the verification link is sent. Required when the party has to complete
-	// verification, which depends on the role settings and ownership thresholds of
-	// the workflow.
+	// Where the verification link is sent. Required at submission for a party that
+	// must complete verification when the workflow sends links by email. With
+	// notifications off, email is optional unless the workflow separately requires
+	// the field or distinct addresses are needed to distinguish ambiguous same-name
+	// people.
 	Email string `json:"email"`
 
 	// Share of the company the party owns.
@@ -14891,9 +14904,11 @@ type SessionsListKYBPartyDraftsResponsePartiesParty struct {
 	// Registration number of a company party.
 	RegistrationNumber string `json:"registration_number"`
 
-	// Where the verification link is sent. Required when the party has to complete
-	// verification, which depends on the role settings and ownership thresholds of
-	// the workflow.
+	// Where the verification link is sent. Required at submission for a party that
+	// must complete verification when the workflow sends links by email. With
+	// notifications off, email is optional unless the workflow separately requires
+	// the field or distinct addresses are needed to distinguish ambiguous same-name
+	// people.
 	Email string `json:"email"`
 
 	// Share of the company the party owns.
@@ -17189,9 +17204,11 @@ type SessionsUpdateKYBPartyDraftParams struct {
 	// Registration number of a company party.
 	RegistrationNumber Opt[string] `json:"registration_number"`
 
-	// Where the verification link is sent. Required when the party has to complete
-	// verification, which depends on the role settings and ownership thresholds of
-	// the workflow.
+	// Where the verification link is sent. Required at submission for a party that
+	// must complete verification when the workflow sends links by email. With
+	// notifications off, email is optional unless the workflow separately requires
+	// the field or distinct addresses are needed to distinguish ambiguous same-name
+	// people.
 	Email Opt[string] `json:"email"`
 
 	// Share of the company the party owns.
@@ -17330,9 +17347,11 @@ type SessionsUpdateKYBPartyDraftResponseParty struct {
 	// Registration number of a company party.
 	RegistrationNumber string `json:"registration_number"`
 
-	// Where the verification link is sent. Required when the party has to complete
-	// verification, which depends on the role settings and ownership thresholds of
-	// the workflow.
+	// Where the verification link is sent. Required at submission for a party that
+	// must complete verification when the workflow sends links by email. With
+	// notifications off, email is optional unless the workflow separately requires
+	// the field or distinct addresses are needed to distinguish ambiguous same-name
+	// people.
 	Email string `json:"email"`
 
 	// Share of the company the party owns.
