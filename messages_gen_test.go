@@ -327,6 +327,21 @@ func TestMessagesRulesCreate(t *testing.T) {
 	expectFields(t, res.JSON, []string{"rule_id"})
 }
 
+func TestMessagesTelegramLinksCreate(t *testing.T) {
+	client, mock := newMockClient(t, 201, "application/json", `{"url":"https://example.invalid/example_bot?start=example-token","expires_at":"2026-11-22T10:00:00Z"}`)
+	var params didit.TelegramLinkRequest
+	mustUnmarshal(t, `{"to":"+447700900123","expires_in":86400}`, &params)
+	res, err := client.Messages.TelegramLinks.Create(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "POST", "/v3/messages/telegram/links/")
+	req.expectAPIKey(t)
+	req.expectJSON(t, `{"to":"+447700900123","expires_in":86400}`)
+	expectFields(t, res.JSON, []string{"url", "expires_at"})
+}
+
 func TestMessagesTemplatesDelete(t *testing.T) {
 	client, mock := newMockClient(t, 204, "", ``)
 	if err := client.Messages.Templates.Delete(context.Background(), "template-id-1"); err != nil {
