@@ -426,6 +426,11 @@ func (r *MessagesConversationsService) ListAutoPaging(ctx context.Context, param
 // conversation outside them, or one whose session was deleted, answers 404 as
 // another application's would.
 //
+// The stored answer is replayed only while the conversation is inside your
+// key's access: once the session was erased the key is refused with `409`
+// `idempotency_key_forgotten`, and a repeat the access no longer reaches
+// answers `404`. Send it again with a new key.
+//
 //	PATCH /v3/messages/conversations/{conversation_id}/
 func (r *MessagesConversationsService) Update(ctx context.Context, conversationID string, params MessageConversationUpdate, opts ...option.RequestOption) (*MessageConversation, error) {
 	res := new(MessageConversation)
@@ -454,6 +459,11 @@ type MessagesConversationsWebhooksService struct {
 // conversation outside them, or one whose session was deleted, answers 404 as
 // another application's would.
 //
+// The stored answer is replayed only while the conversation is inside your
+// key's access: once the session was erased the key is refused with `409`
+// `idempotency_key_forgotten`, and a repeat the access no longer reaches
+// answers `404`. Send it again with a new key.
+//
 //	POST /v3/messages/conversations/{conversation_id}/webhooks/
 func (r *MessagesConversationsWebhooksService) Create(ctx context.Context, conversationID string, params MessageConversationWebhookCreate, opts ...option.RequestOption) (*MessageConversationWebhook, error) {
 	res := new(MessageConversationWebhook)
@@ -472,6 +482,11 @@ func (r *MessagesConversationsWebhooksService) Create(ctx context.Context, conve
 // sessions, and its workflow and approved-only session limits apply: a
 // conversation outside them, or one whose session was deleted, answers 404 as
 // another application's would.
+//
+// The stored answer is replayed only while the conversation is inside your
+// key's access: once the session was erased the key is refused with `409`
+// `idempotency_key_forgotten`, and a repeat the access no longer reaches
+// answers `404`. Send it again with a new key.
 //
 //	DELETE /v3/messages/conversations/{conversation_id}/webhooks/{webhook_id}/
 func (r *MessagesConversationsWebhooksService) Delete(ctx context.Context, conversationID string, webhookID string, opts ...option.RequestOption) error {
