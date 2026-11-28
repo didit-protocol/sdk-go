@@ -81,6 +81,40 @@ func (r *PricingService) BankVerificationCoverage(ctx context.Context, params Pr
 	return res, nil
 }
 
+// KYBRegistry: Get KYB registry prices by country (public, unauthenticated).
+//
+// Returns the list price of a KYB registry check in every country, for each
+// data tier: Lite (`basic`), Shareholders (`shareholders`) and UBOs (`ubo`),
+// plus continuous registry monitoring. Use it to quote a registry step before
+// you build a workflow, or to show KYB prices in your own product.
+//
+// Public: send no auth header. The response contains no organization data and
+// is the same for every caller. It is cached publicly for one hour and carries
+// an `ETag`, so send `If-None-Match` to get a `304 Not Modified` when nothing
+// changed.
+//
+// The response is an object keyed by country code: every ISO 3166-1 alpha-2
+// code, plus `XK` for Kosovo, which ISO 3166-1 does not assign. A tier with
+// `available: false` cannot be selected for that country even though it shows a
+// price. Monitoring is priced per company per year and reads `available: false`
+// wherever it is not offered yet.
+//
+// A company that cannot be found and is entered manually is billed the flat
+// manual entry price on the [KYB registry
+// pricing](/getting-started/kyb-registry-pricing) page, which this feed does
+// not list. These are list prices before your plan discount, which applies to
+// the whole registry price; a negotiated or contract price replaces the list
+// price for your organization.
+//
+//	GET /v3/organization/kyb-registry-pricing/
+func (r *PricingService) KYBRegistry(ctx context.Context, params PricingKYBRegistryParams, opts ...option.RequestOption) (map[string]KYBRegistryCountryPricing, error) {
+	var res map[string]KYBRegistryCountryPricing
+	if _, err := r.client.do(ctx, &apiRequest{method: http.MethodGet, path: "/v3/organization/kyb-registry-pricing/", auth: authNone, params: params}, &res, opts); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // PriceBook: Get the price book (public, unauthenticated).
 //
 // Returns Didit's public list prices: every plan with its monthly and yearly
@@ -620,6 +654,82 @@ type BankVerificationCoverageCountriesBanksBySegment struct {
 
 // UnmarshalJSON decodes BankVerificationCoverageCountriesBanksBySegment leniently.
 func (r *BankVerificationCoverageCountriesBanksBySegment) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// PricingKYBRegistryParams holds the parameters of Client.Pricing.KYBRegistry.
+type PricingKYBRegistryParams struct {
+	// The `ETag` of a KYB price list you already hold: the response is `304 Not
+	// Modified`, with no body, when nothing changed.
+	IfNoneMatch Opt[string] `json:"-" header:"If-None-Match"`
+}
+
+// MarshalJSON encodes the fields that are set.
+func (r PricingKYBRegistryParams) MarshalJSON() ([]byte, error) {
+	return marshalParams(r)
+}
+
+// KYBRegistryCountryPricing: KYB registry prices in one country.
+type KYBRegistryCountryPricing struct {
+	// English name of the country.
+	Name string `json:"name"`
+
+	// Whether Didit has checked the registry search and selection end to end
+	// against a real company record in this country.
+	Validated bool                  `json:"validated"`
+	Tiers     KYBRegistryTierPrices `json:"tiers"`
+
+	// Continuous registry monitoring, priced per company per year.
+	Monitoring KYBRegistryTierPrice `json:"monitoring"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistryCountryPricing leniently.
+func (r *KYBRegistryCountryPricing) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBRegistryTierPrices: The price of each data tier in one country.
+type KYBRegistryTierPrices struct {
+	// Lite: the company profile and its officers.
+	Basic KYBRegistryTierPrice `json:"basic"`
+
+	// Lite plus the direct shareholders.
+	Shareholders KYBRegistryTierPrice `json:"shareholders"`
+
+	// Shareholders plus the ultimate beneficial owners.
+	UBO KYBRegistryTierPrice `json:"ubo"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistryTierPrices leniently.
+func (r *KYBRegistryTierPrices) UnmarshalJSON(data []byte) error {
+	return unmarshalResponse(data, r, &r.JSON)
+}
+
+// KYBRegistryTierPrice: The list price of one KYB registry tier, or of
+// monitoring, in one country.
+type KYBRegistryTierPrice struct {
+	// Whether it can be selected in this country today. When `false`, `price_usd`
+	// still shows the configured price, but it cannot be bought.
+	Available bool `json:"available"`
+
+	// List price in USD, as a decimal string with two decimals.
+	PriceUsd string `json:"price_usd"`
+
+	// JSON describes the decoded object: raw JSON, present, null and unknown
+	// fields.
+	JSON ResponseJSON `json:"-"`
+}
+
+// UnmarshalJSON decodes KYBRegistryTierPrice leniently.
+func (r *KYBRegistryTierPrice) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
 
