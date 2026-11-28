@@ -18,9 +18,9 @@ type CustomizationService struct {
 // Retrieve: Get branding customization.
 //
 // Returns the white-label branding for the application resolved from the API
-// key: colors, fonts, border radii, logo URLs and UI/UX options. Custom domain
-// and white-label email settings are managed only in the Business Console and
-// are not part of this response.
+// key: appearance, colors, fonts, border radii, logo URLs and UI/UX options.
+// Custom domain and white-label email settings are managed only in the Business
+// Console and are not part of this response.
 //
 //	GET /v3/customization/
 func (r *CustomizationService) Retrieve(ctx context.Context, opts ...option.RequestOption) (*BrandingCustomization, error) {
@@ -34,9 +34,9 @@ func (r *CustomizationService) Retrieve(ctx context.Context, opts ...option.Requ
 // Update: Update branding customization.
 //
 // Partial update of the application's white-label branding. Send
-// `application/json` to change colors, fonts, radii and UI options, or
-// `multipart/form-data` to upload logo images. Only the fields you include are
-// changed. Custom domain and white-label email cannot be set through this
+// `application/json` to change appearance, colors, fonts, radii and UI options,
+// or `multipart/form-data` to upload logo images. Only the fields you include
+// are changed. Custom domain and white-label email cannot be set through this
 // endpoint - use the Business Console for those.
 //
 //	PATCH /v3/customization/
@@ -52,23 +52,24 @@ func (r *CustomizationService) Update(ctx context.Context, params CustomizationU
 // fonts, radii, logo URLs and UI/UX options. Logo URLs are read-only (set them
 // by uploading images). Custom domain and white-label email are not included.
 type BrandingCustomization struct {
-	ColorPrimary        string `json:"color_primary"`
-	ColorSecondary      string `json:"color_secondary"`
-	ColorBackground     string `json:"color_background"`
-	ColorPanel          string `json:"color_panel"`
-	ColorPanel10        string `json:"color_panel_10"`
-	ColorOnPanel1       string `json:"color_on_panel_1"`
-	ColorOnPanel2       string `json:"color_on_panel_2"`
-	ColorOnBackground   string `json:"color_on_background"`
-	ColorButton1        string `json:"color_button_1"`
-	ColorButton2        string `json:"color_button_2"`
-	ColorButtonText1    string `json:"color_button_text_1"`
-	ColorButtonText2    string `json:"color_button_text_2"`
-	ColorPillText       string `json:"color_pill_text"`
-	BorderRadiusPanel   int64  `json:"border_radius_panel"`
-	BorderRadiusButtons int64  `json:"border_radius_buttons"`
-	FontFamily          string `json:"font_family"`
-	FontWeight          string `json:"font_weight"`
+	ColorPrimary        string             `json:"color_primary"`
+	ColorSecondary      string             `json:"color_secondary"`
+	ColorBackground     string             `json:"color_background"`
+	ColorPanel          string             `json:"color_panel"`
+	ColorPanel10        string             `json:"color_panel_10"`
+	ColorOnPanel1       string             `json:"color_on_panel_1"`
+	ColorOnPanel2       string             `json:"color_on_panel_2"`
+	ColorOnBackground   string             `json:"color_on_background"`
+	ColorButton1        string             `json:"color_button_1"`
+	ColorButton2        string             `json:"color_button_2"`
+	ColorButtonText1    string             `json:"color_button_text_1"`
+	ColorButtonText2    string             `json:"color_button_text_2"`
+	ColorPillText       string             `json:"color_pill_text"`
+	Appearance          BrandingAppearance `json:"appearance"`
+	BorderRadiusPanel   int64              `json:"border_radius_panel"`
+	BorderRadiusButtons int64              `json:"border_radius_buttons"`
+	FontFamily          string             `json:"font_family"`
+	FontWeight          string             `json:"font_weight"`
 
 	// Read-only. Resolved Google Fonts stylesheet URL for the selected family.
 	FontURL string `json:"font_url"`
@@ -102,6 +103,23 @@ type BrandingCustomization struct {
 func (r *BrandingCustomization) UnmarshalJSON(data []byte) error {
 	return unmarshalResponse(data, r, &r.JSON)
 }
+
+// BrandingAppearance: `brand` (default for new and existing customizations)
+// uses your colors on every device. `match_device` uses your colors on light
+// devices and a dark background with your branding on dark devices. `dark` uses
+// the dark background with your branding on every device. Without custom
+// colors, the default Didit look follows the device for all three values.
+//
+// BrandingAppearance is a string with known values below. The set is open:
+// other values may appear and never cause an error.
+type BrandingAppearance string
+
+// Known values of BrandingAppearance.
+const (
+	BrandingAppearanceBrand       BrandingAppearance = "brand"
+	BrandingAppearanceMatchDevice BrandingAppearance = "match_device"
+	BrandingAppearanceDark        BrandingAppearance = "dark"
+)
 
 // CustomizationUpdateParams holds the parameters of
 // Client.Customization.Update.
@@ -143,7 +161,8 @@ type CustomizationUpdateParams struct {
 	ColorButtonText2 Opt[string] `json:"color_button_text_2"`
 
 	// Text color for pills, inputs and selectors.
-	ColorPillText Opt[string] `json:"color_pill_text"`
+	ColorPillText Opt[string]                              `json:"color_pill_text"`
+	Appearance    Opt[CustomizationUpdateParamsAppearance] `json:"appearance"`
 
 	// Panel corner radius in pixels.
 	BorderRadiusPanel Opt[int64] `json:"border_radius_panel"`
@@ -211,3 +230,15 @@ type CustomizationUpdateParams struct {
 func (r CustomizationUpdateParams) MarshalJSON() ([]byte, error) {
 	return marshalParams(r)
 }
+
+// CustomizationUpdateParamsAppearance is a string with known values below. The
+// set is open: other values may appear and never cause an error.
+type CustomizationUpdateParamsAppearance string
+
+// Known values of CustomizationUpdateParamsAppearance.
+const (
+	CustomizationUpdateParamsAppearanceBrand       CustomizationUpdateParamsAppearance = "brand"
+	CustomizationUpdateParamsAppearanceMatchDevice CustomizationUpdateParamsAppearance = "match_device"
+	CustomizationUpdateParamsAppearanceDark        CustomizationUpdateParamsAppearance = "dark"
+	CustomizationUpdateParamsAppearanceEmpty       CustomizationUpdateParamsAppearance = ""
+)

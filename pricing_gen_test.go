@@ -51,6 +51,21 @@ func TestPricingBankVerificationCoverage(t *testing.T) {
 	expectFields(t, res.JSON, []string{"updated_at", "open", "data_read", "balances_note", "countries"})
 }
 
+func TestPricingKYBRegistry(t *testing.T) {
+	client, mock := newMockClient(t, 200, "application/json", `{"AL":{"name":"Albania","validated":false,"tiers":{"basic":{"available":true,"price_usd":"2.00"},"shareholders":{"available":true,"price_usd":"5.00"},"ubo":{"available":true,"price_usd":"9.00"}},"monitoring":{"available":false,"price_usd":"2.00"}},"ES":{"name":"Spain","validated":true,"tiers":{"basic":{"available":true,"price_usd":"2.00"},"shareholders":{"available":true,"price_usd":"5.00"},"ubo":{"available":true,"price_usd":"9.00"}},"monitoring":{"available":false,"price_usd":"2.00"}},"XK":{"name":"Kosovo","validated":false,"tiers":{"basic":{"available":true,"price_usd":"2.00"},"shareholders":{"available":true,"price_usd":"5.00"},"ubo":{"available":true,"price_usd":"9.00"}},"monitoring":{"available":false,"price_usd":"2.00"}}}`)
+	var params didit.PricingKYBRegistryParams
+	params.IfNoneMatch = didit.String("value")
+	res, err := client.Pricing.KYBRegistry(context.Background(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := mock.single(t)
+	req.expect(t, "GET", "/v3/organization/kyb-registry-pricing/")
+	req.expectNoCredentials(t)
+	req.expectHeader(t, "If-None-Match", "value")
+	_ = res
+}
+
 func TestPricingPriceBook(t *testing.T) {
 	client, mock := newMockClient(t, 200, "application/json", `{"currency":"USD","plans":[{"key":"free","price_usd_month":"0.00","price_usd_year":null,"discount_percent":0,"transactions_included_per_month":1000},{"key":"growth","price_usd_month":"99.00","price_usd_year":"1128.00","discount_percent":4,"transactions_included_per_month":10000},{"key":"scale","price_usd_month":"299.00","price_usd_year":"3408.00","discount_percent":10,"transactions_included_per_month":100000},{"key":"enterprise","price_usd_month":null,"price_usd_year":null,"discount_percent":null,"transactions_included_per_month":null}],"white_label_usd":"0.10","messages_fee_usd":"0.02","message_fee_usd_by_channel":{"sms":"0.02","whatsapp":"0.004"},"lines":[{"key":"message_email","product":"identity","feature":"email","unit":"message","list_price_usd":"0.02"}]}`)
 	var params didit.PricingPriceBookParams
